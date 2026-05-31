@@ -1,5 +1,5 @@
 # worklog Makefile
-# 常用动作统一入口, 避免每次手打长命令
+# Unified entry point for common dev / install / git actions.
 
 PYTHON      := $(HOME)/.virtualenvs/worklog/bin/python
 PIP         := $(HOME)/.virtualenvs/worklog/bin/pip
@@ -21,66 +21,66 @@ WL_DB_PATH  := $(shell \
 help:                ## show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
-# ── 开发 ──
+# ── dev ──
 
-venv:                ## (re)create venv + install runtime + dev 依赖
+venv:                ## (re)create venv + install runtime + dev deps
 	@test -d $(VENV) || python3 -m venv $(VENV)
 	@$(PIP) install -q -r requirements.txt -r requirements-dev.txt
 	@echo "✓ venv: $(VENV) (runtime + dev deps from requirements*.txt)"
 
-test:                ## run pytest (parallel + cov + 95% gate, 读 pytest.ini)
+test:                ## run pytest (parallel + cov + 95% gate, reads pytest.ini)
 	@$(PYTHON) -m pytest
 
-test-v:              ## run pytest verbose (无并行, 调试看输出)
+test-v:              ## run pytest verbose (no parallel, useful for debug output)
 	@$(PYTHON) -m pytest -v -p no:xdist --no-cov
 
-test-fast:           ## run pytest 仅跑测, 不算 cov, 不门槛 (开发期快速反馈)
+test-fast:           ## run pytest only (no cov, no gate; quick dev feedback)
 	@$(PYTHON) -m pytest --no-cov -n auto
 
-cov:                 ## 详细 coverage 报告 (term-missing, 含 95% gate)
+cov:                 ## detailed coverage report (term-missing, includes 95% gate)
 	@$(PYTHON) -m pytest
 
-# ── 安装 / 卸载 ──
+# ── install / uninstall ──
 
-install: venv        ## install ~/bin/wl wrapper; 补全走 init load (见下)
+install: venv        ## install ~/bin/wl wrapper; completions go via init-load (see below)
 	@printf '#!/usr/bin/env bash\nexec %s %s/wl.py "$$@"\n' "$(PYTHON)" "$(PROJ_DIR)" > $(WL_BIN)
 	@chmod +x $(WL_BIN)
 	@echo "✓ $(WL_BIN) installed"
 	@which wl
 	@echo ""
-	@echo "Shell 补全 (init load 模式, 开新 shell 自动跟代码改动):"
-	@echo "  fish: 在 ~/.config/fish/config.fish 加 →  wl print-completion fish | source"
-	@echo "  bash: 在 ~/.bashrc            加 →  eval \"\$$(wl print-completion bash)\""
-	@echo "  zsh:  在 ~/.zshrc             加 →  eval \"\$$(wl print-completion zsh)\""
-	@echo "  别名: ~/.config/wl/aliases.ini  [aliases] d = day / c = checkin / ..."
+	@echo "Shell completion (init-load mode; new shells auto-pick-up code changes):"
+	@echo "  fish: add to ~/.config/fish/config.fish →  wl print-completion fish | source"
+	@echo "  bash: add to ~/.bashrc                 →  eval \"\$$(wl print-completion bash)\""
+	@echo "  zsh:  add to ~/.zshrc                  →  eval \"\$$(wl print-completion zsh)\""
+	@echo "  aliases: ~/.config/wl/aliases.ini  [aliases] d = day / c = checkin / ..."
 
-uninstall:           ## remove wrapper (keep venv + DB; 用户需手清 config.fish 里的 wl print-completion 行)
+uninstall:           ## remove wrapper (keeps venv + DB; manually clean the wl print-completion line in your shell rc)
 	@rm -f $(WL_BIN) $(FISH_COMP)
 	@echo "✓ wl wrapper removed (venv $(VENV) + DB $(WL_DB_PATH) kept)"
-	@echo "  (如有 ~/.config/fish/config.fish 内 'wl print-completion fish | source' 行需手清)"
+	@echo "  (if ~/.config/fish/config.fish has 'wl print-completion fish | source', remove it manually)"
 
 reinstall: uninstall install  ## clean reinstall
 
 setup: venv install  ## first-time setup: venv + install
 
-# ── 演示 / 数据 ──
+# ── demo / sample data ──
 
-demo:                ## populate DB with 5/18 sample (idempotent reset DB)
+demo:                ## populate DB with sample tree (idempotent reset DB)
 	@rm -f $(WL_DB_PATH)
 	@wl init
 	@wl add "Lifetime" -k lifetime
-	@wl add "2026 年" -k year --parent 1
+	@wl add "2026" -k year --parent 1
 	@wl add "2026-Q2" -k quarter --parent 2
 	@wl add "2026-05" -k month --parent 3
 	@wl add "2026-W21" -k week --parent 4
-	@wl add "2026-05-18 周一" -k day --parent 5
-	@wl add "Infra 智能化" -k project -p A -t work --parent 4
-	@wl add "Infra 智能化 项目战略转向" -k task -p A -t work,unplanned,P0,infra_intel --parent 6
-	@wl log 8 "5/18 17:18 拍板战略转向 #76"
-	@wl log 8 "5/19 09:42 拆需求 export_for_ai"
-	@wl log 8 "5/20 14:55 B 路径端到端打通 owner 6/6→7/7"
-	@wl log 8 "5/21 11:08 复盘 87% 成本下降"
-	@wl link 8 "Infra 智能化"
+	@wl add "2026-05-18 Mon" -k day --parent 5
+	@wl add "Dev tooling" -k project -p A -t work --parent 4
+	@wl add "Dev tooling — strategy pivot" -k task -p A -t work,unplanned,P0,dev_tooling --parent 6
+	@wl log 8 "2026-05-18 17:18 strategy pivot decided"
+	@wl log 8 "2026-05-19 09:42 break down requirements: export_for_ai"
+	@wl log 8 "2026-05-20 14:55 path B working end-to-end, owners 6/6 -> 7/7"
+	@wl log 8 "2026-05-21 11:08 retro: 87% cost reduction"
+	@wl link 8 "Dev tooling"
 	@wl done 8
 	@echo
 	@echo "=== demo tree ==="
@@ -109,13 +109,13 @@ commit:              ## git add -A + commit with $msg (default 'wip')
 	@$(GIT) add -A
 	@$(GIT) -c commit.gpgsign=false commit -m "$${msg:-wip}"
 
-# ── 一键 ──
+# ── one-shot ──
 
-ship: test push      ## test → push (CI 跑通才推)
+ship: test push      ## test then push (only push if tests pass)
 
 all: setup test demo ## first-time: setup + test + demo
 
-# 默认 target
+# default target
 .DEFAULT_GOAL := help
 
 # ── local overrides (gitignored; safe if absent) ──
