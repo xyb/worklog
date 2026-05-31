@@ -5049,6 +5049,10 @@ class TestUserAliasesIni:
         config_dir.mkdir(parents=True)
         (config_dir / "aliases.ini").write_text(content)
         monkeypatch.setenv("HOME", str(tmp_path))
+        # CI runners may preset XDG_CONFIG_HOME / XDG_DATA_HOME — clear them
+        # so _xdg_config_home() / _xdg_data_home() fall back to $HOME (tmp_path).
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
         import wl, importlib
         wl._USER_ALIASES = None  # force reload
         importlib.reload(wl)
@@ -5062,6 +5066,8 @@ class TestUserAliasesIni:
 
     def test_load_aliases_missing_file(self, tmp_path, monkeypatch):
         monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        monkeypatch.delenv("XDG_DATA_HOME", raising=False)
         import wl, importlib
         wl._USER_ALIASES = None
         importlib.reload(wl)

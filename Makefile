@@ -1,9 +1,9 @@
-# worklog-cli Makefile
+# worklog Makefile
 # 常用动作统一入口, 避免每次手打长命令
 
-PYTHON      := $(HOME)/.virtualenvs/worklog-cli/bin/python
-PIP         := $(HOME)/.virtualenvs/worklog-cli/bin/pip
-VENV        := $(HOME)/.virtualenvs/worklog-cli
+PYTHON      := $(HOME)/.virtualenvs/worklog/bin/python
+PIP         := $(HOME)/.virtualenvs/worklog/bin/pip
+VENV        := $(HOME)/.virtualenvs/worklog
 WL_BIN      := $(HOME)/bin/wl
 FISH_COMP   := $(HOME)/.config/fish/completions/wl.fish
 PROJ_DIR    := $(shell pwd)
