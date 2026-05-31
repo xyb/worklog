@@ -3,6 +3,7 @@
 # worklog-cli
 
 [![Test](https://github.com/xyb/worklog/actions/workflows/test.yml/badge.svg)](https://github.com/xyb/worklog/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/xyb/worklog/branch/main/graph/badge.svg)](https://codecov.io/gh/xyb/worklog)
 
 SQLite 后端的 worklog 工具,`todo.sh` 风格 CLI。完整执行体系层级建模在单个 `node` 表里 —— lifetime / decade / year / quarter / month / week / day / project / task / habit / signal / meetlog —— 共享同一个 id 空间,通过 `parent_id` 自引用形成树状结构。
 

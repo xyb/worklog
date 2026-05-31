@@ -3,6 +3,7 @@
 # worklog-cli
 
 [![Test](https://github.com/xyb/worklog/actions/workflows/test.yml/badge.svg)](https://github.com/xyb/worklog/actions/workflows/test.yml)
+[![codecov](https://codecov.io/gh/xyb/worklog/branch/main/graph/badge.svg)](https://codecov.io/gh/xyb/worklog)
 
 SQLite-backed worklog tool with a `todo.sh`-style CLI. Models the full execution-system hierarchy in a single `node` table — lifetime / decade / year / quarter / month / week / day / project / task / habit / signal / meetlog — all sharing one id space, tree-linked via `parent_id` self-reference.
 
