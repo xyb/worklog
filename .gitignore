@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ── worklog project specific ──
+*.db
+*.db-journal
+wl.py.bak
+TODO.local.md
+local/

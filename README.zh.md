@@ -1,0 +1,117 @@
+<sub><a href="README.md">🌐 English</a> · <b>中文</b></sub>
+
+# worklog-cli
+
+SQLite 后端的 worklog 工具,`todo.sh` 风格 CLI。完整执行体系层级建模在单个 `node` 表里 —— lifetime / decade / year / quarter / month / week / day / project / task / habit / signal / meetlog —— 共享同一个 id 空间,通过 `parent_id` 自引用形成树状结构。
+
+**设计约定见 [DESIGN.md](DESIGN.md)** —— 加命令前必读,保持各处一致。
+**AI 协作见 [skills/worklog-cli/SKILL.md](skills/worklog-cli/SKILL.md)** —— Claude Code skill(何时 / 如何用 `wl` + 批量 import / apply)。
+背景: 结构化 worklog 工具,在调研了 12 个候选产品(Logseq / Tana / TaskWarrior / org-mode / Anytype / Capacities / Linear 等)后没找到能同时覆盖三个维度(时间层级 / 项目层级 / vault wikilink)又无折中的现成方案,所以自建。
+
+## 安装
+
+```fish
+mkdir -p ~/projects && cd ~/projects
+git clone <your-git-host>:<user>/worklog-cli.git
+cd worklog-cli
+python3 -m venv ~/.virtualenvs/worklog-cli
+~/.virtualenvs/worklog-cli/bin/pip install rich pytest   # rich=高亮(可选), pytest=测试
+
+# 全局 wrapper
+cat > ~/bin/wl <<'WRAP'
+#!/usr/bin/env bash
+exec ~/.virtualenvs/worklog-cli/bin/python ~/projects/worklog-cli/wl.py "$@"
+WRAP
+chmod +x ~/bin/wl
+
+# shell 补全 (init load 模式, 任选 shell)
+# fish: ~/.config/fish/config.fish 加
+echo 'wl print-completion fish | source' >> ~/.config/fish/config.fish
+# bash: ~/.bashrc       加  eval "$(wl print-completion bash)"
+# zsh:  ~/.zshrc        加  eval "$(wl print-completion zsh)"
+
+wl init
+```
+
+数据库默认存在 `~/.worklog/wl.db`;可通过 `WL_DB` 环境变量覆盖(测试场景有用)。
+
+## 命令
+
+```fish
+wl add "调研 X" -k task -p A -t work,P0 --proj dev_tooling --parent 42
+wl add "Dev tooling" -k project -p A --parent 4   # 项目挂在月份下
+wl log 42 "今天看了 A 资料, 发现..."
+wl done 42
+wl defer 42 2026-06-01
+wl start 42 ; wl stop 42                            # CLOCK in/out
+wl link 42 "Dev tooling"                           # vault wikilink
+wl set 42 owner xyb                               # 自定义 prop
+wl show 42                                          # 详情 + log + tags + links
+wl ls                                               # 默认列出未完成项
+wl ls --kind project --tag work,P0
+wl tree                                             # 全树
+wl tree --kind year --depth 3
+wl logs --since 2026-05-18                          # 跨任务 log 时间段查询
+wl find needle                                      # 全文搜索, 命中高亮 + 缩进展开
+```
+
+### 高亮 / 配色
+
+终端默认带颜色(rich);全局参数放在子命令前:
+
+```fish
+wl themes                            # 列出 dark/light/mono + 各自配色预览 + 标出当前
+wl --color always tree | less -R     # 强制出色(管道也保留 ANSI)
+wl --color never ls                  # 关色(纯文本)
+wl --theme light summary --week ...  # 手动指定浅色背景主题
+```
+
+- `--color {auto,always,never}`,默认 `auto`: TTY + rich 可用才上色;管道 / 重定向 / 无 rich 自动降级纯文本
+- `--theme {auto,dark,light,mono}`,默认 **auto**: 探测终端底色自动选 dark(深色背景) / light(浅色背景);测不出回退 dark。dark/light/mono 也可手动指定
+  - 底色探测: 先看 `$COLORFGBG`,再发 OSC 11 查询(需交互终端,短超时,不支持就回退)
+- 搜索命中(含标题里的命中)高亮: styled 用背景色,纯文本用半角 `*…*` 标出
+- env 兜底: `$WL_COLOR` / `$WL_THEME` / `$NO_COLOR`
+- rich 是可选依赖,没装也能跑(纯文本)
+
+## Schema
+
+六个表;一切都是 `node`。
+
+```
+node (id, parent_id→node, title, kind, status, priority,
+      created_at, scheduled_at, deadline_at, closed_at, body)
+tag  (node_id→node, tag)                    # 多对多
+log  (id, node_id→node, logged_at, body)    # 一个 node 多次 log entry
+prop (node_id→node, key, value)             # UDA
+link (node_id→node, vault_doc)              # vault wikilink 双链
+v_node_path                                  # 递归 CTE view, 树状路径
+```
+
+`kind` 字段让一个表能装任意执行体系实体。级联删除会传播到 `tag/log/prop/link`;`parent_id` 用 `ON DELETE SET NULL`,删父不会孤儿杀子。
+
+## 状态机
+
+`TODO / DOING / LATER / WAIT / DONE / DEFERRED / CANCELED` —— 是 markdown `[ ]/[x]/[/]/[>]` 四态的超集,加了 `LATER` / `WAIT` 区分(推到将来 vs 等他人)。
+
+## Makefile 本地 override
+
+Makefile 末尾走 `-include local/*.mk` 加载 `local/` 下任意 `*.mk` 文件。`local/` 目录被 gitignore 排除,可以把跟具体环境绑的变量、私有 remote、额外 target 放进去,不动开源仓的 Makefile。文件不存在也没事 —— make 不会报错。
+
+`local/private.mk` 示例:
+
+```makefile
+GITEA_REMOTE := git@your-private-host:user/worklog-cli.git
+
+push-gitea:        ## push 当前分支到私有 remote
+	@$(GIT) -c commit.gpgsign=false push $(GITEA_REMOTE) $$($(GIT) branch --show-current)
+```
+
+存好后 `make help` 会跟内置 target 一起列出 `push-gitea`。
+
+## 测试
+
+```fish
+~/.virtualenvs/worklog-cli/bin/python -m pytest tests/ -v
+```
+
+测试覆盖: init,add(全部 kind + 树状层级 + CJK 标题 + 多 tag),log(多条 + 长 body + 缺失 node),状态迁移(done/defer/start/stop + clock 耗时),link / set,show,ls(全部过滤器),tree(深度限制 + kind 过滤),logs,级联(父删 / 节点删)。
