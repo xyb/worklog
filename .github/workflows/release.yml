@@ -1,0 +1,46 @@
+name: Release
+
+# Pushing a vX.Y.Z tag verifies the version is in sync, then creates a
+# GitHub Release with auto-generated notes (commits since the previous tag).
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # for creating the GitHub Release
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # need full history for auto-generated release notes
+
+      - name: Verify tag matches pyproject + wl.py versions
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          proj=$(grep -m1 '^version = ' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
+          code=$(grep -m1 '^__version__ = ' wl.py | sed 's/.*"\(.*\)".*/\1/')
+          echo "git tag=$tag · pyproject=$proj · wl.py __version__=$code"
+          if [ "$tag" != "$proj" ] || [ "$tag" != "$code" ]; then
+            echo "::error::version mismatch — git tag must equal both pyproject.toml version and wl.py __version__"
+            exit 1
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: '3.12'
+          enable-cache: true
+
+      - name: Sync deps
+        run: uv sync --all-groups
+
+      - name: Run tests (release gate)
+        run: uv run pytest -q --no-cov
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
