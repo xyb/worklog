@@ -4177,7 +4177,9 @@ def _load_user_aliases():
     Multiple aliases pointing to the same target are merged. Returns {} on failure / missing file.
     """
     import configparser
-    path = str(ALIASES_PATH)
+    # Resolve at call-time so that tests monkeypatching HOME / XDG_CONFIG_HOME
+    # see the new path (the module-level ALIASES_PATH is resolved at import).
+    path = str(_resolve_aliases_path())
     if not os.path.exists(path):
         return {}
     cfg = configparser.ConfigParser()
