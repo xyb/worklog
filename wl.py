@@ -28,7 +28,38 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-DB_PATH = Path(os.environ.get("WL_DB", str(Path.home() / ".worklog" / "wl.db"))).resolve()
+def _xdg_data_home() -> Path:
+    """XDG_DATA_HOME (default ~/.local/share). Spec: https://specifications.freedesktop.org/basedir-spec/"""
+    return Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+
+
+def _xdg_config_home() -> Path:
+    """XDG_CONFIG_HOME (default ~/.config)."""
+    return Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+
+
+def _resolve_db_path() -> Path:
+    """Resolve the SQLite DB path. Priority:
+    1. $WL_DB env (testing / explicit override)
+    2. legacy ~/.worklog/wl.db if it exists (back-compat for pre-XDG users)
+    3. $XDG_DATA_HOME/wl/wl.db (default ~/.local/share/wl/wl.db)
+    """
+    env = os.environ.get("WL_DB")
+    if env:
+        return Path(env).resolve()
+    legacy = Path.home() / ".worklog" / "wl.db"
+    if legacy.exists():
+        return legacy.resolve()
+    return (_xdg_data_home() / "wl" / "wl.db").resolve()
+
+
+def _resolve_aliases_path() -> Path:
+    """$XDG_CONFIG_HOME/wl/aliases.ini (default ~/.config/wl/aliases.ini)."""
+    return _xdg_config_home() / "wl" / "aliases.ini"
+
+
+DB_PATH = _resolve_db_path()
+ALIASES_PATH = _resolve_aliases_path()
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
 # --- rich highlighting (optional dep, auto-detected; missing or non-TTY -> plain text) ---
@@ -4111,7 +4142,7 @@ def _load_user_aliases():
     Multiple aliases pointing to the same target are merged. Returns {} on failure / missing file.
     """
     import configparser
-    path = os.path.expanduser("~/.config/wl/aliases.ini")
+    path = str(ALIASES_PATH)
     if not os.path.exists(path):
         return {}
     cfg = configparser.ConfigParser()
@@ -4184,9 +4215,16 @@ def build_parser():
     sub = _SubWrapper(_real_sub)
 
     sub.add_parser("init",
-        help="initialize SQLite DB (~/.worklog/wl.db; skips if it exists)",
+        help="initialize SQLite DB (default ~/.local/share/wl/wl.db; skips if it exists)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Run once on a fresh machine before using wl. DB path defaults to ~/.worklog/wl.db; override with the WL_DB env var for tests/isolation.")
+        epilog="""Run once on a fresh machine before using wl.
+
+DB path resolution (priority order):
+  1. $WL_DB env var (testing / explicit override)
+  2. legacy ~/.worklog/wl.db (back-compat: used if it already exists)
+  3. $XDG_DATA_HOME/wl/wl.db (default ~/.local/share/wl/wl.db)
+
+Config (aliases.ini) lives at $XDG_CONFIG_HOME/wl/aliases.ini (default ~/.config/wl/aliases.ini).""")
 
     a = sub.add_parser("add",
         help="create a new node (task/project/area/meetlog/habit/day...); compound flags let you do add + log + done + sched + link in one shot",

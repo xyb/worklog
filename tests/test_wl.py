@@ -38,6 +38,49 @@ class TestInit:
         assert cli("init")[0] == 0
 
 
+class TestXDGPaths:
+    """Path resolution follows XDG Base Directory spec with back-compat."""
+
+    def test_wl_db_env_wins(self, tmp_path, monkeypatch):
+        """$WL_DB env var has top priority"""
+        target = tmp_path / "custom.db"
+        monkeypatch.setenv("WL_DB", str(target))
+        import importlib, wl
+        importlib.reload(wl)
+        assert wl.DB_PATH == target.resolve()
+
+    def test_legacy_dot_worklog_used_when_present(self, tmp_path, monkeypatch):
+        """If ~/.worklog/wl.db exists, it wins over XDG default (back-compat)"""
+        monkeypatch.delenv("WL_DB", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
+        legacy_dir = tmp_path / ".worklog"
+        legacy_dir.mkdir()
+        legacy_db = legacy_dir / "wl.db"
+        legacy_db.touch()
+        import importlib, wl
+        importlib.reload(wl)
+        assert wl.DB_PATH == legacy_db.resolve()
+
+    def test_xdg_default_when_no_legacy(self, tmp_path, monkeypatch):
+        """No $WL_DB, no legacy ~/.worklog/ → XDG default path"""
+        monkeypatch.delenv("WL_DB", raising=False)
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
+        # ensure no legacy
+        assert not (tmp_path / ".worklog" / "wl.db").exists()
+        import importlib, wl
+        importlib.reload(wl)
+        assert wl.DB_PATH == (tmp_path / "xdg-data" / "wl" / "wl.db").resolve()
+
+    def test_xdg_config_home_aliases(self, tmp_path, monkeypatch):
+        """$XDG_CONFIG_HOME/wl/aliases.ini is the aliases path"""
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-cfg"))
+        import importlib, wl
+        importlib.reload(wl)
+        assert wl.ALIASES_PATH == tmp_path / "xdg-cfg" / "wl" / "aliases.ini"
+
+
 # --- add command ---
 class TestAdd:
     def test_add_task(self, cli):
