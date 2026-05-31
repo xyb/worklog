@@ -1,6 +1,6 @@
 ---
 name: worklog-cli
-description: 用 wl 命令读写 SQLite 执行体系库(`~/.worklog/wl.db`)—— 记录 / 查询 计划 + 项目 + 任务 + log + 时间分层,是 markdown worklog 的结构化替代。Use when 用户要: 加任务 / 项目 / 日条目、给任务追加 log、标完成 / 顺延、列树状 / 某天工作 / active projects、查时间段进展或写周报、批量灌一天数据、聚焦某节点上下游。Trigger 词: wl、worklog-cli、加 worklog、记 log、列树、列项目、看一天工作、写周报输入、批量导入任务、apply diff。
+description: 用 wl 命令读写 SQLite 执行体系库(XDG 默认 `~/.local/share/wl/wl.db`; 旧路径 `~/.worklog/wl.db` 仍兼容)—— 记录 / 查询 计划 + 项目 + 任务 + log + 时间分层,是 markdown worklog 的结构化替代。Use when 用户要: 加任务 / 项目 / 日条目、给任务追加 log、标完成 / 顺延、列树状 / 某天工作 / active projects、查时间段进展或写周报、批量灌一天数据、聚焦某节点上下游。Trigger 词: wl、worklog-cli、加 worklog、记 log、列树、列项目、看一天工作、写周报输入、批量导入任务、apply diff。
 ---
 
 > English version: [SKILL.md](SKILL.md)
@@ -227,7 +227,7 @@ wl projects --since 2026-05-25     # 本周真正活跃的项目
 ## 不该做的
 
 - **不擅自批量删 / 改** node —— 删改前 `wl show <id>` 给用户确认
-- **不绕开 wl 直接 `sqlite3` 改库** —— `~/.worklog/wl.db` 是 source of truth, schema 约定在 DESIGN.md
+- **不绕开 wl 直接 `sqlite3` 改库** —— 数据库 (默认 `~/.local/share/wl/wl.db`,或旧路径 `~/.worklog/wl.db`)是 source of truth, schema 约定在 DESIGN.md
 - **不跑 `wl reset`**(drop DB)除非用户明确要
 - 批量写库前**一律先 `--dry-run`**, 尤其 update/delete
 - 改 wl.py 加命令时: 实现 + 测试 + completion + DESIGN.md(涉约定)+ 本 SKILL.md(涉用法)一起改, `make ship`(test 通过才推)

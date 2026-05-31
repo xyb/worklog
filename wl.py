@@ -3525,15 +3525,28 @@ _FISH_POSITIONAL_NODE = {"log", "done", "defer", "start", "stop", "wait", "reope
                         "descendants", "spent", "unlog", "relog"}
 
 _FISH_HELPER_FUNCTIONS = r"""# --- helper functions (dynamic queries against wl.db; no Python startup, fast) ---
+function __wl_db_path
+    # priority: $WL_DB > legacy ~/.worklog/wl.db (if it exists) > $XDG_DATA_HOME/wl/wl.db
+    if set -q WL_DB
+        echo $WL_DB
+    else if test -e $HOME/.worklog/wl.db
+        echo $HOME/.worklog/wl.db
+    else if set -q XDG_DATA_HOME
+        echo $XDG_DATA_HOME/wl/wl.db
+    else
+        echo $HOME/.local/share/wl/wl.db
+    end
+end
+
 function __wl_list_nodes
-    set -l db (test -n "$WL_DB"; and echo $WL_DB; or echo ~/.worklog/wl.db)
+    set -l db (__wl_db_path)
     test -f $db; or return
     # SQLite char(9) = tab (fish completion uses \t to separate token + desc)
     sqlite3 $db "SELECT id || char(9) || title FROM node WHERE status IS NULL OR status NOT IN ('DONE', 'CANCELED') ORDER BY id DESC LIMIT 80" 2>/dev/null
 end
 
 function __wl_list_tags
-    set -l db (test -n "$WL_DB"; and echo $WL_DB; or echo ~/.worklog/wl.db)
+    set -l db (__wl_db_path)
     test -f $db; or return
     sqlite3 $db "SELECT DISTINCT tag FROM tag ORDER BY tag" 2>/dev/null
 end
@@ -3709,14 +3722,25 @@ def _generate_fish_completion(parser):
 
 # bash does not show descriptions, only completes tokens. helper is a bash function that emits a token list.
 _BASH_HELPER_FUNCTIONS = r"""# helper functions (local SQLite query against wl.db; no Python startup)
+__wl_db_path_bash() {
+    # priority: $WL_DB > legacy ~/.worklog/wl.db (if it exists) > $XDG_DATA_HOME/wl/wl.db
+    if [ -n "$WL_DB" ]; then
+        echo "$WL_DB"
+    elif [ -e "$HOME/.worklog/wl.db" ]; then
+        echo "$HOME/.worklog/wl.db"
+    else
+        echo "${XDG_DATA_HOME:-$HOME/.local/share}/wl/wl.db"
+    fi
+}
+
 __wl_list_nodes_bash() {
-    local db="${WL_DB:-$HOME/.worklog/wl.db}"
+    local db=$(__wl_db_path_bash)
     [ -f "$db" ] || return
     sqlite3 "$db" "SELECT id FROM node WHERE status IS NULL OR status NOT IN ('DONE', 'CANCELED') ORDER BY id DESC LIMIT 80" 2>/dev/null
 }
 
 __wl_list_tags_bash() {
-    local db="${WL_DB:-$HOME/.worklog/wl.db}"
+    local db=$(__wl_db_path_bash)
     [ -f "$db" ] || return
     sqlite3 "$db" "SELECT DISTINCT tag FROM tag ORDER BY tag" 2>/dev/null
 }
@@ -3895,8 +3919,19 @@ def _generate_bash_completion(parser):
 # --- zsh backend ---
 
 _ZSH_HELPER_FUNCTIONS = r"""# helper functions (local SQLite query against wl.db; no Python startup)
+__wl_db_path_zsh() {
+    # priority: $WL_DB > legacy ~/.worklog/wl.db (if it exists) > $XDG_DATA_HOME/wl/wl.db
+    if [ -n "$WL_DB" ]; then
+        echo "$WL_DB"
+    elif [ -e "$HOME/.worklog/wl.db" ]; then
+        echo "$HOME/.worklog/wl.db"
+    else
+        echo "${XDG_DATA_HOME:-$HOME/.local/share}/wl/wl.db"
+    fi
+}
+
 __wl_list_nodes_zsh() {
-    local db="${WL_DB:-$HOME/.worklog/wl.db}"
+    local db=$(__wl_db_path_zsh)
     [ -f "$db" ] || return
     local -a nodes
     nodes=( "${(@f)$(sqlite3 "$db" "SELECT id || ':' || replace(title, ':', '\\:') FROM node WHERE status IS NULL OR status NOT IN ('DONE', 'CANCELED') ORDER BY id DESC LIMIT 80" 2>/dev/null)}" )
@@ -3904,7 +3939,7 @@ __wl_list_nodes_zsh() {
 }
 
 __wl_list_tags_zsh() {
-    local db="${WL_DB:-$HOME/.worklog/wl.db}"
+    local db=$(__wl_db_path_zsh)
     [ -f "$db" ] || return
     local -a tags
     tags=( "${(@f)$(sqlite3 "$db" "SELECT DISTINCT tag FROM tag ORDER BY tag" 2>/dev/null)}" )

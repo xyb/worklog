@@ -9,6 +9,13 @@ FISH_COMP   := $(HOME)/.config/fish/completions/wl.fish
 PROJ_DIR    := $(shell pwd)
 GIT         := /usr/bin/git
 
+# Resolve the DB path — matches wl.py _resolve_db_path priority:
+# $WL_DB > legacy ~/.worklog/wl.db (if it exists) > $XDG_DATA_HOME/wl/wl.db
+WL_DB_PATH  := $(shell \
+  if [ -n "$$WL_DB" ]; then echo "$$WL_DB"; \
+  elif [ -e "$$HOME/.worklog/wl.db" ]; then echo "$$HOME/.worklog/wl.db"; \
+  else echo "$${XDG_DATA_HOME:-$$HOME/.local/share}/wl/wl.db"; fi)
+
 .PHONY: help test test-v install uninstall reinstall push pull status commit demo clean reset venv setup
 
 help:                ## show this help
@@ -49,7 +56,7 @@ install: venv        ## install ~/bin/wl wrapper; 补全走 init load (见下)
 
 uninstall:           ## remove wrapper (keep venv + DB; 用户需手清 config.fish 里的 wl print-completion 行)
 	@rm -f $(WL_BIN) $(FISH_COMP)
-	@echo "✓ wl wrapper removed (venv $(VENV) + DB $$HOME/.worklog/ kept)"
+	@echo "✓ wl wrapper removed (venv $(VENV) + DB $(WL_DB_PATH) kept)"
 	@echo "  (如有 ~/.config/fish/config.fish 内 'wl print-completion fish | source' 行需手清)"
 
 reinstall: uninstall install  ## clean reinstall
@@ -59,7 +66,7 @@ setup: venv install  ## first-time setup: venv + install
 # ── 演示 / 数据 ──
 
 demo:                ## populate DB with 5/18 sample (idempotent reset DB)
-	@rm -f $(HOME)/.worklog/wl.db
+	@rm -f $(WL_DB_PATH)
 	@wl init
 	@wl add "Lifetime" -k lifetime
 	@wl add "2026 年" -k year --parent 1
@@ -84,8 +91,8 @@ clean:               ## clean test cache + pycache
 	@echo "✓ cache cleaned"
 
 reset:               ## ⚠️ DROP DB + recreate empty (ask first)
-	@read -p "⚠️ rm $(HOME)/.worklog/wl.db ? (y/N) " ans; \
-	[ "$$ans" = "y" ] && rm -f $(HOME)/.worklog/wl.db && wl init || echo "abort"
+	@read -p "⚠️ rm $(WL_DB_PATH) ? (y/N) " ans; \
+	[ "$$ans" = "y" ] && rm -f $(WL_DB_PATH) && wl init || echo "abort"
 
 # ── git ──
 

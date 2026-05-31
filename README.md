@@ -35,7 +35,7 @@ echo 'wl print-completion fish | source' >> ~/.config/fish/config.fish
 wl init
 ```
 
-DB lives at `~/.worklog/wl.db` by default; override via `WL_DB` env var (useful for tests).
+DB location follows [XDG Base Directory spec](https://specifications.freedesktop.org/basedir-spec/): default `$XDG_DATA_HOME/wl/wl.db` (i.e. `~/.local/share/wl/wl.db`). Pre-XDG installations with `~/.worklog/wl.db` keep working — the legacy path is preferred when present. Set `$WL_DB` to override (useful for tests). User config (aliases.ini) lives at `$XDG_CONFIG_HOME/wl/aliases.ini` (default `~/.config/wl/aliases.ini`).
 
 ## Commands
 

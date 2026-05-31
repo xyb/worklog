@@ -35,7 +35,7 @@ echo 'wl print-completion fish | source' >> ~/.config/fish/config.fish
 wl init
 ```
 
-数据库默认存在 `~/.worklog/wl.db`;可通过 `WL_DB` 环境变量覆盖(测试场景有用)。
+数据库位置遵循 [XDG Base Directory 规范](https://specifications.freedesktop.org/basedir-spec/): 默认 `$XDG_DATA_HOME/wl/wl.db`(即 `~/.local/share/wl/wl.db`)。已有 `~/.worklog/wl.db` 的老用户继续兼容 —— 旧路径存在时优先用旧路径。`$WL_DB` 环境变量可覆盖(测试场景有用)。用户配置(aliases.ini)走 `$XDG_CONFIG_HOME/wl/aliases.ini`(默认 `~/.config/wl/aliases.ini`)。
 
 ## 命令
 
