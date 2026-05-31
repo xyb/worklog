@@ -235,6 +235,45 @@ def cmd_init(args, con):
     print(f"✓ DB initialized: {DB_PATH}")
 
 
+def cmd_config(args, con):
+    """Print resolved configuration: where the DB and config files live + env."""
+    db = _resolve_db_path()
+    legacy = Path.home() / ".worklog" / "wl.db"
+    if os.environ.get("WL_DB"):
+        db_src = "$WL_DB"
+    elif legacy.exists():
+        db_src = "legacy ~/.worklog/"
+    else:
+        db_src = "XDG default"
+    db_exists = db.exists()
+    db_size = f"{db.stat().st_size:,} bytes" if db_exists else "missing — run `wl init`"
+
+    aliases = _resolve_aliases_path()
+
+    def _row(label, value, hint=""):
+        hint_part = "  " + _c(hint, "meta") if hint else ""
+        out(f"  {label:<18} {value}{hint_part}")
+
+    out(_c(f"worklog-cli {__version__}", "header"))
+    out("")
+    out(_c("paths:", "header"))
+    _row("database", db, f"[{db_src}] {db_size}")
+    _row("aliases", aliases, "(exists)" if aliases.exists() else "(not configured)")
+    out("")
+    out(_c("XDG directories:", "header"))
+    _row("XDG_DATA_HOME", _xdg_data_home(), "(env set)" if os.environ.get("XDG_DATA_HOME") else "(default)")
+    _row("XDG_CONFIG_HOME", _xdg_config_home(), "(env set)" if os.environ.get("XDG_CONFIG_HOME") else "(default)")
+    out("")
+    out(_c("environment:", "header"))
+    for var in ("WL_DB", "WL_COLOR", "WL_THEME", "NO_COLOR"):
+        val = os.environ.get(var)
+        _row(var, val if val else _c("(not set)", "meta"))
+    out("")
+    out(_c("runtime:", "header"))
+    _row("python", sys.executable, f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    _row("rich", "available" if _RICH_AVAIL else "not installed (plain-text mode)")
+
+
 def cmd_add(args, con):
     if not args.title or not args.title.strip():
         sys.exit("✗ title cannot be empty")
@@ -4251,6 +4290,18 @@ def build_parser():
             return getattr(self._sub, k)
     sub = _SubWrapper(_real_sub)
 
+    sub.add_parser("config",
+        help="print resolved configuration: DB path, aliases path, XDG dirs, env vars",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Shows where worklog reads from and how the runtime is configured.
+Useful when:
+  - you're not sure which DB `wl` is using (XDG vs legacy vs $WL_DB)
+  - you need to point another tool at the same DB / aliases file
+  - the rich highlighting isn't appearing and you want to check theme/env
+
+Read-only and side-effect free — does not create the DB if missing.""")
+
     sub.add_parser("init",
         help="initialize SQLite DB (default ~/.local/share/wl/wl.db; skips if it exists)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -4994,6 +5045,7 @@ User aliases: add [aliases] section to ~/.config/wl/aliases.ini (e.g. d = day / 
 
 
 HANDLERS = {
+    "config": cmd_config,
     "init": cmd_init,
     "add": cmd_add,
     "log": cmd_log,
@@ -5049,6 +5101,10 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
         HANDLERS[args.cmd](args, None)
         return
     _init_console(args.color, args.theme)
+    # config is read-only and side-effect free — don't create the DB just to print paths
+    if args.cmd == "config":
+        HANDLERS[args.cmd](args, None)
+        return
     ensure_db()
     con = db_connect()
     try:
