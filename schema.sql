@@ -1,4 +1,4 @@
--- worklog-cli schema v0
+-- worklog schema v0
 -- main table: node (one id space spans lifetime / decade / year / quarter / month / week / day / area / project / task / signal / habit / any custom kind)
 -- tree: parent_id self-reference
 -- multi-log: log table hangs off node

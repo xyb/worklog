@@ -1,6 +1,6 @@
 <sub><a href="README.md">🌐 English</a> · <b>中文</b></sub>
 
-# worklog-cli
+# worklog
 
 [![Test](https://github.com/xyb/worklog/actions/workflows/test.yml/badge.svg)](https://github.com/xyb/worklog/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/xyb/worklog/branch/main/graph/badge.svg)](https://codecov.io/gh/xyb/worklog)
@@ -98,7 +98,7 @@ Makefile 末尾走 `-include local/*.mk` 加载 `local/` 下任意 `*.mk` 文件
 `local/private.mk` 示例:
 
 ```makefile
-GITEA_REMOTE := git@your-private-host:user/worklog-cli.git
+GITEA_REMOTE := git@your-private-host:user/worklog.git
 
 push-gitea:        ## push 当前分支到私有 remote
 	@$(GIT) -c commit.gpgsign=false push $(GITEA_REMOTE) $$($(GIT) branch --show-current)

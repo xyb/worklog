@@ -1,6 +1,6 @@
 <sub><b>🌐 English</b> · <a href="README.zh.md">中文</a></sub>
 
-# worklog-cli
+# worklog
 
 [![Test](https://github.com/xyb/worklog/actions/workflows/test.yml/badge.svg)](https://github.com/xyb/worklog/actions/workflows/test.yml)
 [![codecov](https://codecov.io/gh/xyb/worklog/branch/main/graph/badge.svg)](https://codecov.io/gh/xyb/worklog)
@@ -98,7 +98,7 @@ The Makefile loads any `local/*.mk` files at the end via `-include local/*.mk`. 
 Example `local/private.mk`:
 
 ```makefile
-GITEA_REMOTE := git@your-private-host:user/worklog-cli.git
+GITEA_REMOTE := git@your-private-host:user/worklog.git
 
 push-gitea:        ## push current branch to private remote
 	@$(GIT) -c commit.gpgsign=false push $(GITEA_REMOTE) $$($(GIT) branch --show-current)

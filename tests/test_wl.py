@@ -1,4 +1,4 @@
-"""worklog-cli full test suite.
+"""worklog full test suite.
 
 Coverage:
 - DB init / schema

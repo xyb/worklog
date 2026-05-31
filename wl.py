@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""worklog-cli (wl): SQLite-backed worklog tool, todo.sh-style CLI.
+"""worklog (wl): SQLite-backed worklog tool, todo.sh-style CLI.
 
 Usage examples:
   wl init                                  # init DB
@@ -4238,7 +4238,7 @@ def build_parser():
         _USER_ALIASES = _load_user_aliases()
     user_aliases = _USER_ALIASES
 
-    p = argparse.ArgumentParser(prog="wl", description="worklog-cli: SQLite-backed worklog tool")
+    p = argparse.ArgumentParser(prog="wl", description="worklog: SQLite-backed worklog tool")
     p.add_argument("--version", action="version", version=f"wl {__version__}")
     p.add_argument("--db", metavar="PATH",
                    help="override the DB path for this invocation (handy for testing / multiple worklogs); takes precedence over $WORKLOG_DB and the XDG default")

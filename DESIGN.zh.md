@@ -1,6 +1,6 @@
 <sub><a href="DESIGN.md">🌐 English</a> · <b>中文</b></sub>
 
-# worklog-cli 设计约定（canonical）
+# worklog 设计约定（canonical）
 
 > 所有命令必须遵守本文档的统一约定。加新命令 / 改老命令前先读这里，保持一致。
 > 改了约定 → 同步更新本文档 + 所有受影响命令 + 测试。
@@ -642,7 +642,7 @@ eval "$(wl print-completion bash)"
 eval "$(wl print-completion zsh)"
 ```
 
-动态补全 (node id / tag / date / recur 建议) 用 4 个 shell helper function 本地查 SQLite `wl.db`, **不启 Python**, Tab 体验 <50ms。
+动态补全 (node id / tag / date / recur 建议) 用 4 个 shell helper function 本地查 SQLite `worklog.db`, **不启 Python**, Tab 体验 <50ms。
 
 ### 用户别名 (跨 shell 统一)
 

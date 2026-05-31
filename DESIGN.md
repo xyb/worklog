@@ -1,6 +1,6 @@
 <sub><b>🌐 English</b> · <a href="DESIGN.zh.md">中文</a></sub>
 
-# worklog-cli design conventions (canonical)
+# worklog design conventions (canonical)
 
 > Every command must follow the unified conventions in this document. Read this before adding a new command or changing an old one, to keep things consistent.
 > If conventions change, update this document, all affected commands, and the tests together.
