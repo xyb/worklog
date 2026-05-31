@@ -19,7 +19,11 @@ Usage examples:
 """
 from __future__ import annotations
 
-__version__ = "0.2.0"
+from importlib.metadata import version as _pkg_version, PackageNotFoundError as _PackageNotFoundError
+try:
+    __version__ = _pkg_version("worklog")
+except _PackageNotFoundError:  # pragma: no cover -- only hit when running source w/o `uv sync`
+    __version__ = "0.0.0+unknown"
 
 import argparse
 import os
@@ -59,7 +63,7 @@ def _resolve_aliases_path() -> Path:
 
 DB_PATH = _resolve_db_path()
 ALIASES_PATH = _resolve_aliases_path()
-SCHEMA_PATH = Path(__file__).parent / "schema.sql"
+MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 # --- rich highlighting (optional dep, auto-detected; missing or non-TTY -> plain text) ---
 try:
@@ -216,16 +220,84 @@ def db_connect() -> sqlite3.Connection:
     return con
 
 
+def _migration_files() -> list[Path]:
+    """Return all migration files sorted by their numeric prefix (NNNN_*.sql).
+    Non-conforming filenames are skipped (silently ignored).
+    """
+    if not MIGRATIONS_DIR.exists():
+        return []
+    files = []
+    for p in MIGRATIONS_DIR.glob("*.sql"):
+        prefix = p.stem.split("_", 1)[0]
+        if prefix.isdigit():
+            files.append((int(prefix), p))
+    files.sort(key=lambda x: x[0])
+    return [p for _, p in files]
+
+
+def _db_version(con: sqlite3.Connection) -> int:
+    """The highest migration number applied to this DB (PRAGMA user_version)."""
+    return con.execute("PRAGMA user_version").fetchone()[0]
+
+
+def _run_migrations(con: sqlite3.Connection, verbose: bool = False) -> list[Path]:
+    """Apply every migration whose number > PRAGMA user_version.
+    Each migration runs in its own transaction; user_version is bumped per file
+    so a mid-sequence failure leaves the DB at the last successfully-applied number.
+    Returns the list of migration paths that were applied this call (empty if up-to-date).
+    """
+    current = _db_version(con)
+    applied = []
+    for path in _migration_files():
+        n = int(path.stem.split("_", 1)[0])
+        if n <= current:
+            continue
+        sql = path.read_text(encoding="utf-8")
+        try:
+            con.executescript(sql)
+            con.execute(f"PRAGMA user_version = {n}")
+            con.commit()
+        except Exception:
+            con.rollback()
+            raise
+        if verbose:
+            print(f"✓ applied migration {path.stem}")
+        applied.append(path)
+    return applied
+
+
 def db_init(con: sqlite3.Connection) -> None:
-    con.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-    con.commit()
+    """Initialize / upgrade the DB by applying every pending migration."""
+    _run_migrations(con)
 
 
 def ensure_db():
-    if not DB_PATH.exists():
-        con = db_connect()
-        db_init(con)
+    """Open the DB (creating the file if missing) and run any pending migrations."""
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    con = db_connect()
+    try:
+        _run_migrations(con)
+    finally:
         con.close()
+
+
+def cmd_migrate(args, con):
+    """List + apply pending SQL migrations (`migrations/NNNN_*.sql`).
+
+    Idempotent: re-running after everything is applied prints "up to date".
+    Failure mid-sequence rolls back the offending migration and leaves the DB
+    at the last successfully-applied number — re-run after fixing.
+    """
+    files = _migration_files()
+    current = _db_version(con)
+    pending = [p for p in files if int(p.stem.split("_", 1)[0]) > current]
+    if not pending:
+        out(_c(f"✓ DB at version {current}, no pending migrations ({len(files)} total).", "done"))
+        return
+    out(_c(f"applying {len(pending)} migration(s) (DB at version {current}):", "header"))
+    applied = _run_migrations(con, verbose=True)
+    new_version = _db_version(con)
+    out(_c(f"✓ DB now at version {new_version} ({len(applied)} migration(s) applied).", "done"))
 
 
 # ─── command handlers ───
@@ -4284,6 +4356,19 @@ def build_parser():
             return getattr(self._sub, k)
     sub = _SubWrapper(_real_sub)
 
+    sub.add_parser("migrate",
+        help="apply pending SQL migrations from migrations/NNNN_*.sql (auto-run on every command; this is the explicit form)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+The DB version is tracked via `PRAGMA user_version`. Every migration in
+`migrations/` is named NNNN_*.sql (numeric prefix sorts the apply order);
+files with number > current PRAGMA user_version run in order, each in its
+own transaction, then user_version is bumped.
+
+Migrations are auto-applied by `ensure_db()` on every command, so you
+rarely need to invoke this explicitly. Use it to see what's pending or
+to retry after a failed migration.""")
+
     sub.add_parser("config",
         help="print resolved configuration: DB path, aliases path, XDG dirs, env vars",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -5020,7 +5105,7 @@ Default window of 7 days avoids full-history flooding. Use --since/--until/--wee
         help="dump shell completion script (argparse -> fish/bash/zsh; init-load model)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Usage (write once to your shell rc, then new shells auto-load; stays in sync with wl.py changes):
+Usage (write once to your shell rc, then new shells auto-load; stays in sync with code changes):
   # fish: add to ~/.config/fish/config.fish
   wl print-completion fish | source
 
@@ -5040,6 +5125,7 @@ User aliases: add [aliases] section to ~/.config/worklog/aliases.ini (e.g. d = d
 
 HANDLERS = {
     "config": cmd_config,
+    "migrate": cmd_migrate,
     "init": cmd_init,
     "add": cmd_add,
     "log": cmd_log,
@@ -5103,6 +5189,19 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
     # Re-evaluate DB_PATH with args so ensure_db / db_connect see the override.
     global DB_PATH
     DB_PATH = _resolve_db_path(args)
+    # `wl migrate` is the explicit form of the auto-migration that ensure_db()
+    # otherwise runs first. Calling ensure_db() here would apply the pending
+    # migrations before the handler runs, leaving nothing to do — so for
+    # `migrate` we just open the DB (creating the file if missing) and let
+    # cmd_migrate decide what to apply.
+    if args.cmd == "migrate":
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        con = db_connect()
+        try:
+            HANDLERS[args.cmd](args, con)
+        finally:
+            con.close()
+        return
     ensure_db()
     con = db_connect()
     try:

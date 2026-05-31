@@ -60,7 +60,7 @@ class TestConfig:
         """When $WORKLOG_DB is set, config reports it as the DB source."""
         db = tmp_path / "test.db"
         monkeypatch.setenv("WORKLOG_DB", str(db))
-        import importlib, wl
+        import importlib; from worklog import cli as wl
         importlib.reload(wl)
         # cmd_config writes to out() which prints via stdout
         import io, contextlib
@@ -75,7 +75,7 @@ class TestConfig:
         """`wl config` must not create the DB file (side-effect free)."""
         db = tmp_path / "fresh.db"
         monkeypatch.setenv("WORKLOG_DB", str(db))
-        import importlib, wl
+        import importlib; from worklog import cli as wl
         importlib.reload(wl)
         import io, contextlib
         with contextlib.redirect_stdout(io.StringIO()):
@@ -90,7 +90,7 @@ class TestXDGPaths:
         """$WORKLOG_DB env var has top priority"""
         target = tmp_path / "custom.db"
         monkeypatch.setenv("WORKLOG_DB", str(target))
-        import importlib, wl
+        import importlib; from worklog import cli as wl
         importlib.reload(wl)
         assert wl.DB_PATH == target.resolve()
 
@@ -99,14 +99,14 @@ class TestXDGPaths:
         monkeypatch.delenv("WORKLOG_DB", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
-        import importlib, wl
+        import importlib; from worklog import cli as wl
         importlib.reload(wl)
         assert wl.DB_PATH == (tmp_path / "xdg-data" / "worklog" / "worklog.db").resolve()
 
     def test_db_flag_wins_over_env(self, tmp_path, monkeypatch):
         """`--db PATH` flag has top priority over $WORKLOG_DB env."""
         monkeypatch.setenv("WORKLOG_DB", str(tmp_path / "from-env.db"))
-        import wl
+        from worklog import cli as wl
         flag_path = tmp_path / "from-flag.db"
         args = type("A", (), {"db": str(flag_path)})()
         resolved = wl._resolve_db_path(args)
@@ -116,16 +116,68 @@ class TestXDGPaths:
         """No --db flag (or flag is None) → fall back to $WORKLOG_DB."""
         env_path = tmp_path / "from-env.db"
         monkeypatch.setenv("WORKLOG_DB", str(env_path))
-        import wl
+        from worklog import cli as wl
         args = type("A", (), {"db": None})()
         assert wl._resolve_db_path(args) == env_path.resolve()
 
     def test_xdg_config_home_aliases(self, tmp_path, monkeypatch):
         """$XDG_CONFIG_HOME/worklog/aliases.ini is the aliases path"""
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-cfg"))
-        import importlib, wl
+        import importlib; from worklog import cli as wl
         importlib.reload(wl)
         assert wl.ALIASES_PATH == tmp_path / "xdg-cfg" / "worklog" / "aliases.ini"
+
+
+class TestMigrations:
+    """SQL migration runner: PRAGMA user_version + sorted NNNN_*.sql files."""
+
+    def test_run_migrations_stamps_user_version(self, cli, tmp_db):
+        """After `wl init`, PRAGMA user_version equals the highest migration number."""
+        cli("init")
+        con = tmp_db.db_connect()
+        highest = max(int(p.stem.split("_", 1)[0]) for p in tmp_db._migration_files())
+        assert con.execute("PRAGMA user_version").fetchone()[0] == highest
+
+    def test_run_migrations_idempotent(self, cli, tmp_db):
+        """Running ensure_db twice does not re-apply migrations."""
+        cli("init")
+        v1 = tmp_db.db_connect().execute("PRAGMA user_version").fetchone()[0]
+        tmp_db.ensure_db()
+        v2 = tmp_db.db_connect().execute("PRAGMA user_version").fetchone()[0]
+        assert v1 == v2
+
+    def test_wl_migrate_reports_up_to_date(self, cli):
+        """`wl migrate` on a fresh DB (auto-applied via ensure_db) reports up-to-date."""
+        cli("init")
+        code, out, _ = cli("migrate")
+        assert code == 0
+        assert "no pending migrations" in out
+
+    def test_migration_file_naming_is_strict(self, tmp_db):
+        """_migration_files() returns only NNNN_*.sql; non-conforming names are filtered."""
+        files = tmp_db._migration_files()
+        assert files, "expected at least one migration file"
+        for p in files:
+            prefix = p.stem.split("_", 1)[0]
+            assert prefix.isdigit(), f"non-numeric prefix: {p.name}"
+
+    def test_wl_migrate_applies_pending_on_first_run(self, tmp_path, monkeypatch):
+        """Direct invocation of cmd_migrate on a fresh DB (bypassing ensure_db,
+        mirroring `wl migrate`'s main() special-case) actually applies 0001."""
+        db = tmp_path / "fresh.db"
+        monkeypatch.setenv("WORKLOG_DB", str(db))
+        import importlib
+        from worklog import cli as wl
+        importlib.reload(wl)
+        # Mirror the main()-bypass path: open the connection WITHOUT ensure_db.
+        db.parent.mkdir(parents=True, exist_ok=True)
+        con = wl.db_connect()
+        try:
+            assert wl._db_version(con) == 0  # fresh DB, no migrations applied
+            wl.cmd_migrate(type("A", (), {})(), con)
+            assert wl._db_version(con) == 1  # 0001 now applied
+        finally:
+            con.close()
 
 
 # --- add command ---
@@ -2396,7 +2448,7 @@ class TestUXShortcuts:
 
     def test_version_constant_exists(self, cli, tmp_db):
         # __version__ exists and is non-empty
-        import wl as wl_mod
+        from worklog import cli as wl_mod
         assert hasattr(wl_mod, "__version__")
         assert wl_mod.__version__
 
@@ -2688,9 +2740,9 @@ class TestCheckin:
     def test_checkin_multi_select_default_mode(self, cli, monkeypatch):
         """default goes through multi-select (TTY): patch _multi_select_tty to return idx 0, simulating "tick the 1st"."""
         self._setup_habits(cli, 3)
-        import wl as wl_mod
+        from worklog import cli as wl_mod
         # mock TTY + multi-select returns [0] (pick the 1st pending)
-        import wl as wl_mod_
+        from worklog import cli as wl_mod_
         monkeypatch.setattr(wl_mod_, "_is_interactive_tty", lambda: True)
         monkeypatch.setattr(wl_mod, "_multi_select_tty", lambda options, header: [0])
         _, out, _ = cli("checkin")
@@ -2705,8 +2757,8 @@ class TestCheckin:
     def test_checkin_multi_select_canceled(self, cli, monkeypatch):
         """multi-select returns None (q/Esc) → no changes applied."""
         self._setup_habits(cli, 2)
-        import wl as wl_mod
-        import wl as wl_mod_
+        from worklog import cli as wl_mod
+        from worklog import cli as wl_mod_
         monkeypatch.setattr(wl_mod_, "_is_interactive_tty", lambda: True)
         monkeypatch.setattr(wl_mod, "_multi_select_tty", lambda *a: None)
         _, out, _ = cli("checkin")
@@ -2719,7 +2771,7 @@ class TestCheckin:
         self._setup_habits(cli, 1)
         inputs = iter(["y"])
         monkeypatch.setattr("builtins.input", lambda *a: next(inputs))
-        import wl as wl_mod_
+        from worklog import cli as wl_mod_
         monkeypatch.setattr(wl_mod_, "_is_interactive_tty", lambda: True)
         _, out, _ = cli("checkin", "--linear")
         assert "done 1/1" in out
@@ -3253,7 +3305,7 @@ class TestSchedHelpers:
         code, out, _ = cli("sched", "1", "--recur", "weekly:Mon,Wed,Fri")
         assert code == 0
         # confirm the rule was stored in the sched table
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         row = con.execute("SELECT rrule FROM sched WHERE node_id=1").fetchone()
         assert row and "Mon" in row["rrule"]
@@ -3348,7 +3400,7 @@ class TestCnWeekday:
     def test_invalid_date_returns_empty(self, cli):
         """_cn_weekday internal helper; invalid date triggers ValueError → except path"""
         # going through wl day with invalid date is rejected by _resolve_concrete_date; call _cn_weekday directly
-        import wl
+        from worklog import cli as wl
         assert wl._cn_weekday("bad-date") == ""
         assert wl._cn_weekday("2026-13-99") == ""
 
@@ -3358,7 +3410,7 @@ class TestAncestorsChainBreak:
         """parent_id points to missing node → mid-chain break (with FK off)"""
         cli("add", "p1", "-k", "task")
         cli("add", "c1", "-k", "task", "--parent", "1")
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         # temporarily disable FK to perform the edit, then re-enable
         con.execute("PRAGMA foreign_keys = OFF")
@@ -3489,82 +3541,82 @@ class TestSchedHelpersDirect:
     """direct unit tests for _sched_anchor / _sched_fires / _sched_kind."""
 
     def test_sched_kind_someday(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_kind("someday") == "someday"
 
     def test_sched_kind_quarter(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_kind("2026-Q2") == "quarter"
 
     def test_sched_kind_year(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_kind("2026") == "year"
 
     def test_sched_kind_fuzzy(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_kind("下月") == "fuzzy"
 
     def test_sched_kind_empty(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_kind("") is None
         assert wl._sched_kind(None) is None
 
     def test_sched_anchor_year(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_anchor("2026") == "2026-01-01"
 
     def test_sched_anchor_quarter(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_anchor("2026-Q2") == "2026-04-01"
 
     def test_sched_anchor_week(self):
-        import wl
+        from worklog import cli as wl
         result = wl._sched_anchor("2026-W01")
         assert result.startswith("2025-12-") or result.startswith("2026-01-")
 
     def test_sched_anchor_month(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_anchor("2026-05") == "2026-05-01"
 
     def test_sched_anchor_invalid_returns_sentinel(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_anchor("garbage") == "9999-12-31"
         assert wl._sched_anchor("2026-W99") == "9999-12-31"
 
     def test_sched_fires_weekly_match(self):
-        import wl
+        from worklog import cli as wl
         # weekly:Mon — 2026-01-05 is a Monday
         assert wl._sched_fires(None, "weekly:Mon", "2026-01-05") is True
         assert wl._sched_fires(None, "weekly:Tue", "2026-01-05") is False
 
     def test_sched_fires_daily(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_fires(None, "daily", "2026-01-05") is True
 
     def test_sched_fires_on_date(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_fires("2026-01-05", None, "2026-01-05") is True
         assert wl._sched_fires("2026-01-06", None, "2026-01-05") is False
 
     def test_sched_fires_empty(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_fires(None, None, "2026-01-05") is False
 
     # monthly: which day of the month
     def test_sched_fires_monthly_single_day(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_fires(None, "monthly:5", "2026-01-05") is True
         assert wl._sched_fires(None, "monthly:5", "2026-01-06") is False
         assert wl._sched_fires(None, "monthly:5", "2026-02-05") is True
 
     def test_sched_fires_monthly_multi_days(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_fires(None, "monthly:1,15,25", "2026-01-15") is True
         assert wl._sched_fires(None, "monthly:1,15,25", "2026-01-16") is False
         assert wl._sched_fires(None, "monthly:1,15,25", "2026-02-25") is True
 
     def test_sched_fires_monthly_last_day(self):
-        import wl
+        from worklog import cli as wl
         # 2026-01 month-end = 31
         assert wl._sched_fires(None, "monthly:-1", "2026-01-31") is True
         assert wl._sched_fires(None, "monthly:-1", "2026-01-30") is False
@@ -3574,33 +3626,33 @@ class TestSchedHelpersDirect:
         assert wl._sched_fires(None, "monthly:-1", "2024-02-29") is True
 
     def test_sched_fires_monthly_negative_second_last(self):
-        import wl
+        from worklog import cli as wl
         # 2026-01-30 = second-to-last (31 - 2 + 1 = 30)
         assert wl._sched_fires(None, "monthly:-2", "2026-01-30") is True
         assert wl._sched_fires(None, "monthly:-2", "2026-02-27") is True  # 28-2+1=27
 
     def test_sched_fires_monthly_31_in_short_month(self):
         """monthly:31 should not fire in February (no 31st)"""
-        import wl
+        from worklog import cli as wl
         assert wl._sched_fires(None, "monthly:31", "2026-01-31") is True
         assert wl._sched_fires(None, "monthly:31", "2026-02-28") is False
 
     # yearly: each year on MM-DD
     def test_sched_fires_yearly(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_fires(None, "yearly:03-21", "2026-03-21") is True
         assert wl._sched_fires(None, "yearly:03-21", "2027-03-21") is True
         assert wl._sched_fires(None, "yearly:03-21", "2026-03-22") is False
 
     def test_sched_fires_yearly_multi(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_fires(None, "yearly:01-01,12-25", "2026-01-01") is True
         assert wl._sched_fires(None, "yearly:01-01,12-25", "2026-12-25") is True
         assert wl._sched_fires(None, "yearly:01-01,12-25", "2026-07-04") is False
 
     # quarterly
     def test_sched_fires_quarterly_first_month(self):
-        import wl
+        from worklog import cli as wl
         # 1-15 = 15th of the first month of each quarter → 1/15, 4/15, 7/15, 10/15
         for ymd in ("2026-01-15", "2026-04-15", "2026-07-15", "2026-10-15"):
             assert wl._sched_fires(None, "quarterly:1-15", ymd) is True
@@ -3608,7 +3660,7 @@ class TestSchedHelpersDirect:
             assert wl._sched_fires(None, "quarterly:1-15", ymd) is False
 
     def test_sched_fires_quarterly_third_month_end_day(self):
-        import wl
+        from worklog import cli as wl
         # 3-31 (31st of the last month of the quarter): 3/31, 12/31 fire; 6/30, 9/30 — no 31st → no fire
         assert wl._sched_fires(None, "quarterly:3-31", "2026-03-31") is True
         assert wl._sched_fires(None, "quarterly:3-31", "2026-12-31") is True
@@ -3617,14 +3669,14 @@ class TestSchedHelpersDirect:
 
     def test_sched_fires_quarterly_neg1_quarter_end(self):
         """quarterly:-1 = last day of each quarter (3/31, 6/30, 9/30, 12/31)"""
-        import wl
+        from worklog import cli as wl
         for ymd in ("2026-03-31", "2026-06-30", "2026-09-30", "2026-12-31"):
             assert wl._sched_fires(None, "quarterly:-1", ymd) is True
         for ymd in ("2026-03-30", "2026-06-29", "2026-04-30", "2026-12-30"):
             assert wl._sched_fires(None, "quarterly:-1", ymd) is False
 
     def test_sched_fires_yearly_neg1_year_end(self):
-        import wl
+        from worklog import cli as wl
         assert wl._sched_fires(None, "yearly:-1", "2026-12-31") is True
         assert wl._sched_fires(None, "yearly:-1", "2027-12-31") is True
         assert wl._sched_fires(None, "yearly:-1", "2026-12-30") is False
@@ -3635,26 +3687,26 @@ class TestWeeklyNumeric:
     """weekly: accepts numbers 1-7 / -1..-7 (equivalent to Mon..Sun)"""
 
     def test_norm_weekly_positive_numbers(self):
-        import wl
+        from worklog import cli as wl
         # 1=Mon, 2=Tue, ..., 7=Sun
         assert wl._norm_rrule("weekly:1") == "weekly:Mon"
         assert wl._norm_rrule("weekly:1,3,5") == "weekly:Mon,Wed,Fri"
         assert wl._norm_rrule("weekly:7") == "weekly:Sun"
 
     def test_norm_weekly_negative_numbers(self):
-        import wl
+        from worklog import cli as wl
         # -1 = Sun (last day), -7 = Mon
         assert wl._norm_rrule("weekly:-1") == "weekly:Sun"
         assert wl._norm_rrule("weekly:-7") == "weekly:Mon"
         assert wl._norm_rrule("weekly:-1,-2") == "weekly:Sun,Sat"
 
     def test_norm_weekly_mixed_forms(self):
-        import wl
+        from worklog import cli as wl
         # mixes numbers + names + negatives; dedup, order preserved
         assert wl._norm_rrule("weekly:Mon,1,Tue,2") == "weekly:Mon,Tue"
 
     def test_norm_weekly_out_of_range_rejected(self):
-        import wl
+        from worklog import cli as wl
         for bad in ("weekly:0", "weekly:8", "weekly:-8", "weekly:abc"):
             try:
                 wl._norm_rrule(bad)
@@ -3664,7 +3716,7 @@ class TestWeeklyNumeric:
 
     def test_fires_weekly_numeric_equivalent(self):
         """weekly:-1 = weekly:Sun → 2026-01-04 is a Sunday"""
-        import wl
+        from worklog import cli as wl
         assert wl._sched_fires(None, "weekly:Sun", "2026-01-04") is True
         # passing a numeric rule directly to _sched_fires does not work (needs _norm_rrule conversion);
         # end-to-end via wl sched, _norm_rrule has already converted it
@@ -3672,16 +3724,16 @@ class TestWeeklyNumeric:
 
 class TestQuarterlyAndYearlyNeg1Norm:
     def test_quarterly_norm_md(self):
-        import wl
+        from worklog import cli as wl
         assert wl._norm_rrule("quarterly:1-15") == "quarterly:1-15"
         assert wl._norm_rrule("quarterly:3-31,1-1") == "quarterly:3-31,1-1"
 
     def test_quarterly_norm_neg1(self):
-        import wl
+        from worklog import cli as wl
         assert wl._norm_rrule("quarterly:-1") == "quarterly:-1"
 
     def test_quarterly_rejects_bad(self):
-        import wl
+        from worklog import cli as wl
         for bad in ("quarterly:", "quarterly:4-1", "quarterly:0-15", "quarterly:abc"):
             try:
                 wl._norm_rrule(bad)
@@ -3690,7 +3742,7 @@ class TestQuarterlyAndYearlyNeg1Norm:
                 pass
 
     def test_yearly_neg1_norm(self):
-        import wl
+        from worklog import cli as wl
         assert wl._norm_rrule("yearly:-1") == "yearly:-1"
         assert wl._norm_rrule("yearly:-1,03-21") == "yearly:-1,03-21"
 
@@ -3725,13 +3777,13 @@ class TestNormRruleNew:
     """_norm_rrule new prefix validation"""
 
     def test_monthly_norm(self):
-        import wl
+        from worklog import cli as wl
         assert wl._norm_rrule("monthly:5") == "monthly:5"
         assert wl._norm_rrule("monthly:1,15,25") == "monthly:1,15,25"
         assert wl._norm_rrule("monthly:-1") == "monthly:-1"
 
     def test_monthly_empty_rejected(self):
-        import wl
+        from worklog import cli as wl
         try:
             wl._norm_rrule("monthly:")
             assert False
@@ -3739,7 +3791,7 @@ class TestNormRruleNew:
             pass
 
     def test_monthly_out_of_range_rejected(self):
-        import wl
+        from worklog import cli as wl
         for bad in ("monthly:0", "monthly:32", "monthly:-29", "monthly:abc"):
             try:
                 wl._norm_rrule(bad)
@@ -3748,12 +3800,12 @@ class TestNormRruleNew:
                 pass
 
     def test_yearly_norm(self):
-        import wl
+        from worklog import cli as wl
         assert wl._norm_rrule("yearly:03-21") == "yearly:03-21"
         assert wl._norm_rrule("yearly:01-01,12-25") == "yearly:01-01,12-25"
 
     def test_yearly_bad_format_rejected(self):
-        import wl
+        from worklog import cli as wl
         for bad in ("yearly:", "yearly:3-21", "yearly:13-01", "yearly:02-32", "yearly:abc-de"):
             try:
                 wl._norm_rrule(bad)
@@ -3806,7 +3858,7 @@ class TestNodeClockMinException:
     def test_clock_min_unparseable_log_ts(self, cli):
         """log span parse exception → except path"""
         cli("add", "t1", "-k", "task")
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         # insert two logs with bad timestamps directly
         con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (1, 'not-a-ts', 'a')")
@@ -3874,7 +3926,7 @@ class TestApplyExtended:
         _, out, _ = cli("apply", str(p))
         assert "1" in out or "delete" in out or out
         # should actually be deleted
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         assert not con.execute("SELECT 1 FROM node WHERE id = 1").fetchone()
 
@@ -3910,14 +3962,14 @@ class TestSnippetFallback:
 
     def test_snippet_lookup_inside(self, cli):
         # call directly
-        import wl
+        from worklog import cli as wl
         s = wl._snippet("hello world key bar", "key")
         assert "key" in s
 
 
 class TestStatusFilterHideDone:
     def test_hide_done_filter(self, cli):
-        import wl
+        from worklog import cli as wl
         frag, params = wl._status_filter_sql(include_canceled=True, hide_done=True)
         assert "DONE" in params
 
@@ -3996,7 +4048,7 @@ class TestApplyExtra:
         p = tmp_path / "del.txt"
         p.write_text("- #1\n")
         cli("apply", str(p))
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         # both parent and child are gone
         assert not con.execute("SELECT 1 FROM node WHERE id IN (1, 2)").fetchone()
@@ -4073,7 +4125,7 @@ class TestExecUpdateDirect:
         cli("add", "t1", "-k", "task")
         cli("link", "1", "DocA")
         cli("set", "1", "k1", "v0")
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         op = {
             "id": 1,
@@ -4100,38 +4152,38 @@ class TestExecUpdateDirect:
 
 class TestSnippetDirect:
     def test_snippet_query_in_text(self):
-        import wl
+        from worklog import cli as wl
         s = wl._snippet("xxxxxxx target yyyyy", "target")
         assert "target" in s
 
     def test_snippet_query_not_in_text(self):
         """fallback: q not in text → return truncated text"""
-        import wl
+        from worklog import cli as wl
         s = wl._snippet("a" * 200, "qqq")
         assert "a" in s
         # truncated to 80
         assert len(s) < 120 or True
 
     def test_snippet_empty_query(self):
-        import wl
+        from worklog import cli as wl
         s = wl._snippet("hello", "")
         assert "hello" in s
 
 
 class TestHlAndStatusFilter:
     def test_hl_with_query_no_match(self):
-        import wl
+        from worklog import cli as wl
         s = wl._hl("hello", "missing")
         assert "hello" in s
 
     def test_hl_with_match(self):
-        import wl
+        from worklog import cli as wl
         s = wl._hl("hello world", "world")
         assert "world" in s
 
     def test_hl_empty_query(self):
         """empty q hits the 'if not q' early return"""
-        import wl
+        from worklog import cli as wl
         s = wl._hl("hello", "")
         assert "hello" in s
 
@@ -4144,7 +4196,7 @@ class TestCheckinCollectAlreadyLogged:
         cli("add", "h1", "-k", "habit")
         cli("sched", "1", today)
         cli("tick", "1")  # already checked in today
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         # mock args
         class A: kind = None; all_kinds = False; show_canceled = False
@@ -4173,7 +4225,7 @@ class TestNodeClockMinTwoValidLogs:
         cli("add", "t1", "-k", "task")
         cli("log", "1", "first", "--date", "2025-01-01", "--time", "09:00")
         cli("log", "1", "last", "--date", "2025-01-01", "--time", "11:00")
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         result = wl._node_clock_min(con, 1)
         # 2 hours = 120 min
@@ -4215,7 +4267,7 @@ class TestInsertLogClockNotPromote:
         """CLOCK_IN log must not auto-advance TODO to DOING (start command sets status itself)"""
         cli("add", "t1", "-k", "task")
         # don't call start; insert CLOCK_IN log via internal API
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         wl._insert_log(con, 1, "CLOCK_IN")
         con.commit()
@@ -4254,14 +4306,14 @@ class TestSmallGaps:
     """remaining 1-2 line gaps"""
 
     def test_hl_direct_no_match(self):
-        import wl
+        from worklog import cli as wl
         s = wl._hl("alpha beta", "missing")
         # i<0 branch
         assert "alpha" in s
 
     def test_status_filter_no_exclusion(self):
         """include_canceled=True + hide_done=False → empty frag"""
-        import wl
+        from worklog import cli as wl
         frag, params = wl._status_filter_sql(include_canceled=True, hide_done=False)
         assert frag == ""
         assert params == []
@@ -4284,7 +4336,7 @@ class TestSmallGaps:
 
     def test_themes_when_rich_unavailable(self, cli, monkeypatch):
         """simulate _RICH_AVAIL=False, falling back to plain-text path"""
-        import wl
+        from worklog import cli as wl
         monkeypatch.setattr(wl, "_RICH_AVAIL", False)
         _, out, _ = cli("themes")
         # no crash; shows "rich not installed"
@@ -4302,7 +4354,7 @@ class TestSmallGaps:
     def test_node_project_direct_no_ancestor(self, cli):
         """_node_project: direct call; node with no project ancestor → fallback returns None"""
         cli("add", "lonely", "-k", "task")
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         pid, ptitle = wl._node_project(con, 1)
         assert pid is None
@@ -4312,7 +4364,7 @@ class TestSmallGaps:
         """_node_project: node under a project → returns project id+title"""
         cli("add", "p1", "-k", "project")  # id 1
         cli("add", "t1", "-k", "task", "--parent", "1")  # id 2
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         pid, ptitle = wl._node_project(con, 2)
         assert pid == 1
@@ -4350,12 +4402,12 @@ class TestSmallGaps:
         p = tmp_path / "x.txt"
         p.write_text("+ [ ] dry-only\n")
         cli("apply", str(p), "--dry-run")
-        import wl
+        from worklog import cli as wl
         con = wl.db_connect()
         assert not con.execute("SELECT 1 FROM node WHERE id = 1").fetchone()
 
     def test_parse_fieldop_unknown_returns_none(self):
-        import wl
+        from worklog import cli as wl
         assert wl._parse_fieldop("totally-not-a-fieldop") is None
 
 
@@ -4758,7 +4810,7 @@ class TestPrecisionQueryHints:
     def test_ls_help_has_usage_examples(self, cli):
         """hints moved to --help epilog (no stdout pollution)"""
         # argparse --help calls SystemExit(0); call build_parser to inspect the epilog directly
-        import wl
+        from worklog import cli as wl
         p = wl.build_parser()
         ls_action = next(a for a in p._actions if hasattr(a, "choices") and "ls" in (a.choices or {}))
         ls_parser = ls_action.choices["ls"]
@@ -4929,7 +4981,7 @@ class TestAllSubparsersHaveDescription:
     (one-line intro after usage line), falling back to help."""
 
     def test_every_subparser_has_description(self):
-        import argparse, wl
+        import argparse; from worklog import cli as wl
         p = wl.build_parser()
         sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
         missing = []
@@ -4944,7 +4996,7 @@ class TestAllSubparsersHaveDescription:
 
     def test_every_subparser_has_epilog(self):
         """§35 battery-included: every cmd should have an epilog with examples / differences from adjacent commands / use cases"""
-        import argparse, wl
+        import argparse; from worklog import cli as wl
         p = wl.build_parser()
         sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
         missing = []
@@ -4999,7 +5051,7 @@ class TestActiveBatteryIncluded:
 
     def test_active_help_epilog(self, cli):
         """--help should include use cases and diff from wl day"""
-        import wl
+        from worklog import cli as wl
         p = wl.build_parser()
         sa = next(a for a in p._actions if hasattr(a, "choices") and "active" in (a.choices or {}))
         active_p = sa.choices["active"]
@@ -5015,22 +5067,22 @@ class TestLogFormatOneline:
     LONG_BODY = "x" * 200  # 200 chars exceeds any reasonable terminal width
 
     def test_truncate_helper_oneline_default(self):
-        import wl
+        from worklog import cli as wl
         out = wl._truncate_log_body(self.LONG_BODY, indent_cols=10, full=False)
         assert out.endswith("…")
         assert len(out) < 200
 
     def test_truncate_helper_full(self):
-        import wl
+        from worklog import cli as wl
         out = wl._truncate_log_body(self.LONG_BODY, indent_cols=10, full=True)
         assert out == self.LONG_BODY
 
     def test_truncate_helper_short_body_unchanged(self):
-        import wl
+        from worklog import cli as wl
         assert wl._truncate_log_body("短", 10, full=False) == "短"
 
     def test_log_full_helper(self):
-        import wl
+        from worklog import cli as wl
         from types import SimpleNamespace
         assert wl._log_full(SimpleNamespace(log_format="full")) is True
         assert wl._log_full(SimpleNamespace(log_format="oneline")) is False
@@ -5100,7 +5152,7 @@ class TestUserAliasesIni:
         # so _xdg_config_home() / _xdg_data_home() fall back to $HOME (tmp_path).
         monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
         monkeypatch.delenv("XDG_DATA_HOME", raising=False)
-        import wl, importlib
+        import importlib; from worklog import cli as wl
         wl._USER_ALIASES = None  # force reload
         importlib.reload(wl)
         return wl
@@ -5115,7 +5167,7 @@ class TestUserAliasesIni:
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
         monkeypatch.delenv("XDG_DATA_HOME", raising=False)
-        import wl, importlib
+        import importlib; from worklog import cli as wl
         wl._USER_ALIASES = None
         importlib.reload(wl)
         assert wl._load_user_aliases() == {}
@@ -5174,7 +5226,7 @@ class TestUserAliasesIni:
     def test_no_aliases_clean_output(self, tmp_path, monkeypatch):
         """without an ini file, output should have no alias traces"""
         monkeypatch.setenv("HOME", str(tmp_path))
-        import wl, importlib
+        import importlib; from worklog import cli as wl
         wl._USER_ALIASES = None
         importlib.reload(wl)
         out = wl._generate_fish_completion(wl.build_parser())
@@ -5184,7 +5236,7 @@ class TestUserAliasesIni:
 class TestEditInEditorUnlink:
     def test_edit_in_editor_cleanup_oserror_swallowed(self, monkeypatch, tmp_db):
         """_edit_in_editor finally block silently swallows os.unlink OSError (covers last 2 lines)"""
-        import wl, subprocess as _sp
+        import subprocess as _sp; from worklog import cli as wl
         monkeypatch.setattr(_sp, "call", lambda argv: 0)
         # make os.unlink raise OSError
         import os

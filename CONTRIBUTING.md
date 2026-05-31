@@ -44,7 +44,7 @@ wl --db /tmp/scratch.db add "experiment"
 
 ## Architecture
 
-`DESIGN.md` is canonical for every shared convention — command style, state machine, marker symbols, time-window flags, render pipeline, schema, `import` / `apply` formats, theme keys, scheduled-time resolution, planned/unplanned derivation. Read the relevant section before adding a command or changing a format. If your change touches a convention, the same commit must update **DESIGN.md + `wl.py` + `tests/test_wl.py` + completion strings together** — drift between them is the failure mode this project guards against.
+`DESIGN.md` is canonical for every shared convention — command style, state machine, marker symbols, time-window flags, render pipeline, schema, `import` / `apply` formats, theme keys, scheduled-time resolution, planned/unplanned derivation. Read the relevant section before adding a command or changing a format. If your change touches a convention, the same commit must update **DESIGN.md + `src/worklog/cli.py` + `tests/test_wl.py` + completion strings together** — drift between them is the failure mode this project guards against.
 
 `AGENTS.md` is the operating guide for AI coding agents (Claude Code, Cursor, Aider). Skim it once even if you code by hand; it concentrates the hard-rules into one page.
 
@@ -89,19 +89,15 @@ After saving, `make help` lists `push-gitea` alongside the built-in targets.
 
 ## Release process
 
-Version lives in **three** places that must move together:
+Version has a **single** in-repo source: `version = "X.Y.Z"` in `pyproject.toml`. `__version__` in `src/worklog/cli.py` reads it via `importlib.metadata.version("worklog")` — never edit it by hand. The git tag `vX.Y.Z` must match the pyproject version; the release workflow enforces that.
 
-1. `__version__` in `wl.py` (drives `wl --version`)
-2. `version` in `pyproject.toml` (the package version + `uv.lock` entry)
-3. The git tag `vX.Y.Z`
-
-The `Release` workflow (`.github/workflows/release.yml`) is triggered by pushing a `v*` tag. It re-verifies all three values match, re-runs the test suite, then calls `softprops/action-gh-release@v2` to publish a GitHub Release with auto-generated notes (commits since the previous tag).
+The `Release` workflow (`.github/workflows/release.yml`) is triggered by pushing a `v*` tag. It verifies tag == pyproject version, re-runs the test suite, then calls `softprops/action-gh-release@v2` to publish a GitHub Release with auto-generated notes (commits since the previous tag).
 
 To cut a release:
 
 ```fish
-# 1. bump versions in wl.py + pyproject.toml
-# 2. refresh the lock entry
+# 1. bump version in pyproject.toml only
+# 2. refresh the lock entry so uv.lock pins the new version
 uv lock --upgrade-package worklog
 # 3. commit + tag + push
 git commit -am "chore: bump version to X.Y.Z"

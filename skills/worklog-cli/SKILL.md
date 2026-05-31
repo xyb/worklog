@@ -5,7 +5,7 @@ description: Use the `wl` command to read/write a SQLite-backed execution-system
 
 # worklog-cli (wl)
 
-SQLite execution-system tool. A single `node` table carries lifetime/year/quarter/month/week/day/area/project/task/meetlog/habit; `parent_id` self-reference builds the tree. CLI mimics `todo.sh`. Global command name `wl` (`~/bin/wl` → project `.venv/bin/python` + `<repo>/wl.py`).
+SQLite execution-system tool. A single `node` table carries lifetime/year/quarter/month/week/day/area/project/task/meetlog/habit; `parent_id` self-reference builds the tree. CLI mimics `todo.sh`. Global command name `wl` (installed via `pip install worklog`, or `~/bin/wl` → `<repo>/.venv/bin/wl` for editable dev installs).
 
 **Full design conventions in repo `DESIGN.md`** (18 sections; required reading before adding commands or changing formats). This skill only covers how AI uses `wl`.
 
@@ -228,7 +228,7 @@ Humans (TTY) keep the original verbose output; no switching needed.
 - **Don't bypass `wl` and `sqlite3` the DB directly** — the DB (default `~/.local/share/worklog/worklog.db`, or wherever `$WORKLOG_DB` / `--db PATH` points) is the source of truth; schema lives in `DESIGN.md`
 - **Don't run `wl reset`** (drops the DB) unless explicitly requested
 - Before any bulk write, **`--dry-run` first**, especially for update/delete
-- When adding a command to `wl.py`: change implementation + tests + completion + `DESIGN.md` (if convention touched) + this `SKILL.md` (if usage touched) together; `make ship` (push only if tests pass)
+- When adding a command to `src/worklog/cli.py`: change implementation + tests + completion + `DESIGN.md` (if convention touched) + this `SKILL.md` (if usage touched) together; `make ship` (push only if tests pass)
 
 ## Highlighting / colors
 
@@ -279,7 +279,7 @@ eval "$(wl print-completion bash)"
 eval "$(wl print-completion zsh)"
 ```
 
-Same loading model as starship / direnv / zoxide — new shells pick up changes to `wl.py` automatically. Details in `DESIGN.md` §34.
+Same loading model as starship / direnv / zoxide — new shells pick up changes to `src/worklog/cli.py` automatically. Details in `DESIGN.md` §34.
 
 **User aliases**:
 

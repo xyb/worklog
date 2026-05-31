@@ -4,7 +4,7 @@ Primary operating guide for AI coding agents (Claude Code, Cursor, Aider, etc.) 
 
 ## Authoritative docs (read these first)
 
-- **`DESIGN.md`** is canonical for every shared convention (command style, state machine, marker symbols, time-window flags, rendering, schema, import/apply formats, color theming, scheduled time, planned/unplanned derivation, etc.). Read the relevant section before adding a command or changing a format — keeping `wl.py`, the tests, the completion strings, and DESIGN in sync is the project's hardest rule.
+- **`DESIGN.md`** is canonical for every shared convention (command style, state machine, marker symbols, time-window flags, rendering, schema, import/apply formats, color theming, scheduled time, planned/unplanned derivation, etc.). Read the relevant section before adding a command or changing a format — keeping `src/worklog/cli.py`, the tests, the completion strings, and DESIGN in sync is the project's hardest rule.
 - **`CONTRIBUTING.md`** holds the full dev setup, TDD + DRY conventions, local Makefile overrides, and release process. Do not duplicate that content here.
 - **`skills/worklog-cli/SKILL.md`** is the Claude Code skill (AI-facing usage guide: when to use `wl`, scenario→command table, bulk `import` / `apply` patterns, `-q` brief mode for token savings). Update this when usage patterns change.
 - `README.md` is the project overview + install pointer only; `tests/test_wl.py` is the de-facto contract for every command.
@@ -39,7 +39,7 @@ wl --db /tmp/scratch.db add "..."
 
 ## Architecture (the big picture)
 
-**Single-file CLI.** Everything lives in `wl.py` (~5000 lines) plus `schema.sql`. No `src/` package layout, no submodules — kept this way intentionally; reconsider only if a feature truly cannot be co-located.
+**Single-package CLI.** `src/worklog/` holds everything: `cli.py` (~5000 lines) is the implementation, `migrations/NNNN_*.sql` is the schema (one initial file at v0.3.0, more added per schema change), `__init__.py` re-exports `__version__`. No further submodule split inside `cli.py` — kept this way intentionally; reconsider only when a feature truly cannot be co-located.
 
 **One polymorphic `node` table.** The `kind` column distinguishes `lifetime / decade / year / quarter / month / week / day / area / project / task / meetlog / habit / signal`; `parent_id` self-reference builds the tree. Two parallel sub-trees hang under `lifetime`: a **responsibility line** (`area → project → task`, PARA-style) and a **time line** (`year → quarter → month → week → day`, time skeleton + metadata props). Day/week/month views are **log-driven** (`logged_at` + ancestor chain + tags), not via fixed parent-of-task — moving projects between areas does not break per-day views. Tables: `node / tag / log / prop / link / sched / date_meta` + recursive CTE view `v_node_path`.
 
@@ -60,13 +60,13 @@ wl --db /tmp/scratch.db add "..."
 
 ## Hard rules
 
-- **DESIGN.md is the source of truth.** If a convention changes (statuses, markers, time-window flag set, project↔task linkage rule, `--by` aggregation dim, theme key set, schema), update DESIGN + `wl.py` + tests + completion strings in the same commit. Drift between them is the failure mode this project guards against.
+- **DESIGN.md is the source of truth.** If a convention changes (statuses, markers, time-window flag set, project↔task linkage rule, `--by` aggregation dim, theme key set, schema), update DESIGN + `src/worklog/cli.py` + tests + completion strings in the same commit. Drift between them is the failure mode this project guards against.
 - **Status / priority / theme key names** are enumerated in DESIGN §3/§5/§19; add to `_THEME_KEYS` when introducing a new palette entry — `test_themes_have_same_keys` catches misses.
 - **No bare `print()` for renderable content**; all rows go through `out()` + `_c()`.
 - **Bulk writes default to `--dry-run`.** `wl apply` and `wl import` validate first, then execute as a single transaction (`_collect_descendants` recurses for the `-` delete prefix because the FK is `ON DELETE SET NULL`, not cascade). Update flags strictly: only fields that appear in the diff are touched — see DESIGN §18.2 "anti-wipe" rule.
-- **i18n layout.** README + DESIGN are bilingual (`*.zh.md`), `wl.py` strings + tests + SKILL.md are English. CJK fixtures in tests are intentional (they exercise unicode width / sort / title handling).
+- **i18n layout.** README + DESIGN are bilingual (`*.zh.md`), `src/worklog/cli.py` strings + tests + SKILL.md are English. CJK fixtures in tests are intentional (they exercise unicode width / sort / title handling).
 - **`tmp_path_home` test fixture pattern.** When a test changes `$HOME` to assert path resolution, it must also `monkeypatch.delenv("XDG_CONFIG_HOME")` + `delenv("XDG_DATA_HOME")` — CI runners preset XDG vars and otherwise leak through. See `TestUserAliasesIni._setup_aliases` for the working pattern.
 
 ## Local overrides + release
 
-Both processes are documented end-to-end in [CONTRIBUTING.md](CONTRIBUTING.md) — local `local/*.mk` Makefile injection and the three-anchor version-bump workflow (`__version__` in `wl.py` + `pyproject.toml` + git tag, all verified by `.github/workflows/release.yml`). Don't duplicate them here.
+Both processes are documented end-to-end in [CONTRIBUTING.md](CONTRIBUTING.md) — local `local/*.mk` Makefile injection and the three-anchor version-bump workflow (`__version__` in `src/worklog/cli.py` + `pyproject.toml` + git tag, all verified by `.github/workflows/release.yml`). Don't duplicate them here.

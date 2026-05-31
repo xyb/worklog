@@ -13,9 +13,9 @@
 - 长 flag 用 `--xxx`，短 flag 仅给最高频的（`-k` kind / `-p` priority / `-t` tag）
 - 节点不存在一律 `sys.exit(f"✗ ... #{id} not found")`，退出码非 0
 
-## 2. 数据模型（schema.sql）
+## 2. 数据模型（`src/worklog/migrations/`）
 
-单 `node` 表承载一切，`kind` 字段区分类型，`parent_id` 自引用建树。详见 `schema.sql` + `README.md`。
+单 `node` 表承载一切，`kind` 字段区分类型，`parent_id` 自引用建树。schema 以编号 SQL migrations 的形式发布,放在 `src/worklog/migrations/NNNN_*.sql`,`PRAGMA user_version` 记录最高已应用版本。`ensure_db()` 每条命令都自动 apply pending migrations,显式形式是 `wl migrate`。初始版本见 `src/worklog/migrations/0001_initial_schema.sql`,整体概览见 `README.md`。
 
 - **kind 取值**：`lifetime / decade / year / quarter / month / week / day / area / project / task / meetlog / habit / signal`（可扩展，但加新 kind 要想清楚它在 tree / projects / summary 里怎么归类）
 - **status 只在 task / habit / meetlog 类用**；时间层级类（year/month/...）跟 project 类 status 留 NULL
@@ -183,9 +183,9 @@ dev ai sync strategy reflection reading family health morning_check slack_scan
 
 ## 16. 工程约定
 
-- **运行时依赖只有 `rich`（可选增强）**：核心逻辑只用 Python stdlib（sqlite3 + argparse）；`rich` 仅供高亮（见 §19），不装也能跑——`wl.py` 顶部 `try import rich` 失败就 `_RICH_AVAIL=False`，全程降级纯文本。pytest 仅测试期。
-- 单文件 `wl.py`；超了再考虑拆 module
-- fish completion `completions/wl.fish` 跟命令同步更新（加子命令 / flag 都要补）
+- **运行时依赖只有 `rich`（可选增强）**：核心逻辑只用 Python stdlib（sqlite3 + argparse）；`rich` 仅供高亮（见 §19），不装也能跑——`src/worklog/cli.py` 顶部 `try import rich` 失败就 `_RICH_AVAIL=False`，全程降级纯文本。pytest 仅测试期。
+- 单包 `src/worklog/`;`cli.py` 主实现,`migrations/NNNN_*.sql` 是 schema,`__init__.py` 出 `__version__`。超了再考虑拆 module。
+- Shell completion **自动生成**: `wl print-completion {fish,bash,zsh}` 走 argparse 树自动产出对应 shell 补全脚本,**不维护 `completions/wl.fish` 文件**。加子命令 / flag 后补全自动跟。动态补全(node id / tag)需要 register 进 `_FISH_POSITIONAL_NODE` / `_FISH_HELPERS` / `_BASH_DYN_HELPERS`。
 - 每次加命令：实现 + 测试 + completion + 本文档（若涉及约定）四处一起改
 - push 走 `make ship`（test 通过才推）
 
@@ -569,7 +569,7 @@ total = max(clock_total, log_span)
 | `wl logs --group day` | 3 (桶内每 task 末尾) | `--no-body` / `-q` | `--all-logs` | (复用上一行) |
 | `wl show` (时间线) | 5 (整条 timeline 末尾) | `--no-timeline` / `-q` | `--all-timelines` | `--timeline-tail N` |
 
-实现统一走 `_resolve_log_tail(args, brief, default_tail=N)` (wl.py),优先级 brief → all-flag → 显式 tail → 默认。中间省略时多印一行 `… (X 条更早 log 省略)`,让用户知道有多少被吃掉。
+实现统一走 `_resolve_log_tail(args, brief, default_tail=N)`,优先级 brief → all-flag → 显式 tail → 默认。中间省略时多印一行 `… (X 条更早 log 省略)`,让用户知道有多少被吃掉。
 
 设计意图: `wl day` 是高频复现命令, 过去全展开导致一条任务的十几条 log 把屏幕撑爆;改成默认 3 后, 看末尾进展+总条数提示已够;真要看历史进 `wl show <id>` 或 `wl logs --by-task <id> --all-logs`。AI 侧调用同样受益(token 大幅降)。
 
@@ -625,7 +625,7 @@ log 写错有两条出路:
 
 ## 34. shell completion 自生成器
 
-argparse 是 source of truth. `wl print-completion {fish,bash,zsh}` 遍历 `build_parser()` 自动出对应 shell 补全脚本; 用户走 init load 模式加载 (跟 starship/direnv/zoxide 同), 开新 shell 自动应用 wl.py 改动。
+argparse 是 source of truth. `wl print-completion {fish,bash,zsh}` 遍历 `build_parser()` 自动出对应 shell 补全脚本; 用户走 init load 模式加载 (跟 starship/direnv/zoxide 同), 开新 shell 自动应用 `cli.py` 改动。
 
 ```fish
 # fish: ~/.config/fish/config.fish
@@ -729,7 +729,7 @@ skill 里应该写什么:
 - ❌ **重复 help 已写的示例** → 删, 让 skill 简短
 
 新加 / 改 cmd 流程:
-1. 改 wl.py: 加 / 改 add_parser 的 description + epilog (含使用场景 + 例子 + 跟相邻命令区别)
+1. 改 `src/worklog/cli.py`: 加 / 改 add_parser 的 description + epilog (含使用场景 + 例子 + 跟相邻命令区别)
 2. 跑测试 + 自查 `wl <cmd> --help` 输出
 3. 看相关 skill 有没有冗余副本, 删 / 改成引用
 4. commit
@@ -740,5 +740,5 @@ skill 维护成本下降, help 一改全跟。
 
 - `README.md` — 安装 + 命令速查 + schema
 - `TODO.md` — 功能路线 T-1~T-10
-- `schema.sql` — 表结构
+- `src/worklog/migrations/NNNN_*.sql` — 表结构(编号 migrations,`PRAGMA user_version` 追踪)
 - vault `[[结构化 worklog 项目需求 v1]]` — 项目 PRD + v1.1 + D8 自建决策

@@ -9,7 +9,7 @@ WL_BIN      := $(HOME)/bin/wl
 PROJ_DIR    := $(shell pwd)
 GIT         := /usr/bin/git
 
-# Resolve the DB path — matches wl.py _resolve_db_path:
+# Resolve the DB path — matches worklog.cli._resolve_db_path:
 # $WORKLOG_DB env, else $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
 WORKLOG_DB_PATH  := $(shell \
   if [ -n "$$WORKLOG_DB" ]; then echo "$$WORKLOG_DB"; \
@@ -41,7 +41,9 @@ cov:                 ## detailed coverage report (term-missing, includes 95% gat
 # ── install / uninstall ──
 
 install: sync        ## install ~/bin/wl wrapper pointing into the project .venv
-	@printf '#!/usr/bin/env bash\nexec %s/.venv/bin/python %s/wl.py "$$@"\n' "$(PROJ_DIR)" "$(PROJ_DIR)" > $(WL_BIN)
+	@# uv sync installs the `wl` console-script into .venv/bin via [project.scripts];
+	@# the wrapper just execs it so $PATH usage is identical to a `pip install` user.
+	@printf '#!/usr/bin/env bash\nexec %s/.venv/bin/wl "$$@"\n' "$(PROJ_DIR)" > $(WL_BIN)
 	@chmod +x $(WL_BIN)
 	@echo "✓ $(WL_BIN) installed"
 	@which wl

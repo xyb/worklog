@@ -13,9 +13,9 @@
 - Long flags `--xxx`; short flags only for the highest-frequency ones (`-k` kind / `-p` priority / `-t` tag)
 - Missing node: always `sys.exit(f"✗ ... #{id} not found")` with non-zero exit code
 
-## 2. Data model (schema.sql)
+## 2. Data model (`src/worklog/migrations/`)
 
-A single `node` table carries everything; the `kind` field discriminates type; `parent_id` self-reference builds the tree. See `schema.sql` and `README.md`.
+A single `node` table carries everything; the `kind` field discriminates type; `parent_id` self-reference builds the tree. The schema is delivered as numbered SQL migrations under `src/worklog/migrations/NNNN_*.sql`; `PRAGMA user_version` tracks the highest applied migration. `ensure_db()` auto-applies pending migrations on every command; `wl migrate` is the explicit form. See `src/worklog/migrations/0001_initial_schema.sql` for the initial layout and `README.md` for the high-level picture.
 
 - **kind values**: `lifetime / decade / year / quarter / month / week / day / area / project / task / meetlog / habit / signal` (extensible, but new kinds should have a clear place in tree / projects / summary classification)
 - **status only applies to task / habit / meetlog**; time-hierarchy kinds (year/month/...) and project kind leave status NULL
@@ -182,9 +182,9 @@ Reuse these when a new command needs the functionality; do not write another cop
 
 ## 16. Engineering conventions
 
-- **Runtime deps: just `rich` (optional enhancement)**: core logic uses only Python stdlib (sqlite3 + argparse); `rich` is only for highlighting (§19), and a `try import rich` at the top of `wl.py` falls back to plain text on failure (`_RICH_AVAIL=False`). `pytest` is test-time only.
-- Single-file `wl.py`; split into modules only if it grows too large
-- fish completion `completions/wl.fish` syncs with command changes (new subcommand / flag — add to completion)
+- **Runtime deps: just `rich` (optional enhancement)**: core logic uses only Python stdlib (sqlite3 + argparse); `rich` is only for highlighting (§19), and a `try import rich` at the top of `src/worklog/cli.py` falls back to plain text on failure (`_RICH_AVAIL=False`). `pytest` is test-time only.
+- Single-package `src/worklog/`; `cli.py` holds the implementation, `migrations/NNNN_*.sql` the schema, `__init__.py` the version. Split `cli.py` into submodules only if it grows too large.
+- Shell completion is **auto-generated** via `wl print-completion {fish,bash,zsh}` walking the argparse tree — no hand-maintained `completions/wl.fish` file. Adding a subcommand/flag → completion updates automatically. For dynamic completion (node id / tag), register the new positional/option in `_FISH_POSITIONAL_NODE` / `_FISH_HELPERS` / `_BASH_DYN_HELPERS`.
 - Every command addition: implementation + tests + completion + this document (if convention is affected), all in one go
 - Push via `make ship` (only pushes after tests pass)
 

@@ -17,14 +17,13 @@ jobs:
         with:
           fetch-depth: 0  # need full history for auto-generated release notes
 
-      - name: Verify tag matches pyproject + wl.py versions
+      - name: Verify tag matches pyproject version
         run: |
           tag="${GITHUB_REF_NAME#v}"
           proj=$(grep -m1 '^version = ' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')
-          code=$(grep -m1 '^__version__ = ' wl.py | sed 's/.*"\(.*\)".*/\1/')
-          echo "git tag=$tag · pyproject=$proj · wl.py __version__=$code"
-          if [ "$tag" != "$proj" ] || [ "$tag" != "$code" ]; then
-            echo "::error::version mismatch — git tag must equal both pyproject.toml version and wl.py __version__"
+          echo "git tag=$tag · pyproject=$proj"
+          if [ "$tag" != "$proj" ]; then
+            echo "::error::version mismatch — git tag must equal pyproject.toml version (which __version__ reads via importlib.metadata)"
             exit 1
           fi
 

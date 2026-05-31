@@ -4,9 +4,10 @@ import sys
 from pathlib import Path
 import pytest
 
-# let tests/ import the wl main module
+# Make the src layout importable (uv sync also installs it editable, but
+# running pytest from a fresh checkout pre-`uv sync` still needs this hint).
 PROJ_ROOT = Path(__file__).parent.parent
-sys.path.insert(0, str(PROJ_ROOT))
+sys.path.insert(0, str(PROJ_ROOT / "src"))
 
 
 @pytest.fixture
@@ -16,7 +17,7 @@ def tmp_db(tmp_path, monkeypatch):
     monkeypatch.setenv("WORKLOG_DB", str(db_file))
     # reload the wl module so DB_PATH re-reads the env
     import importlib
-    import wl
+    from worklog import cli as wl
     importlib.reload(wl)
     return wl
 

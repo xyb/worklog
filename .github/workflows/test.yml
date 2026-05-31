@@ -41,10 +41,11 @@ jobs:
       - name: Smoke test CLI
         run: |
           export WORKLOG_DB=$(mktemp -d)/worklog.db
-          uv run python wl.py init
-          uv run python wl.py --version
-          uv run python wl.py add "ci smoke task" -k task -p A
-          uv run python wl.py log 1 "hello from CI"
-          uv run python wl.py done 1
-          uv run python wl.py show 1
-          uv run python wl.py tree
+          uv run wl init
+          uv run wl --version
+          uv run wl add "ci smoke task" -k task -p A
+          uv run wl log 1 "hello from CI"
+          uv run wl done 1
+          uv run wl show 1
+          uv run wl tree
+          uv run wl migrate
