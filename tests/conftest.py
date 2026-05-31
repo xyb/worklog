@@ -13,7 +13,7 @@ sys.path.insert(0, str(PROJ_ROOT))
 def tmp_db(tmp_path, monkeypatch):
     """One temp DB per test; cleaned automatically when the test ends."""
     db_file = tmp_path / "wl-test.db"
-    monkeypatch.setenv("WL_DB", str(db_file))
+    monkeypatch.setenv("WORKLOG_DB", str(db_file))
     # reload the wl module so DB_PATH re-reads the env
     import importlib
     import wl

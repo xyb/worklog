@@ -1,6 +1,6 @@
 ---
 name: worklog-cli
-description: Use the `wl` command to read/write a SQLite-backed execution-system DB (XDG default `~/.local/share/wl/wl.db`; legacy `~/.worklog/wl.db` still honored) — record/query plans + projects + tasks + logs + time hierarchy; a structured replacement for markdown worklogs. Use when the user wants to add a task/project/day entry, append a log to a task, mark done/defer, list a tree/a day's work/active projects, query time-range progress for a weekly report, bulk-import a day of data, or focus a node's parents/children. Trigger words: wl, worklog-cli, add worklog, log progress, list tree, show day, weekly report input, bulk import tasks, apply diff.
+description: Use the `wl` command to read/write a SQLite-backed execution-system DB (XDG default `~/.local/share/worklog/worklog.db`; override per-invocation with `wl --db PATH ...` or globally with `$WORKLOG_DB`) — record/query plans + projects + tasks + logs + time hierarchy; a structured replacement for markdown worklogs. Use when the user wants to add a task/project/day entry, append a log to a task, mark done/defer, list a tree/a day's work/active projects, query time-range progress for a weekly report, bulk-import a day of data, or focus a node's parents/children. Trigger words: wl, worklog-cli, add worklog, log progress, list tree, show day, weekly report input, bulk import tasks, apply diff.
 ---
 
 # worklog-cli (wl)
@@ -225,14 +225,14 @@ Humans (TTY) keep the original verbose output; no switching needed.
 ## What NOT to do
 
 - **No silent bulk delete / modification** — confirm with the user via `wl show <id>` before destructive changes
-- **Don't bypass `wl` and `sqlite3` the DB directly** — the DB (default `~/.local/share/wl/wl.db`, or legacy `~/.worklog/wl.db`) is the source of truth; schema lives in `DESIGN.md`
+- **Don't bypass `wl` and `sqlite3` the DB directly** — the DB (default `~/.local/share/worklog/worklog.db`, or wherever `$WORKLOG_DB` / `--db PATH` points) is the source of truth; schema lives in `DESIGN.md`
 - **Don't run `wl reset`** (drops the DB) unless explicitly requested
 - Before any bulk write, **`--dry-run` first**, especially for update/delete
 - When adding a command to `wl.py`: change implementation + tests + completion + `DESIGN.md` (if convention touched) + this `SKILL.md` (if usage touched) together; `make ship` (push only if tests pass)
 
 ## Highlighting / colors
 
-In a terminal, `wl` is colored by default (`rich`): status green/yellow, priority A red, search hits (including title matches) background-highlighted. Global switches (before any subcommand): `wl --color {auto,always,never}`, `wl --theme {auto,dark,light,mono}`; also reads `$WL_COLOR` / `$WL_THEME` / `$NO_COLOR`. Theme default **auto**: probes terminal background and picks dark/light (falls back to dark if undetectable); `wl themes` lists and previews. `--color auto` (default) only colors a TTY — **AI capturing stdout gets plain text automatically**, no need to explicitly disable. To pipe colored output (e.g. `| less -R`), use `--color always`. Details in `DESIGN.md` §19.
+In a terminal, `wl` is colored by default (`rich`): status green/yellow, priority A red, search hits (including title matches) background-highlighted. Global switches (before any subcommand): `wl --color {auto,always,never}`, `wl --theme {auto,dark,light,mono}`; also reads `$WORKLOG_COLOR` / `$WORKLOG_THEME` / `$NO_COLOR`. Theme default **auto**: probes terminal background and picks dark/light (falls back to dark if undetectable); `wl themes` lists and previews. `--color auto` (default) only colors a TTY — **AI capturing stdout gets plain text automatically**, no need to explicitly disable. To pipe colored output (e.g. `| less -R`), use `--color always`. Details in `DESIGN.md` §19.
 
 ## Related sub-skills
 
@@ -284,7 +284,7 @@ Same loading model as starship / direnv / zoxide — new shells pick up changes 
 **User aliases**:
 
 ```ini
-# ~/.config/wl/aliases.ini (optional)
+# ~/.config/worklog/aliases.ini (optional)
 [aliases]
 d = day
 c = checkin

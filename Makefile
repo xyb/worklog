@@ -1,49 +1,47 @@
 # worklog Makefile
 # Unified entry point for common dev / install / git actions.
+# Dependency management goes through uv (https://docs.astral.sh/uv/).
 
-PYTHON      := $(HOME)/.virtualenvs/worklog/bin/python
-PIP         := $(HOME)/.virtualenvs/worklog/bin/pip
-VENV        := $(HOME)/.virtualenvs/worklog
+UV          := uv
+PYTHON      := $(UV) run python
+PYTEST      := $(UV) run pytest
 WL_BIN      := $(HOME)/bin/wl
-FISH_COMP   := $(HOME)/.config/fish/completions/wl.fish
 PROJ_DIR    := $(shell pwd)
 GIT         := /usr/bin/git
 
-# Resolve the DB path — matches wl.py _resolve_db_path priority:
-# $WL_DB > legacy ~/.worklog/wl.db (if it exists) > $XDG_DATA_HOME/wl/wl.db
-WL_DB_PATH  := $(shell \
-  if [ -n "$$WL_DB" ]; then echo "$$WL_DB"; \
-  elif [ -e "$$HOME/.worklog/wl.db" ]; then echo "$$HOME/.worklog/wl.db"; \
-  else echo "$${XDG_DATA_HOME:-$$HOME/.local/share}/wl/wl.db"; fi)
+# Resolve the DB path — matches wl.py _resolve_db_path:
+# $WORKLOG_DB env, else $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
+WORKLOG_DB_PATH  := $(shell \
+  if [ -n "$$WORKLOG_DB" ]; then echo "$$WORKLOG_DB"; \
+  else echo "$${XDG_DATA_HOME:-$$HOME/.local/share}/worklog/worklog.db"; fi)
 
-.PHONY: help test test-v install uninstall reinstall push pull status commit demo clean reset venv setup
+.PHONY: help sync test test-v test-fast cov install uninstall reinstall push pull status commit demo clean reset setup
 
 help:                ## show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 # ── dev ──
 
-venv:                ## (re)create venv + install runtime + dev deps
-	@test -d $(VENV) || python3 -m venv $(VENV)
-	@$(PIP) install -q -r requirements.txt -r requirements-dev.txt
-	@echo "✓ venv: $(VENV) (runtime + dev deps from requirements*.txt)"
+sync:                ## uv sync (runtime + dev deps from pyproject.toml + uv.lock)
+	@$(UV) sync --all-groups
+	@echo "✓ .venv synced from pyproject.toml + uv.lock"
 
 test:                ## run pytest (parallel + cov + 95% gate, reads pytest.ini)
-	@$(PYTHON) -m pytest
+	@$(PYTEST)
 
 test-v:              ## run pytest verbose (no parallel, useful for debug output)
-	@$(PYTHON) -m pytest -v -p no:xdist --no-cov
+	@$(PYTEST) -v -p no:xdist --no-cov
 
 test-fast:           ## run pytest only (no cov, no gate; quick dev feedback)
-	@$(PYTHON) -m pytest --no-cov -n auto
+	@$(PYTEST) --no-cov -n auto
 
 cov:                 ## detailed coverage report (term-missing, includes 95% gate)
-	@$(PYTHON) -m pytest
+	@$(PYTEST)
 
 # ── install / uninstall ──
 
-install: venv        ## install ~/bin/wl wrapper; completions go via init-load (see below)
-	@printf '#!/usr/bin/env bash\nexec %s %s/wl.py "$$@"\n' "$(PYTHON)" "$(PROJ_DIR)" > $(WL_BIN)
+install: sync        ## install ~/bin/wl wrapper pointing into the project .venv
+	@printf '#!/usr/bin/env bash\nexec %s/.venv/bin/python %s/wl.py "$$@"\n' "$(PROJ_DIR)" "$(PROJ_DIR)" > $(WL_BIN)
 	@chmod +x $(WL_BIN)
 	@echo "✓ $(WL_BIN) installed"
 	@which wl
@@ -52,21 +50,21 @@ install: venv        ## install ~/bin/wl wrapper; completions go via init-load (
 	@echo "  fish: add to ~/.config/fish/config.fish →  wl print-completion fish | source"
 	@echo "  bash: add to ~/.bashrc                 →  eval \"\$$(wl print-completion bash)\""
 	@echo "  zsh:  add to ~/.zshrc                  →  eval \"\$$(wl print-completion zsh)\""
-	@echo "  aliases: ~/.config/wl/aliases.ini  [aliases] d = day / c = checkin / ..."
+	@echo "  aliases: ~/.config/worklog/aliases.ini  [aliases] d = day / c = checkin / ..."
 
-uninstall:           ## remove wrapper (keeps venv + DB; manually clean the wl print-completion line in your shell rc)
-	@rm -f $(WL_BIN) $(FISH_COMP)
-	@echo "✓ wl wrapper removed (venv $(VENV) + DB $(WL_DB_PATH) kept)"
+uninstall:           ## remove wrapper (keeps .venv + DB; manually clean the wl print-completion line in your shell rc)
+	@rm -f $(WL_BIN)
+	@echo "✓ wl wrapper removed (.venv + DB $(WORKLOG_DB_PATH) kept)"
 	@echo "  (if ~/.config/fish/config.fish has 'wl print-completion fish | source', remove it manually)"
 
 reinstall: uninstall install  ## clean reinstall
 
-setup: venv install  ## first-time setup: venv + install
+setup: sync install  ## first-time setup: uv sync + install wrapper
 
 # ── demo / sample data ──
 
 demo:                ## populate DB with sample tree (idempotent reset DB)
-	@rm -f $(WL_DB_PATH)
+	@rm -f $(WORKLOG_DB_PATH)
 	@wl init
 	@wl add "Lifetime" -k lifetime
 	@wl add "2026" -k year --parent 1
@@ -91,8 +89,8 @@ clean:               ## clean test cache + pycache
 	@echo "✓ cache cleaned"
 
 reset:               ## ⚠️ DROP DB + recreate empty (ask first)
-	@read -p "⚠️ rm $(WL_DB_PATH) ? (y/N) " ans; \
-	[ "$$ans" = "y" ] && rm -f $(WL_DB_PATH) && wl init || echo "abort"
+	@read -p "⚠️ rm $(WORKLOG_DB_PATH) ? (y/N) " ans; \
+	[ "$$ans" = "y" ] && rm -f $(WORKLOG_DB_PATH) && wl init || echo "abort"
 
 # ── git ──
 
@@ -122,6 +120,4 @@ all: setup test demo ## first-time: setup + test + demo
 # Drop site-specific variables, private remotes, or custom targets into
 # any *.mk file under local/. The directory is gitignored and missing
 # is fine — the `-` prefix on -include silences the no-match case.
-# Example: local/private.mk can override variables (PYTHON, GIT) or add
-# extra targets (push-mirror, deploy-staging, etc.).
 -include local/*.mk

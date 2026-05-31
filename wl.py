@@ -38,24 +38,23 @@ def _xdg_config_home() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
 
 
-def _resolve_db_path() -> Path:
-    """Resolve the SQLite DB path. Priority:
-    1. $WL_DB env (testing / explicit override)
-    2. legacy ~/.worklog/wl.db if it exists (back-compat for pre-XDG users)
-    3. $XDG_DATA_HOME/wl/wl.db (default ~/.local/share/wl/wl.db)
+def _resolve_db_path(args=None) -> Path:
+    """Resolve the SQLite DB path:
+    1. --db flag (per-invocation override, top priority)
+    2. $WORKLOG_DB env
+    3. $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
     """
-    env = os.environ.get("WL_DB")
+    if args is not None and getattr(args, "db", None):
+        return Path(args.db).resolve()
+    env = os.environ.get("WORKLOG_DB")
     if env:
         return Path(env).resolve()
-    legacy = Path.home() / ".worklog" / "wl.db"
-    if legacy.exists():
-        return legacy.resolve()
-    return (_xdg_data_home() / "wl" / "wl.db").resolve()
+    return (_xdg_data_home() / "worklog" / "worklog.db").resolve()
 
 
 def _resolve_aliases_path() -> Path:
-    """$XDG_CONFIG_HOME/wl/aliases.ini (default ~/.config/wl/aliases.ini)."""
-    return _xdg_config_home() / "wl" / "aliases.ini"
+    """$XDG_CONFIG_HOME/worklog/aliases.ini (default ~/.config/worklog/aliases.ini)."""
+    return _xdg_config_home() / "worklog" / "aliases.ini"
 
 
 DB_PATH = _resolve_db_path()
@@ -102,7 +101,7 @@ _CONSOLE = None  # initialized by main() based on --color/--theme; None = plain 
 
 def _resolve_color(mode):
     if mode is None:
-        mode = os.environ.get("WL_COLOR", "auto")
+        mode = os.environ.get("WORKLOG_COLOR", "auto")
     if mode == "never":
         return False
     if mode == "always":
@@ -161,7 +160,7 @@ def _init_console(color_mode, theme_name):
     if not _resolve_color(color_mode) or not _RICH_AVAIL:
         _CONSOLE = None
         return
-    name = _resolve_theme(theme_name or os.environ.get("WL_THEME"))
+    name = _resolve_theme(theme_name or os.environ.get("WORKLOG_THEME"))
     force = True if color_mode == "always" else None
     _CONSOLE = _RichConsole(theme=_RichTheme(THEMES[name]), force_terminal=force, highlight=False, soft_wrap=True)
     # terminal without color support (TERM=dumb etc.) -> effectively mono, rich won't emit ANSI
@@ -237,12 +236,11 @@ def cmd_init(args, con):
 
 def cmd_config(args, con):
     """Print resolved configuration: where the DB and config files live + env."""
-    db = _resolve_db_path()
-    legacy = Path.home() / ".worklog" / "wl.db"
-    if os.environ.get("WL_DB"):
-        db_src = "$WL_DB"
-    elif legacy.exists():
-        db_src = "legacy ~/.worklog/"
+    db = _resolve_db_path(args)
+    if getattr(args, "db", None):
+        db_src = "--db flag"
+    elif os.environ.get("WORKLOG_DB"):
+        db_src = "$WORKLOG_DB"
     else:
         db_src = "XDG default"
     db_exists = db.exists()
@@ -254,7 +252,7 @@ def cmd_config(args, con):
         hint_part = "  " + _c(hint, "meta") if hint else ""
         out(f"  {label:<18} {value}{hint_part}")
 
-    out(_c(f"worklog-cli {__version__}", "header"))
+    out(_c(f"worklog {__version__}", "header"))
     out("")
     out(_c("paths:", "header"))
     _row("database", db, f"[{db_src}] {db_size}")
@@ -265,7 +263,7 @@ def cmd_config(args, con):
     _row("XDG_CONFIG_HOME", _xdg_config_home(), "(env set)" if os.environ.get("XDG_CONFIG_HOME") else "(default)")
     out("")
     out(_c("environment:", "header"))
-    for var in ("WL_DB", "WL_COLOR", "WL_THEME", "NO_COLOR"):
+    for var in ("WORKLOG_DB", "WORKLOG_COLOR", "WORKLOG_THEME", "NO_COLOR"):
         val = os.environ.get(var)
         _row(var, val if val else _c("(not set)", "meta"))
     out("")
@@ -3563,17 +3561,15 @@ _FISH_POSITIONAL_NODE = {"log", "done", "defer", "start", "stop", "wait", "reope
                         "cancel", "tick", "link", "set", "show", "focus", "ancestors",
                         "descendants", "spent", "unlog", "relog"}
 
-_FISH_HELPER_FUNCTIONS = r"""# --- helper functions (dynamic queries against wl.db; no Python startup, fast) ---
+_FISH_HELPER_FUNCTIONS = r"""# --- helper functions (dynamic queries against worklog.db; no Python startup, fast) ---
 function __wl_db_path
-    # priority: $WL_DB > legacy ~/.worklog/wl.db (if it exists) > $XDG_DATA_HOME/wl/wl.db
-    if set -q WL_DB
-        echo $WL_DB
-    else if test -e $HOME/.worklog/wl.db
-        echo $HOME/.worklog/wl.db
+    # $WORKLOG_DB env, else $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
+    if set -q WORKLOG_DB
+        echo $WORKLOG_DB
     else if set -q XDG_DATA_HOME
-        echo $XDG_DATA_HOME/wl/wl.db
+        echo $XDG_DATA_HOME/worklog/worklog.db
     else
-        echo $HOME/.local/share/wl/wl.db
+        echo $HOME/.local/share/worklog/worklog.db
     end
 end
 
@@ -3760,15 +3756,13 @@ def _generate_fish_completion(parser):
 # --- bash backend ---
 
 # bash does not show descriptions, only completes tokens. helper is a bash function that emits a token list.
-_BASH_HELPER_FUNCTIONS = r"""# helper functions (local SQLite query against wl.db; no Python startup)
+_BASH_HELPER_FUNCTIONS = r"""# helper functions (local SQLite query against worklog.db; no Python startup)
 __wl_db_path_bash() {
-    # priority: $WL_DB > legacy ~/.worklog/wl.db (if it exists) > $XDG_DATA_HOME/wl/wl.db
-    if [ -n "$WL_DB" ]; then
-        echo "$WL_DB"
-    elif [ -e "$HOME/.worklog/wl.db" ]; then
-        echo "$HOME/.worklog/wl.db"
+    # $WORKLOG_DB env, else $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
+    if [ -n "$WORKLOG_DB" ]; then
+        echo "$WORKLOG_DB"
     else
-        echo "${XDG_DATA_HOME:-$HOME/.local/share}/wl/wl.db"
+        echo "${XDG_DATA_HOME:-$HOME/.local/share}/worklog/worklog.db"
     fi
 }
 
@@ -3957,15 +3951,13 @@ def _generate_bash_completion(parser):
 
 # --- zsh backend ---
 
-_ZSH_HELPER_FUNCTIONS = r"""# helper functions (local SQLite query against wl.db; no Python startup)
+_ZSH_HELPER_FUNCTIONS = r"""# helper functions (local SQLite query against worklog.db; no Python startup)
 __wl_db_path_zsh() {
-    # priority: $WL_DB > legacy ~/.worklog/wl.db (if it exists) > $XDG_DATA_HOME/wl/wl.db
-    if [ -n "$WL_DB" ]; then
-        echo "$WL_DB"
-    elif [ -e "$HOME/.worklog/wl.db" ]; then
-        echo "$HOME/.worklog/wl.db"
+    # $WORKLOG_DB env, else $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
+    if [ -n "$WORKLOG_DB" ]; then
+        echo "$WORKLOG_DB"
     else
-        echo "${XDG_DATA_HOME:-$HOME/.local/share}/wl/wl.db"
+        echo "${XDG_DATA_HOME:-$HOME/.local/share}/worklog/worklog.db"
     fi
 }
 
@@ -4163,7 +4155,7 @@ def cmd_print_completion(args, con=None):
 
 def cmd_themes(args, con):
     """List all color themes, each rendering a one-line sample in its own palette for comparison."""
-    req = args.theme or os.environ.get("WL_THEME") or "auto"
+    req = args.theme or os.environ.get("WORKLOG_THEME") or "auto"
     cur = _resolve_theme(req)  # resolve auto to a real theme
     auto_note = f" (auto -> {cur})" if req in (None, "auto") else ""
     no_color = args.color == "never" or os.environ.get("NO_COLOR")
@@ -4208,7 +4200,7 @@ def _status_marker(status):
 
 # --- argparse ---
 def _load_user_aliases():
-    """Read ~/.config/wl/aliases.ini and return {target_cmd: [alias1, alias2, ...]}.
+    """Read ~/.config/worklog/aliases.ini and return {target_cmd: [alias1, alias2, ...]}.
     Format:
         [aliases]
         d = day
@@ -4248,11 +4240,13 @@ def build_parser():
 
     p = argparse.ArgumentParser(prog="wl", description="worklog-cli: SQLite-backed worklog tool")
     p.add_argument("--version", action="version", version=f"wl {__version__}")
+    p.add_argument("--db", metavar="PATH",
+                   help="override the DB path for this invocation (handy for testing / multiple worklogs); takes precedence over $WORKLOG_DB and the XDG default")
     p.add_argument("--color", choices=["auto", "always", "never"], default=None,
-                   help="color switch (default auto: enabled on TTY + rich; also reads $WL_COLOR/$NO_COLOR)")
+                   help="color switch (default auto: enabled on TTY + rich; also reads $WORKLOG_COLOR/$NO_COLOR)")
     p.add_argument("--theme", default=None, choices=["auto"] + list(THEMES),
                    metavar="{auto,%s}" % ",".join(THEMES),
-                   help="color theme (default auto: probe terminal bg, pick dark/light; reads $WL_THEME; see `wl themes`)")
+                   help="color theme (default auto: probe terminal bg, pick dark/light; reads $WORKLOG_THEME; see `wl themes`)")
     p.add_argument("-q", "--brief", action="store_true",
                    help="brief output: skip log body/timeline/detail in every command, token-saving for AI")
     p.add_argument("--log-format", choices=["oneline", "full"], default="oneline",
@@ -4296,23 +4290,23 @@ def build_parser():
         epilog="""\
 Shows where worklog reads from and how the runtime is configured.
 Useful when:
-  - you're not sure which DB `wl` is using (XDG vs legacy vs $WL_DB)
+  - you're not sure which DB `wl` is using ($WORKLOG_DB env vs XDG default)
   - you need to point another tool at the same DB / aliases file
   - the rich highlighting isn't appearing and you want to check theme/env
 
 Read-only and side-effect free — does not create the DB if missing.""")
 
     sub.add_parser("init",
-        help="initialize SQLite DB (default ~/.local/share/wl/wl.db; skips if it exists)",
+        help="initialize SQLite DB (default ~/.local/share/worklog/worklog.db; skips if it exists)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""Run once on a fresh machine before using wl.
 
-DB path resolution (priority order):
-  1. $WL_DB env var (testing / explicit override)
-  2. legacy ~/.worklog/wl.db (back-compat: used if it already exists)
-  3. $XDG_DATA_HOME/wl/wl.db (default ~/.local/share/wl/wl.db)
+DB path resolution:
+  1. --db PATH flag (per-invocation override)
+  2. $WORKLOG_DB env var
+  3. $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
 
-Config (aliases.ini) lives at $XDG_CONFIG_HOME/wl/aliases.ini (default ~/.config/wl/aliases.ini).""")
+Config (aliases.ini) lives at $XDG_CONFIG_HOME/worklog/aliases.ini (default ~/.config/worklog/aliases.ini).""")
 
     a = sub.add_parser("add",
         help="create a new node (task/project/area/meetlog/habit/day...); compound flags let you do add + log + done + sched + link in one shot",
@@ -5020,7 +5014,7 @@ Default window of 7 days avoids full-history flooding. Use --since/--until/--wee
     sub.add_parser("themes",
         help="list all color themes (one-line preview per theme)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="Switch theme: top-level --theme {auto,dark,light,mono} flag, or export WL_THEME=...; auto probes terminal background and picks dark/light.")
+        epilog="Switch theme: top-level --theme {auto,dark,light,mono} flag, or export WORKLOG_THEME=...; auto probes terminal background and picks dark/light.")
 
     pc = sub.add_parser("print-completion",
         help="dump shell completion script (argparse -> fish/bash/zsh; init-load model)",
@@ -5038,7 +5032,7 @@ Usage (write once to your shell rc, then new shells auto-load; stays in sync wit
 
 Same pattern as starship/direnv/zoxide.
 
-User aliases: add [aliases] section to ~/.config/wl/aliases.ini (e.g. d = day / c = checkin / ...); new shells pick them up (uniform across shells).""")
+User aliases: add [aliases] section to ~/.config/worklog/aliases.ini (e.g. d = day / c = checkin / ...); new shells pick them up (uniform across shells).""")
     pc.add_argument("shell", choices=["fish", "bash", "zsh"], help="target shell")
 
     return p
@@ -5105,6 +5099,10 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
     if args.cmd == "config":
         HANDLERS[args.cmd](args, None)
         return
+    # --- per-invocation DB override (--db flag) ---
+    # Re-evaluate DB_PATH with args so ensure_db / db_connect see the override.
+    global DB_PATH
+    DB_PATH = _resolve_db_path(args)
     ensure_db()
     con = db_connect()
     try:

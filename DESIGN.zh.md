@@ -177,7 +177,7 @@ dev ai sync strategy reflection reading family health morning_check slack_scan
 ## 15. 测试约定
 
 - 每个命令一个 `Test<Cmd>` 类，`tests/test_wl.py`
-- `conftest.py` 的 `cli` fixture：每测试独立临时 DB（`WL_DB` env + tmp_path），`run_cli` 抓 stdout/stderr/exit_code
+- `conftest.py` 的 `cli` fixture：每测试独立临时 DB（`WORKLOG_DB` env + tmp_path），`run_cli` 抓 stdout/stderr/exit_code
 - 新命令必须覆盖：正常路径 + 边界（不存在 id / 空库 / 过滤无命中）
 - 改约定导致旧测试断言失效 → 同步更新断言，别留红
 
@@ -298,7 +298,7 @@ marker → status：`[ ]`TODO `[x]`DONE `[/]`DOING `[>]`LATER `[?]`WAIT `[-]`CAN
 ### 19.1 开关与检测
 
 - 全局参数（任意子命令前）：`--color {auto,always,never}` + `--theme {auto,dark,light,mono}`（theme choices = `["auto"] + list(THEMES)`，加调色板自动进 choices）
-- 环境变量兜底：`$WL_COLOR`（同 `--color` 值）、`$WL_THEME`、`$NO_COLOR`（标准约定，置任意值即关色）
+- 环境变量兜底：`$WORKLOG_COLOR`（同 `--color` 值）、`$WORKLOG_THEME`、`$NO_COLOR`（标准约定，置任意值即关色）
 - `--color auto`（默认）判定：`rich 可用 且 stdout.isatty() 且 无 $NO_COLOR` → 启用。所以管道 / 重定向 / 测试的 StringIO 自动降级纯文本，**测试无需特殊处理**
 - `_init_console(color, theme)` 在 `main()` 解析参数后调用一次，设全局 `_CONSOLE`（`None`=纯文本 / `rich.Console`=高亮）；`--color always` 用 `force_terminal=True` 强制出 ANSI（管道也出色，给 `less -R` 用）
 
@@ -647,7 +647,7 @@ eval "$(wl print-completion zsh)"
 ### 用户别名 (跨 shell 统一)
 
 ```ini
-# ~/.config/wl/aliases.ini
+# ~/.config/worklog/aliases.ini
 [aliases]
 d = day
 c = checkin

@@ -18,19 +18,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v5
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
         with:
           python-version: ${{ matrix.python-version }}
-          cache: pip
+          enable-cache: true
 
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt -r requirements-dev.txt
+      - name: Sync deps
+        run: uv sync --all-groups
 
       - name: Run tests with coverage
-        run: python -m pytest --cov-report=xml --cov-report=term-missing
+        run: uv run pytest --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage to Codecov
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
@@ -42,11 +40,11 @@ jobs:
 
       - name: Smoke test CLI
         run: |
-          export WL_DB=$(mktemp -d)/wl.db
-          python wl.py init
-          python wl.py --version
-          python wl.py add "ci smoke task" -k task -p A
-          python wl.py log 1 "hello from CI"
-          python wl.py done 1
-          python wl.py show 1
-          python wl.py tree
+          export WORKLOG_DB=$(mktemp -d)/worklog.db
+          uv run python wl.py init
+          uv run python wl.py --version
+          uv run python wl.py add "ci smoke task" -k task -p A
+          uv run python wl.py log 1 "hello from CI"
+          uv run python wl.py done 1
+          uv run python wl.py show 1
+          uv run python wl.py tree

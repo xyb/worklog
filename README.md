@@ -13,19 +13,12 @@ Background: structured worklog tool, built as a self-built alternative after sur
 
 ## Install
 
-```fish
-mkdir -p ~/projects && cd ~/projects
-git clone <your-git-host>:<user>/worklog-cli.git
-cd worklog-cli
-python3 -m venv ~/.virtualenvs/worklog-cli
-~/.virtualenvs/worklog-cli/bin/pip install rich pytest   # rich=highlighting (optional), pytest=tests
+Requires [uv](https://docs.astral.sh/uv/) (`brew install uv` or `pipx install uv`).
 
-# global wrapper
-cat > ~/bin/wl <<'WRAP'
-#!/usr/bin/env bash
-exec ~/.virtualenvs/worklog-cli/bin/python ~/projects/worklog-cli/wl.py "$@"
-WRAP
-chmod +x ~/bin/wl
+```fish
+git clone https://github.com/xyb/worklog.git ~/projects/worklog
+cd ~/projects/worklog
+make setup       # uv sync + install ~/bin/wl wrapper
 
 # shell completion (init-load mode, pick your shell)
 # fish: add to ~/.config/fish/config.fish
@@ -36,7 +29,9 @@ echo 'wl print-completion fish | source' >> ~/.config/fish/config.fish
 wl init
 ```
 
-DB location follows [XDG Base Directory spec](https://specifications.freedesktop.org/basedir-spec/): default `$XDG_DATA_HOME/wl/wl.db` (i.e. `~/.local/share/wl/wl.db`). Pre-XDG installations with `~/.worklog/wl.db` keep working — the legacy path is preferred when present. Set `$WL_DB` to override (useful for tests). User config (aliases.ini) lives at `$XDG_CONFIG_HOME/wl/aliases.ini` (default `~/.config/wl/aliases.ini`).
+Behind the scenes `make setup` runs `uv sync` to create `.venv/` from `pyproject.toml` + `uv.lock`, then installs a `~/bin/wl` wrapper pointing into that `.venv`.
+
+DB location follows the [XDG Base Directory spec](https://specifications.freedesktop.org/basedir-spec/): default `$XDG_DATA_HOME/worklog/worklog.db` (i.e. `~/.local/share/worklog/worklog.db`). Override per-invocation with `wl --db PATH ...`, or globally with the `$WORKLOG_DB` env var. User config (aliases.ini) lives at `$XDG_CONFIG_HOME/worklog/aliases.ini` (default `~/.config/worklog/aliases.ini`).
 
 ## Commands
 
@@ -73,7 +68,7 @@ wl --theme light summary --week ...  # manually pick the light-background theme
 - `--theme {auto,dark,light,mono}`, default **auto**: probes terminal background and picks dark (dark bg) / light (light bg); falls back to dark when undetectable. dark/light/mono can also be picked manually.
   - Background probe: first checks `$COLORFGBG`, then sends an OSC 11 query (needs an interactive terminal, short timeout, gracefully falls back if unsupported)
 - Search hits (including matches in titles) highlight: styled mode uses background color; plain text wraps with `*…*`
-- env fallback: `$WL_COLOR` / `$WL_THEME` / `$NO_COLOR`
+- env fallback: `$WORKLOG_COLOR` / `$WORKLOG_THEME` / `$NO_COLOR`
 - `rich` is an optional dependency — the tool still runs without it (plain text only)
 
 ## Schema
@@ -114,7 +109,7 @@ After saving, `make help` will list `push-gitea` alongside the built-in targets.
 ## Test
 
 ```fish
-~/.virtualenvs/worklog-cli/bin/python -m pytest tests/ -v
+uv run pytest -v
 ```
 
 Tests cover: init, add (all kinds + tree hierarchy + CJK titles + multi-tag), log (multi-entry + long body + missing node), state transitions (done/defer/start/stop + clock elapsed), link / set, show, ls (all filters), tree (depth limit + kind filter), logs, cascade (parent delete, node delete).

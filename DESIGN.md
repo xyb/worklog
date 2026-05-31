@@ -176,7 +176,7 @@ Reuse these when a new command needs the functionality; do not write another cop
 ## 15. Test conventions
 
 - One `Test<Cmd>` class per command, in `tests/test_wl.py`
-- `conftest.py`'s `cli` fixture: per-test isolated tempdir DB (`WL_DB` env + `tmp_path`), `run_cli` captures stdout/stderr/exit_code
+- `conftest.py`'s `cli` fixture: per-test isolated tempdir DB (`WORKLOG_DB` env + `tmp_path`), `run_cli` captures stdout/stderr/exit_code
 - New commands must cover: happy path + edges (missing id / empty DB / filter no-match)
 - If convention changes invalidate an assertion, update the assertion synchronously — do not leave it red
 
@@ -297,7 +297,7 @@ Terminal highlighting goes through `rich`; can be turned off, can switch themes,
 ### 19.1 Switches and detection
 
 - Global flags (before any subcommand): `--color {auto,always,never}` + `--theme {auto,dark,light,mono}` (theme choices = `["auto"] + list(THEMES)`; new palettes are auto-added to choices)
-- Env fallback: `$WL_COLOR` (same values as `--color`), `$WL_THEME`, `$NO_COLOR` (standard, any value disables color)
+- Env fallback: `$WORKLOG_COLOR` (same values as `--color`), `$WORKLOG_THEME`, `$NO_COLOR` (standard, any value disables color)
 - `--color auto` (default) decides: `rich available AND stdout.isatty() AND no $NO_COLOR` → enabled. So pipes / redirects / test StringIO auto-downgrade to plain text, **tests need no special handling.**
 - `_init_console(color, theme)` is called once in `main()` after parsing args, sets the global `_CONSOLE` (`None` = plain text / `rich.Console` = highlighting); `--color always` uses `force_terminal=True` to force ANSI even through pipes (for `less -R`).
 

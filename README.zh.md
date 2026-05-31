@@ -13,19 +13,12 @@ SQLite 后端的 worklog 工具,`todo.sh` 风格 CLI。完整执行体系层级�
 
 ## 安装
 
-```fish
-mkdir -p ~/projects && cd ~/projects
-git clone <your-git-host>:<user>/worklog-cli.git
-cd worklog-cli
-python3 -m venv ~/.virtualenvs/worklog-cli
-~/.virtualenvs/worklog-cli/bin/pip install rich pytest   # rich=高亮(可选), pytest=测试
+需要先装 [uv](https://docs.astral.sh/uv/)(`brew install uv` 或 `pipx install uv`)。
 
-# 全局 wrapper
-cat > ~/bin/wl <<'WRAP'
-#!/usr/bin/env bash
-exec ~/.virtualenvs/worklog-cli/bin/python ~/projects/worklog-cli/wl.py "$@"
-WRAP
-chmod +x ~/bin/wl
+```fish
+git clone https://github.com/xyb/worklog.git ~/projects/worklog
+cd ~/projects/worklog
+make setup       # uv sync + 装 ~/bin/wl wrapper
 
 # shell 补全 (init load 模式, 任选 shell)
 # fish: ~/.config/fish/config.fish 加
@@ -36,7 +29,9 @@ echo 'wl print-completion fish | source' >> ~/.config/fish/config.fish
 wl init
 ```
 
-数据库位置遵循 [XDG Base Directory 规范](https://specifications.freedesktop.org/basedir-spec/): 默认 `$XDG_DATA_HOME/wl/wl.db`(即 `~/.local/share/wl/wl.db`)。已有 `~/.worklog/wl.db` 的老用户继续兼容 —— 旧路径存在时优先用旧路径。`$WL_DB` 环境变量可覆盖(测试场景有用)。用户配置(aliases.ini)走 `$XDG_CONFIG_HOME/wl/aliases.ini`(默认 `~/.config/wl/aliases.ini`)。
+`make setup` 内部跑 `uv sync` 根据 `pyproject.toml` + `uv.lock` 建 `.venv/`,然后装 `~/bin/wl` wrapper 指向那个 `.venv`。
+
+数据库位置遵循 [XDG Base Directory 规范](https://specifications.freedesktop.org/basedir-spec/): 默认 `$XDG_DATA_HOME/worklog/worklog.db`(即 `~/.local/share/worklog/worklog.db`)。可以用 `wl --db PATH ...` 单次覆盖,也可以用 `$WORKLOG_DB` 环境变量全局覆盖。用户配置(aliases.ini)走 `$XDG_CONFIG_HOME/worklog/aliases.ini`(默认 `~/.config/worklog/aliases.ini`)。
 
 ## 命令
 
@@ -73,7 +68,7 @@ wl --theme light summary --week ...  # 手动指定浅色背景主题
 - `--theme {auto,dark,light,mono}`,默认 **auto**: 探测终端底色自动选 dark(深色背景) / light(浅色背景);测不出回退 dark。dark/light/mono 也可手动指定
   - 底色探测: 先看 `$COLORFGBG`,再发 OSC 11 查询(需交互终端,短超时,不支持就回退)
 - 搜索命中(含标题里的命中)高亮: styled 用背景色,纯文本用半角 `*…*` 标出
-- env 兜底: `$WL_COLOR` / `$WL_THEME` / `$NO_COLOR`
+- env 兜底: `$WORKLOG_COLOR` / `$WORKLOG_THEME` / `$NO_COLOR`
 - rich 是可选依赖,没装也能跑(纯文本)
 
 ## Schema
@@ -114,7 +109,7 @@ push-gitea:        ## push 当前分支到私有 remote
 ## 测试
 
 ```fish
-~/.virtualenvs/worklog-cli/bin/python -m pytest tests/ -v
+uv run pytest -v
 ```
 
 测试覆盖: init,add(全部 kind + 树状层级 + CJK 标题 + 多 tag),log(多条 + 长 body + 缺失 node),状态迁移(done/defer/start/stop + clock 耗时),link / set,show,ls(全部过滤器),tree(深度限制 + kind 过滤),logs,级联(父删 / 节点删)。

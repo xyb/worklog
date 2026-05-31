@@ -44,7 +44,7 @@ class TestConfig:
     def test_config_runs(self, cli):
         code, out, _ = cli("config")
         assert code == 0
-        assert "worklog-cli" in out
+        assert "worklog" in out
 
     def test_config_shows_db_path_and_aliases(self, cli):
         _, out, _ = cli("config")
@@ -57,9 +57,9 @@ class TestConfig:
         assert "XDG_CONFIG_HOME" in out
 
     def test_config_marks_wl_db_source(self, tmp_path, monkeypatch):
-        """When $WL_DB is set, config reports it as the DB source."""
+        """When $WORKLOG_DB is set, config reports it as the DB source."""
         db = tmp_path / "test.db"
-        monkeypatch.setenv("WL_DB", str(db))
+        monkeypatch.setenv("WORKLOG_DB", str(db))
         import importlib, wl
         importlib.reload(wl)
         # cmd_config writes to out() which prints via stdout
@@ -68,13 +68,13 @@ class TestConfig:
         with contextlib.redirect_stdout(buf):
             wl.cmd_config(type("A", (), {})(), None)
         text = buf.getvalue()
-        assert "$WL_DB" in text
+        assert "$WORKLOG_DB" in text
         assert str(db) in text
 
     def test_config_does_not_create_db(self, tmp_path, monkeypatch):
         """`wl config` must not create the DB file (side-effect free)."""
         db = tmp_path / "fresh.db"
-        monkeypatch.setenv("WL_DB", str(db))
+        monkeypatch.setenv("WORKLOG_DB", str(db))
         import importlib, wl
         importlib.reload(wl)
         import io, contextlib
@@ -84,46 +84,48 @@ class TestConfig:
 
 
 class TestXDGPaths:
-    """Path resolution follows XDG Base Directory spec with back-compat."""
+    """Path resolution follows the XDG Base Directory spec."""
 
-    def test_wl_db_env_wins(self, tmp_path, monkeypatch):
-        """$WL_DB env var has top priority"""
+    def test_worklog_db_env_wins(self, tmp_path, monkeypatch):
+        """$WORKLOG_DB env var has top priority"""
         target = tmp_path / "custom.db"
-        monkeypatch.setenv("WL_DB", str(target))
+        monkeypatch.setenv("WORKLOG_DB", str(target))
         import importlib, wl
         importlib.reload(wl)
         assert wl.DB_PATH == target.resolve()
 
-    def test_legacy_dot_worklog_used_when_present(self, tmp_path, monkeypatch):
-        """If ~/.worklog/wl.db exists, it wins over XDG default (back-compat)"""
-        monkeypatch.delenv("WL_DB", raising=False)
+    def test_xdg_default_db_path(self, tmp_path, monkeypatch):
+        """No $WORKLOG_DB → $XDG_DATA_HOME/worklog/worklog.db"""
+        monkeypatch.delenv("WORKLOG_DB", raising=False)
         monkeypatch.setenv("HOME", str(tmp_path))
         monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
-        legacy_dir = tmp_path / ".worklog"
-        legacy_dir.mkdir()
-        legacy_db = legacy_dir / "wl.db"
-        legacy_db.touch()
         import importlib, wl
         importlib.reload(wl)
-        assert wl.DB_PATH == legacy_db.resolve()
+        assert wl.DB_PATH == (tmp_path / "xdg-data" / "worklog" / "worklog.db").resolve()
 
-    def test_xdg_default_when_no_legacy(self, tmp_path, monkeypatch):
-        """No $WL_DB, no legacy ~/.worklog/ → XDG default path"""
-        monkeypatch.delenv("WL_DB", raising=False)
-        monkeypatch.setenv("HOME", str(tmp_path))
-        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "xdg-data"))
-        # ensure no legacy
-        assert not (tmp_path / ".worklog" / "wl.db").exists()
-        import importlib, wl
-        importlib.reload(wl)
-        assert wl.DB_PATH == (tmp_path / "xdg-data" / "wl" / "wl.db").resolve()
+    def test_db_flag_wins_over_env(self, tmp_path, monkeypatch):
+        """`--db PATH` flag has top priority over $WORKLOG_DB env."""
+        monkeypatch.setenv("WORKLOG_DB", str(tmp_path / "from-env.db"))
+        import wl
+        flag_path = tmp_path / "from-flag.db"
+        args = type("A", (), {"db": str(flag_path)})()
+        resolved = wl._resolve_db_path(args)
+        assert resolved == flag_path.resolve()
+
+    def test_db_flag_absent_falls_back_to_env(self, tmp_path, monkeypatch):
+        """No --db flag (or flag is None) → fall back to $WORKLOG_DB."""
+        env_path = tmp_path / "from-env.db"
+        monkeypatch.setenv("WORKLOG_DB", str(env_path))
+        import wl
+        args = type("A", (), {"db": None})()
+        assert wl._resolve_db_path(args) == env_path.resolve()
 
     def test_xdg_config_home_aliases(self, tmp_path, monkeypatch):
-        """$XDG_CONFIG_HOME/wl/aliases.ini is the aliases path"""
+        """$XDG_CONFIG_HOME/worklog/aliases.ini is the aliases path"""
         monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg-cfg"))
         import importlib, wl
         importlib.reload(wl)
-        assert wl.ALIASES_PATH == tmp_path / "xdg-cfg" / "wl" / "aliases.ini"
+        assert wl.ALIASES_PATH == tmp_path / "xdg-cfg" / "worklog" / "aliases.ini"
 
 
 # --- add command ---
@@ -4835,8 +4837,8 @@ class TestPrintCompletionFish:
 
     def test_fish_no_db_required(self, cli, tmp_path, monkeypatch):
         """print-completion runs without a DB (meta command)"""
-        # point WL_DB to a non-existent path; print-completion should still work
-        monkeypatch.setenv("WL_DB", str(tmp_path / "no-such.db"))
+        # point WORKLOG_DB to a non-existent path; print-completion should still work
+        monkeypatch.setenv("WORKLOG_DB", str(tmp_path / "no-such.db"))
         code, out, _ = cli("print-completion", "fish")
         assert code == 0
         assert "complete -c wl" in out
@@ -5087,10 +5089,10 @@ class TestLogFormatOneline:
 
 
 class TestUserAliasesIni:
-    """~/.config/wl/aliases.ini → argparse aliases (cross-shell: wl d = wl day)"""
+    """~/.config/worklog/aliases.ini → argparse aliases (cross-shell: wl d = wl day)"""
 
     def _setup_aliases(self, tmp_path, monkeypatch, content):
-        config_dir = tmp_path / ".config" / "wl"
+        config_dir = tmp_path / ".config" / "worklog"
         config_dir.mkdir(parents=True)
         (config_dir / "aliases.ini").write_text(content)
         monkeypatch.setenv("HOME", str(tmp_path))
