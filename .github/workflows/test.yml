@@ -1,0 +1,44 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: ['3.11', '3.12', '3.13']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Run tests with coverage
+        run: python -m pytest
+
+      - name: Smoke test CLI
+        run: |
+          export WL_DB=$(mktemp -d)/wl.db
+          python wl.py init
+          python wl.py --version
+          python wl.py add "ci smoke task" -k task -p A
+          python wl.py log 1 "hello from CI"
+          python wl.py done 1
+          python wl.py show 1
+          python wl.py tree
