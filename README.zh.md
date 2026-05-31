@@ -91,25 +91,6 @@ v_node_path                                  # 递归 CTE view, 树状路径
 
 `TODO / DOING / LATER / WAIT / DONE / DEFERRED / CANCELED` —— 是 markdown `[ ]/[x]/[/]/[>]` 四态的超集,加了 `LATER` / `WAIT` 区分(推到将来 vs 等他人)。
 
-## Makefile 本地 override
+## 贡献
 
-Makefile 末尾走 `-include local/*.mk` 加载 `local/` 下任意 `*.mk` 文件。`local/` 目录被 gitignore 排除,可以把跟具体环境绑的变量、私有 remote、额外 target 放进去,不动开源仓的 Makefile。文件不存在也没事 —— make 不会报错。
-
-`local/private.mk` 示例:
-
-```makefile
-GITEA_REMOTE := git@your-private-host:user/worklog.git
-
-push-gitea:        ## push 当前分支到私有 remote
-	@$(GIT) -c commit.gpgsign=false push $(GITEA_REMOTE) $$($(GIT) branch --show-current)
-```
-
-存好后 `make help` 会跟内置 target 一起列出 `push-gitea`。
-
-## 测试
-
-```fish
-uv run pytest -v
-```
-
-测试覆盖: init,add(全部 kind + 树状层级 + CJK 标题 + 多 tag),log(多条 + 长 body + 缺失 node),状态迁移(done/defer/start/stop + clock 耗时),link / set,show,ls(全部过滤器),tree(深度限制 + kind 过滤),logs,级联(父删 / 节点删)。
+开发环境、TDD / DRY 约定、Makefile 本地 override、发版流程都在 [CONTRIBUTING.md](CONTRIBUTING.md)。AI agent 操作规则见 [AGENTS.md](AGENTS.md);设计约定见 [DESIGN.md](DESIGN.md)。

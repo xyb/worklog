@@ -40,7 +40,31 @@ jobs:
       - name: Run tests (release gate)
         run: uv run pytest -q --no-cov
 
+      - name: Build commit list since previous tag
+        id: commits
+        run: |
+          prev=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || echo "")
+          {
+            if [ -n "$prev" ]; then
+              echo "## Commits since $prev"
+              echo ""
+              git log --pretty=format:'- %s (%h)' "$prev..$GITHUB_REF_NAME"
+              echo ""
+            else
+              echo "## Commits"
+              echo ""
+              git log --pretty=format:'- %s (%h)' "$GITHUB_REF_NAME"
+              echo ""
+            fi
+          } > release-body.md
+          {
+            echo 'body<<EOF'
+            cat release-body.md
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body: ${{ steps.commits.outputs.body }}
+          generate_release_notes: true   # keeps the auto "Full Changelog" link and any PR list

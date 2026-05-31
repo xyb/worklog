@@ -5,8 +5,9 @@ Primary operating guide for AI coding agents (Claude Code, Cursor, Aider, etc.) 
 ## Authoritative docs (read these first)
 
 - **`DESIGN.md`** is canonical for every shared convention (command style, state machine, marker symbols, time-window flags, rendering, schema, import/apply formats, color theming, scheduled time, planned/unplanned derivation, etc.). Read the relevant section before adding a command or changing a format — keeping `wl.py`, the tests, the completion strings, and DESIGN in sync is the project's hardest rule.
+- **`CONTRIBUTING.md`** holds the full dev setup, TDD + DRY conventions, local Makefile overrides, and release process. Do not duplicate that content here.
 - **`skills/worklog-cli/SKILL.md`** is the Claude Code skill (AI-facing usage guide: when to use `wl`, scenario→command table, bulk `import` / `apply` patterns, `-q` brief mode for token savings). Update this when usage patterns change.
-- `README.md` is install + outline only; `tests/test_wl.py` is the de-facto contract for every command.
+- `README.md` is the project overview + install pointer only; `tests/test_wl.py` is the de-facto contract for every command.
 
 ## Common commands
 
@@ -52,6 +53,11 @@ wl --db /tmp/scratch.db add "..."
 
 **Coverage gate is hard (95%).** `pytest.ini` enforces `--cov-fail-under=95`; the CI runs the same. The two pragma-no-cover regions are TTY/escape-sequence probes in `_detect_bg_is_dark` and the bare `main()` entrypoint (tests bypass it).
 
+## Core principles
+
+- **TDD (Red → Green → Refactor).** Behavioral changes start with a failing test in `tests/test_wl.py` that reproduces the bug or pins the new behavior. Confirm it fails for the right reason, then write the minimum code to make it pass, then refactor. Tests stay green at every step. A PR that adds behavior without adding the test that drives it is rejected. See CONTRIBUTING.md "TDD" for the full loop.
+- **DRY (Don't Repeat Yourself).** The codebase has a small set of single-source helpers — `_status_marker`, `_node_line`, `out`/`_c`, `_resolve_window`, `_resolve_db_path`, `_project_members`, `_node_clock_min`, `_collect_descendants` (see DESIGN §12 for the full list). New code reuses them; re-implementing one of them in a fresh form is a review block. Same rule for docs: install / dev / release info is in CONTRIBUTING.md and only there — link to it, don't restate it.
+
 ## Hard rules
 
 - **DESIGN.md is the source of truth.** If a convention changes (statuses, markers, time-window flag set, project↔task linkage rule, `--by` aggregation dim, theme key set, schema), update DESIGN + `wl.py` + tests + completion strings in the same commit. Drift between them is the failure mode this project guards against.
@@ -61,10 +67,6 @@ wl --db /tmp/scratch.db add "..."
 - **i18n layout.** README + DESIGN are bilingual (`*.zh.md`), `wl.py` strings + tests + SKILL.md are English. CJK fixtures in tests are intentional (they exercise unicode width / sort / title handling).
 - **`tmp_path_home` test fixture pattern.** When a test changes `$HOME` to assert path resolution, it must also `monkeypatch.delenv("XDG_CONFIG_HOME")` + `delenv("XDG_DATA_HOME")` — CI runners preset XDG vars and otherwise leak through. See `TestUserAliasesIni._setup_aliases` for the working pattern.
 
-## Local overrides
+## Local overrides + release
 
-`local/*.mk` is gitignored and pulled in via the Makefile's `-include` line — drop private remotes, custom targets, or environment-specific variables there without touching the shipped Makefile. See README "Local Makefile overrides".
-
-## Release
-
-Project name is `worklog`; CLI binary is `wl`. Version lives in two places that must move together: `__version__` in `wl.py` (`wl --version` displays it) and the git tag (`v0.1.0`). After bumping, `gh release create vX.Y.Z` documents the change. CI uploads coverage to Codecov from the `ubuntu-latest × Python 3.12` job only.
+Both processes are documented end-to-end in [CONTRIBUTING.md](CONTRIBUTING.md) — local `local/*.mk` Makefile injection and the three-anchor version-bump workflow (`__version__` in `wl.py` + `pyproject.toml` + git tag, all verified by `.github/workflows/release.yml`). Don't duplicate them here.

@@ -91,25 +91,6 @@ The `kind` field lets one table hold any execution-system entity. Cascade delete
 
 `TODO / DOING / LATER / WAIT / DONE / DEFERRED / CANCELED` — superset of the markdown `[ ]/[x]/[/]/[>]` four-state set, adds `LATER` / `WAIT` distinction (deferred to future vs. waiting on someone).
 
-## Local Makefile overrides
+## Contributing
 
-The Makefile loads any `local/*.mk` files at the end via `-include local/*.mk`. The `local/` directory is gitignored, so you can drop site-specific variables, private remotes, or extra targets there without touching the shipped Makefile. Missing is fine — make won't complain.
-
-Example `local/private.mk`:
-
-```makefile
-GITEA_REMOTE := git@your-private-host:user/worklog.git
-
-push-gitea:        ## push current branch to private remote
-	@$(GIT) -c commit.gpgsign=false push $(GITEA_REMOTE) $$($(GIT) branch --show-current)
-```
-
-After saving, `make help` will list `push-gitea` alongside the built-in targets.
-
-## Test
-
-```fish
-uv run pytest -v
-```
-
-Tests cover: init, add (all kinds + tree hierarchy + CJK titles + multi-tag), log (multi-entry + long body + missing node), state transitions (done/defer/start/stop + clock elapsed), link / set, show, ls (all filters), tree (depth limit + kind filter), logs, cascade (parent delete, node delete).
+Development setup, the TDD/DRY conventions, local Makefile overrides, and the release process all live in [CONTRIBUTING.md](CONTRIBUTING.md). For agent-facing operating rules see [AGENTS.md](AGENTS.md); for canonical design conventions see [DESIGN.md](DESIGN.md).
