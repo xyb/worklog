@@ -290,3 +290,32 @@ class TestInsertLogClockNotPromote:
         # status must not be changed by _insert_log (CLOCK is not a progress log)
         row = con.execute("SELECT status FROM node WHERE id=1").fetchone()
         assert row["status"] in (None, "TODO")
+
+
+class TestResolveAtTsEdges:
+    """_resolve_at_ts handles HH:MM, YYYY-MM-DD, full ISO; rejects garbage."""
+
+    def test_garbage_at_raises_value_error(self):
+        from worklog.helpers import _resolve_at_ts
+        with pytest.raises(ValueError, match="invalid --at"):
+            _resolve_at_ts("not a real timestamp")
+
+    def test_date_only_uses_current_time(self):
+        from worklog.helpers import _resolve_at_ts
+        out = _resolve_at_ts("2026-06-15")
+        assert out.startswith("2026-06-15 ")
+        assert len(out) == 19  # YYYY-MM-DD HH:MM:SS
+
+    def test_full_iso_with_T_separator(self):
+        from worklog.helpers import _resolve_at_ts
+        out = _resolve_at_ts("2026-06-15T09:30")
+        assert out == "2026-06-15 09:30:00"
+
+    def test_term_width_oserror_falls_back_to_80(self, monkeypatch):
+        """shutil.get_terminal_size raising OSError → default 80."""
+        import shutil
+        from worklog import helpers
+        def boom(*a, **k):
+            raise OSError("no tty")
+        monkeypatch.setattr(shutil, "get_terminal_size", boom)
+        assert helpers._term_width() == 80

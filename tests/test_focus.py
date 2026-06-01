@@ -84,3 +84,12 @@ class TestDescendantsMissing:
     def test_descendants_node_not_found(self, cli):
         code, _, _ = cli("descendants", "999")
         assert code != 0
+
+
+class TestFocusRelatedEmpty:
+    """cmd_focus on a node with semantic tags but no peers sharing them: (no other nodes)."""
+
+    def test_focus_related_no_peers(self, cli):
+        cli("add", "lonely-task", "-k", "task", "-t", "unique-topic-xyz")
+        _, out, _ = cli("focus", "1", "--related")
+        assert "no other nodes" in out

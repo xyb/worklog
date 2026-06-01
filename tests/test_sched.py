@@ -549,3 +549,18 @@ class TestRecurEndToEnd:
         cli("add", "x", "-k", "habit")
         code, _, _ = cli("sched", "1", "--recur", "yearly:13-99")
         assert code != 0
+
+
+class TestSchedListing:
+    """`wl sched <id>` with no args lists existing schedules for the node."""
+
+    def test_sched_list_empty_node(self, cli):
+        cli("add", "fresh-task", "-k", "task")
+        _, out, _ = cli("sched", "1")
+        assert "has no schedule" in out
+
+    def test_sched_list_after_scheduling(self, cli):
+        cli("add", "scheduled-task", "-k", "task")
+        cli("sched", "1", "2026-06-15")
+        _, out, _ = cli("sched", "1")
+        assert "2026-06-15" in out

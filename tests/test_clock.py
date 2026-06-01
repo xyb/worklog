@@ -165,3 +165,27 @@ class TestActiveBatteryIncluded:
         epilog = active_p.epilog or ""
         assert "Use cases:" in epilog
         assert "wl day" in epilog and "Difference from" in epilog
+
+
+class TestActiveTodayTotal:
+    """cmd_active aggregates today's CLOCK time across closed sessions."""
+
+    def test_active_includes_today_completed_sessions(self, cli, tmp_db):
+        cli("add", "long-running", "-k", "task")
+        # close one session of 30 minutes
+        cli("spent", "1", "30m")
+        # start a current session
+        cli("start", "1")
+        _, out, _ = cli("active")
+        assert "today's total" in out
+        # at least 30 min from the closed session
+        assert "30min" in out or "0h30m" in out
+
+
+class TestSpentBadAt:
+    """`wl spent` with garbage --at should error cleanly."""
+
+    def test_spent_bad_at_exits_cleanly(self, cli):
+        cli("add", "task1", "-k", "task")
+        code, _, err = cli("spent", "1", "30m", "--at", "garbage-timestamp")
+        assert code != 0

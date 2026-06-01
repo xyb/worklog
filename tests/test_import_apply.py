@@ -611,3 +611,5 @@ class TestParseWldEdges:
         cli("apply", str(p))
         _, show, _ = cli("show", "1")
         assert "inline-log" in show
+
+

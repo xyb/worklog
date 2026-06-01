@@ -250,3 +250,16 @@ class TestPrintDayActivityHabit:
         _, out, _ = cli("tree", "--root", "2", "--depth", "2")
         # habit with a log that day should render [x]
         assert "[x]" in out
+
+
+class TestTreeByProjectSharedTag:
+    """tree --by project: tasks sharing a semantic tag with a project are listed under it."""
+
+    def test_task_with_shared_tag_appears_under_project(self, cli):
+        cli("add", "proj-x", "-k", "project", "-p", "A", "-t", "topic-x,work")
+        # Task is NOT a child of proj-x, but shares 'topic-x' tag
+        cli("add", "shared-task", "-k", "task", "-t", "topic-x")
+        _, out, _ = cli("tree", "--by", "project")
+        # both project header and the task ID should appear
+        assert "proj-x" in out
+        assert "shared-task" in out

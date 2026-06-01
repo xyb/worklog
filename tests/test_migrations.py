@@ -75,3 +75,62 @@ class TestMigrations:
 
 
 # --- add command ---
+
+
+    def test_migration_rollback_on_bad_sql(self, tmp_path, monkeypatch):
+        """A migration with malformed SQL must rollback that file's transaction
+        and leave PRAGMA user_version at the last successful number."""
+        from worklog import db, helpers
+        db_file = tmp_path / "rollback.db"
+        # Simulate a single bad migration in a tmp dir.
+        mig_dir = tmp_path / "migrations"
+        mig_dir.mkdir()
+        (mig_dir / "0001_will_fail.sql").write_text("THIS IS NOT VALID SQL;")
+        con = db.db_connect(db_file)
+        try:
+            with pytest.raises(Exception):
+                db.run_migrations(con, mig_dir)
+            assert db.db_version(con) == 0  # rollback worked, version not bumped
+        finally:
+            con.close()
+
+
+class TestLoadUserAliasesEdges:
+    """Edge paths of _load_user_aliases (missing section, malformed file, empty target)."""
+
+    def test_empty_section_returns_empty(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        cfg = tmp_path / ".config" / "worklog"
+        cfg.mkdir(parents=True)
+        (cfg / "aliases.ini").write_text("# no [aliases] section here\n[other]\nx = y\n")
+        import importlib
+        from worklog import cli as wl
+        importlib.reload(wl)
+        assert wl._load_user_aliases() == {}
+
+    def test_malformed_ini_returns_empty(self, tmp_path, monkeypatch):
+        """Unclosed section header → configparser.Error → returns {}."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        cfg = tmp_path / ".config" / "worklog"
+        cfg.mkdir(parents=True)
+        (cfg / "aliases.ini").write_text("[aliases\nd = day\n")  # missing closing bracket
+        import importlib
+        from worklog import cli as wl
+        importlib.reload(wl)
+        assert wl._load_user_aliases() == {}
+
+    def test_empty_target_value_skipped(self, tmp_path, monkeypatch):
+        """Aliases with empty target are skipped, valid ones still work."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+        cfg = tmp_path / ".config" / "worklog"
+        cfg.mkdir(parents=True)
+        (cfg / "aliases.ini").write_text("[aliases]\nbad =   \nd = day\n")
+        import importlib
+        from worklog import cli as wl
+        importlib.reload(wl)
+        loaded = wl._load_user_aliases()
+        assert loaded == {"day": ["d"]}
+        assert "bad" not in loaded

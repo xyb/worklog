@@ -175,3 +175,29 @@ class TestLsAdvanced:
         assert "t1" in out
         assert "裸 ls" not in out
         assert "精准" not in out
+
+
+class TestLsSortUpdated:
+    """ls --sort updated paths: uses latest log timestamp; --reverse flips order."""
+
+    def test_sort_updated(self, cli, tmp_db):
+        cli("add", "old-task", "-k", "task")
+        cli("add", "new-task", "-k", "task")
+        cli("log", "1", "old entry")
+        cli("log", "2", "later entry")
+        _, out, _ = cli("ls", "--sort", "updated", "--limit", "5")
+        # new-task (id=2) logged later → appears first under DESC
+        idx_new = out.find("new-task")
+        idx_old = out.find("old-task")
+        assert 0 <= idx_new < idx_old
+
+    def test_sort_updated_reverse(self, cli, tmp_db):
+        cli("add", "old-task", "-k", "task")
+        cli("add", "new-task", "-k", "task")
+        cli("log", "1", "old entry")
+        cli("log", "2", "later entry")
+        _, out, _ = cli("ls", "--sort", "updated", "--reverse", "--limit", "5")
+        # ASC after reverse → old-task first
+        idx_new = out.find("new-task")
+        idx_old = out.find("old-task")
+        assert 0 <= idx_old < idx_new
