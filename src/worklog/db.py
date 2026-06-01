@@ -61,7 +61,7 @@ def run_migrations(con: sqlite3.Connection, migrations_dir: Path, verbose: bool 
         raise SystemExit(
             f"✗ DB at user_version={current} but this worklog build only ships "
             f"migrations up to {max_n}. The DB was written by a newer version; "
-            f"upgrade worklog (e.g. `pip install --upgrade worklog`) and retry."
+            f"upgrade worklog (e.g. `pip install --upgrade pyworklog`) and retry."
         )
     applied = []
     for path in files:

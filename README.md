@@ -15,6 +15,17 @@ Background: structured worklog tool, built as a self-built alternative after sur
 
 ## Install
 
+### From PyPI (recommended for users)
+
+```fish
+pipx install pyworklog          # or: uv tool install pyworklog
+wl init
+```
+
+The PyPI distribution name is `pyworklog` (the short names `worklog` and `worklog-cli` were already taken, and hyphenated names like `worklog-py` were avoided); the command stays `wl` and the import name stays `worklog`.
+
+### From source (recommended for development)
+
 Requires [uv](https://docs.astral.sh/uv/) (`brew install uv` or `pipx install uv`).
 
 ```fish

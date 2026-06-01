@@ -1,17 +1,22 @@
 name: Release
 
-# Pushing a vX.Y.Z tag verifies the version is in sync, then creates a
-# GitHub Release with auto-generated notes (commits since the previous tag).
+# Pushing a vX.Y.Z tag:
+#   1. verifies the tag matches pyproject.toml version,
+#   2. runs the test suite (release gate),
+#   3. builds the wheel + sdist with uv,
+#   4. publishes to PyPI via OIDC Trusted Publisher (no token needed),
+#   5. creates a GitHub Release with auto-generated notes + the dist/ files attached.
 on:
   push:
     tags:
       - "v*"
 
 jobs:
-  publish:
+  release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # for creating the GitHub Release
+      contents: write   # for creating the GitHub Release
+      id-token: write   # for PyPI Trusted Publisher (OIDC)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,6 +44,17 @@ jobs:
       - name: Run tests (release gate)
         run: uv run pytest -q --no-cov
 
+      - name: Build wheel + sdist
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # No `with: password:` — uses OIDC Trusted Publisher.
+        # One-time setup on PyPI: https://pypi.org/manage/account/publishing/
+        #   PyPI Project Name: pyworklog  (worklog/worklog-cli taken; hyphenated names avoided)
+        #   Owner: xyb · Repository: worklog
+        #   Workflow filename: release.yml · Environment name: (leave empty)
+
       - name: Build commit list since previous tag
         id: commits
         run: |
@@ -55,6 +71,12 @@ jobs:
               git log --pretty=format:'- %s (%h)' "$GITHUB_REF_NAME"
               echo ""
             fi
+            echo ""
+            echo "## Install"
+            echo ""
+            echo '```'
+            echo "pip install pyworklog==${GITHUB_REF_NAME#v}"
+            echo '```'
           } > release-body.md
           {
             echo 'body<<EOF'
@@ -67,3 +89,6 @@ jobs:
         with:
           body: ${{ steps.commits.outputs.body }}
           generate_release_notes: true   # keeps the auto "Full Changelog" link and any PR list
+          files: |
+            dist/*.whl
+            dist/*.tar.gz

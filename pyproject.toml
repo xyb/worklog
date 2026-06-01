@@ -1,5 +1,5 @@
 [project]
-name = "worklog"
+name = "pyworklog"
 version = "0.2.0"
 description = "SQLite-backed worklog tool with a todo.sh-style CLI"
 readme = "README.md"

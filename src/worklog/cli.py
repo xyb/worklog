@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from importlib.metadata import version as _pkg_version, PackageNotFoundError as _PackageNotFoundError
 try:
-    __version__ = _pkg_version("worklog")
+    __version__ = _pkg_version("pyworklog")
 except _PackageNotFoundError:  # pragma: no cover -- only hit when running source w/o `uv sync`
     __version__ = "0.0.0+unknown"
 
