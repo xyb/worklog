@@ -32,183 +32,58 @@ import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-def _xdg_data_home() -> Path:
-    """XDG_DATA_HOME (default ~/.local/share). Spec: https://specifications.freedesktop.org/basedir-spec/"""
-    return Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
-
-
-def _xdg_config_home() -> Path:
-    """XDG_CONFIG_HOME (default ~/.config)."""
-    return Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
-
-
-def _resolve_db_path(args=None) -> Path:
-    """Resolve the SQLite DB path:
-    1. --db flag (per-invocation override, top priority)
-    2. $WORKLOG_DB env
-    3. $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
-    """
-    if args is not None and getattr(args, "db", None):
-        return Path(args.db).resolve()
-    env = os.environ.get("WORKLOG_DB")
-    if env:
-        return Path(env).resolve()
-    return (_xdg_data_home() / "worklog" / "worklog.db").resolve()
-
-
-def _resolve_aliases_path() -> Path:
-    """$XDG_CONFIG_HOME/worklog/aliases.ini (default ~/.config/worklog/aliases.ini)."""
-    return _xdg_config_home() / "worklog" / "aliases.ini"
-
+from .xdg import _xdg_data_home, _xdg_config_home, _resolve_db_path, _resolve_aliases_path
+from . import render
+from .render import (
+    _RICH_AVAIL, _THEME_KEYS, THEMES, _STATUS_STYLE, _PRI_STYLE,
+    _resolve_color, _detect_bg_is_dark, _resolve_theme, _init_console,
+    out, _c, _hl,
+)
+# backward-compat: cli._CONSOLE is a property-like passthrough so existing
+# `wl._CONSOLE` reads in tests/main() see the live render._CONSOLE.
+# (For writes, use `_init_console()` — never bind cli._CONSOLE directly.)
+from .completion import (
+    cmd_print_completion,
+    _generate_fish_completion,
+    _generate_bash_completion,
+    _generate_zsh_completion,
+)
+from .queries import (
+    _insert_log,
+    _project_members,
+    _ancestors_chain,
+    _node_bucket,
+    _node_project,
+    _node_plan,
+    _sec_group,
+    _collect_descendants,
+    _has_tag,
+    _node_clock_min,
+    _node_exists,
+)
+from .helpers import GENERIC_TAGS  # noqa: F401
+from .helpers import (
+    _status_marker,
+    _resolve_window,
+    _resolve_concrete_date,
+    _resolve_at_ts,
+    _term_width,
+    _truncate_log_body,
+    _is_brief,
+    _resolve_log_tail,
+    _norm_sched,
+    _sched_kind,
+    _sched_anchor,
+    _sched_sort_key,
+    _sched_display,
+)
 
 DB_PATH = _resolve_db_path()
 ALIASES_PATH = _resolve_aliases_path()
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 # --- rich highlighting (optional dep, auto-detected; missing or non-TTY -> plain text) ---
-try:
-    from rich.console import Console as _RichConsole
-    from rich.theme import Theme as _RichTheme
-    from rich.markup import escape as _rich_escape
-    _RICH_AVAIL = True
-except ImportError:
-    _RICH_AVAIL = False
 
-# theme = semantic element -> rich style. No "default" theme; default is auto, probes terminal bg and resolves to dark/light/mono.
-_THEME_KEYS = "done doing later wait todo canceled pri_a pri_b pri_c id kind tag hit header meta planned clock".split()
-THEMES = {
-    # dark: dark background, use bright_* for contrast
-    "dark": {
-        "done": "bright_green", "doing": "bright_yellow", "later": "bright_cyan", "wait": "grey50",
-        "todo": "default", "canceled": "strike grey50",
-        "pri_a": "bold bright_red", "pri_b": "bright_yellow", "pri_c": "grey50",
-        "id": "grey50", "kind": "bright_cyan", "tag": "bright_magenta", "hit": "bold black on bright_yellow",
-        "header": "bold bright_white", "meta": "grey50", "planned": "bright_blue", "clock": "bright_green",
-    },
-    # light: light background, use deep saturated colors (avoid bright/white getting lost on white bg)
-    "light": {
-        "done": "green4", "doing": "dark_orange3", "later": "blue", "wait": "grey42",
-        "todo": "default", "canceled": "strike grey42",
-        "pri_a": "bold red3", "pri_b": "dark_orange3", "pri_c": "grey42",
-        "id": "grey42", "kind": "dark_cyan", "tag": "purple", "hit": "bold black on yellow3",
-        "header": "bold grey15", "meta": "grey42", "planned": "blue", "clock": "green4",
-    },
-    # mono: no color (want rich layout but no color)
-    "mono": {k: "default" for k in _THEME_KEYS},
-}
-_STATUS_STYLE = {"DONE": "done", "DOING": "doing", "LATER": "later", "WAIT": "wait",
-                 "TODO": "todo", "DEFERRED": "later", "CANCELED": "canceled", None: "todo"}
-_PRI_STYLE = {"A": "pri_a", "B": "pri_b", "C": "pri_c"}
-
-_CONSOLE = None  # initialized by main() based on --color/--theme; None = plain text
-
-
-def _resolve_color(mode):
-    if mode is None:
-        mode = os.environ.get("WORKLOG_COLOR", "auto")
-    if mode == "never":
-        return False
-    if mode == "always":
-        return True
-    return _RICH_AVAIL and sys.stdout.isatty() and not os.environ.get("NO_COLOR")
-
-
-def _detect_bg_is_dark():  # pragma: no cover -- TTY/escape-seq probe, not unit-tested at integration layer
-    """Detect terminal bg: True=dark / False=light / None=unknown.
-    First check $COLORFGBG (no I/O), then query OSC 11 (requires TTY, short timeout)."""
-    fgbg = os.environ.get("COLORFGBG")
-    if fgbg and ";" in fgbg:
-        try:
-            bg = int(fgbg.split(";")[-1])
-            return bg not in (7, 15)  # 7/15 = light bg, others treated as dark
-        except ValueError:
-            pass
-    if not (sys.stdout.isatty() and sys.stdin.isatty()):
-        return None
-    try:
-        import termios, tty, select, re
-        fd = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            sys.stdout.write("\033]11;?\033\\")
-            sys.stdout.flush()
-            resp = ""
-            if select.select([fd], [], [], 0.15)[0]:
-                resp = os.read(fd, 64).decode("latin-1", "ignore")
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        m = re.search(r"rgb:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)", resp)
-        if not m:
-            return None
-        r, g, b = (int(m.group(i)[:2], 16) for i in (1, 2, 3))  # take top 2 hex digits per channel
-        return (0.299 * r + 0.587 * g + 0.114 * b) / 255 < 0.5  # perceived brightness < 0.5 = dark
-    except (ValueError, AttributeError):
-        # int(..., 16) parse failure / m.group out of range -> undetectable, treat as unknown
-        return None
-
-
-def _resolve_theme(name):
-    """Resolve theme name to a real palette name. auto (default): probe bg -> dark/light, fallback dark if unknown."""
-    if name in THEMES:
-        return name  # explicit real theme
-    # name is None / "auto" / unknown -> auto-detect
-    dark = _detect_bg_is_dark()
-    if dark is False:
-        return "light"
-    return "dark"  # dark or unknown -> use dark (most terminals have dark bg)
-
-
-def _init_console(color_mode, theme_name):
-    global _CONSOLE
-    if not _resolve_color(color_mode) or not _RICH_AVAIL:
-        _CONSOLE = None
-        return
-    name = _resolve_theme(theme_name or os.environ.get("WORKLOG_THEME"))
-    force = True if color_mode == "always" else None
-    _CONSOLE = _RichConsole(theme=_RichTheme(THEMES[name]), force_terminal=force, highlight=False, soft_wrap=True)
-    # terminal without color support (TERM=dumb etc.) -> effectively mono, rich won't emit ANSI
-
-
-def out(s):
-    """Unified output: when highlighting is enabled, use rich (markup rendering); otherwise plain print."""
-    if _CONSOLE is not None:
-        _CONSOLE.print(s)
-    else:
-        print(s)
-
-
-def _c(text, style=None):
-    """Color a fragment: returns rich markup when enabled (content escaped to prevent injection), otherwise plain text."""
-    t = str(text)
-    if _CONSOLE is None:
-        return t
-    t = _rich_escape(t)
-    return f"[{style}]{t}[/{style}]" if style else t
-
-
-def _hl(text, q):
-    """In a string, mark query matches (styled: hit style / plain: *…*). No match -> plain _c."""
-    text = str(text)
-    if not q:
-        return _c(text)
-    i = text.lower().find(q.lower())
-    if i < 0:
-        return _c(text)
-    mid = text[i:i + len(q)]
-    pre, post = text[:i], text[i + len(q):]
-    if _CONSOLE is None:
-        return pre + f"*{mid}*" + post
-    return _c(pre) + _c(mid, "hit") + _c(post)
-
-
-# generic-dimension tags (planning attributes / priority / type) -- excluded from focus --related, which links only on project/topic tags
-GENERIC_TAGS = {
-    "work", "personal", "planned", "unplanned",
-    "P0", "P1", "P2", "habit", "meeting", "followup",
-    "dev", "ai", "sync", "strategy", "reflection", "reading",
-    "family", "health", "morning_check", "slack_scan",
-}
 
 
 # ─── DB helpers ───
@@ -245,10 +120,23 @@ def _run_migrations(con: sqlite3.Connection, verbose: bool = False) -> list[Path
     Each migration runs in its own transaction; user_version is bumped per file
     so a mid-sequence failure leaves the DB at the last successfully-applied number.
     Returns the list of migration paths that were applied this call (empty if up-to-date).
+
+    Downgrade guard: if PRAGMA user_version exceeds the highest migration number
+    shipped with this build, the DB was written by a newer worklog and must not
+    be touched by older code — abort with a clear message rather than risk
+    corrupting newer schema with stale logic.
     """
+    files = _migration_files()
+    max_n = max((int(p.stem.split("_", 1)[0]) for p in files), default=0)
     current = _db_version(con)
+    if current > max_n:
+        raise SystemExit(
+            f"✗ DB at user_version={current} but this worklog build only ships "
+            f"migrations up to {max_n}. The DB was written by a newer version; "
+            f"upgrade worklog (e.g. `pip install --upgrade worklog`) and retry."
+        )
     applied = []
-    for path in _migration_files():
+    for path in files:
         n = int(path.stem.split("_", 1)[0])
         if n <= current:
             continue
@@ -341,7 +229,7 @@ def cmd_config(args, con):
     out("")
     out(_c("runtime:", "header"))
     _row("python", sys.executable, f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
-    _row("rich", "available" if _RICH_AVAIL else "not installed (plain-text mode)")
+    _row("rich", "available" if render._RICH_AVAIL else "not installed (plain-text mode)")
 
 
 def cmd_add(args, con):
@@ -439,45 +327,6 @@ def cmd_add(args, con):
         + st + sched_hint + link_hint + log_hint)
 
 
-def _insert_log(con, nid, entry):
-    """Insert a log. entry can carry a historical date + time:
-    - dict{date, time, body}: date=YYYY-MM-DD / today / yesterday / day-before-yesterday; time=HH:MM optional
-    - string prefixed with 'YYYY-MM-DD content': date only
-    - plain body: use NOW (DB DEFAULT)
-    """
-    import re as _re
-    date, time_part, body = None, None, entry
-    if isinstance(entry, dict):
-        date, time_part, body = entry.get("date"), entry.get("time"), entry["body"]
-    else:
-        m = _re.match(r"^(\d{4}-\d{2}-\d{2})[ T](.*)$", entry)
-        if m:
-            date, body = m.group(1), m.group(2)
-    if date:
-        # parse short form ("yesterday/today/day-before-yesterday/tomorrow/day-after-tomorrow" or YYYY-MM-DD)
-        date = _resolve_concrete_date(date)
-        if time_part:
-            if not _re.match(r"^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$", time_part):
-                raise ValueError(f"invalid --time '{time_part}' (expected HH:MM or HH:MM:SS)")
-            # pad seconds
-            if time_part.count(":") == 1:
-                time_part += ":00"
-            logged_at = f"{date} {time_part}"
-        else:
-            logged_at = date
-        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)", (nid, logged_at, body))
-    elif time_part:
-        # no date but time given -> today + that time
-        from datetime import date as _date
-        if not _re.match(r"^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$", time_part):
-            raise ValueError(f"invalid --time '{time_part}' (expected HH:MM or HH:MM:SS)")
-        if time_part.count(":") == 1:
-            time_part += ":00"
-        logged_at = f"{_date.today().isoformat()} {time_part}"
-        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)", (nid, logged_at, body))
-    else:
-        con.execute("INSERT INTO log (node_id, body) VALUES (?, ?)", (nid, body))
-
 
 def cmd_log(args, con):
     if not _node_exists(con, args.id):
@@ -534,31 +383,6 @@ def cmd_defer(args, con):
     for nid in ids:
         out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " → LATER, scheduled " + _c(_sched_display(when), "planned"))
 
-
-def _resolve_at_ts(at, default_now=True):
-    """Parse --at: HH:MM (today + that time) / YYYY-MM-DD (that day, current time) /
-    YYYY-MM-DD HH:MM[:SS] / ISO with 'T' separator. None -> now.
-    Validates range (rejects 25:00 / month 13); raises ValueError on error.
-    """
-    from datetime import datetime as _dt
-    import re as _re
-    if not at:
-        return _dt.now().strftime("%Y-%m-%d %H:%M:%S") if default_now else None
-    at = at.strip()
-    today = _dt.now().strftime("%Y-%m-%d")
-    if _re.fullmatch(r"\d{2}:\d{2}", at):
-        _dt.strptime(at, "%H:%M")
-        return f"{today} {at}:00"
-    if _re.fullmatch(r"\d{4}-\d{2}-\d{2}", at):
-        _dt.strptime(at, "%Y-%m-%d")
-        return f"{at} {_dt.now().strftime('%H:%M:%S')}"
-    if _re.fullmatch(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?", at):
-        ts = at.replace("T", " ")
-        if len(ts) == 16:
-            ts += ":00"
-        _dt.strptime(ts, "%Y-%m-%d %H:%M:%S")
-        return ts
-    raise ValueError(f"invalid --at '{at}': supported formats: HH:MM / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
 
 
 def cmd_start(args, con):
@@ -979,24 +803,6 @@ def cmd_ls(args, con):
         out(_node_line(con, n, tags=not brief, sched=not brief))
 
 
-def _project_members(con, proj_id):
-    """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""
-    ids = set()
-    proj_tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (proj_id,))} - GENERIC_TAGS
-    for r in con.execute(
-        "SELECT id FROM node WHERE parent_id = ? AND kind IN ('task','meetlog','habit')", (proj_id,)
-    ):
-        ids.add(r["id"])
-    if proj_tags:
-        qm = ",".join("?" * len(proj_tags))
-        for r in con.execute(
-            f"SELECT DISTINCT n.id FROM node n JOIN tag t ON n.id = t.node_id "
-            f"WHERE t.tag IN ({qm}) AND n.kind IN ('task','meetlog','habit')",
-            list(proj_tags),
-        ):
-            ids.add(r["id"])
-    return ids
-
 
 def cmd_projects(args, con):
     """List active projects + per-project todo/done counts + recent activity.
@@ -1227,20 +1033,6 @@ def cmd_tree(args, con):
                     include_canceled=inc_cancel, log_tail=log_tail, full=full)
 
 
-def _ancestors_chain(con, node_id):
-    """Return the path list[Row] from the top-level root to node (inclusive)."""
-    chain = []
-    cur = con.execute("SELECT * FROM node WHERE id = ?", (node_id,)).fetchone()
-    if not cur:
-        return chain
-    chain.append(cur)
-    while cur["parent_id"]:
-        cur = con.execute("SELECT * FROM node WHERE id = ?", (cur["parent_id"],)).fetchone()
-        if not cur:
-            break
-        chain.append(cur)
-    return list(reversed(chain))
-
 
 def cmd_focus(args, con):
     """Focus on a node: upstream path + self + downstream subtree."""
@@ -1452,22 +1244,6 @@ def _date_label(con, target):
     return r["label"] if r else None
 
 
-def _node_bucket(con, nid):
-    """Bucket a node into work / personal / other by work/personal tag."""
-    tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (nid,))}
-    if "work" in tags:
-        return "work"
-    if "personal" in tags:
-        return "personal"
-    return "other"
-
-
-def _node_project(con, nid):
-    """Return the project ancestor (id, title) of a node, or (None, '(unassigned)') if none."""
-    for p in _ancestors_chain(con, nid):
-        if p["kind"] == "project":
-            return p["id"], p["title"]
-    return None, "(unassigned)"
 
 
 _PLAN_ORDER = ["planned", "unplanned", "unplanned (untagged)"]
@@ -1541,28 +1317,6 @@ def _scheduled_node_ids(con, target):
     return ids
 
 
-def _node_plan(con, nid, sched_ids):
-    """Derive planned/unplanned: schedule-hit = planned; otherwise check transitional planned/unplanned tag; neither -> unplanned (untagged)."""
-    if nid in sched_ids:
-        return "planned"
-    tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (nid,))}
-    if "planned" in tags:
-        return "planned"
-    if "unplanned" in tags:
-        return "unplanned"
-    return "unplanned (untagged)"
-
-
-def _sec_group(con, nid, n, by, sched_ids):
-    """(key, display title) for the secondary group. by in project/priority/plan."""
-    if by == "priority":
-        label = {"A": "P0", "B": "P1", "C": "P2"}.get(n["priority"], "—")
-        return label, label
-    if by == "plan":
-        label = _node_plan(con, nid, sched_ids)
-        return label, label
-    pid, ptitle = _node_project(con, nid)
-    return (pid if pid is not None else ptitle), ptitle
 
 
 def _sec_sort_key(by):
@@ -1844,7 +1598,7 @@ def _multi_select_tty(options, header):  # pragma: no cover -- TTY interactive, 
     Returns: list of selected indices, or None (canceled).
     Requires rich available + both stdin/stdout are TTYs; otherwise returns None so caller can fall back."""
     import sys
-    if not _RICH_AVAIL or not _is_interactive_tty():
+    if not render._RICH_AVAIL or not _is_interactive_tty():
         return None
     import os, termios, tty, select
     from rich.console import Console as _LiveConsole
@@ -1871,7 +1625,7 @@ def _multi_select_tty(options, header):  # pragma: no cover -- TTY interactive, 
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     canceled = False
-    # use a separate Console to avoid collision with wl's global _CONSOLE theme/highlight
+    # use a separate Console to avoid collision with wl's global render._CONSOLE theme/highlight
     live_console = _LiveConsole(file=sys.stderr, force_terminal=True)
     try:
         # cbreak (not raw): disable echo + line buffer but keep ONLCR (\n auto-adds \r);
@@ -2269,27 +2023,6 @@ def _norm_rrule(s):
     raise ValueError(f"unknown recurrence rule '{s}' (supports daily / weekly / monthly / quarterly / yearly, each accepting -1 = end of cycle)")
 
 
-def _resolve_concrete_date(s):
-    """Resolve today/yesterday/tomorrow/day-before-yesterday/day-after-tomorrow/YYYY-MM-DD (and Chinese aliases) to a concrete date string.
-    English aliases are case-insensitive."""
-    from datetime import date, timedelta
-
-    s = s.strip()
-    lower = s.lower()
-    rel = {
-        "today": 0, "今天": 0,
-        "yesterday": -1, "昨天": -1,
-        "day-before-yesterday": -2, "前天": -2,
-        "tomorrow": 1, "明天": 1,
-        "day-after-tomorrow": 2, "后天": 2,
-    }
-    if s in rel:
-        return (date.today() + timedelta(days=rel[s])).isoformat()
-    if lower in rel:
-        return (date.today() + timedelta(days=rel[lower])).isoformat()
-    date.fromisoformat(s)  # validate; raises ValueError on bad input
-    return s
-
 
 def cmd_sched(args, con):
     """Forward planning: schedule a task to a specific day / recurrence. A scheduled task appears as 'planned' in wl day even with no log.
@@ -2368,36 +2101,6 @@ def cmd_dateinfo(args, con):
             out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
 
 
-def _collect_descendants(con, root_id):
-    """Recursively collect all descendant ids of a node (excluding self)."""
-    acc = []
-    stack = [root_id]
-    while stack:
-        pid = stack.pop()
-        children = con.execute("SELECT id FROM node WHERE parent_id = ?", (pid,)).fetchall()
-        for c in children:
-            acc.append(c["id"])
-            stack.append(c["id"])
-    return acc
-
-
-def _resolve_window(args):
-    """Resolve a time window to (since, until) YYYY-MM-DD pair. Priority: week > month > since/until > this Monday to today."""
-    from datetime import date, timedelta
-
-    if getattr(args, "week", None):
-        y, w = args.week.split("-W")
-        monday = date.fromisocalendar(int(y), int(w), 1)
-        return monday.isoformat(), (monday + timedelta(days=6)).isoformat()
-    if getattr(args, "month", None):
-        y, m = (int(x) for x in args.month.split("-"))
-        first = date(y, m, 1)
-        nxt = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
-        return first.isoformat(), (nxt - timedelta(days=1)).isoformat()
-    today = date.today()
-    since = getattr(args, "since", None) or (today - timedelta(days=today.weekday())).isoformat()
-    until = getattr(args, "until", None) or today.isoformat()
-    return since, until
 
 
 def cmd_changes(args, con):
@@ -2446,42 +2149,6 @@ def cmd_changes(args, con):
         out(_c("(no project changes in window)", "meta"))
 
 
-def _has_tag(con, nid, tag):
-    return con.execute("SELECT 1 FROM tag WHERE node_id = ? AND tag = ? LIMIT 1", (nid, tag)).fetchone() is not None
-
-
-def _node_clock_min(con, nid):
-    """Total minutes spent on this node, auto-combined: CLOCK_OUT elapsed sum union log timestamp span.
-    Takes the greater so "no wl start/stop, only wl log" workflows still get a rough duration.
-    Design choice: auto-compute, no explicit --duration field. Auto-calc surfaces drift; an explicit field
-    rarely gets updated and pollutes upper-level aggregations.
-    """
-    import re as _re
-
-    # 1. CLOCK_OUT elapsed total (precise, from wl start/stop)
-    clock = 0
-    for r in con.execute("SELECT body FROM log WHERE node_id = ? AND body LIKE 'CLOCK_OUT%'", (nid,)):
-        m = _re.search(r"elapsed=(\d+)min", r["body"])
-        if m:
-            clock += int(m.group(1))
-
-    # 2. ordinary log timestamp span (rough, max - min, excluding CLOCK_*)
-    #    multiple logs at the same timestamp count as one "batch-backfilled instant", not duplicated
-    rows = list(con.execute(
-        "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND body NOT LIKE 'CLOCK_%' ESCAPE '\\' ORDER BY logged_at",
-        (nid,),
-    ))
-    span = 0
-    if len(rows) >= 2:
-        try:
-            from datetime import datetime
-            first = datetime.fromisoformat(rows[0]["logged_at"])
-            last = datetime.fromisoformat(rows[-1]["logged_at"])
-            span = max(0, int((last - first).total_seconds() / 60))
-        except (ValueError, TypeError):
-            pass
-
-    return max(clock, span)
 
 
 def _fmt_dur(minutes):
@@ -2563,71 +2230,13 @@ def _node_tags(con, nid):
     return [r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (nid,))]
 
 
-def _term_width():
-    """Terminal column count. No TTY (pipe/redirect) -> default 80."""
-    import shutil
-    try:
-        return shutil.get_terminal_size().columns or 80
-    except OSError:
-        return 80
-
 
 def _log_full(args):
     """args.log_format == 'full' -> True; otherwise (including None / 'oneline') -> False."""
     return getattr(args, "log_format", "oneline") == "full"
 
 
-def _truncate_log_body(body, indent_cols, full=False):
-    """Truncate log body to one line (terminal width - indent - safety margin), append … at end. full=True keeps body untouched.
-    indent_cols is the column width already occupied before body (indent + marker).
-    CJK characters may take 2 columns; this approximation by character count is acceptable.
-    """
-    if full:
-        return body
-    width = _term_width()
-    # available columns = width - indent_cols - small safety margin (2 cols to avoid edge wrap)
-    avail = max(20, width - indent_cols - 2)
-    # CJK chars take 2 cols; estimate effective usage
-    used = 0
-    out_chars = []
-    for ch in body:
-        w = 2 if ord(ch) > 0x7F else 1
-        if used + w > avail - 1:  # reserve 1 col for …
-            out_chars.append("…")
-            return "".join(out_chars)
-        out_chars.append(ch)
-        used += w
-    return body
 
-
-def _is_brief(args, *extras):
-    """Brief mode: -q/--brief or any extra flag (no_logs/no_timeline/no_body etc.) triggers it.
-    Usage: brief = _is_brief(args, "no_logs", "no_timeline")
-    """
-    if getattr(args, "brief", False):
-        return True
-    return any(getattr(args, e, False) for e in extras)
-
-
-def _resolve_log_tail(args, brief, default_tail=3):
-    """Unified log tail resolution. Shared by all commands that show log lists.
-
-    Priority (high to low):
-    - brief / --no-logs / --no-timeline / --no-body -> 0 (none shown)
-    - --all-logs (or --all-timeline) -> None (full expansion)
-    - --log-tail N (or --timeline-tail N / --tail N) -> N
-    - otherwise -> default_tail (usually 3)
-    """
-    if brief:
-        return 0
-    if (getattr(args, "all_logs", False) or getattr(args, "all_timelines", False)
-            or getattr(args, "all_timeline", False)):
-        return None
-    for attr in ("log_tail", "timeline_tail", "tail"):
-        v = getattr(args, attr, None)
-        if v is not None:
-            return v
-    return default_tail
 
 
 
@@ -2683,106 +2292,9 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
 
 
 # --- scheduled time: precise dates + fuzzy granularity (month/week/quarter/year/someday) ---
-def _norm_sched(s):
-    """Normalize user-input scheduled time. Returns normalized string; raises ValueError on bad input; empty returns None.
-    Accepts YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday
-    + relative words today|tomorrow|next-week|next-month|next-quarter."""
-    import re as _re
-    import datetime as _dt
-    if s is None:
-        return None
-    s = s.strip()
-    if not s:
-        return None
-    today = _dt.date.today()
-    if s in ("today", "今天"):
-        return today.isoformat()
-    if s in ("tomorrow", "明天"):
-        return (today + _dt.timedelta(days=1)).isoformat()
-    if s in ("next-week", "下周", "下个星期"):
-        y, w, _ = (today + _dt.timedelta(days=7)).isocalendar()
-        return f"{y}-W{w:02d}"
-    if s in ("next-month", "下月", "下个月"):
-        y, m = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
-        return f"{y}-{m:02d}"
-    if s in ("next-quarter", "下季", "下个季度"):
-        q = (today.month - 1) // 3 + 1
-        ny, nq = (today.year + 1, 1) if q == 4 else (today.year, q + 1)
-        return f"{ny}-Q{nq}"
-    if s in ("someday", "以后", "有空", "总有一天"):
-        return "someday"
-    if _re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
-        _dt.date.fromisoformat(s)  # validate; raises ValueError on bad input
-        return s
-    if _re.fullmatch(r"\d{4}-\d{2}", s):
-        if not 1 <= int(s[5:7]) <= 12:
-            raise ValueError(f"invalid month: {s}")
-        return s
-    if _re.fullmatch(r"\d{4}-W\d{2}", s):
-        if not 1 <= int(s[6:]) <= 53:
-            raise ValueError(f"invalid week: {s}")
-        return s
-    if _re.fullmatch(r"\d{4}-Q[1-4]", s):
-        return s
-    if _re.fullmatch(r"\d{4}", s):
-        return s
-    raise ValueError(
-        f"unrecognized scheduled time '{s}' (use YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter)")
 
 
-def _sched_kind(s):
-    """Normalized value -> granularity: day/week/month/quarter/year/someday/fuzzy"""
-    import re as _re
-    if not s:
-        return None
-    if s == "someday":
-        return "someday"
-    if _re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
-        return "day"
-    if _re.fullmatch(r"\d{4}-W\d{2}", s):
-        return "week"
-    if _re.fullmatch(r"\d{4}-\d{2}", s):
-        return "month"
-    if _re.fullmatch(r"\d{4}-Q[1-4]", s):
-        return "quarter"
-    if _re.fullmatch(r"\d{4}", s):
-        return "year"
-    return "fuzzy"
 
-
-def _sched_anchor(s):
-    """Normalized value -> anchor date (for sorting). someday/fuzzy -> far-future, sorts last."""
-    import datetime as _dt
-    k = _sched_kind(s)
-    try:
-        if k == "day":
-            return s
-        if k == "month":
-            return s + "-01"
-        if k == "year":
-            return s + "-01-01"
-        if k == "quarter":
-            y, q = int(s[:4]), int(s[6])
-            return f"{y}-{(q - 1) * 3 + 1:02d}-01"
-        if k == "week":
-            return _dt.date.fromisocalendar(int(s[:4]), int(s[6:]), 1).isoformat()
-    except (ValueError, IndexError):
-        # fromisoformat / fromisocalendar / int() / slice out of range -> treat as unparseable, use sentinel
-        pass
-    return "9999-12-31"
-
-
-def _sched_sort_key(s):
-    """Sort key (anchor date, granularity rank). Coarser granularities sort later; someday/fuzzy last. Callers compose final keys."""
-    rank = {"day": 0, "week": 1, "month": 2, "quarter": 3, "year": 4, "someday": 9, "fuzzy": 9}
-    return (_sched_anchor(s), rank.get(_sched_kind(s), 9))
-
-
-def _sched_display(s):
-    """Display: precise dates show MM-DD only (current-year context); fuzzy values shown as-is (month/week/quarter/year/someday)."""
-    if not s:
-        return ""
-    return s[5:] if _sched_kind(s) == "day" else s
 
 
 def cmd_summary(args, con):
@@ -3372,7 +2884,7 @@ def _snippet(text, q, ctx=30):
     mid = text[i:i + len(q)]
     pre = ("…" if a > 0 else "") + text[a:i]
     post = text[i + len(q):b] + ("…" if b < len(text) else "")
-    if _CONSOLE is None:
+    if render._CONSOLE is None:
         return pre + f"*{mid}*" + post
     return _c(pre) + _c(mid, "hit") + _c(post)
 
@@ -3608,621 +3120,22 @@ def cmd_logs(args, con):
 # loaded via ~/.config/<shell>/<config> | source pattern; does not write a persistent file
 
 # action attribute name -> fish helper function (dynamic completion)
-_FISH_HELPERS = {
-    # (sub_cmd, opt_name) → fish completion source
-    # opt_name None = positional argument
-    ("__any__", "--parent"): "(__wl_list_nodes)",
-    ("__any__", "--root"): "(__wl_list_nodes)",
-    ("__any__", "--id"): "(__wl_list_nodes)",
-    ("__any__", "--node"): "(__wl_list_nodes)",
-    ("__any__", "--ids"): "(__wl_list_nodes)",
-    ("__any__", "--tag"): "(__wl_list_tags)",
-    ("sched", "--recur"): "(__wl_recur_suggestions)",
-    # time / date related -> date suggestions
-    ("log", "--date"): "(__wl_date_suggestions)",
-    ("logs", "--date"): "(__wl_date_suggestions)",
-    ("unlog", "--date"): "(__wl_date_suggestions)",
-    ("dateinfo", "date"): "(__wl_date_suggestions)",
-    ("dateinfo", None): "(__wl_date_suggestions)",
-    ("day", "date"): "(__wl_date_suggestions)",
-    ("sched", "when"): "(__wl_date_suggestions)",
-    ("defer", "date"): "(__wl_date_suggestions)",
-}
-# subcommands whose default positional argument takes a node id (when not explicitly specified)
-_FISH_POSITIONAL_NODE = {"log", "done", "defer", "start", "stop", "wait", "reopen",
-                        "cancel", "tick", "link", "set", "show", "focus", "ancestors",
-                        "descendants", "spent", "unlog", "relog"}
-
-_FISH_HELPER_FUNCTIONS = r"""# --- helper functions (dynamic queries against worklog.db; no Python startup, fast) ---
-function __wl_db_path
-    # $WORKLOG_DB env, else $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
-    if set -q WORKLOG_DB
-        echo $WORKLOG_DB
-    else if set -q XDG_DATA_HOME
-        echo $XDG_DATA_HOME/worklog/worklog.db
-    else
-        echo $HOME/.local/share/worklog/worklog.db
-    end
-end
-
-function __wl_list_nodes
-    set -l db (__wl_db_path)
-    test -f $db; or return
-    # SQLite char(9) = tab (fish completion uses \t to separate token + desc)
-    sqlite3 $db "SELECT id || char(9) || title FROM node WHERE status IS NULL OR status NOT IN ('DONE', 'CANCELED') ORDER BY id DESC LIMIT 80" 2>/dev/null
-end
-
-function __wl_list_tags
-    set -l db (__wl_db_path)
-    test -f $db; or return
-    sqlite3 $db "SELECT DISTINCT tag FROM tag ORDER BY tag" 2>/dev/null
-end
-
-function __wl_date_suggestions
-    printf 'today\ttoday\nyesterday\tyesterday\nday-before-yesterday\tday before yesterday\ntomorrow\ttomorrow\nday-after-tomorrow\tday after tomorrow\n'
-    printf 'someday\tno specific time\n'
-    set -l today (date +%Y-%m-%d)
-    printf '%s\ttoday YYYY-MM-DD\n' $today
-end
-
-function __wl_recur_suggestions
-    printf 'daily\tevery day\n'
-    printf 'weekly:Mon,Wed,Fri\tMon/Wed/Fri\n'
-    printf 'weekly:Sat,Sun\tweekends\n'
-    printf 'weekly:-1\tevery Sunday (last day)\n'
-    printf 'monthly:1\t1st of every month\n'
-    printf 'monthly:15\t15th of every month\n'
-    printf 'monthly:-1\tlast day of every month\n'
-    printf 'quarterly:1-1\tfirst day of every quarter\n'
-    printf 'quarterly:-1\tlast day of every quarter\n'
-    printf 'yearly:01-01\tJan 1 every year\n'
-    printf 'yearly:-1\tlast day of year (12-31)\n'
-end
-"""
 
 
-def _completion_iter_actions(parser):
-    """yield action; skip help / version / dest=cmd / subparsers"""
-    for a in parser._actions:
-        if isinstance(a, (argparse._HelpAction, argparse._VersionAction)):
-            continue
-        if isinstance(a, argparse._SubParsersAction):
-            continue
-        yield a
 
-
-def _fish_escape(s):
-    """fish string escape: wrap in single quotes; inner single quote becomes \\'"""
-    if s is None:
-        return ""
-    return s.replace("\\", "\\\\").replace("'", "\\'")
-
-
-def _fish_one_complete(prefix, action, sub_cmd=None):
-    """Emit one fish complete line for a single action. prefix is the leading text of the complete line (with -c wl -n ...)."""
-    lines = []
-    descr = (action.help or "").split("\n")[0].strip()
-    # short / long options
-    short = []
-    long_ = []
-    for o in action.option_strings:
-        (long_ if o.startswith("--") else short).append(o.lstrip("-"))
-    opt_parts = []
-    for s in short:
-        opt_parts.append(f"-s {s}")
-    for l in long_:
-        opt_parts.append(f"-l {l}")
-    opt_str = " ".join(opt_parts)
-    if not opt_str:
-        return []  # no short/long = positional; handled by caller
-
-    # value-taking options disable filename completion (-x); store_true / store_false take no value
-    takes_value = not isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction,
-                                          argparse._StoreConstAction, argparse._CountAction))
-    if takes_value:
-        opt_str += " -x"
-
-    line = f"{prefix} {opt_str}"
-    if descr:
-        line += f' -d "{_fish_escape(descr)}"'
-
-    # value-completion source: choices > helper map > default (none)
-    val_src = None
-    if action.choices:
-        val_src = " ".join(str(c) for c in action.choices)
-    else:
-        # find helper: first (sub_cmd, --long), then (__any__, --long)
-        for opt in action.option_strings:
-            for key in [(sub_cmd, opt), ("__any__", opt)]:
-                if key in _FISH_HELPERS:
-                    val_src = _FISH_HELPERS[key]
-                    break
-            if val_src:
-                break
-    if val_src:
-        line += f' -a "{val_src}"'
-
-    lines.append(line)
-    return lines
-
-
-def _fish_positional_complete(parser, sub_cmd):
-    """Positional argument completion for a subcommand (mostly node id / date)."""
-    lines = []
-    for a in parser._actions:
-        if a.option_strings or isinstance(a, (argparse._SubParsersAction,
-                                              argparse._HelpAction, argparse._VersionAction)):
-            continue
-        # positional. Look up dest -> helper
-        prefix = f'complete -c wl -n "__fish_seen_subcommand_from {sub_cmd}"'
-        val_src = None
-        # explicit helper
-        for key in [(sub_cmd, a.dest), (sub_cmd, None)]:
-            if key in _FISH_HELPERS:
-                val_src = _FISH_HELPERS[key]
-                break
-        # default: subcommand in node-id operation set -> __wl_list_nodes
-        if val_src is None and sub_cmd in _FISH_POSITIONAL_NODE:
-            val_src = "(__wl_list_nodes)"
-        if val_src is None and a.choices:
-            val_src = " ".join(str(c) for c in a.choices)
-        if val_src:
-            descr = (a.help or "").split("\n")[0].strip()
-            line = f"{prefix} -f -a \"{val_src}\""
-            if descr:
-                line += f' -d "{_fish_escape(descr)}"'
-            lines.append(line)
-    return lines
-
-
-def _generate_fish_completion(parser):
-    """Walk build_parser() to produce full fish completion. argparse is the source of truth."""
-    lines = [
-        "# wl fish completion (auto-generated by `wl --print-completion fish`)",
-        "# Load: add `wl --print-completion fish | source` to ~/.config/fish/config.fish",
-        "",
-        "complete -c wl -f   # disable filename completion by default",
-        "",
-        _FISH_HELPER_FUNCTIONS,
-        "# --- global args ---",
-    ]
-    # global (top-level parser) actions
-    for a in _completion_iter_actions(parser):
-        lines += _fish_one_complete('complete -c wl', a, sub_cmd=None)
-
-    # subcommands
-    subparsers_action = next((x for x in parser._actions
-                              if isinstance(x, argparse._SubParsersAction)), None)
-    if subparsers_action is None:
-        return "\n".join(lines) + "\n"
-
-    # use _collect_sub_meta to get (name, help, sub, aliases)
-    sub_metas = _collect_sub_meta(parser)
-    lines.append("")
-    lines.append("# --- subcommand names (+ aliases) ---")
-    for name, descr, _sub, aliases in sub_metas:
-        descr_part = f' -d "{_fish_escape(descr)}"' if descr else ""
-        lines.append(f'complete -c wl -n "__fish_use_subcommand" -a "{name}"{descr_part}')
-        for alias in aliases:
-            alias_descr = f"{descr} (= {name})" if descr else f"alias of {name}"
-            lines.append(f'complete -c wl -n "__fish_use_subcommand" -a "{alias}"'
-                         f' -d "{_fish_escape(alias_descr)}"')
-
-    # per-subcommand arguments -- condition includes the primary name + all aliases
-    lines.append("")
-    lines.append("# --- per-subcommand arguments ---")
-    for name, _descr, sub, aliases in sub_metas:
-        all_names = " ".join([name] + aliases)
-        cond = f'__fish_seen_subcommand_from {all_names}'
-        prefix = f'complete -c wl -n "{cond}"'
-        section = [f"\n# {name}"]
-        for a in _completion_iter_actions(sub):
-            section += _fish_one_complete(prefix, a, sub_cmd=name)
-        section += _fish_positional_complete(sub, name)
-        if len(section) > 1:
-            lines += section
-
-    return "\n".join(lines) + "\n"
 
 
 # --- bash backend ---
 
 # bash does not show descriptions, only completes tokens. helper is a bash function that emits a token list.
-_BASH_HELPER_FUNCTIONS = r"""# helper functions (local SQLite query against worklog.db; no Python startup)
-__wl_db_path_bash() {
-    # $WORKLOG_DB env, else $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
-    if [ -n "$WORKLOG_DB" ]; then
-        echo "$WORKLOG_DB"
-    else
-        echo "${XDG_DATA_HOME:-$HOME/.local/share}/worklog/worklog.db"
-    fi
-}
 
-__wl_list_nodes_bash() {
-    local db=$(__wl_db_path_bash)
-    [ -f "$db" ] || return
-    sqlite3 "$db" "SELECT id FROM node WHERE status IS NULL OR status NOT IN ('DONE', 'CANCELED') ORDER BY id DESC LIMIT 80" 2>/dev/null
-}
-
-__wl_list_tags_bash() {
-    local db=$(__wl_db_path_bash)
-    [ -f "$db" ] || return
-    sqlite3 "$db" "SELECT DISTINCT tag FROM tag ORDER BY tag" 2>/dev/null
-}
-
-__wl_date_suggestions_bash() {
-    echo "today yesterday day-before-yesterday tomorrow day-after-tomorrow someday $(date +%Y-%m-%d)"
-}
-
-__wl_recur_suggestions_bash() {
-    echo "daily weekly:Mon,Wed,Fri weekly:Sat,Sun weekly:-1 monthly:1 monthly:15 monthly:-1 quarterly:1-1 quarterly:-1 yearly:01-01 yearly:-1"
-}
-"""
-
-# subcommand / argument -> bash helper function name (outputs token list, consumed by compgen -W)
-_BASH_DYN_HELPERS = {
-    ("__any__", "--parent"): "__wl_list_nodes_bash",
-    ("__any__", "--root"): "__wl_list_nodes_bash",
-    ("__any__", "--id"): "__wl_list_nodes_bash",
-    ("__any__", "--node"): "__wl_list_nodes_bash",
-    ("__any__", "--ids"): "__wl_list_nodes_bash",
-    ("__any__", "--tag"): "__wl_list_tags_bash",
-    ("sched", "--recur"): "__wl_recur_suggestions_bash",
-    ("log", "--date"): "__wl_date_suggestions_bash",
-    ("logs", "--date"): "__wl_date_suggestions_bash",
-    ("unlog", "--date"): "__wl_date_suggestions_bash",
-}
-
-
-def _collect_sub_meta(parser):
-    """Return [(sub_name, sub_help, sub_parser, [aliases])].
-    aliases are all alias names of the sub (excluding the primary name); the primary sub matches via choices key against _choices_actions; aliases point to the same parser object."""
-    subparsers_action = next((x for x in parser._actions
-                              if isinstance(x, argparse._SubParsersAction)), None)
-    if not subparsers_action:
-        return []
-    # reverse map: parser obj id -> list of names
-    parser_to_names = {}
-    for name, sub_p in subparsers_action.choices.items():
-        parser_to_names.setdefault(id(sub_p), []).append(name)
-    # primary names: those in _choices_actions with help text
-    primary_names = set()
-    if subparsers_action._choices_actions:
-        for c in subparsers_action._choices_actions:
-            primary_names.add(c.dest)
-    result = []
-    seen = set()
-    for name, sub in subparsers_action.choices.items():
-        if id(sub) in seen:
-            continue
-        if name not in primary_names:
-            # this is an alias; skip for now, collected together when the primary name appears
-            continue
-        seen.add(id(sub))
-        help_text = ""
-        if subparsers_action._choices_actions:
-            for c in subparsers_action._choices_actions:
-                if c.dest == name:
-                    help_text = c.help or ""
-                    break
-        aliases = [n for n in parser_to_names[id(sub)] if n != name]
-        result.append((name, (help_text or "").split("\n")[0].strip(), sub, aliases))
-    return result
-
-
-def _sub_options(sub_parser):
-    """List of all --long / -short options for a subcommand."""
-    opts = []
-    for a in _completion_iter_actions(sub_parser):
-        for o in a.option_strings:
-            opts.append(o)
-    return opts
-
-
-def _generate_bash_completion(parser):
-    """argparse → bash _wl() function + complete -F _wl wl."""
-    sub_metas = _collect_sub_meta(parser)
-    # subcmds list includes primary names + aliases
-    all_sub_names = []
-    for name, _, _, aliases in sub_metas:
-        all_sub_names.append(name)
-        all_sub_names.extend(aliases)
-    sub_names = " ".join(all_sub_names)
-
-    # global flags (top-level parser)
-    global_opts = []
-    for a in _completion_iter_actions(parser):
-        global_opts.extend(a.option_strings)
-    global_opts_str = " ".join(global_opts)
-
-    lines = [
-        "# wl bash completion (auto-generated by `wl print-completion bash`)",
-        "# Load: add `eval \"$(wl print-completion bash)\"` to ~/.bashrc",
-        "",
-        _BASH_HELPER_FUNCTIONS,
-        "_wl() {",
-        '    local cur="${COMP_WORDS[COMP_CWORD]}"',
-        '    local prev="${COMP_WORDS[COMP_CWORD-1]}"',
-        "",
-        "    # find current sub: first word not starting with -",
-        '    local sub=""',
-        "    local i",
-        "    for ((i=1; i<COMP_CWORD; i++)); do",
-        '        case "${COMP_WORDS[i]}" in',
-        "            -*) ;;",
-        '            *) sub="${COMP_WORDS[i]}"; break ;;',
-        "        esac",
-        "    done",
-        "",
-        f'    local global_opts="{global_opts_str}"',
-        f'    local subcmds="{sub_names}"',
-        "",
-        '    if [ -z "$sub" ]; then',
-        '        if [[ "$cur" == -* ]]; then',
-        '            COMPREPLY=( $(compgen -W "$global_opts" -- "$cur") )',
-        "        else",
-        '            COMPREPLY=( $(compgen -W "$subcmds" -- "$cur") )',
-        "        fi",
-        "        return",
-        "    fi",
-        "",
-        '    case "$sub" in',
-    ]
-
-    for name, _, sub, aliases in sub_metas:
-        opts = _sub_options(sub)
-        opts_str = " ".join(opts)
-        # bash case pattern: name|alias1|alias2)
-        case_pattern = "|".join([name] + aliases)
-        case_lines = [f'        {case_pattern})']
-        # when prev is a long option, look up its helper / choices
-        prev_cases = []
-        for a in _completion_iter_actions(sub):
-            if not a.option_strings:
-                continue
-            long_opts = [o for o in a.option_strings if o.startswith("--")]
-            if not long_opts:
-                continue
-            for opt in long_opts:
-                src = None
-                if a.choices:
-                    src = " ".join(str(c) for c in a.choices)
-                else:
-                    for key in [(name, opt), ("__any__", opt)]:
-                        if key in _BASH_DYN_HELPERS:
-                            src = f'$({_BASH_DYN_HELPERS[key]})'
-                            break
-                if src:
-                    prev_cases.append((opt, src))
-        if prev_cases:
-            case_lines.append('            case "$prev" in')
-            for opt, src in prev_cases:
-                if src.startswith("$("):
-                    case_lines.append(f'                {opt}) COMPREPLY=( $(compgen -W "{src}" -- "$cur") ); return ;;')
-                else:
-                    case_lines.append(f'                {opt}) COMPREPLY=( $(compgen -W "{src}" -- "$cur") ); return ;;')
-            case_lines.append('            esac')
-
-        case_lines.append('            if [[ "$cur" == -* ]]; then')
-        case_lines.append(f'                COMPREPLY=( $(compgen -W "{opts_str} $global_opts" -- "$cur") )')
-        case_lines.append('            else')
-        # positional: when the subcommand operates on node ids -> __wl_list_nodes_bash
-        if name in _FISH_POSITIONAL_NODE:
-            case_lines.append(f'                COMPREPLY=( $(compgen -W "$(__wl_list_nodes_bash)" -- "$cur") )')
-        else:
-            case_lines.append('                :')
-        case_lines.append('            fi')
-        case_lines.append('            ;;')
-        lines.extend(case_lines)
-
-    lines.append('    esac')
-    lines.append('}')
-    lines.append('complete -F _wl wl')
-    return "\n".join(lines) + "\n"
 
 
 # --- zsh backend ---
 
-_ZSH_HELPER_FUNCTIONS = r"""# helper functions (local SQLite query against worklog.db; no Python startup)
-__wl_db_path_zsh() {
-    # $WORKLOG_DB env, else $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
-    if [ -n "$WORKLOG_DB" ]; then
-        echo "$WORKLOG_DB"
-    else
-        echo "${XDG_DATA_HOME:-$HOME/.local/share}/worklog/worklog.db"
-    fi
-}
-
-__wl_list_nodes_zsh() {
-    local db=$(__wl_db_path_zsh)
-    [ -f "$db" ] || return
-    local -a nodes
-    nodes=( "${(@f)$(sqlite3 "$db" "SELECT id || ':' || replace(title, ':', '\\:') FROM node WHERE status IS NULL OR status NOT IN ('DONE', 'CANCELED') ORDER BY id DESC LIMIT 80" 2>/dev/null)}" )
-    _describe 'node' nodes
-}
-
-__wl_list_tags_zsh() {
-    local db=$(__wl_db_path_zsh)
-    [ -f "$db" ] || return
-    local -a tags
-    tags=( "${(@f)$(sqlite3 "$db" "SELECT DISTINCT tag FROM tag ORDER BY tag" 2>/dev/null)}" )
-    _values 'tag' $tags
-}
-
-__wl_date_suggestions_zsh() {
-    local today=$(date +%Y-%m-%d)
-    _describe 'date' \
-        "today:today" "yesterday:yesterday" "day-before-yesterday:day before yesterday" "tomorrow:tomorrow" "day-after-tomorrow:day after tomorrow" \
-        "someday:no specific time" "$today:today YYYY-MM-DD"
-}
-
-__wl_recur_suggestions_zsh() {
-    _describe 'recur' \
-        "daily:every day" \
-        "weekly\\:Mon,Wed,Fri:Mon/Wed/Fri" \
-        "weekly\\:Sat,Sun:weekends" \
-        "weekly\\:-1:every Sunday (last day)" \
-        "monthly\\:1:1st of every month" \
-        "monthly\\:15:15th of every month" \
-        "monthly\\:-1:last day of every month" \
-        "quarterly\\:1-1:first day of every quarter" \
-        "quarterly\\:-1:last day of every quarter" \
-        "yearly\\:01-01:Jan 1 every year" \
-        "yearly\\:-1:last day of year (12-31)"
-}
-"""
-
-_ZSH_DYN_HELPERS = {
-    ("__any__", "--parent"): "__wl_list_nodes_zsh",
-    ("__any__", "--root"): "__wl_list_nodes_zsh",
-    ("__any__", "--id"): "__wl_list_nodes_zsh",
-    ("__any__", "--node"): "__wl_list_nodes_zsh",
-    ("__any__", "--ids"): "__wl_list_nodes_zsh",
-    ("__any__", "--tag"): "__wl_list_tags_zsh",
-    ("sched", "--recur"): "__wl_recur_suggestions_zsh",
-    ("log", "--date"): "__wl_date_suggestions_zsh",
-    ("logs", "--date"): "__wl_date_suggestions_zsh",
-    ("unlog", "--date"): "__wl_date_suggestions_zsh",
-}
 
 
-def _zsh_escape(s):
-    """zsh string escape: backticks / square brackets / single + double quotes"""
-    if s is None:
-        return ""
-    return s.replace("\\", "\\\\").replace("'", "''").replace("[", "\\[").replace("]", "\\]").replace(":", "\\:")
 
-
-def _zsh_arg_spec(action, sub_cmd):
-    """For a single action, produce the _arguments spec string. None means positional (handled separately)."""
-    if not action.option_strings:
-        return None  # positional
-    descr = (action.help or "").split("\n")[0].strip()
-    descr_part = f"[{_zsh_escape(descr)}]" if descr else ""
-
-    takes_value = not isinstance(action, (argparse._StoreTrueAction, argparse._StoreFalseAction,
-                                          argparse._StoreConstAction, argparse._CountAction))
-
-    val_part = ""
-    if takes_value:
-        # value-completion source
-        val_src = None
-        if action.choices:
-            val_src = "(" + " ".join(str(c) for c in action.choices) + ")"
-        else:
-            for opt in action.option_strings:
-                for key in [(sub_cmd, opt), ("__any__", opt)]:
-                    if key in _ZSH_DYN_HELPERS:
-                        val_src = _ZSH_DYN_HELPERS[key]
-                        break
-                if val_src:
-                    break
-        if val_src:
-            val_part = f": :{val_src}" if val_src.startswith("__") else f": :{val_src}"
-        else:
-            val_part = ": :"
-
-    # multiple option strings (e.g. -q --brief): zsh uses {-q,--brief} form
-    opts = action.option_strings
-    if len(opts) == 1:
-        return f"'{opts[0]}{descr_part}{val_part}'"
-    elif len(opts) == 2:
-        return "'(" + " ".join(opts) + ")'{" + ",".join(opts) + "}'" + descr_part + val_part + "'"
-    else:
-        # > 2 options: one entry per option
-        return " ".join(f"'{o}{descr_part}{val_part}'" for o in opts)
-
-
-def _generate_zsh_completion(parser):
-    """argparse → zsh _wl() function + compdef _wl wl."""
-    sub_metas = _collect_sub_meta(parser)
-
-    lines = [
-        "#compdef wl",
-        "# wl zsh completion (auto-generated by `wl print-completion zsh`)",
-        "# Load: add `eval \"$(wl print-completion zsh)\"` to ~/.zshrc",
-        "",
-        _ZSH_HELPER_FUNCTIONS,
-        "_wl() {",
-        "    local context state line",
-        "    typeset -A opt_args",
-        "",
-        "    _arguments -C \\",
-    ]
-
-    # global args
-    global_specs = []
-    for a in _completion_iter_actions(parser):
-        spec = _zsh_arg_spec(a, sub_cmd=None)
-        if spec:
-            global_specs.append(spec)
-    for spec in global_specs:
-        lines.append(f"        {spec} \\")
-    lines.append("        '1: :->cmds' \\")
-    lines.append("        '*::arg:->args'")
-    lines.append("")
-    lines.append('    case "$state" in')
-    lines.append('        cmds)')
-    lines.append('            local -a subcmds')
-    lines.append('            subcmds=(')
-    for name, descr, _, aliases in sub_metas:
-        descr_safe = _zsh_escape(descr)
-        lines.append(f"                '{name}:{descr_safe}'")
-        for alias in aliases:
-            alias_descr = _zsh_escape(f"{descr} (= {name})" if descr else f"alias of {name}")
-            lines.append(f"                '{alias}:{alias_descr}'")
-    lines.append('            )')
-    lines.append("            _describe 'subcommand' subcmds")
-    lines.append('            ;;')
-    lines.append('        args)')
-    lines.append('            case $line[1] in')
-
-    for name, _, sub, aliases in sub_metas:
-        # zsh case pattern: name|alias1|alias2)
-        case_pattern = "|".join([name] + aliases)
-        lines.append(f'                {case_pattern})')
-        lines.append('                    _arguments \\')
-        sub_specs = []
-        for a in _completion_iter_actions(sub):
-            spec = _zsh_arg_spec(a, sub_cmd=name)
-            if spec:
-                sub_specs.append(spec)
-        # positional (single positional taking a node id)
-        positional_helper = None
-        if name in _FISH_POSITIONAL_NODE:
-            positional_helper = "__wl_list_nodes_zsh"
-        for i, spec in enumerate(sub_specs):
-            suffix = " \\" if (i < len(sub_specs) - 1 or positional_helper) else ""
-            lines.append(f"                        {spec}{suffix}")
-        if positional_helper:
-            lines.append(f"                        '*: :{positional_helper}'")
-        lines.append('                    ;;')
-
-    lines.append('            esac')
-    lines.append('            ;;')
-    lines.append('    esac')
-    lines.append('}')
-    lines.append('compdef _wl wl')
-    return "\n".join(lines) + "\n"
-
-
-def cmd_print_completion(args, con=None):
-    """Dump shell completion script. See per-shell header for how to load.
-
-    fish: add `wl print-completion fish | source` to ~/.config/fish/config.fish
-    bash: add `eval "$(wl print-completion bash)"` to ~/.bashrc
-    zsh:  add `eval "$(wl print-completion zsh)"`  to ~/.zshrc
-    """
-    shell = args.shell
-    parser = build_parser()
-    if shell == "fish":
-        sys.stdout.write(_generate_fish_completion(parser))
-    elif shell == "bash":
-        sys.stdout.write(_generate_bash_completion(parser))
-    elif shell == "zsh":
-        sys.stdout.write(_generate_zsh_completion(parser))
-    else:
-        sys.exit(f"✗ shell '{shell}' not supported (fish / bash / zsh)")
 
 
 def cmd_themes(args, con):
@@ -4231,18 +3144,18 @@ def cmd_themes(args, con):
     cur = _resolve_theme(req)  # resolve auto to a real theme
     auto_note = f" (auto -> {cur})" if req in (None, "auto") else ""
     no_color = args.color == "never" or os.environ.get("NO_COLOR")
-    if not _RICH_AVAIL or no_color:
+    if not render._RICH_AVAIL or no_color:
         # no rich or color explicitly off: plain text listing
         for name in THEMES:
             mark = "  <- current" if name == cur else ""
             print(f"■ {name}{mark}")
         print(f"current: {req}{auto_note}")
-        if not _RICH_AVAIL:
+        if not render._RICH_AVAIL:
             print("(rich not installed; no color preview; pip install rich)")
         return
     # render the sample with each theme's own palette (force_terminal: keeps colors when piped to less -R)
     for name in THEMES:
-        prev = _RichConsole(theme=_RichTheme(THEMES[name]), force_terminal=True, highlight=False, soft_wrap=True)
+        prev = render._RichConsole(theme=render._RichTheme(THEMES[name]), force_terminal=True, highlight=False, soft_wrap=True)
         mark = f"  [done]<- current {auto_note}[/done]" if name == cur else ""
         prev.print(f"[header]■ {name}[/header]{mark}")
         prev.print("  [done]\\[x][/done] [pri_a]\\[#A][/pri_a] [id]#42[/id] [kind]\\[project][/kind] "
@@ -4253,21 +3166,6 @@ def cmd_themes(args, con):
 
 
 # --- helpers ---
-def _node_exists(con, node_id):
-    return con.execute("SELECT 1 FROM node WHERE id = ?", (node_id,)).fetchone() is not None
-
-
-def _status_marker(status):
-    return {
-        None: "[ ]",
-        "TODO": "[ ]",
-        "DOING": "[/]",
-        "LATER": "[>]",
-        "WAIT": "[?]",
-        "DONE": "[x]",
-        "DEFERRED": "[>]",
-        "CANCELED": "[-]",
-    }.get(status, "[ ]")
 
 
 # --- argparse ---

@@ -1,0 +1,49 @@
+"""Tests for projects (extracted from the original test_wl.py monolith)."""
+import sqlite3
+import pytest
+
+
+class TestProjects:
+    def _seed(self, cli):
+        cli("add", "month", "-k", "month")                                              # 1
+        cli("add", "projectA", "-k", "project", "-p", "A", "-t", "projA", "--parent", "1")  # 2
+        cli("add", "projectB done", "-k", "project", "-p", "B", "-t", "projB", "--parent", "1")  # 3
+        cli("add", "A任务1", "-k", "task", "-t", "projA", "--parent", "1")             # 4
+        cli("add", "A任务2", "-k", "task", "-t", "projA", "--parent", "1")             # 5
+        cli("add", "A子任务", "-k", "task", "--parent", "2")                           # 6 (structural subtask)
+        cli("done", "4")
+        cli("done", "3")  # mark projectB done
+
+    def test_projects_lists_active(self, cli):
+        self._seed(cli)
+        code, out, _ = cli("projects")
+        assert code == 0
+        assert "projectA" in out
+        # projectB is DONE, not listed by default
+        assert "projectB" not in out
+
+    def test_projects_all_includes_done(self, cli):
+        self._seed(cli)
+        code, out, _ = cli("projects", "--all")
+        assert "projectB" in out
+
+    def test_projects_stats(self, cli):
+        self._seed(cli)
+        code, out, _ = cli("projects")
+        # projectA: A任务1(done) + A任务2(todo) + A子任务(todo, structural) = 3, done 1
+        line = [l for l in out.split("\n") if "projectA" in l][0]
+        assert "done 1/3" in line
+        assert "todo 2" in line
+
+    def test_projects_empty(self, cli):
+        code, out, _ = cli("projects")
+        assert "no active projects" in out
+
+
+class TestProjectFilters:
+    def test_projects_since(self, cli):
+        cli("add", "P1", "-k", "project")
+        cli("add", "t1", "-k", "task", "--parent", "1")
+        cli("log", "2", "p")
+        _, out, _ = cli("projects", "--since", "2020-01-01")
+        assert "P1" in out

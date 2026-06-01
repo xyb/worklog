@@ -1,0 +1,88 @@
+"""Tests for summary (extracted from the original test_wl.py monolith)."""
+import sqlite3
+import pytest
+
+
+class TestSummary:
+    def _seed(self, cli):
+        cli("add", "projectX", "-k", "project", "-t", "projX,work")  # 1
+        cli("add", "completed1", "-k", "task", "-t", "projX,work")      # 2
+        cli("add", "completed2", "-k", "task", "-t", "work")            # 3
+        cli("add", "personal completed", "-k", "task", "-t", "personal")      # 4
+        cli("add", "open", "-k", "task", "-t", "work")             # 5
+        cli("done", "2")
+        cli("done", "3")
+        cli("done", "4")
+
+    def test_summary_totals(self, cli):
+        from datetime import date
+        self._seed(cli)
+        t = date.today().isoformat()
+        code, out, _ = cli("summary", "--since", t, "--until", t)
+        assert code == 0
+        assert "done 3" in out
+        assert "added-open 1" in out
+
+    def test_summary_by_direction(self, cli):
+        from datetime import date
+        self._seed(cli)
+        t = date.today().isoformat()
+        code, out, _ = cli("summary", "--since", t, "--until", t)
+        assert "work: done 2" in out
+        assert "personal: done 1" in out
+
+    def test_summary_by_project(self, cli):
+        from datetime import date
+        self._seed(cli)
+        t = date.today().isoformat()
+        code, out, _ = cli("summary", "--since", t, "--until", t)
+        assert "=== by project ===" in out
+        assert "projectX" in out and "done 1" in out
+
+    def test_summary_done_list(self, cli):
+        from datetime import date
+        self._seed(cli)
+        t = date.today().isoformat()
+        code, out, _ = cli("summary", "--since", t, "--until", t)
+        # done items show ✓ + priority, aggregated under the project
+        assert "completed1" in out and "personal completed" in out
+        assert "✓" in out
+
+    def test_summary_pending_grouped_by_status(self, cli):
+        """open items group by status; DOING clearly distinct from TODO"""
+        cli("add", "projectY", "-k", "project", "-t", "projY")  # 1
+        cli("add", "doing task", "-k", "task", "-t", "projY,planned", "--parent", "1")  # 2
+        cli("add", "todo task", "-k", "task", "-t", "projY,planned", "--parent", "1")    # 3
+        cli("start", "2")  # DOING
+        code, out, _ = cli("summary")
+        assert "doing (DOING)" in out
+        assert "todo (TODO)" in out
+        assert "·planned" in out
+
+    def test_summary_orphan_bucket(self, cli):
+        from datetime import date
+        cli("add", "无项目任务", "-k", "task", "-t", "planned")
+        cli("done", "1")
+        code, out, _ = cli("summary")
+        assert "unassigned" in out
+
+    def test_summary_by_day(self, cli):
+        from datetime import date
+        self._seed(cli)
+        t = date.today().isoformat()
+        code, out, _ = cli("summary", "--since", t, "--until", t, "--by", "day")
+        assert code == 0
+        assert "=== by day ===" in out
+        assert t in out  # today's date acts as the group header
+        assert "completed1" in out
+
+    def test_summary_clock_hours(self, cli):
+        import time
+        from datetime import date
+        cli("add", "timing task", "-t", "work")
+        cli("start", "1")
+        time.sleep(0.05)
+        cli("stop", "1")
+        t = date.today().isoformat()
+        code, out, _ = cli("summary", "--since", t, "--until", t)
+        assert "clock" in out
