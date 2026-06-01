@@ -230,7 +230,7 @@ def cmd_summary_prop(args, con):
 def cmd_checkin(args, con):
     """Interactive check-in for today's habits.
     Default: multi-select (up/down + space + Enter), pick all at once and check in.
-    --linear: per-item prompt mode (allows per-item note; also the fallback for non-TTY / piped input)."""
+    --per-item: per-item prompt mode (allows per-item note; also the fallback for non-TTY / piped input)."""
     import sys
 
     rows, today, kinds = _checkin_collect(con, args)
@@ -245,8 +245,8 @@ def cmd_checkin(args, con):
         out(_c(f"all {len(rows)}/{len(rows)} already checked in for {today} ✓", "done"))
         return
 
-    if getattr(args, "linear", False) or not _is_interactive_tty():
-        _checkin_linear(con, rows)
+    if getattr(args, "per_item", False) or not _is_interactive_tty():
+        _checkin_per_item(con, rows)
         return
 
     header = _c(f"{today} · pick habits done today (already checked in {pre_done}/{len(rows)})", "header")
@@ -265,7 +265,7 @@ def cmd_checkin(args, con):
     out(_c(
         f"done {pre_done + done_now}/{len(rows)} · new this run {done_now}" +
         (f" · skipped {skipped}" if skipped else "") +
-        " · for detailed notes use `wl tick <id> --note ...` or `wl checkin --linear`",
+        " · for detailed notes use `wl tick <id> --note ...` or `wl checkin --per-item`",
         "header"))
 
 def cmd_sched(args, con):
@@ -454,7 +454,7 @@ def _multi_select_tty(options, header):  # pragma: no cover -- TTY interactive, 
         return None
     return [i for i, s in enumerate(selected) if s]
 
-def _checkin_linear(con, rows):
+def _checkin_per_item(con, rows):
     """Per-item prompt fallback mode: y/n/note/q (works on non-TTY / piped input; also supports per-item note)."""
     pre_done = sum(1 for r in rows if r["already"])
     out(_c(f"{len(rows)} items to check in, {pre_done} already done:", "header"))

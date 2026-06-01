@@ -112,14 +112,14 @@ class TestCheckin:
         _, s1, _ = cli("show", "1")
         assert "✓ done" not in s1
 
-    def test_checkin_linear_flag(self, cli, monkeypatch):
-        """--linear explicitly uses prompt mode (even on TTY)"""
+    def test_checkin_per_item_flag(self, cli, monkeypatch):
+        """--per-item explicitly uses prompt mode (even on TTY)"""
         self._setup_habits(cli, 1)
         inputs = iter(["y"])
         monkeypatch.setattr("builtins.input", lambda *a: next(inputs))
         from worklog import cli as wl_mod_
         monkeypatch.setattr(wl_mod_.commands.meta, "_is_interactive_tty", lambda: True)
-        _, out, _ = cli("checkin", "--linear")
+        _, out, _ = cli("checkin", "--per-item")
         assert "done 1/1" in out
 
     def test_habit_marker_resets_next_day(self, cli):
@@ -246,7 +246,7 @@ class TestCheckinCollectGaps:
         cli("sched", "1", today)
         # EOF straight away → immediate interrupt, but _checkin_collect already covered --all-kinds branch
         monkeypatch.setattr("builtins.input", lambda *a: (_ for _ in ()).throw(EOFError()))
-        _, out, _ = cli("checkin", "--all-kinds", "--linear")
+        _, out, _ = cli("checkin", "--all-kinds", "--per-item")
         assert "task-x" in out or "done" in out or "interrupted" in out
 
     def test_checkin_skips_canceled(self, cli, monkeypatch):
@@ -256,22 +256,22 @@ class TestCheckinCollectGaps:
         cli("sched", "1", today)
         cli("cancel", "1")
         monkeypatch.setattr("builtins.input", lambda *a: (_ for _ in ()).throw(EOFError()))
-        _, out, _ = cli("checkin", "--linear")
+        _, out, _ = cli("checkin", "--per-item")
         assert "h-skip" not in out
 
 
-class TestCheckinLinearActuallyRuns:
-    """cmd_checkin --linear hits at least 1 pending habit → enters input loop"""
+class TestCheckinPerItemActuallyRuns:
+    """cmd_checkin --per-item hits at least 1 pending habit → enters input loop"""
 
-    def test_checkin_linear_y_marks_done(self, cli, monkeypatch):
+    def test_checkin_per_item_y_marks_done(self, cli, monkeypatch):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "h-linear", "-k", "habit")
+        cli("add", "h-per-item", "-k", "habit")
         cli("sched", "1", today)
         # mock y → done
         monkeypatch.setattr("builtins.input", lambda *a: "y")
-        _, out, _ = cli("checkin", "--linear")
-        assert "done 1/1" in out or "h-linear" in out
+        _, out, _ = cli("checkin", "--per-item")
+        assert "done 1/1" in out or "h-per-item" in out
 
     def test_checkin_all_done_short_circuit(self, cli):
         """all pending already checked in → short-circuit "already checked in" path"""
@@ -280,7 +280,7 @@ class TestCheckinLinearActuallyRuns:
         cli("add", "h-done", "-k", "habit")
         cli("sched", "1", today)
         cli("tick", "1")  # already checked in today
-        _, out, _ = cli("checkin", "--linear")
+        _, out, _ = cli("checkin", "--per-item")
         assert "already checked in" in out
 
 
@@ -292,8 +292,8 @@ class TestCheckinKindFilter:
         cli("sched", "1", today)
         # --kind task → kinds = {"task"}, should be collected
         monkeypatch.setattr("builtins.input", lambda *a: "n")
-        _, out, _ = cli("checkin", "--kind", "task", "--linear")
-        # reaching the linear path is good enough; 1 item collected
+        _, out, _ = cli("checkin", "--kind", "task", "--per-item")
+        # reaching the per-item path is good enough; 1 item collected
         assert "1 items" in out or "1/1" in out
 
 

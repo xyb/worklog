@@ -84,6 +84,6 @@ from .meta import (
     _checkin_collect,
     _is_interactive_tty,
     _multi_select_tty,
-    _checkin_linear,
+    _checkin_per_item,
     _norm_rrule,
 )

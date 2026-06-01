@@ -705,3 +705,23 @@ class TestEditInEditorUnlink:
         # should not crash
         result = wl._edit_in_editor("hello", suffix=".txt")
         assert result == "hello"
+
+
+class TestWelcomeBanner:
+    """Bare `wl` (no subcommand) prints a getting-started banner instead of an argparse error."""
+
+    def test_welcome_banner_content(self, tmp_db, capsys):
+        tmp_db._print_welcome()
+        out = capsys.readouterr().out
+        assert "wl " in out and "SQLite-backed worklog" in out
+        assert "Getting started:" in out
+        # the most common commands users will reach for first
+        for cmd in ("wl init", "wl add", "wl log", "wl done", "wl ls", "wl tree", "wl day"):
+            assert cmd in out, f"missing {cmd!r} in welcome banner"
+        assert "wl --help" in out  # pointer to full help
+
+    def test_bare_invocation_no_required_cmd(self, tmp_db):
+        """build_parser() must allow cmd=None (no required subparser) so main() can show the banner."""
+        parser = tmp_db.build_parser()
+        args = parser.parse_args([])
+        assert args.cmd is None

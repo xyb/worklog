@@ -91,7 +91,7 @@ wl spent <id> 1h30m --at 14:00        # 14:00 as end, backs out 12:30 as start
 
 ```fish
 wl checkin                            # default multi-select (↑↓ space enter)
-wl checkin --linear                   # alt: one-by-one y/n/note/q prompt
+wl checkin --per-item                 # alt: one-by-one y/n/note/q prompt
 wl checkin --all-kinds                # not limited to habit kind
 ```
 

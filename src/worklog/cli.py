@@ -183,7 +183,7 @@ def build_parser():
     window.add_argument("--week", help="YYYY-Www (ISO week, overrides since/until)")
     window.add_argument("--month", help="YYYY-MM (overrides since/until)")
 
-    _real_sub = p.add_subparsers(dest="cmd", required=True)
+    _real_sub = p.add_subparsers(dest="cmd", required=False)
 
     # wrap add_parser to inject user aliases (cross-shell uniform: wl d == wl day)
     class _SubWrapper:
@@ -781,7 +781,7 @@ Cannot move a log across nodes (that's unlog + log).""")
         epilog="""\
 Common examples:
   wl checkin                          # default multi-select (arrows / space / Enter)
-  wl checkin --linear                 # fallback: prompt y/n/note/q per item (allows per-item note)
+  wl checkin --per-item               # fallback: prompt y/n/note/q per item (allows per-item note)
   wl checkin --all-kinds              # not just habit; include all task/meetlog/... scheduled today
 
 End-of-day: run wl checkin once to review every habit that's due today.
@@ -789,7 +789,7 @@ For single habit check-in, use wl tick <id>.""")
     ci.add_argument("--kind", help="filter by kind (default: habit; use --all-kinds to see anything scheduled)")
     ci.add_argument("--all-kinds", action="store_true",
                     help="no kind filter: habit/task/meetlog all listed (including everything scheduled today)")
-    ci.add_argument("--linear", action="store_true",
+    ci.add_argument("--per-item", action="store_true",
                     help="fallback mode: prompt y/n/note/q per item (allows per-item note; auto-used when not on a TTY)")
 
     sc = sub.add_parser("sched",
@@ -1020,7 +1020,7 @@ from .commands import (
     _checkin_collect,
     _is_interactive_tty,
     _multi_select_tty,
-    _checkin_linear,
+    _checkin_per_item,
     cmd_checkin,
     cmd_unlog,
     cmd_relog,
@@ -1092,9 +1092,30 @@ HANDLERS = {
 }
 
 
+def _print_welcome():
+    """Friendly banner shown when `wl` is run with no subcommand.
+    Points users at the most common commands and `wl --help` for the full list."""
+    print(f"wl {__version__} — SQLite-backed worklog")
+    print("A todo.sh-style CLI for time hierarchy, projects, tasks, habits, meetlogs.")
+    print()
+    print("Getting started:")
+    print('  wl init                          initialize the database')
+    print('  wl add "task title" -k task      add a task')
+    print('  wl log <id> "what happened"      append a log entry')
+    print('  wl done <id>                     mark it done')
+    print('  wl ls                            list open items')
+    print('  wl tree                          full tree view')
+    print('  wl day                           today\'s planned + activity')
+    print()
+    print("See `wl --help` for the full command list, or `wl <command> --help` for details.")
+
+
 def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] directly to bypass
     parser = build_parser()
     args = parser.parse_args()
+    if args.cmd is None:
+        _print_welcome()
+        return
     # resolve alias back to its primary name (e.g. wl d -> day)
     if args.cmd not in HANDLERS:
         for target, alist in (_USER_ALIASES or {}).items():
