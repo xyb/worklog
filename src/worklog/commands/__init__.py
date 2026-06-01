@@ -1,0 +1,89 @@
+"""worklog command handlers and their internal helpers.
+
+Split into 5 groups by responsibility: state mutations, queries / views,
+tree / day rendering, bulk import-apply, and meta (init/config/migrate/
+checkin/sched/dateinfo/themes/goal/recap). Each group is one .py file;
+this __init__ re-exports everything so cli.py (and tests) can import
+from `worklog.commands` without knowing the internal split.
+"""
+from .state import (
+    cmd_add,
+    cmd_log,
+    cmd_done,
+    cmd_defer,
+    cmd_start,
+    cmd_stop,
+    cmd_spent,
+    cmd_link,
+    cmd_set,
+    cmd_tick,
+    cmd_wait,
+    cmd_reopen,
+    cmd_cancel,
+    cmd_unlog,
+    cmd_relog,
+    cmd_active,
+    _ids_list,
+    _bulk_status_change,
+    _edit_in_editor,
+)
+from .query import (
+    cmd_show,
+    cmd_ls,
+    cmd_find,
+    cmd_focus,
+    cmd_ancestors,
+    cmd_descendants,
+    cmd_projects,
+    cmd_changes,
+    cmd_summary,
+    cmd_logs,
+    _show_one,
+)
+from .views import (
+    cmd_tree,
+    cmd_day,
+    _tree_by,
+    _tree_children,
+    _print_tree,
+    _print_day_activity,
+    _print_default_tree,
+    _render_day_group,
+    _sec_sort_key,
+    _sched_fires,
+    _scheduled_node_ids,
+    _date_label,
+    _cn_weekday,
+)
+from .bulk import (
+    cmd_import,
+    cmd_apply,
+    _import_node,
+    _import_update,
+    _parse_node_line,
+    _parse_fieldop,
+    _parse_wld,
+    _validate_fieldop,
+    _exec_update,
+    _fieldop_desc,
+    _apply_sub,
+)
+from .meta import (
+    cmd_init,
+    cmd_config,
+    cmd_migrate,
+    cmd_themes,
+    cmd_dateinfo,
+    cmd_goal,
+    cmd_summary_prop,
+    cmd_checkin,
+    cmd_sched,
+    _set_prop,
+    _get_prop,
+    _ensure_today_day,
+    _checkin_collect,
+    _is_interactive_tty,
+    _multi_select_tty,
+    _checkin_linear,
+    _norm_rrule,
+)
