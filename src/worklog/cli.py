@@ -37,7 +37,7 @@ from . import render
 from .render import (
     _RICH_AVAIL, _THEME_KEYS, THEMES, _STATUS_STYLE, _PRI_STYLE,
     _resolve_color, _detect_bg_is_dark, _resolve_theme, _init_console,
-    out, _c, _hl,
+    out, _c, _hl, _node_line, _snippet, _print_truncation_hint,
 )
 # backward-compat: cli._CONSOLE is a property-like passthrough so existing
 # `wl._CONSOLE` reads in tests/main() see the live render._CONSOLE.
@@ -50,6 +50,10 @@ from .completion import (
 )
 from .queries import (
     _insert_log,
+    _node_tags,
+    _check_ids_exist,
+    _upsert_prop,
+    _status_filter_sql,
     _project_members,
     _ancestors_chain,
     _node_bucket,
@@ -63,6 +67,9 @@ from .queries import (
 )
 from .helpers import GENERIC_TAGS  # noqa: F401
 from .helpers import (
+    _fmt_dur,
+    _apply_top_limit,
+    _log_full,
     _status_marker,
     _resolve_window,
     _resolve_concrete_date,
@@ -886,38 +893,6 @@ def cmd_projects(args, con):
     for line in lines:
         out(line)
 
-
-def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, planned=False, clock=True, sched=False, hl=None):
-    """Unified node-line rendering (sole source per DESIGN.md §6).
-
-    Format: <indent><marker> [#pri] #<id> [kind] <title>[ ·planned][ @sched][ [Xh Ym]][ :tags:]
-    Everywhere that "lists tasks" goes through this; do not roll your own. hl=query highlights matches in title (used by find).
-    clock defaults True: shows total duration [Xh Ym] when there's a CLOCK or log span; 0 hides it.
-    """
-    mk = "✓" if done else _status_marker(n["status"])
-    marker = _c(mk, "done" if done else _STATUS_STYLE.get(n["status"], "todo"))
-    if n["priority"]:
-        pri = _c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"]))
-    else:
-        pri = "   "  # no priority: spaces as placeholder to align with [#A], no collision with marker
-    kind = (_c(f"[{n['kind']}]", "kind") + " ") if (show_kind and n["kind"] != "task") else ""
-    nid = _c(f"#{n['id']}", "id")
-    title = _hl(n["title"], hl) if hl else _c(n["title"])
-    s = f"{indent}{marker} {pri} {nid} {kind}{title}"
-    if planned and _has_tag(con, n["id"], "planned"):
-        s += " " + _c("·planned", "planned")
-    if sched and n["scheduled_at"]:
-        s += " " + _c("@" + _sched_display(n["scheduled_at"]), "planned")
-    if clock:
-        cm = _node_clock_min(con, n["id"])
-        d = _fmt_dur(cm)
-        if d:
-            s += " " + _c(d, "clock")
-    if tags:
-        tl = _node_tags(con, n["id"])
-        if tl:
-            s += "  " + _c(f":{':'.join(tl)}:", "tag")
-    return s
 
 
 def _tree_by(con, by):
@@ -2151,89 +2126,17 @@ def cmd_changes(args, con):
 
 
 
-def _fmt_dur(minutes):
-    """Compact duration format: [2h30m] / [45m] / [0] hidden. ASCII-safe, no reliance on emoji widths."""
-    if not minutes or minutes <= 0:
-        return ""
-    h, m = divmod(int(minutes), 60)
-    if h:
-        return f"[{h}h{m}m]" if m else f"[{h}h]"
-    return f"[{m}m]"
-
 
 # --- DRY helpers: filter / truncate / bulk status change, reused across commands ---
 
-def _status_filter_sql(include_canceled=False, hide_done=False, col="status"):
-    """Build a `status` column filter SQL fragment + params. Used uniformly across cmds, avoids scattered string-concat.
-    Returns (where_fragment, params_list); when nothing is filtered returns ("", []).
-
-    Usage:
-        frag, params = _status_filter_sql(inc_cancel, hide_done=not args.all)
-        if frag: where.append(frag); sql_params.extend(params)
-    """
-    excluded = []
-    if hide_done:
-        excluded.append("DONE")
-    if not include_canceled:
-        excluded.append("CANCELED")
-    if not excluded:
-        return "", []
-    ph = ",".join("?" * len(excluded))
-    return f"({col} IS NULL OR {col} NOT IN ({ph}))", excluded
 
 
-def _apply_top_limit(rows, args):
-    """Truncate the list by args.top / args.limit; return (rows, total_before).
-    `--top` takes the first N (rows are already in target order); `--limit` further truncates the display.
-    """
-    total = len(rows)
-    top = getattr(args, "top", None)
-    if top is not None and top > 0:
-        rows = rows[:top]
-    limit = getattr(args, "limit", None)
-    if limit is not None and limit > 0:
-        rows = rows[:limit]
-    return rows, total
 
 
-def _print_truncation_hint(shown, total, extra=""):
-    """Print `(showing N/total[, extra])` hint when truncated; print nothing otherwise."""
-    if shown < total:
-        msg = f"(showing {shown}/{total}"
-        if extra:
-            msg += f", {extra}"
-        msg += ")"
-        out(_c(msg, "meta"))
-
-
-def _check_ids_exist(con, ids):
-    """Batch existence check; sys.exit if any id is missing. Used by multi-id commands."""
-    for nid in ids:
-        if not _node_exists(con, nid):
-            sys.exit(f"✗ node #{nid} not found")
-
-
-def _upsert_prop(con, nid, key, value):
-    """Unified prop UPSERT (no commit; caller controls the transaction). Batch-friendly.
-    `_set_prop` is the commit version for single daily operations."""
-    con.execute("INSERT OR REPLACE INTO prop (node_id, key, value) VALUES (?, ?, ?)", (nid, key, value))
-
-
-# generic ORDER BY fragment: priority A/B/C first, NULL last; same priority by id ascending.
-# Usage: f"SELECT * FROM node WHERE ... {_ORDER_BY_PRI_ID}"
-# Note: when joining, write the qualified column "n.priority"; that case stays inline.
 _ORDER_BY_PRI_ID = "ORDER BY priority NULLS LAST, id"
 
 
-def _node_tags(con, nid):
-    """Return the tag list for a node (insertion order)."""
-    return [r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (nid,))]
 
-
-
-def _log_full(args):
-    """args.log_format == 'full' -> True; otherwise (including None / 'oneline') -> False."""
-    return getattr(args, "log_format", "oneline") == "full"
 
 
 
@@ -2874,19 +2777,6 @@ def _apply_sub(con, nid, kind, val):
             k, v = val.split("=", 1)
             _upsert_prop(con, nid, k.strip(), v.strip())
 
-
-def _snippet(text, q, ctx=30):
-    """Extract a snippet around the query, with the match highlighted (styled) / *…* marked (plain)."""
-    i = text.lower().find(q.lower())
-    if i < 0:
-        return _c(text[:80] + ("…" if len(text) > 80 else ""))
-    a, b = max(0, i - ctx), min(len(text), i + len(q) + ctx)
-    mid = text[i:i + len(q)]
-    pre = ("…" if a > 0 else "") + text[a:i]
-    post = text[i + len(q):b] + ("…" if b < len(text) else "")
-    if render._CONSOLE is None:
-        return pre + f"*{mid}*" + post
-    return _c(pre) + _c(mid, "hit") + _c(post)
 
 
 _VALID_FIND_FIELDS = {"title", "body", "log", "tag", "prop", "link"}

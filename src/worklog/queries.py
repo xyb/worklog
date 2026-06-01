@@ -8,6 +8,7 @@ helpers.py and the command handlers in cli.py.
 from __future__ import annotations
 
 import sqlite3
+import sys
 from .helpers import GENERIC_TAGS  # noqa: F401
 from .helpers import _resolve_concrete_date
 
@@ -172,3 +173,44 @@ def _node_clock_min(con, nid):
 def _node_exists(con, node_id):
     return con.execute("SELECT 1 FROM node WHERE id = ?", (node_id,)).fetchone() is not None
 
+
+def _node_tags(con, nid):
+    """Return the tag list for a node (insertion order)."""
+    return [r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (nid,))]
+
+
+def _check_ids_exist(con, ids):
+    """Batch existence check; sys.exit if any id is missing. Used by multi-id commands."""
+    for nid in ids:
+        if not _node_exists(con, nid):
+            sys.exit(f"✗ node #{nid} not found")
+
+
+def _upsert_prop(con, nid, key, value):
+    """Unified prop UPSERT (no commit; caller controls the transaction). Batch-friendly.
+    `_set_prop` is the commit version for single daily operations."""
+    con.execute("INSERT OR REPLACE INTO prop (node_id, key, value) VALUES (?, ?, ?)", (nid, key, value))
+
+
+# generic ORDER BY fragment: priority A/B/C first, NULL last; same priority by id ascending.
+# Usage: f"SELECT * FROM node WHERE ... {_ORDER_BY_PRI_ID}"
+# Note: when joining, write the qualified column "n.priority"; that case stays inline.
+
+
+def _status_filter_sql(include_canceled=False, hide_done=False, col="status"):
+    """Build a `status` column filter SQL fragment + params. Used uniformly across cmds, avoids scattered string-concat.
+    Returns (where_fragment, params_list); when nothing is filtered returns ("", []).
+
+    Usage:
+        frag, params = _status_filter_sql(inc_cancel, hide_done=not args.all)
+        if frag: where.append(frag); sql_params.extend(params)
+    """
+    excluded = []
+    if hide_done:
+        excluded.append("DONE")
+    if not include_canceled:
+        excluded.append("CANCELED")
+    if not excluded:
+        return "", []
+    ph = ",".join("?" * len(excluded))
+    return f"({col} IS NULL OR {col} NOT IN ({ph}))", excluded

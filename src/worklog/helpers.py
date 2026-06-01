@@ -252,3 +252,31 @@ def _sched_display(s):
         return ""
     return s[5:] if _sched_kind(s) == "day" else s
 
+
+def _fmt_dur(minutes):
+    """Compact duration format: [2h30m] / [45m] / [0] hidden. ASCII-safe, no reliance on emoji widths."""
+    if not minutes or minutes <= 0:
+        return ""
+    h, m = divmod(int(minutes), 60)
+    if h:
+        return f"[{h}h{m}m]" if m else f"[{h}h]"
+    return f"[{m}m]"
+
+
+def _apply_top_limit(rows, args):
+    """Truncate the list by args.top / args.limit; return (rows, total_before).
+    `--top` takes the first N (rows are already in target order); `--limit` further truncates the display.
+    """
+    total = len(rows)
+    top = getattr(args, "top", None)
+    if top is not None and top > 0:
+        rows = rows[:top]
+    limit = getattr(args, "limit", None)
+    if limit is not None and limit > 0:
+        rows = rows[:limit]
+    return rows, total
+
+
+def _log_full(args):
+    """args.log_format == 'full' -> True; otherwise (including None / 'oneline') -> False."""
+    return getattr(args, "log_format", "oneline") == "full"

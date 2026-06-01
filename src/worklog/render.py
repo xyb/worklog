@@ -3,7 +3,7 @@
 Holds the mutable `_CONSOLE` state (set by `_init_console` from main()).
 Coloring helpers (`_c`, `_hl`, `out`) read `_CONSOLE` at call time, so the
 rest of the codebase doesn't pass a console object around. The trade-off is
-that tests reading `_CONSOLE` must do so via `wl.render._CONSOLE` (a live
+that tests reading `_CONSOLE` must do so via `wl._CONSOLE` (a live
 attribute lookup) rather than `wl._CONSOLE` (an import-time binding that
 would not follow mutations).
 """
@@ -146,3 +146,64 @@ def _hl(text, q):
     if _CONSOLE is None:
         return pre + f"*{mid}*" + post
     return _c(pre) + _c(mid, "hit") + _c(post)
+
+
+# --- node-line rendering (extracted from cli.py) ---
+from .helpers import _status_marker, _sched_display, _fmt_dur
+from .queries import _has_tag, _node_clock_min, _node_tags
+
+def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, planned=False, clock=True, sched=False, hl=None):
+    """Unified node-line rendering (sole source per DESIGN.md §6).
+
+    Format: <indent><marker> [#pri] #<id> [kind] <title>[ ·planned][ @sched][ [Xh Ym]][ :tags:]
+    Everywhere that "lists tasks" goes through this; do not roll your own. hl=query highlights matches in title (used by find).
+    clock defaults True: shows total duration [Xh Ym] when there's a CLOCK or log span; 0 hides it.
+    """
+    mk = "✓" if done else _status_marker(n["status"])
+    marker = _c(mk, "done" if done else _STATUS_STYLE.get(n["status"], "todo"))
+    if n["priority"]:
+        pri = _c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"]))
+    else:
+        pri = "   "  # no priority: spaces as placeholder to align with [#A], no collision with marker
+    kind = (_c(f"[{n['kind']}]", "kind") + " ") if (show_kind and n["kind"] != "task") else ""
+    nid = _c(f"#{n['id']}", "id")
+    title = _hl(n["title"], hl) if hl else _c(n["title"])
+    s = f"{indent}{marker} {pri} {nid} {kind}{title}"
+    if planned and _has_tag(con, n["id"], "planned"):
+        s += " " + _c("·planned", "planned")
+    if sched and n["scheduled_at"]:
+        s += " " + _c("@" + _sched_display(n["scheduled_at"]), "planned")
+    if clock:
+        cm = _node_clock_min(con, n["id"])
+        d = _fmt_dur(cm)
+        if d:
+            s += " " + _c(d, "clock")
+    if tags:
+        tl = _node_tags(con, n["id"])
+        if tl:
+            s += "  " + _c(f":{':'.join(tl)}:", "tag")
+    return s
+
+def _snippet(text, q, ctx=30):
+    """Extract a snippet around the query, with the match highlighted (styled) / *…* marked (plain)."""
+    i = text.lower().find(q.lower())
+    if i < 0:
+        return _c(text[:80] + ("…" if len(text) > 80 else ""))
+    a, b = max(0, i - ctx), min(len(text), i + len(q) + ctx)
+    mid = text[i:i + len(q)]
+    pre = ("…" if a > 0 else "") + text[a:i]
+    post = text[i + len(q):b] + ("…" if b < len(text) else "")
+    if _CONSOLE is None:
+        return pre + f"*{mid}*" + post
+    return _c(pre) + _c(mid, "hit") + _c(post)
+
+
+
+def _print_truncation_hint(shown, total, extra=""):
+    """Print `(showing N/total[, extra])` hint when truncated; print nothing otherwise."""
+    if shown < total:
+        msg = f"(showing {shown}/{total}"
+        if extra:
+            msg += f", {extra}"
+        msg += ")"
+        out(_c(msg, "meta"))
