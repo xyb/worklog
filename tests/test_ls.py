@@ -173,8 +173,8 @@ class TestLsAdvanced:
         _, out, _ = cli("ls")
         # should list only t1, no "(bare ls...)" hint
         assert "t1" in out
-        assert "裸 ls" not in out
-        assert "精准" not in out
+        assert "bare ls" not in out
+        assert "narrowing" not in out
 
 
 class TestLsSortUpdated:

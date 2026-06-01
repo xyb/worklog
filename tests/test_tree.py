@@ -71,8 +71,8 @@ class TestTreeBy:
         cli("add", "data-viz", "-k", "project", "-t", "gaming,work", "--parent", "1")  # 2
         cli("add", "investment", "-k", "project", "-t", "invest,personal", "--parent", "1")          # 3
         cli("add", "login fix", "-k", "task", "-t", "gaming,work,P0", "--parent", "1")           # 4
-        cli("add", "采数管线", "-k", "task", "-t", "gaming,work", "--parent", "1")              # 5
-        cli("add", "对账", "-k", "task", "-t", "invest,personal", "--parent", "1")             # 6
+        cli("add", "ingest pipeline", "-k", "task", "-t", "gaming,work", "--parent", "1")        # 5
+        cli("add", "reconcile", "-k", "task", "-t", "invest,personal", "--parent", "1")           # 6
         cli("add", "structural child", "-k", "task", "--parent", "2")                                 # 7 (under project #2)
         cli("add", "morning check", "-k", "task", "-t", "work,P0", "--parent", "1")                      # 8 (no project tag = orphan)
 
@@ -88,10 +88,10 @@ class TestTreeBy:
     def test_by_project_groups_by_shared_tag(self, cli):
         self._seed(cli)
         code, out, _ = cli("tree", "--by", "project")
-        # gaming-data-viz section should contain login fix + 采数管线 (shared gaming tag)
+        # gaming-data-viz section should contain login fix + ingest pipeline (shared gaming tag)
         gaming_section = out.split("investment")[0]
         assert "login fix" in gaming_section
-        assert "采数管线" in gaming_section
+        assert "ingest pipeline" in gaming_section
         # structural child (parent=project) also counts
         assert "structural child" in gaming_section
 
@@ -111,7 +111,7 @@ class TestTreeBy:
         work_section = out.split("【personal】")[0]
         assert "login fix" in work_section
         personal_section = out.split("【personal】")[-1]
-        assert "对账" in personal_section
+        assert "reconcile" in personal_section
 
 
 class TestTreeDepthSortActivity:
@@ -120,10 +120,10 @@ class TestTreeDepthSortActivity:
     def test_tree_default_area_one_level(self, cli):
         # default tree: area lists only one level (area name); projects not expanded; use --root <area> to see them
         cli("add", "life", "-k", "lifetime")           # 1
-        cli("add", "数据", "-k", "area", "--parent", "1")  # 2
+        cli("add", "data", "-k", "area", "--parent", "1")  # 2
         cli("add", "proj", "-k", "project", "--parent", "2")  # 3
         code, out, _ = cli("tree")
-        assert "数据" in out          # area name appears
+        assert "data" in out          # area name appears
         assert "proj" not in out      # project not expanded by default
         code, out2, _ = cli("tree", "--root", "2")  # drill into area to see projects
         assert "proj" in out2
@@ -139,13 +139,13 @@ class TestTreeDepthSortActivity:
         cli("add", "2026-05", "-k", "month")                   # 1
         cli("add", "2026-05-18", "-k", "day", "--parent", "1") # 2
         cli("add", "proj", "-k", "project")                    # 3
-        cli("add", "干了活", "-k", "task", "--parent", "3")     # 4
-        cli("log", "4", "今天的进展", "--date", "2026-05-18")
-        cli("log", "4", "别天的进展", "--date", "2026-05-20")
+        cli("add", "did work", "-k", "task", "--parent", "3")        # 4
+        cli("log", "4", "today's progress", "--date", "2026-05-18")
+        cli("log", "4", "other day's progress", "--date", "2026-05-20")
         code, out, _ = cli("tree", "--root", "2", "--depth", "3")
-        assert "干了活" in out          # task with log that day appears under day
-        assert "今天的进展" in out       # that day's log
-        assert "别天的进展" not in out   # other day's log does not appear
+        assert "did work" in out                # task with log that day appears under day
+        assert "today's progress" in out         # that day's log
+        assert "other day's progress" not in out # other day's log does not appear
 
 
 class TestTreeEmpty:

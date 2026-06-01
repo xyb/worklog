@@ -10,7 +10,7 @@ class TestChanges:
         cli("add", "open task", "-k", "task", "-t", "projX")           # 3
         cli("add", "task with log", "-k", "task", "-t", "projX")              # 4
         cli("done", "2")
-        cli("log", "4", "今天的进展")
+        cli("log", "4", "today's progress")
 
     def test_changes_today_window(self, cli):
         from datetime import date

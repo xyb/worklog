@@ -147,30 +147,30 @@ class TestAddCompound:
     """wl add --log / --done / --at / --link: one-shot add + log + close + done"""
 
     def test_add_with_log(self, cli):
-        cli("add", "t1", "-k", "task", "--log", "起步说明")
+        cli("add", "t1", "-k", "task", "--log", "kickoff note")
         _, show, _ = cli("show", "1")
-        assert "起步说明" in show
+        assert "kickoff note" in show
 
     def test_add_with_done(self, cli):
-        cli("add", "事后回顾", "-k", "task", "--done")
+        cli("add", "retro", "-k", "task", "--done")
         _, show, _ = cli("show", "1")
         assert "DONE" in show
         assert "closed_at" in show
 
     def test_add_with_done_and_at(self, cli):
-        cli("add", "回顾过去", "-k", "task", "--done", "--at", "2025-01-02 09:00")
+        cli("add", "look back", "-k", "task", "--done", "--at", "2025-01-02 09:00")
         _, show, _ = cli("show", "1")
         assert "closed_at 2025-01-02 09:00:00" in show
 
     def test_add_all_compound(self, cli):
         """one shot: add + done + log + at + link"""
-        cli("add", "全套补录", "-k", "task", "-p", "B",
-            "--log", "结果一句话", "--done", "--at", "2025-01-02 14:30",
-            "--link", "vault doc 名")
+        cli("add", "backfill all", "-k", "task", "-p", "B",
+            "--log", "outcome in one sentence", "--done", "--at", "2025-01-02 14:30",
+            "--link", "vault doc name")
         _, show, _ = cli("show", "1")
         assert "DONE" in show
-        assert "vault doc 名" in show
-        assert "结果一句话" in show
+        assert "vault doc name" in show
+        assert "outcome in one sentence" in show
         assert "2025-01-02 14:30" in show
 
     def test_add_invalid_at(self, cli):
