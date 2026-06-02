@@ -190,7 +190,24 @@ def cmd_log(args, con):
     print(f"✓ log added to #{args.id}{auto_progress_hint}")
 
 def cmd_done(args, con):
+    _warn_recurring_done(con, _ids_list(args))
     _bulk_status_change(con, args, "DONE", close=True)
+
+
+def _warn_recurring_done(con, ids):
+    """`wl done` on a recurring task (has an rrule) sets global status DONE, which makes it
+    show as completed on EVERY scheduled day and stop re-triggering. That is the "retire the
+    whole recurring task" semantic. To mark just today's occurrence, `wl tick` is the right
+    tool (adds a log, keeps status open). Warn so the two don't get confused."""
+    for nid in ids:
+        rule = con.execute(
+            "SELECT rrule FROM sched WHERE node_id = ? AND rrule IS NOT NULL LIMIT 1", (nid,)
+        ).fetchone()
+        if rule:
+            out(_c(
+                f"! #{nid} is recurring ({rule['rrule']}): `wl done` retires the whole task "
+                f"(shows done on all scheduled days). For just today's occurrence use `wl tick {nid}`.",
+                "planned"))
 
 def cmd_defer(args, con):
     ids = _ids_list(args)

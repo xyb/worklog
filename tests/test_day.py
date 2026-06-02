@@ -146,3 +146,21 @@ class TestDayMetaRendering:
         cli("stop", "1")
         _, out, _ = cli("day", today)
         assert "CLOCK" in out
+
+
+class TestDayPlannedNotDoneSuppression:
+    """A DONE task scheduled on a day with no logs must not be tagged «planned·not-done»."""
+
+    def test_done_task_no_planned_not_done(self, cli):
+        cli("add", "完成任务", "-k", "task", "-t", "work")
+        cli("sched", "1", "2026-06-15")
+        cli("done", "1")
+        _, out, _ = cli("day", "2026-06-15")
+        assert "#1" in out
+        assert "planned·not-done" not in out
+
+    def test_open_task_still_planned_not_done(self, cli):
+        cli("add", "待办任务", "-k", "task", "-t", "work")
+        cli("sched", "1", "2026-06-15")
+        _, out, _ = cli("day", "2026-06-15")
+        assert "planned·not-done" in out

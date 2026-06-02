@@ -564,3 +564,30 @@ class TestSchedListing:
         cli("sched", "1", "2026-06-15")
         _, out, _ = cli("sched", "1")
         assert "2026-06-15" in out
+
+
+class TestSchedIdempotent:
+    """sched must not insert duplicate (node_id, on_date) / (node_id, rrule) rows."""
+
+    def test_oneoff_date_idempotent(self, cli):
+        cli("add", "t", "-k", "task")
+        cli("sched", "1", "2026-06-15")
+        _, out, _ = cli("sched", "1", "2026-06-15")
+        assert "already scheduled" in out
+        # exactly one row for that date
+        import sqlite3, os
+        con = sqlite3.connect(os.environ["WORKLOG_DB"])
+        cnt = con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1 AND on_date=?", ("2026-06-15",)).fetchone()[0]
+        con.close()
+        assert cnt == 1
+
+    def test_recur_rule_idempotent(self, cli):
+        cli("add", "t", "-k", "habit")
+        cli("sched", "1", "--recur", "daily")
+        _, out, _ = cli("sched", "1", "--recur", "daily")
+        assert "already on recurring schedule" in out
+        import sqlite3, os
+        con = sqlite3.connect(os.environ["WORKLOG_DB"])
+        cnt = con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1 AND rrule=?", ("daily",)).fetchone()[0]
+        con.close()
+        assert cnt == 1

@@ -296,20 +296,32 @@ def cmd_sched(args, con):
         except ValueError as e:
             sys.exit(f"✗ {e}")
         for nid in ids:
-            con.execute("INSERT INTO sched (node_id, rrule) VALUES (?, ?)", (nid, rule))
+            # idempotent: don't insert a duplicate (node_id, rrule) row
+            exists = con.execute(
+                "SELECT 1 FROM sched WHERE node_id = ? AND rrule = ?", (nid, rule)
+            ).fetchone()
+            if exists:
+                out(_c(f"= #{nid} already on recurring schedule: {rule}", "meta"))
+            else:
+                con.execute("INSERT INTO sched (node_id, rrule) VALUES (?, ?)", (nid, rule))
+                out(_c(f"✓ #{nid} recurring schedule: {rule}", "meta"))
         con.commit()
-        for nid in ids:
-            out(_c(f"✓ #{nid} recurring schedule: {rule}", "meta"))
     if args.when:
         try:
             d = _resolve_concrete_date(args.when)
         except ValueError:
             sys.exit(f"✗ invalid date '{args.when}' (use YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow)")
         for nid in ids:
-            con.execute("INSERT INTO sched (node_id, on_date) VALUES (?, ?)", (nid, d))
+            # idempotent: don't insert a duplicate (node_id, on_date) row
+            exists = con.execute(
+                "SELECT 1 FROM sched WHERE node_id = ? AND on_date = ?", (nid, d)
+            ).fetchone()
+            if exists:
+                out(_c(f"= #{nid} already scheduled to {d}", "meta"))
+            else:
+                con.execute("INSERT INTO sched (node_id, on_date) VALUES (?, ?)", (nid, d))
+                out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
         con.commit()
-        for nid in ids:
-            out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
 
 def _set_prop(con, nid, key, value):
     _upsert_prop(con, nid, key, value)

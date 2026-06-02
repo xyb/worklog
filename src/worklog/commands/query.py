@@ -788,6 +788,21 @@ def _show_one(args, con):
     links = [r["vault_doc"] for r in con.execute("SELECT vault_doc FROM link WHERE node_id = ?", (args.id,))]
     if links:
         out("  " + _c("links:", "meta") + "    " + _c(", ".join(f"[[{d}]]" for d in links)))
+    # schedule (sched table): one-off dates + recurring rules. First-hand info for debugging
+    # recurring tasks (e.g. why a task shows on multiple days); previously only visible via raw SQL.
+    sched_rows = con.execute(
+        "SELECT on_date, rrule FROM sched WHERE node_id = ? ORDER BY on_date NULLS LAST, rrule",
+        (args.id,),
+    ).fetchall()
+    if sched_rows:
+        dates = [r["on_date"] for r in sched_rows if r["on_date"]]
+        rules = [r["rrule"] for r in sched_rows if r["rrule"]]
+        parts = []
+        if rules:
+            parts.append("recur " + ", ".join(rules))
+        if dates:
+            parts.append("on " + ", ".join(dates))
+        out("  " + _c("schedule:", "meta") + " " + _c("; ".join(parts), "planned"))
     # children (direct only)
     children = con.execute(
         f"SELECT * FROM node WHERE parent_id = ? {_ORDER_BY_PRI_ID}", (args.id,)

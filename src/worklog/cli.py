@@ -201,7 +201,13 @@ def build_parser():
             # has an intro line right after the usage line.
             if "description" not in kw and "help" in kw:
                 kw["description"] = kw["help"]
-            return self._sub.add_parser(name, **kw)
+            pp = self._sub.add_parser(name, **kw)
+            # accept -q/--brief AFTER the subcommand too (wl day -q), not only globally
+            # before it (wl -q day). default=SUPPRESS so an omitted flag here does not
+            # clobber a value already set on the global parser.
+            pp.add_argument("-q", "--brief", action="store_true", default=argparse.SUPPRESS,
+                            help="brief output (same as the global -q; accepted after the subcommand too)")
+            return pp
         def __getattr__(self, k):
             return getattr(self._sub, k)
     sub = _SubWrapper(_real_sub)

@@ -208,7 +208,11 @@ def cmd_day(args, con):
         stats[s] = stats.get(s, 0) + 1
     done = stats.get("DONE", 0)
     total = len(logged)
-    planned_undone = sum(1 for nid in items if not items[nid]["logs"])
+    # mirror the per-row hint: a terminal-status (DONE/CANCELED) task is not "not-done"
+    planned_undone = sum(
+        1 for nid in items
+        if not items[nid]["logs"] and items[nid]["node"]["status"] not in ("DONE", "CANCELED")
+    )
     parts = [f"{s} {stats[s]}" for s in ("DONE", "DOING", "TODO", "LATER", "WAIT", "DEFERRED", "CANCELED") if stats.get(s)]
     clock = con.execute(
         "SELECT body FROM log WHERE date(logged_at) = ? AND body LIKE 'CLOCK_OUT%'",
@@ -444,9 +448,12 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                     mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
                 pri = (_c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"])) + " ") if n["priority"] else ""
                 hint = ""
-                if not logs:
+                if not logs and n["status"] not in ("DONE", "CANCELED"):
+                    # only "not-done" if the task is still open; a terminal-status task
+                    # scheduled on a day with no logs is done, not pending (avoids the
+                    # contradictory "[x] … «planned·not-done»").
                     hint = _c("  «planned·not-done»", "planned")
-                elif log_tail == 0:
+                elif logs and log_tail == 0:
                     # compact mode: don't expand body, attach a count hint after the title line
                     hint = _c(f"  ({len(logs)} log)", "meta")
                 # total duration (CLOCK union log span); see _node_clock_min docstring

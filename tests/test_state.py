@@ -149,3 +149,20 @@ class TestDoneCompound:
             _, show, _ = cli("show", nid)
             assert "DONE" in show
             assert "批量收尾" in show
+
+
+class TestDoneRecurringWarning:
+    """wl done on a recurring task hints to use wl tick (occurrence) vs done (retire)."""
+
+    def test_done_recurring_warns(self, cli):
+        cli("add", "每日巡检", "-k", "habit")
+        cli("sched", "1", "--recur", "daily")
+        _, out, _ = cli("done", "1")
+        assert "recurring" in out
+        assert "wl tick 1" in out
+
+    def test_done_oneoff_no_warn(self, cli):
+        cli("add", "一次性", "-k", "task")
+        cli("sched", "1", "2026-06-15")
+        _, out, _ = cli("done", "1")
+        assert "recurring" not in out

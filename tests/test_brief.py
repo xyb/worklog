@@ -151,3 +151,23 @@ class TestBriefMode:
         assert "work item" in s_out
         _, l_out, _ = cli("logs", "--since", yday, "--until", today)
         assert "进展" in l_out
+
+
+class TestBriefAfterSubcommand:
+    """-q/--brief works AFTER the subcommand (wl day -q), not only globally (wl -q day)."""
+
+    def test_q_after_subcommand_equiv_global(self, cli):
+        cli("add", "work item", "-k", "task")
+        cli("log", "1", "做了 A 步")
+        cli("log", "1", "做了 B 步")
+        _, after, _ = cli("day", "-q")
+        _, before, _ = cli("-q", "day")
+        assert "做了 A 步" not in after          # brief drops log bodies
+        assert "(2 log)" in after               # compact hint appears
+        assert after == before                  # same as global position
+
+    def test_no_q_is_not_brief(self, cli):
+        cli("add", "work item", "-k", "task")
+        cli("log", "1", "细节内容")
+        _, out, _ = cli("day")
+        assert "细节内容" in out                 # without -q, full bodies remain
