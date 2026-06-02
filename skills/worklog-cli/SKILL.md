@@ -9,6 +9,16 @@ SQLite execution-system tool. A single `node` table carries lifetime/year/quarte
 
 **Full design conventions in repo `DESIGN.md`** (18 sections; required reading before adding commands or changing formats). This skill only covers how AI uses `wl`.
 
+## ⚠️ Check for duplicates before adding a task/project (hard rule)
+
+Before `wl add`-ing any task or project, **first check whether a related entry already exists** — if so, reuse it (`wl sched` it onto the new day) instead of creating a duplicate. **Search across time ranges**, because an entry may be scheduled at `@2026-06` (month level) / `@someday` / earlier or later, so looking only at the current month misses it:
+
+- `wl find <keyword>` — full-text search (always run this first)
+- `wl ls --sort scheduled --all` — see everything that's scheduled
+- `wl ls --parent <proj> --all` — entries already under that project (note: `wl tree --root` may miss tasks hung on a month node, see #436)
+
+Likewise, before adding a dev todo under a project, check that project's existing entries first. If a convenient cross-range query command is missing, flag it and file a dev todo (#45 / see #434 for the planned `agenda` command).
+
 ## When to use `wl` (scenario → command)
 
 | User says | Command |

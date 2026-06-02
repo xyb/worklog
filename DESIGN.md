@@ -5,6 +5,25 @@
 > Every command must follow the unified conventions in this document. Read this before adding a new command or changing an old one, to keep things consistent.
 > If conventions change, update this document, all affected commands, and the tests together.
 
+## 0. Design goals (north star, override every specific convention)
+
+These two trade-offs are foundational. Pass them before adding or changing any feature; when they conflict with a specific convention below, they win.
+
+### G1 Structured-first (no string matching)
+
+worklog's whole job is to **structure** the work log so information can be precisely queried / aggregated / analyzed. Any semantics that "must be searchable/countable later" has to live in a **structured field (its own column + type)** — never via string matching / prefix conventions on the body text. That is not structured; it can't be queried or counted reliably.
+
+- For a new feature, ask first: "what is its structured carrier?" (which table, which column, what type) — not "which blob of text do I stuff it into".
+- Anti-patterns (to be phased out): CLOCK events detected via `body LIKE 'CLOCK_%'`; habit completion inferred from "is there a log that day". Both are string conventions — fragile and unaggregatable.
+
+### G2 Minimal & self-evident (usable without docs, by humans and AI alike)
+
+The tool must be simple enough to **use without reading the manual**, for both humans and AI. AI faces a plain-text interface; complexity makes it err.
+
+- Keep the **kinds of records hung under a node** restrained (fewer is better): each extra kind is one more concept to remember and one more block to render — heavier, harder to grasp.
+- Self-check any new design with three questions: (1) how many new concepts does it add? (2) does using it force AI/humans to make a choice ("A or B?")? (3) can you guess it right without docs? If any answer is poor, simplify further.
+- When G1 and G2 conflict, find the "structured AND fewest-concepts" answer — don't pile on new tables / fields / commands just to be structured.
+
 ## 1. Command style (todo.sh school)
 
 - Verb first: `wl <verb> [args] [--flags]`
