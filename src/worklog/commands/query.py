@@ -69,11 +69,9 @@ from ..xdg import _resolve_db_path, _resolve_aliases_path, _xdg_data_home, _xdg_
 from .. import cli as _cli  # noqa: E402
 
 
-from .views import _print_tree, _render_day_group, _scheduled_node_ids
-
 from .bulk import _VALID_FIND_FIELDS, _VALID_KINDS
 from .state import _ids_list
-from .views import _print_tree, _render_day_group, _scheduled_node_ids
+from .views import _print_tree, _print_day_activity, _render_day_group, _scheduled_node_ids
 
 def cmd_show(args, con):
     # multiple ids: show each in turn, blank-line separated; same rendering
@@ -280,16 +278,24 @@ def cmd_focus(args, con):
     pri = (_c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"])) + " ") if n["priority"] else ""
     out("▶ focus " + mk + " " + _c(f"#{n['id']}", "id") + " " + pri + _c(f"[{n['kind']}]", "kind") + " " + _c(n["title"], "header"))
 
-    # downstream subtree
-    children = con.execute(
-        f"SELECT * FROM node WHERE parent_id = ? {_ORDER_BY_PRI_ID}", (args.id,)
-    ).fetchall()
-    if children:
-        out(_c("downstream:", "meta"))
-        for c in children:
-            _print_tree(con, c, depth=1, max_depth=args.depth)
+    # downstream subtree. A day node has no real parent_id children — its
+    # "contents" are that day's log activity, exactly like `wl tree` / `wl day`.
+    # Expand it the same way so focusing a day shows everything done that day,
+    # not just the few nodes whose parent_id happens to be the day.
+    if n["kind"] == "day":
+        out(_c("downstream (day activity):", "meta"))
+        _print_day_activity(con, n, depth=0, max_depth=args.depth)
+        children = []  # for the related-section exclude set below
     else:
-        out(_c("downstream: (no children)", "meta"))
+        children = con.execute(
+            f"SELECT * FROM node WHERE parent_id = ? {_ORDER_BY_PRI_ID}", (args.id,)
+        ).fetchall()
+        if children:
+            out(_c("downstream:", "meta"))
+            for c in children:
+                _print_tree(con, c, depth=1, max_depth=args.depth)
+        else:
+            out(_c("downstream: (no children)", "meta"))
 
     # related: other nodes sharing semantic tags (excluding upstream/downstream/self + generic tags to avoid flooding)
     if args.related:

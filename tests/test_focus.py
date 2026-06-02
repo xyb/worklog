@@ -40,6 +40,30 @@ class TestFocus:
         assert code != 0
 
 
+class TestFocusDayNode:
+    """focus on a day node should expand that day's activity (logs/sched), not just
+    parent_id children — same semantics as `wl tree` / `wl day` for day nodes."""
+
+    def _seed(self, cli, date="2026-05-28"):
+        cli("add", "2026-05", "-k", "month")                                      # 1
+        cli("add", date, "-k", "day", "--parent", "1")                            # 2 (day node)
+        cli("add", "project X", "-k", "project", "-t", "work", "--parent", "1")   # 3
+        cli("add", "task with log today", "-k", "task", "-t", "work", "--parent", "3")  # 4
+        cli("add", "today's meetlog", "-k", "meetlog", "-t", "work", "--parent", "3")   # 5
+        # neither task's parent is the day node; they belong to the day only via log date
+        cli("log", "4", "did work today", "--date", date)
+        cli("log", "5", "had a meeting today", "--date", date)
+
+    def test_focus_day_expands_activity(self, cli):
+        """focus on a day node = wl day for that date: every node with activity that
+        day shows up, regardless of its parent_id (was: only parent_id children)."""
+        self._seed(cli)
+        code, out, _ = cli("focus", "2")
+        assert code == 0
+        assert "task with log today" in out, "focus on a day node dropped the day's log activity"
+        assert "today's meetlog" in out
+
+
 class TestAncestorsDescendants:
     def _seed(self, cli):
         cli("add", "year", "-k", "year")                  # 1
