@@ -591,3 +591,61 @@ class TestSchedIdempotent:
         cnt = con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1 AND rrule=?", ("daily",)).fetchone()[0]
         con.close()
         assert cnt == 1
+
+
+class TestAgenda:
+    """wl agenda <start> <end>: cross-granularity scheduling overview from both the
+    sched table (concrete days) and node.scheduled_at (fuzzy month/someday pins) (#434)."""
+
+    def _seed(self, cli):
+        cli("add", "exact day", "-k", "task")   # 1 → sched table, day
+        cli("add", "month pin", "-k", "task")    # 2 → scheduled_at, month
+        cli("add", "someday item", "-k", "task") # 3 → scheduled_at, someday
+        cli("add", "july task", "-k", "task")    # 4 → sched table, out of range
+        cli("sched", "1", "2026-06-15")
+        cli("defer", "2", "2026-06")             # month-level → node.scheduled_at
+        cli("defer", "3", "someday")
+        cli("sched", "4", "2026-07-10")
+
+    def test_agenda_spans_both_sources_in_range(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("agenda", "2026-06-01", "2026-06-30")
+        assert "exact day" in out          # sched-table day in range
+        assert "month pin" in out          # scheduled_at month pin in range — the #434 case
+        assert "july task" not in out      # out of range
+        assert "someday item" not in out   # someday not shown without --someday
+
+    def test_agenda_month_pin_sorts_before_mid_month_day(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("agenda", "2026-06-01", "2026-06-30")
+        # @2026-06 anchors to 2026-06-01, before the 06-15 exact day
+        assert out.index("month pin") < out.index("exact day")
+
+    def test_agenda_someday_flag_appends_someday(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("agenda", "2026-06-01", "2026-06-30", "--someday")
+        assert "someday item" in out
+        assert "someday / fuzzy" in out
+
+    def test_agenda_empty_range(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("agenda", "2025-01-01", "2025-01-31")
+        assert "nothing scheduled" in out
+
+    def test_agenda_hides_done_by_default(self, cli):
+        cli("add", "done task", "-k", "task")
+        cli("sched", "1", "2026-06-15")
+        cli("done", "1")
+        _, out, _ = cli("agenda", "2026-06-01", "2026-06-30")
+        assert "done task" not in out
+        _, out2, _ = cli("agenda", "2026-06-01", "2026-06-30", "--all")
+        assert "done task" in out2
+
+    def test_agenda_swaps_reversed_range(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("agenda", "2026-06-30", "2026-06-01")  # reversed
+        assert "exact day" in out  # still works, range normalized
+
+    def test_agenda_bad_date_rejected(self, cli):
+        code, _, err = cli("agenda", "not-a-date", "2026-06-30")
+        assert code != 0

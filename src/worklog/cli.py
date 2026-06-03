@@ -598,6 +598,23 @@ Related: wl show is self + timeline only; wl ancestors/descendants only go one d
     de.add_argument("id", type=int)
     de.add_argument("--depth", type=int, help="max depth")
 
+    ag = sub.add_parser("agenda",
+        help="cross-time-range scheduling overview: everything scheduled in [start, end]",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Lists every node scheduled within the range, across all granularities (a task pinned
+at @2026-06 month-level or @2026-W23 week-level shows up alongside exact days), ordered
+by anchor date. Use it before planning to spot tasks already scheduled — a per-month
+tree view misses month/week/someday-pinned items.
+
+  wl agenda 2026-06-01 2026-06-30      # everything scheduled in June
+  wl agenda today 2026-12-31 --someday # rest of year + the someday pile
+  wl agenda 2026-06-01 2026-06-30 --all # include DONE/CANCELED too""")
+    ag.add_argument("start", help="range start (YYYY-MM-DD / today / yesterday / 明天 ...)")
+    ag.add_argument("end", help="range end (inclusive)")
+    ag.add_argument("--someday", action="store_true", help="also list someday / fuzzy-scheduled nodes at the end")
+    ag.add_argument("--all", action="store_true", help="include DONE/CANCELED (default hides terminal-status)")
+
     pj = sub.add_parser("projects", parents=[window],
         help="list active projects + subtask counts + recent activity",
         description="List all active projects (kind=project, status not DONE/CANCELED) with subtask counts + last log time. --since filters to projects with activity after that date.",
@@ -1010,6 +1027,7 @@ from .commands import (
     cmd_focus,
     cmd_ancestors,
     cmd_descendants,
+    cmd_agenda,
     _tree_children,
     _print_day_activity,
     _print_default_tree,
@@ -1083,6 +1101,7 @@ HANDLERS = {
     "focus": cmd_focus,
     "ancestors": cmd_ancestors,
     "descendants": cmd_descendants,
+    "agenda": cmd_agenda,
     "day": cmd_day,
     "goal": cmd_goal,
     "recap": cmd_summary_prop,

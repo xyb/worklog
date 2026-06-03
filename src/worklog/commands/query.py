@@ -337,6 +337,64 @@ def cmd_descendants(args, con):
         sys.exit(f"✗ node #{args.id} not found")
     _print_tree(con, n, depth=0, max_depth=args.depth)
 
+def cmd_agenda(args, con):
+    """Cross-time-range scheduling overview: every node scheduled within [start, end],
+    regardless of granularity (day / week / month / quarter / year), ordered by anchor
+    date. A single-month tree view misses items pinned at @month / @someday — this
+    lists them all in one place so planning can spot duplicates (#434)."""
+    try:
+        start = _resolve_concrete_date(args.start)
+        end = _resolve_concrete_date(args.end)
+    except ValueError as e:
+        sys.exit(f"✗ bad date: {e}")
+    if start > end:
+        start, end = end, start
+    inc_cancel = getattr(args, "show_canceled", False)
+    show_all = getattr(args, "all", False)
+
+    # Two schedule sources, both matter (else we recreate the very bug #434 is about —
+    # month/someday-level plans live in node.scheduled_at, not the sched table):
+    #   - sched table on_date: concrete one-off days (+ rrule, handled elsewhere)
+    #   - node.scheduled_at:    a single fuzzy-granularity pin (@2026-06 / someday / ...)
+    entries = []  # (node_id, sched_value)
+    for r in con.execute("SELECT node_id, on_date FROM sched WHERE on_date IS NOT NULL"):
+        entries.append((r["node_id"], r["on_date"]))
+    for r in con.execute("SELECT id, scheduled_at FROM node WHERE scheduled_at IS NOT NULL"):
+        entries.append((r["id"], r["scheduled_at"]))
+
+    hits = []          # (sort_key, node, value) for in-range scheds
+    someday = []       # (node, value) for someday/unparseable, listed at the end
+    seen = set()       # (node_id, value) dedup
+    for node_id, val in entries:
+        key = (node_id, val)
+        if key in seen:
+            continue
+        seen.add(key)
+        n = con.execute("SELECT * FROM node WHERE id = ?", (node_id,)).fetchone()
+        if not n:
+            continue
+        if not show_all and n["status"] in ("DONE", "CANCELED") and not (inc_cancel and n["status"] == "CANCELED"):
+            continue
+        kind = _sched_kind(val)
+        if kind in ("someday", "fuzzy"):
+            someday.append((n, val))
+            continue
+        anchor = _sched_anchor(val)
+        if start <= anchor <= end:
+            hits.append((_sched_sort_key(val), n, val))
+
+    hits.sort(key=lambda x: (x[0], x[1]["id"]))
+    if not hits and not (args.someday and someday):
+        out(_c(f"(nothing scheduled between {start} and {end})", "meta"))
+        return
+    out(_c(f"agenda {start} → {end}:", "header"))
+    for _, n, od in hits:
+        out(_node_line(con, n, sched=True))
+    if args.someday and someday:
+        out(_c(f"someday / fuzzy ({len(someday)}):", "meta"))
+        for n, od in sorted(someday, key=lambda x: x[0]["id"]):
+            out(_node_line(con, n, sched=True))
+
 
 
 def cmd_projects(args, con):

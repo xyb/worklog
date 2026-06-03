@@ -34,6 +34,7 @@ from .query import (
     cmd_focus,
     cmd_ancestors,
     cmd_descendants,
+    cmd_agenda,
     cmd_projects,
     cmd_changes,
     cmd_summary,

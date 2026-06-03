@@ -14,10 +14,10 @@ SQLite execution-system tool. A single `node` table carries lifetime/year/quarte
 Before `wl add`-ing any task or project, **first check whether a related entry already exists** — if so, reuse it (`wl sched` it onto the new day) instead of creating a duplicate. **Search across time ranges**, because an entry may be scheduled at `@2026-06` (month level) / `@someday` / earlier or later, so looking only at the current month misses it:
 
 - `wl find <keyword>` — full-text search (always run this first)
-- `wl ls --sort scheduled --all` — see everything that's scheduled
-- `wl ls --parent <proj> --all` — entries already under that project (note: `wl tree --root` may miss tasks hung on a month node, see #436)
+- `wl agenda <start> <end> [--someday]` — everything scheduled in a date range across all granularities (day/week/month pins), the cross-range view that catches `@2026-06` / `@someday` items a per-month tree misses
+- `wl ls --parent <proj> --all` — entries already under that project
 
-Likewise, before adding a dev todo under a project, check that project's existing entries first. If a convenient cross-range query command is missing, flag it and file a dev todo (#45 / see #434 for the planned `agenda` command).
+Likewise, before adding a dev todo under a project, check that project's existing entries first.
 
 ## When to use `wl` (scenario → command)
 
