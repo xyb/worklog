@@ -34,8 +34,8 @@ _FISH_HELPERS = {
     ("dateinfo", "date"): "(__wl_date_suggestions)",
     ("dateinfo", None): "(__wl_date_suggestions)",
     ("day", "date"): "(__wl_date_suggestions)",
-    ("sched", "when"): "(__wl_date_suggestions)",
-    ("defer", "date"): "(__wl_date_suggestions)",
+    ("sched", "when"): "(__wl_sched_suggestions)",
+    ("defer", "date"): "(__wl_sched_suggestions)",
 }
 # subcommands whose default positional argument takes a node id (when not explicitly specified)
 
@@ -69,10 +69,16 @@ function __wl_list_tags
 end
 
 function __wl_date_suggestions
+    # concrete dates only — commands like day/log/logs/dateinfo reject fuzzy values
     printf 'today\ttoday\nyesterday\tyesterday\nday-before-yesterday\tday before yesterday\ntomorrow\ttomorrow\nday-after-tomorrow\tday after tomorrow\n'
-    printf 'someday\tno specific time\n'
     set -l today (date +%Y-%m-%d)
     printf '%s\ttoday YYYY-MM-DD\n' $today
+end
+
+function __wl_sched_suggestions
+    # for sched/defer, which also accept fuzzy granularities
+    __wl_date_suggestions
+    printf 'someday\tno specific time\n'
 end
 
 function __wl_recur_suggestions
@@ -254,7 +260,7 @@ __wl_list_tags_bash() {
 }
 
 __wl_date_suggestions_bash() {
-    echo "today yesterday day-before-yesterday tomorrow day-after-tomorrow someday $(date +%Y-%m-%d)"
+    echo "today yesterday day-before-yesterday tomorrow day-after-tomorrow $(date +%Y-%m-%d)"
 }
 
 __wl_recur_suggestions_bash() {
@@ -452,7 +458,7 @@ __wl_date_suggestions_zsh() {
     local today=$(date +%Y-%m-%d)
     _describe 'date' \
         "today:today" "yesterday:yesterday" "day-before-yesterday:day before yesterday" "tomorrow:tomorrow" "day-after-tomorrow:day after tomorrow" \
-        "someday:no specific time" "$today:today YYYY-MM-DD"
+        "$today:today YYYY-MM-DD"
 }
 
 __wl_recur_suggestions_zsh() {

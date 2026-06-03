@@ -51,6 +51,21 @@ class TestPrintCompletionFish:
         _, out, _ = cli("print-completion", "fish")
         assert "(__wl_date_suggestions)" in out
 
+    def test_fish_concrete_date_completion_excludes_someday(self, cli):
+        """#414: day/log/logs/dateinfo only accept concrete dates, so their completion
+        (__wl_date_suggestions) must NOT offer 'someday' — only sched/defer's fuzzy
+        helper does."""
+        _, out, _ = cli("print-completion", "fish")
+        # extract the concrete-date helper body and assert no someday in it
+        body = out.split("function __wl_date_suggestions", 1)[1].split("end", 1)[0]
+        assert "someday" not in body
+        # fuzzy helper for sched/defer keeps someday
+        fuzzy = out.split("function __wl_sched_suggestions", 1)[1].split("end", 1)[0]
+        assert "someday" in fuzzy
+        # day uses the concrete helper, sched uses the fuzzy one
+        assert 'subcommand_from day" -f -a "(__wl_date_suggestions)"' in out
+        assert 'subcommand_from sched" -f -a "(__wl_sched_suggestions)"' in out
+
     def test_fish_compound_flags_present(self, cli):
         """wl add compound flags --log/--done/--at/--link must appear"""
         _, out, _ = cli("print-completion", "fish")
