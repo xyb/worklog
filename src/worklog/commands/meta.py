@@ -210,22 +210,35 @@ def cmd_goal(args, con):
     out(_c(f"✓ today's goal: {args.text}", "meta"))
 
 def cmd_summary_prop(args, con):
-    """Shortcut to read/write today's end-of-day recap. On write, stamps summary_at (YYYY-MM-DD HH:MM:SS),
-    so we can later detect changes added after the recap (wl day shows a hint to rewrite)."""
-    nid = _ensure_today_day(con)
+    """Shortcut to read/write a day's end-of-day recap (default today; --date for a past day).
+    On write, stamps summary_at (YYYY-MM-DD HH:MM:SS), so we can later detect changes added
+    after the recap (wl day shows a hint to rewrite)."""
+    from datetime import date, datetime as _dt
+    target = getattr(args, "date", None)
+    if target:
+        try:
+            iso = _resolve_concrete_date(target)
+        except ValueError as e:
+            sys.exit(f"✗ bad --date '{target}': {e}")
+        d = _dt.strptime(iso, "%Y-%m-%d").date()
+        label = iso
+    else:
+        d = date.today()
+        label = "today"
+    nid = _ensure_day(con, d)
     if not args.text:
         v = _get_prop(con, nid, "summary")
         if not v:
-            out(_c("(no summary set for today)", "meta"))
+            out(_c(f"(no summary set for {label})", "meta"))
             return
         at = _get_prop(con, nid, "summary_at")
         out(v + (_c(f"  (written at {at})", "meta") if at else ""))
         return
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
     _upsert_prop(con, nid, "summary", args.text)
     _upsert_prop(con, nid, "summary_at", now)
     con.commit()
-    out(_c(f"✓ today's summary (written at {now}): {args.text}", "meta"))
+    out(_c(f"✓ {label}'s summary (written at {now}): {args.text}", "meta"))
 
 def cmd_checkin(args, con):
     """Interactive check-in for today's habits.
@@ -372,24 +385,28 @@ def _ensure_time_ancestors(con, d):
         (wk_title,), wk_title, mo_id)
     return wk_id
 
-def _ensure_today_day(con):
-    """Return today's day-node id; create one if missing, building the full time
-    skeleton (year→quarter→month→week) above it so it never dangles (#410)."""
-    from datetime import date
-
-    today = date.today().isoformat()
+def _ensure_day(con, d):
+    """Return the day-node id for date `d` (a datetime.date); create it if missing,
+    building the full time skeleton (year→quarter→month→week) above it so it never
+    dangles (#410). Works for any date, not just today — back-fills past days too."""
+    iso = d.isoformat()
     r = con.execute(
-        "SELECT id FROM node WHERE kind='day' AND title LIKE ? ORDER BY id LIMIT 1", (today + "%",)
+        "SELECT id FROM node WHERE kind='day' AND title LIKE ? ORDER BY id LIMIT 1", (iso + "%",)
     ).fetchone()
     if r:
         return r["id"]
-    wk_id = _ensure_time_ancestors(con, date.today())
+    wk_id = _ensure_time_ancestors(con, d)
     cur = con.execute(
         "INSERT INTO node (parent_id, title, kind) VALUES (?, ?, 'day')",
-        (wk_id, today),
+        (wk_id, iso),
     )
     con.commit()
     return cur.lastrowid
+
+def _ensure_today_day(con):
+    """Today's day-node id (thin wrapper over _ensure_day)."""
+    from datetime import date
+    return _ensure_day(con, date.today())
 
 def _checkin_collect(con, args):
     """Collect today's habits to check in. Returns [{id, title, priority, kind, already}]."""

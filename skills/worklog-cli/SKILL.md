@@ -23,7 +23,7 @@ Likewise, before adding a dev todo under a project, check that project's existin
 
 | User says | Command |
 |---|---|
-| **Daily three** (the daily flow) | `wl goal "deliver X today"` (read = `wl goal`) / `wl recap "end-of-day summary..."` (read = `wl recap`) / `wl tick <id> [--note "..."] [--done]` to check in. **Auto-creates today's day node** (hung under the current ISO week), no need to manually `wl add ... -k day`. `wl recap` write **auto-stamps `summary_at`**, and `wl day` shows "(written MM-DD HH:MM)" at the top; if more non-CLOCK changes happen after the summary, `wl day` warns "⚠ N changes after summary, consider rewriting recap" |
+| **Daily three** (the daily flow) | `wl goal "deliver X today"` (read = `wl goal`) / `wl recap "end-of-day summary..."` (read = `wl recap`) / `wl tick <id> [--note "..."] [--done]` to check in. **Auto-creates today's day node** (hung under the current ISO week), no need to manually `wl add ... -k day`. `wl recap` write **auto-stamps `summary_at`**, and `wl day` shows "(written MM-DD HH:MM)" at the top; if more non-CLOCK changes happen after the summary, `wl day` warns "⚠ N changes after summary, consider rewriting recap". Back-fill a past day with `wl recap --date YYYY-MM-DD "..."` (also `goal --date` is not available — recap only) |
 | Add a task / project / habit | `wl add "..." -k task -p A -t work,P0 --parent N` |
 | Add a task with scheduled time (precise or fuzzy) | `wl add "..." --scheduled 2026-06-15` / `--scheduled 2026-06` / `next-week` / `next-month` / `someday` |
 | Log progress on a task | `wl log <id> "..."` (backfill old logs with `--date 2026-05-06`, or use `import` with body `"2026-05-06 content"` so logs land on the original day, not today) |

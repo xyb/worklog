@@ -715,11 +715,14 @@ wl day shows a top blockquote with the goal. Use at the end of morning planning.
 Common examples:
   wl recap "three things today: ..."  # write + auto-stamp summary_at
   wl recap                             # read
+  wl recap --date 2026-06-01 "..."    # write a past day's recap (back-fill)
+  wl recap --date yesterday            # read yesterday's recap
 
 wl day shows "Recap: ... (written at MM-DD HH:MM)" at the top;
 if there are new non-CLOCK logs after recap, wl day shows "⚠ N changes after recap, consider rewriting".
 Using wl set <day_id> summary "..." directly does not stamp the timestamp; not recommended.""")
     rc.add_argument("text", nargs="?", help="no arg = read; with text = write")
+    rc.add_argument("--date", help="target day (YYYY-MM-DD / today / yesterday / 昨天 ...); default today")
 
     tk = sub.add_parser("tick",
         help="quick check-in: add a log to each node today (batch habit check-in)",

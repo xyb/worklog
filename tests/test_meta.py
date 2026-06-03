@@ -53,6 +53,29 @@ class TestGoalRecapTick:
         code, out, _ = cli("recap")
         assert "今天小结 Y" in out
 
+    def test_recap_past_date_writes_and_stamps(self, cli, tmp_db):
+        """wl recap --date <past day> back-fills that day's summary + stamps summary_at,
+        building the day node if needed (#437)."""
+        _, wout, _ = cli("recap", "--date", "2026-06-01", "backfilled recap")
+        assert "2026-06-01" in wout
+        # read it back via --date
+        _, rout, _ = cli("recap", "--date", "2026-06-01")
+        assert "backfilled recap" in rout
+        assert "written at" in rout  # summary_at was stamped
+        con = tmp_db.db_connect()
+        day = con.execute("SELECT id FROM node WHERE kind='day' AND title LIKE '2026-06-01%'").fetchone()
+        assert day is not None  # day node was created on demand
+        at = con.execute("SELECT value FROM prop WHERE node_id=? AND key='summary_at'", (day["id"],)).fetchone()
+        assert at is not None  # stamped, unlike `wl set <day> summary`
+
+    def test_recap_past_date_read_empty(self, cli):
+        _, out, _ = cli("recap", "--date", "2026-06-01")
+        assert "no summary set for 2026-06-01" in out
+
+    def test_recap_bad_date_rejected(self, cli):
+        code, _, err = cli("recap", "--date", "not-a-date", "x")
+        assert code != 0
+
     def test_recap_empty_default(self, cli):
         code, out, _ = cli("recap")
         assert "no summary set for today" in out
