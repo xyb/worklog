@@ -365,9 +365,47 @@ def cmd_set(args, con):
     if not args.key or not args.key.strip():
         sys.exit("✗ prop key cannot be empty")
     args.key = args.key.strip()
+    if args.key.lower() in ("tag", "tags"):
+        # Guard the #441 footgun: 'tags' is not a UDA prop. Setting it here used to
+        # silently create a shadow 'tags' prop while the real tag field went unchanged.
+        sys.exit("✗ 'tags' is not a prop — use `wl tag <id> +x -y` to edit real tags "
+                 "(plain `wl set` here would silently create a misleading shadow prop)")
     _upsert_prop(con, args.id, args.key, args.value)
     con.commit()
     print(f"✓ #{args.id} {args.key}={args.value}")
+
+def cmd_tag(args, con):
+    """Add/remove real tags on a node (the tag table): `wl tag <id> +work -planned`.
+    A bare word adds (same as +word); no ops lists current tags. This is the direct
+    editor for the real tag field — `wl set <id> tags ...` is rejected on purpose so
+    it can't quietly create a shadow prop (#440/#441)."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    ops = [o.strip() for o in (args.ops or []) if o.strip()]
+    if not ops:
+        tags = [r["tag"] for r in con.execute(
+            "SELECT tag FROM tag WHERE node_id = ? ORDER BY tag", (args.id,))]
+        out(_c(f"#{args.id} tags: " + (":".join(tags) if tags else "(none)"), "meta"))
+        return
+    added, removed = [], []
+    for op in ops:
+        if op.startswith("-"):
+            t = op[1:].strip()
+            if t:
+                con.execute("DELETE FROM tag WHERE node_id = ? AND tag = ?", (args.id, t))
+                removed.append(t)
+        else:
+            t = op[1:].strip() if op.startswith("+") else op
+            if t:
+                con.execute("INSERT OR IGNORE INTO tag (node_id, tag) VALUES (?, ?)", (args.id, t))
+                added.append(t)
+    con.commit()
+    parts = []
+    if added:
+        parts.append(_c("+" + ",".join(added), "planned"))
+    if removed:
+        parts.append(_c("-" + ",".join(removed), "later"))
+    out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + " tags " + " ".join(parts))
 
 def cmd_tick(args, con):
     """Quick check-in: add a log for today to one or more nodes (default body='✓ done', overridable with --note).

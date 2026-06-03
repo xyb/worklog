@@ -49,3 +49,49 @@ class TestCmdSetErrors:
     def test_set_node_not_found(self, cli):
         code, _, _ = cli("set", "999", "k", "v")
         assert code != 0
+
+    def test_set_tags_rejected_points_at_tag_cmd(self, cli):
+        """`wl set <id> tags X` must be rejected — it used to silently create a shadow
+        'tags' prop while the real tag field stayed unchanged (#441)."""
+        cli("add", "t1", "-k", "task")
+        for key in ("tags", "tag", "Tags"):
+            code, out, err = cli("set", "1", key, "work")
+            assert code != 0, f"set {key} should be rejected"
+            assert "wl tag" in (out + err)
+        # no shadow prop got created
+        _, show, _ = cli("show", "1")
+        assert "tags=" not in show
+
+
+class TestCmdTag:
+    """wl tag <id> +x -y edits the real tag field (tag table), not a shadow prop (#440)."""
+
+    def test_tag_add_and_remove(self, cli, tmp_db):
+        cli("add", "t1", "-k", "task", "-t", "work,planned")
+        cli("tag", "1", "+urgent", "-planned")
+        con = tmp_db.db_connect()
+        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1")}
+        assert tags == {"work", "urgent"}  # planned removed, urgent added, work kept
+
+    def test_tag_bare_word_adds(self, cli, tmp_db):
+        cli("add", "t1", "-k", "task")
+        cli("tag", "1", "personal")  # bare = add
+        con = tmp_db.db_connect()
+        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1")}
+        assert "personal" in tags
+
+    def test_tag_no_ops_lists(self, cli):
+        cli("add", "t1", "-k", "task", "-t", "work,P0")
+        _, out, _ = cli("tag", "1")
+        assert "work" in out and "P0" in out
+
+    def test_tag_add_is_idempotent(self, cli, tmp_db):
+        cli("add", "t1", "-k", "task", "-t", "work")
+        cli("tag", "1", "+work")  # already present
+        con = tmp_db.db_connect()
+        n = con.execute("SELECT COUNT(*) FROM tag WHERE node_id=1 AND tag='work'").fetchone()[0]
+        assert n == 1  # INSERT OR IGNORE, no duplicate
+
+    def test_tag_node_not_found(self, cli):
+        code, _, _ = cli("tag", "999", "+x")
+        assert code != 0

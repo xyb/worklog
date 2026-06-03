@@ -271,6 +271,15 @@ def _import_update(con, spec, dry, counters):
     nid = spec.get("id")
     if not nid or not _node_exists(con, nid):
         raise ValueError(f"update target #{nid} does not exist")
+    # Footgun guard (#441): `tags`/`tag` is not an update field — it's silently ignored
+    # here (and would silently create a shadow prop via wl set), so a writer thinks tags
+    # were set when nothing happened. Tags go through add_tags / remove_tags.
+    bad = {"tags", "tag"} & set(spec)
+    if bad:
+        raise ValueError(
+            f"update #{nid}: '{'/'.join(sorted(bad))}' is not a field — use "
+            f"\"add_tags\": [...] / \"remove_tags\": [...] to edit tags"
+        )
     if dry:
         counters["update"] += 1
         return

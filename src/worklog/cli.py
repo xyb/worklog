@@ -479,6 +479,22 @@ Difference from wl recap/goal: those target the day node and stamp a timestamp; 
     se.add_argument("key")
     se.add_argument("value")
 
+    tg = sub.add_parser("tag",
+        help="add/remove real tags on a node: wl tag <id> +work -planned (bare = add; no ops = list)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Edits the real tag field (the tag table), unlike `wl set <id> tags ...` which would
+just create a shadow 'tags' prop. Tags drive bucketing (work/personal) and grouping.
+
+  wl tag 42 +work +P0       # add tags
+  wl tag 42 -planned        # remove a tag
+  wl tag 42 +work -other    # add and remove in one call
+  wl tag 42 work            # bare word = add (same as +work)
+  wl tag 42                 # no ops = list current tags""")
+    tg.add_argument("id", type=int)
+    tg.add_argument("ops", nargs=argparse.REMAINDER,
+                    help="+tag adds, -tag removes, bare word adds; empty = list current tags")
+
     sh = sub.add_parser("show",
         help="full detail + timeline for a node (accepts multiple ids)",
         description="All info on a node: metadata (status/priority/parents/tags/links/props) + timeline (created/scheduled/closed/log merged by time). Timeline defaults to the last 5; use --all-timelines for full expansion.",
@@ -1014,6 +1030,7 @@ from .commands import (
     cmd_spent,
     cmd_link,
     cmd_set,
+    cmd_tag,
     cmd_active,
     cmd_wait,
     cmd_reopen,
@@ -1092,6 +1109,7 @@ HANDLERS = {
     "cancel": cmd_cancel,
     "link": cmd_link,
     "set": cmd_set,
+    "tag": cmd_tag,
     "show": cmd_show,
     "ls": cmd_ls,
     "tree": cmd_tree,

@@ -61,6 +61,19 @@ class TestImport:
         assert n["status"] == "DONE" and n["closed_at"]
         assert con.execute("SELECT 1 FROM tag WHERE node_id=1 AND tag='urgent'").fetchone()
 
+    def test_import_update_tags_key_rejected(self, cli, tmp_db):
+        """update {tags: ...} is a footgun — silently ignored (not add_tags). Reject it
+        with a pointer to add_tags/remove_tags instead of no-op'ing (#441)."""
+        cli("add", "task", "-k", "task")
+        import json, tempfile, os
+        spec = {"update": [{"id": 1, "tags": "sneaky"}]}
+        f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+        json.dump(spec, f); f.close()
+        code, out, err = cli("import", f.name)
+        os.unlink(f.name)
+        assert code != 0
+        assert "add_tags" in (out + err)
+
     def test_import_dry_run_no_write(self, cli, tmp_db):
         import json, tempfile, os
         spec = {"add": [{"title": "不该写入", "kind": "task"}]}
