@@ -331,8 +331,50 @@ def _get_prop(con, nid, key):
     r = con.execute("SELECT value FROM prop WHERE node_id = ? AND key = ?", (nid, key)).fetchone()
     return r["value"] if r else None
 
+def _ensure_time_ancestors(con, d):
+    """Ensure the time skeleton year→quarter→month→week exists for date `d`, creating
+    any missing level, and return the week node id (the day node's parent).
+
+    Lookup is lenient so we reuse an existing node regardless of title style — a year
+    written `2026` or `2026 年` both match the `2026%` probe. New nodes are created in
+    plain ISO form (year `YYYY`, quarter `YYYY-Qn`, month `YYYY-MM`, week ISO `YYYY-Www`).
+    Year hangs under an existing `lifetime` node if there is one, else stays top-level.
+    Without this, a day created on the first of a month/week (when month/week don't yet
+    exist) dangled directly under lifetime/NULL and broke per-month aggregation (#410).
+    """
+    y, m = d.year, d.month
+    iso = d.isocalendar()
+    q = (m - 1) // 3 + 1
+
+    def _get_or_make(kind, lookup_sql, lookup_param, new_title, parent_id):
+        row = con.execute(lookup_sql, lookup_param).fetchone()
+        if row:
+            return row["id"]
+        return con.execute(
+            "INSERT INTO node (parent_id, title, kind) VALUES (?, ?, ?)",
+            (parent_id, new_title, kind),
+        ).lastrowid
+
+    lt = con.execute("SELECT id FROM node WHERE kind='lifetime' ORDER BY id LIMIT 1").fetchone()
+    lt_id = lt["id"] if lt else None
+    yr_id = _get_or_make(
+        "year", "SELECT id FROM node WHERE kind='year' AND title LIKE ? ORDER BY id LIMIT 1",
+        (f"{y}%",), str(y), lt_id)
+    qr_id = _get_or_make(
+        "quarter", "SELECT id FROM node WHERE kind='quarter' AND title = ? LIMIT 1",
+        (f"{y}-Q{q}",), f"{y}-Q{q}", yr_id)
+    mo_id = _get_or_make(
+        "month", "SELECT id FROM node WHERE kind='month' AND title = ? LIMIT 1",
+        (f"{y}-{m:02d}",), f"{y}-{m:02d}", qr_id)
+    wk_title = f"{iso[0]}-W{iso[1]:02d}"
+    wk_id = _get_or_make(
+        "week", "SELECT id FROM node WHERE kind='week' AND title = ? LIMIT 1",
+        (wk_title,), wk_title, mo_id)
+    return wk_id
+
 def _ensure_today_day(con):
-    """Return today's day-node id; create one if missing (attach to current ISO week; unparented if week absent)."""
+    """Return today's day-node id; create one if missing, building the full time
+    skeleton (year→quarter→month→week) above it so it never dangles (#410)."""
     from datetime import date
 
     today = date.today().isoformat()
@@ -341,12 +383,10 @@ def _ensure_today_day(con):
     ).fetchone()
     if r:
         return r["id"]
-    iso = date.today().isocalendar()
-    week_title = f"{iso[0]}-W{iso[1]:02d}"
-    w = con.execute("SELECT id FROM node WHERE kind='week' AND title = ? LIMIT 1", (week_title,)).fetchone()
+    wk_id = _ensure_time_ancestors(con, date.today())
     cur = con.execute(
         "INSERT INTO node (parent_id, title, kind) VALUES (?, ?, 'day')",
-        (w["id"] if w else None, today),
+        (wk_id, today),
     )
     con.commit()
     return cur.lastrowid
