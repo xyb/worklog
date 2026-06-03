@@ -28,6 +28,7 @@ from ..helpers import (
     _status_marker,
     _term_width,
     _truncate_log_body,
+    _display_width,
     GENERIC_TAGS,
 )
 from ..queries import (
@@ -677,7 +678,7 @@ def cmd_active(args, con):
             "ORDER BY id DESC LIMIT 1", (r["node_id"],),
         ).fetchone()
         if last:
-            body_one = _truncate_log_body(last["body"], indent_cols=14, full=full)
+            body_one = _truncate_log_body(last["body"], indent_cols=_display_width("    latest log: "), full=full)
             out("    " + _c(f"latest log: {body_one}", "meta"))
 
 def _ids_list(args):

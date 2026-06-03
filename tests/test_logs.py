@@ -3,6 +3,26 @@ import sqlite3
 import pytest
 
 
+def _disp_width(s):
+    return sum(2 if ord(c) > 0x7F else 1 for c in s)
+
+
+class TestLogsLineWidth:
+    """#415: flat logs row must fit the terminal width — a wide CJK title used to push
+    the body past the edge and wrap to a second line (fixed indent_cols was too small)."""
+
+    def test_flat_logs_row_fits_width_with_cjk_title(self, cli, monkeypatch):
+        from worklog import helpers
+        monkeypatch.setattr(helpers, "_term_width", lambda: 80)
+        cli("add", "标" * 30, "-k", "task")          # 30 CJK chars = 60 display cols
+        cli("log", "1", "这是一条非常长的日志正文用来测试折行" * 4)
+        _, out, _ = cli("logs", "today")
+        body_lines = [ln for ln in out.splitlines() if ln.strip() and not ln.startswith("(")]
+        assert body_lines
+        for ln in body_lines:
+            assert _disp_width(ln) <= 80, f"line overflowed 80 cols ({_disp_width(ln)}): {ln!r}"
+
+
 class TestLogs:
     def test_logs_list_all(self, cli):
         cli("add", "a")

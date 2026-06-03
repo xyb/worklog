@@ -103,6 +103,12 @@ def _term_width():
     except OSError:
         return 80
 
+def _display_width(s):
+    """Approximate terminal column width of a string: non-ASCII (CJK etc.) count as 2
+    columns, others as 1 — same approximation _truncate_log_body uses internally. Use
+    it to size indent_cols from a real prefix string instead of hard-coding a guess."""
+    return sum(2 if ord(ch) > 0x7F else 1 for ch in s)
+
 def _truncate_log_body(body, indent_cols, full=False):
     """Truncate log body to one line (terminal width - indent - safety margin), append … at end. full=True keeps body untouched.
     indent_cols is the column width already occupied before body (indent + marker).

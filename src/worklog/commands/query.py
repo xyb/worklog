@@ -29,6 +29,7 @@ from ..helpers import (
     _status_marker,
     _term_width,
     _truncate_log_body,
+    _display_width,
     GENERIC_TAGS,
 )
 from ..queries import (
@@ -802,9 +803,17 @@ def cmd_logs(args, con):
         if brief:
             out(_c(f"[{r['logged_at'][:10]}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"{r['title'][:50]}"))
         else:
-            # flat logs row "[YYYY-MM-DD HH:MM:SS] #L<id> #<node> 'title': <body>" prefix ~ 60 cols
-            body = _truncate_log_body(r["body"], indent_cols=60, full=_log_full(args))
-            out(_c(f"[{r['logged_at']}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"'{r['title'][:30]}': {body}"))
+            # flat logs row "[YYYY-MM-DD HH:MM:SS] #L<id> #<node> 'title': <body>" — one
+            # line. Both the title and the body are variable / CJK-wide, so budget the
+            # terminal width across them instead of a fixed indent guess: a wide CJK
+            # title alone used to fill the line and push the body to a second row (#415).
+            fixed_w = _display_width(f"[{r['logged_at']}] #L{r['id']} #{r['node_id']} '': ")
+            rem = max(20, _term_width() - fixed_w)
+            # title takes up to ~40% of the remaining width, body the rest
+            title_disp = _truncate_log_body(r["title"], indent_cols=_term_width() - max(8, int(rem * 0.4)))
+            body_indent = fixed_w + _display_width(title_disp)
+            body = _truncate_log_body(r["body"], indent_cols=body_indent, full=_log_full(args))
+            out(_c(f"[{r['logged_at']}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"'{title_disp}': {body}"))
 
 
 # --- completion generator (argparse -> fish/bash/zsh) ---
