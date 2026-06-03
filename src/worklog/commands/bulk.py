@@ -395,6 +395,15 @@ def _parse_wld(text):
             continue
         m = re.match(r"^([+~\- ])(\s*)(.*)$", raw)
         if not m:
+            # A flush-left line that parses as a field op right after a `~ #id` is
+            # almost always a forgotten indent (#411) — field ops must be indented
+            # under the lock line (DESIGN §18.2). Give an actionable hint instead of
+            # the opaque "cannot parse".
+            if cur_update is not None and _parse_fieldop(s) is not None:
+                raise ValueError(
+                    f"line {lineno}: field op '{s}' must be indented under "
+                    f"'~ #{cur_update['id']}' (indent each op by 2 spaces)"
+                )
             raise ValueError(f"line {lineno}: cannot parse '{raw}'")
         prefix, spaces, body = m.group(1), m.group(2), m.group(3)
         if not body.strip():

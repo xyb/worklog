@@ -173,6 +173,18 @@ class TestApply:
         con = tmp_db.db_connect()
         assert con.execute("SELECT parent_id FROM node WHERE id=3").fetchone()["parent_id"] == 2
 
+    def test_apply_unindented_fieldop_hints_indent(self, cli, tmp_db):
+        """A field op written flush-left under ~ (a common mistake) must produce an
+        actionable 'indent it' error, not a bare 'cannot parse' (#411)."""
+        cli("add", "p1", "-k", "project")  # 1
+        cli("add", "t", "-k", "task")      # 2
+        code, out, err = self._apply(cli, "~ #2\nparent 1\n")  # parent not indented
+        msg = out + err
+        assert code != 0
+        assert "indent" in msg.lower(), f"expected an indent hint, got: {msg!r}"
+        assert "parent 1" in msg  # name the offending line
+        assert "cannot parse" not in msg.lower()  # the old misleading error is gone
+
     def test_apply_update_bad_priority_rejected(self, cli, tmp_db):
         cli("add", "t", "-k", "task", "-p", "A")
         code, _, err = self._apply(cli, "~ #1\n  priority Z\n")

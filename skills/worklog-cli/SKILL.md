@@ -187,6 +187,7 @@ Prefixes: `+` add / `~` update / `-` delete / ` ` anchor. `--dry-run` validates 
 
 - Single-line shorthand: `~ [x] #14` only changes status; `~ [#A] #14` only changes priority (without a marker, status is untouched); `~ #14 new name` only changes title
 - Field operations: `status DONE` / `priority -` (clear) / `parent 6` (move) / `+tag` / `-tag` / `prop k=v` / `-prop k` / `+log`
+- ⚠️ Each field op **must be indented** (2 spaces) under its `~ #id` lock line. A flush-left `parent 6` is a separate top-level line, not part of the update — the parser will reject it and tell you to indent.
 - Illegal values (priority∉ABC, illegal status, parent missing) caught by validator — **bad data never lands**
 
 ## ⭐ Brief / token-saving mode (REQUIRED reading for AI usage)
