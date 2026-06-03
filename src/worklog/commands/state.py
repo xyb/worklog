@@ -68,10 +68,46 @@ from ..xdg import _resolve_db_path, _resolve_aliases_path, _xdg_data_home, _xdg_
 from .. import cli as _cli  # noqa: E402
 
 
+def _norm_title(s):
+    """Normalize a title for fuzzy comparison: lowercase, drop spaces/punctuation."""
+    import re as _re
+    return _re.sub(r"[\s\W_]+", "", (s or "").lower())
+
+def _find_similar_open(con, title, kind):
+    """Open (non-terminal) task/project nodes whose title looks like a duplicate of
+    `title`: identical after normalization, or one normalized title contains the other
+    (with the shorter ≥4 chars, to avoid trivial substring noise). Best-effort, used
+    only to warn before creating a possible duplicate (#435)."""
+    if kind not in ("task", "project"):
+        return []
+    nt = _norm_title(title)
+    if not nt:
+        return []
+    rows = con.execute(
+        "SELECT * FROM node WHERE kind IN ('task','project') "
+        # project status is NULL (DESIGN §40); NULL NOT IN (...) is NULL, not TRUE, so
+        # guard explicitly or projects would never match.
+        "AND (status IS NULL OR status NOT IN ('DONE','CANCELED')) ORDER BY id"
+    ).fetchall()
+    hits = []
+    for r in rows:
+        rn = _norm_title(r["title"])
+        if not rn:
+            continue
+        if rn == nt:
+            hits.append(r)
+        elif len(min(rn, nt, key=len)) >= 4 and (rn in nt or nt in rn):
+            hits.append(r)
+    return hits
+
 def cmd_add(args, con):
     if not args.title or not args.title.strip():
         sys.exit("✗ title cannot be empty")
     args.title = args.title.strip()
+    # Duplicate check (warn only, never block): a related open task/project may already
+    # exist, possibly pinned at @month/@someday and easy to miss (#435). Computed before
+    # insert so the new node doesn't match itself.
+    similar = _find_similar_open(con, args.title, args.kind)
     if args.sched and args.scheduled:
         sys.exit("✗ --sched (precise, writes sched table) and --scheduled (rough hint, writes node.scheduled_at) are mutually exclusive; use --sched day-to-day")
     tags = [t.strip() for t in (args.tag or "").split(",") if t.strip()]
@@ -161,6 +197,11 @@ def cmd_add(args, con):
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
     out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{args.kind} '{args.title}'")
         + st + sched_hint + link_hint + log_hint)
+    if similar:
+        out(_c(f"⚠ {len(similar)} similar open {args.kind}(s) already exist — reuse instead of duplicating?", "later"))
+        for r in similar[:5]:
+            out("  " + _node_line(con, r, sched=True))
+        out(_c("  if it's the same thing: wl sched <id> <day> to reschedule, or wl link / wl log it", "meta"))
 
 def cmd_log(args, con):
     if not _node_exists(con, args.id):

@@ -181,3 +181,41 @@ class TestAddCompound:
         cli("add", "x", "-k", "task", "--link", "DocOnly")
         _, show, _ = cli("show", "1")
         assert "DocOnly" in show
+
+
+class TestAddDuplicateWarning:
+    """wl add warns (without blocking) when a similar open task/project already exists (#435)."""
+
+    def test_warns_on_substring_overlap(self, cli):
+        cli("add", "业务聚合 slack-log 整合", "-k", "task")
+        code, out, _ = cli("add", "slack-log 整合", "-k", "task")
+        assert code == 0  # not blocked — the node is still created
+        assert "similar open" in out
+        assert "#1" in out  # points at the existing one
+
+    def test_no_warn_when_unrelated(self, cli):
+        cli("add", "业务聚合 slack-log 整合", "-k", "task")
+        _, out, _ = cli("add", "买菜", "-k", "task")
+        assert "similar open" not in out
+
+    def test_no_warn_on_short_title_noise(self, cli):
+        # 3-char titles shouldn't trigger substring matches against each other
+        cli("add", "fix", "-k", "task")
+        _, out, _ = cli("add", "abc", "-k", "task")
+        assert "similar open" not in out
+
+    def test_done_tasks_excluded_from_dup_check(self, cli):
+        cli("add", "duplicate target", "-k", "task")
+        cli("done", "1")
+        _, out, _ = cli("add", "duplicate target", "-k", "task")
+        assert "similar open" not in out  # the only match is DONE, so no warning
+
+    def test_habit_kind_not_checked(self, cli):
+        cli("add", "drink water", "-k", "habit")
+        _, out, _ = cli("add", "drink water", "-k", "habit")
+        assert "similar open" not in out  # dedup check is task/project only
+
+    def test_exact_duplicate_warns(self, cli):
+        cli("add", "exact same title", "-k", "project")
+        _, out, _ = cli("add", "exact same title", "-k", "project")
+        assert "similar open" in out
