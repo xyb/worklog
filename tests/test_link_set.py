@@ -20,6 +20,30 @@ class TestLinkAndSet:
         count = con.execute("SELECT COUNT(*) FROM link WHERE node_id=1").fetchone()[0]
         assert count == 1
 
+    def test_unlink_removes_one_keeps_others(self, cli, tmp_db):
+        cli("add", "task")
+        cli("link", "1", "Doc A")
+        cli("link", "1", "Doc B")
+        cli("unlink", "1", "Doc A")
+        con = tmp_db.db_connect()
+        docs = {r[0] for r in con.execute("SELECT vault_doc FROM link WHERE node_id=1")}
+        assert docs == {"Doc B"}  # only Doc A removed
+
+    def test_unlink_absent_link_is_noop_notice(self, cli):
+        cli("add", "task")
+        cli("link", "1", "Doc A")
+        _, out, _ = cli("unlink", "1", "Doc X")
+        assert "had no link" in out
+
+    def test_unlink_multiple_ids(self, cli, tmp_db):
+        cli("add", "t1")
+        cli("add", "t2")
+        cli("link", "1", "shared")
+        cli("link", "2", "shared")
+        cli("unlink", "1", "2", "shared")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM link WHERE vault_doc='shared'").fetchone()[0] == 0
+
     def test_set_property(self, cli, tmp_db):
         cli("add", "task")
         cli("set", "1", "owner", "xyb")

@@ -37,7 +37,7 @@ Likewise, before adding a dev todo under a project, check that project's existin
 | Time-range progress (weekly report input) | `wl changes --week 2026-W22` / `wl summary --week ... --by project/day` |
 | Full info + timeline for a single task | `wl show <id>` |
 | Focus a node's parents/children | `wl focus <id>` / `wl ancestors <id>` / `wl descendants <id>` |
-| Link a vault doc | `wl link <id> "doc name"` (no `.md` suffix) |
+| Link a vault doc | `wl link <id> "doc name"` (no `.md` suffix); remove one with `wl unlink <id> "doc name"` |
 | Edit a node's tags | `wl tag <id> +work -planned` (bare word = add; no ops = list). **Edits the real tag field** — do NOT `wl set <id> tags ...` (rejected; it would create a misleading shadow prop). For bulk, `apply ~ #id / +tag` or `import add_tags/remove_tags` |
 | List log stream | `wl logs` (**default: last 7 days only**, to avoid flooding); `--since/--until/--date` for explicit range; `--group day [--by project/priority/plan]` for daily replay |
 

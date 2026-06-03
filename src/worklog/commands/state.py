@@ -359,6 +359,22 @@ def cmd_link(args, con):
     for nid in ids:
         out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{args.vault_doc}]]"))
 
+def cmd_unlink(args, con):
+    """Remove a single vault-doc link from a node (#426). Symmetric with wl link;
+    previously a mistaken link could only be cleared wholesale via `wl set links ''`."""
+    if not args.vault_doc or not args.vault_doc.strip():
+        sys.exit("✗ vault_doc cannot be empty")
+    args.vault_doc = args.vault_doc.strip()
+    ids = _ids_list(args)
+    _check_ids_exist(con, ids)
+    for nid in ids:
+        cur = con.execute("DELETE FROM link WHERE node_id = ? AND vault_doc = ?", (nid, args.vault_doc))
+        if cur.rowcount:
+            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"unlinked [[{args.vault_doc}]]"))
+        else:
+            out(_c(f"#{nid} had no link to [[{args.vault_doc}]]", "meta"))
+    con.commit()
+
 def cmd_set(args, con):
     if not _node_exists(con, args.id):
         sys.exit(f"✗ node #{args.id} not found")

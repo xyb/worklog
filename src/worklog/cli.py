@@ -462,6 +462,18 @@ Design: the knowledge layer (vault) and execution layer (wl) stay decoupled; wl 
     ln.add_argument("ids", type=int, nargs="+", metavar="id", help="node id(s)")
     ln.add_argument("vault_doc")
 
+    ul = sub.add_parser("unlink",
+        help="remove one vault-doc link from a node (symmetric with link; multiple ids)",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+  wl unlink 42 "Project hub doc"        # remove that one link from #42
+  wl unlink 42 43 "shared topic"        # from multiple ids at once
+
+Removes a single link; the rest of the node's links are untouched (unlike clearing
+them all). No-op with a notice if that link wasn't present.""")
+    ul.add_argument("ids", type=int, nargs="+", metavar="id", help="node id(s)")
+    ul.add_argument("vault_doc")
+
     se = sub.add_parser("set",
         help="set/update a custom key=value prop (UDA-style)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1029,6 +1041,7 @@ from .commands import (
     cmd_stop,
     cmd_spent,
     cmd_link,
+    cmd_unlink,
     cmd_set,
     cmd_tag,
     cmd_active,
@@ -1108,6 +1121,7 @@ HANDLERS = {
     "reopen": cmd_reopen,
     "cancel": cmd_cancel,
     "link": cmd_link,
+    "unlink": cmd_unlink,
     "set": cmd_set,
     "tag": cmd_tag,
     "show": cmd_show,
