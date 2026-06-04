@@ -23,13 +23,14 @@ Likewise, before adding a dev todo under a project, check that project's existin
 
 | User says | Command |
 |---|---|
-| **Daily three** (the daily flow) | `wl goal "deliver X today"` (read = `wl goal`) / `wl recap "end-of-day summary..."` (read = `wl recap`) / `wl tick <id> [--note "..."] [--done]` to check in. **Auto-creates today's day node** (hung under the current ISO week), no need to manually `wl add ... -k day`. `wl recap` write **auto-stamps `summary_at`**, and `wl day` shows "(written MM-DD HH:MM)" at the top; if more non-CLOCK changes happen after the summary, `wl day` warns "⚠ N changes after summary, consider rewriting recap". Back-fill a past day with `wl recap --date YYYY-MM-DD "..."` (also `goal --date` is not available — recap only) |
+| **Daily three** (the daily flow) | `wl goal "deliver X today"` (read = `wl goal`) / `wl recap "end-of-day summary..."` (read = `wl recap`) / `wl tick <id> [--note "..."] [--done]` to check in. **Auto-creates today's day node** (hung under the current ISO week), no need to manually `wl add ... -k day`. `wl recap`/`wl goal` write a history-preserving `log.type` log (latest = current); `wl day` shows "(written MM-DD HH:MM)" from the recap log's own time, and if more plain-note logs land after it, warns "⚠ N changes after recap, consider rewriting". Back-fill a past day with `wl recap --date YYYY-MM-DD "..."` (`goal --date` is not available — recap only) |
 | Add a task / project / habit | `wl add "..." -k task -p A -t work,P0 --parent N` |
 | Add a task with scheduled time (precise or fuzzy) | `wl add "..." --scheduled 2026-06-15` / `--scheduled 2026-06` / `next-week` / `next-month` / `someday` |
 | Log progress on a task | `wl log <id> "..."` (backfill old logs with `--date 2026-05-06`, or use `import` with body `"2026-05-06 content"` so logs land on the original day, not today) |
+| Record a number / measurement / check-in | `wl metric add <id> glucose 5.4 --unit mmol/L` / `wl metric ls <id>` / `wl metric edit #M7` / `wl metric rm #M7`; inline: `wl log <id> "..." --metric 'pullups 8'`. Habit done-today = a `checkin` metric (`wl tick`/`wl checkin`) |
 | Mark done / defer (fuzzy time ok) / start clock | `wl done <id>` / `wl defer <id> next-month` (also accepts `2026-Q3` / `someday` / precise date) / `wl start <id>` `wl stop <id>` |
 | Schedule task to a date / repeat (drives "planned") | `wl sched <id> 2026-06-15` (also accepts `tomorrow` / `day-after-tomorrow`) / `--clear`. `--recur` supports period start / end: `daily` / `weekly:Mon,Fri` (also 1-7 / -1..-7) / `monthly:1` (month start) · `monthly:-1` (month end) / `quarterly:1-1` (quarter start) · `quarterly:-1` (quarter end) / `yearly:01-01` (year start) · `yearly:-1` (year end); `-1` always means period end. A task scheduled to a day shows up in `wl day` as "planned · not yet logged" even with no log |
-| Meta info (end-of-day summary / Top5 / today's goal) | Stored as day/week node prop: `wl set <day_id> summary "..."` / `goal "..."` / `top5 "..."` / on a week node `overview "..."`. `wl day` shows them at the top as a blockquote. Prefer `wl recap` over `wl set summary` (auto-stamps `summary_at` + stale-warning) |
+| Meta info (end-of-day summary / Top5 / today's goal) | History-preserving typed logs (`log.type`), not props: `wl goal "..."` (day) / `wl recap "..."` (day summary) / `wl set <month> top5 "..."` / `wl set <week> overview "..."`. Each write appends; the latest is current. `wl day` shows them at the top as a blockquote. Prefer `wl recap`/`wl goal` over `wl set` for day fields (read-back + stale-warning) |
 | Date context (holidays / vacation / makeup days) | `wl dateinfo 2026-05-01 Labor-Day-holiday` / `wl dateinfo --import holidays.json` (`{"YYYY-MM-DD":"label"}`) / `wl dateinfo <date> --clear`. Weekday auto-computed; `wl day` header shows "date weekday · label" |
 | Reproduce a day's progress (like markdown worklog) | `wl day [YYYY-MM-DD]` (log-date based: work/personal split → secondary group → task → indented logs + stats). **Default `--by plan`** (planned / unplanned / unplanned-unmarked — anything without `planned`/`unplanned` tag is treated as unplanned); switch dimensions with `--by project` / `--by priority` (P0/P1/P2) |
 | List all active projects | `wl projects` |
@@ -86,25 +87,70 @@ wl unlog --node 39 --date yesterday  # delete most-recent 1 by node + date
 wl relog #L282 "corrected content"   # edit body
 wl relog #L282 --at 14:30            # edit time only
 wl relog #L282                       # no body/--at → opens $EDITOR
-# CLOCK_IN/OUT logs are immutable here (use `wl stop --at` to fix times)
 ```
 
-### Time backfill: `start --at` / `stop --at` / `spent`
+### Time tracking / backfill: `start` / `stop` / `spent` (structured `clock` table)
+
+Time is a structured interval in the `clock` table, not log text. `wl start` opens
+an interval; `wl stop`/`wl wait` close it; `wl spent` writes a closed one. `wl active`
+lists open intervals; `wl show` renders them as `start→end (Nmin)`; `wl day`/`wl
+summary` totals sum elapsed.
 
 ```fish
-wl start <id> --at 09:00              # backfill CLOCK_IN
-wl stop <id> --at 11:30               # backfill CLOCK_OUT (must be after IN)
-wl spent <id> 90m                     # given duration, write a CLOCK pair directly
+wl start <id> --at 09:00              # open an interval (backfill start)
+wl stop <id> --at 11:30               # close it (must be after start)
+wl spent <id> 90m                     # given duration, write a closed interval directly
 wl spent <id> 1h30m --at 14:00        # 14:00 as end, backs out 12:30 as start
+# wl start refuses a 2nd open interval on an already-running node (wl stop first)
 ```
 
-### Multi-habit interactive check-in: `wl checkin`
+### ⭐ Structured datapoints: `wl metric` (node → log → metric)
+
+A `metric` is a structured datapoint (number / measurement / check-in) that hangs
+off a log. Use it for anything you'll want to query/trend later (glucose, weight,
+reps, …) instead of stuffing numbers into log text.
 
 ```fish
+wl metric add 42 glucose 5.4 --unit mmol/L   # numeric datapoint (auto creates a carrier log)
+wl metric add 42 pullups 8                    # numeric, no unit
+wl metric add 42 mood good --text             # text value
+wl metric add 42 checkin                       # a pure marker (stored as value 1)
+wl metric add 42 glucose 6.1 --on-log #L99     # attach to an existing log instead of a new carrier
+wl metric ls 42                                # list (default this week; --all / --tag / --since/--until/--week/--month)
+wl metric edit #M7 --value 5.6 --note "post-meal"
+wl metric rm #M7 #M8                           # delete (also removes an emptied auto-carrier log)
+```
+
+Inline shortcut — attach datapoints in the same command as a log/task (repeatable):
+
+```fish
+wl log 42 "morning reading" --metric 'glucose 5.4 mmol/L' --metric checkin
+wl add "weigh-in" -k task --metric 'weight 70 kg'
+```
+
+`wl import` too: a log entry can carry `"metrics":[{tag,value,unit}]`, and a node can
+carry node-level `"metrics":[...]` on ONE carrier log (1 carrier → N points, e.g. a
+day of CGM readings without 288 separate logs).
+
+### Multi-habit interactive check-in: `wl checkin` / `wl tick`
+
+Habit "done today" is a structured `tag=checkin` metric (idempotent per day), NOT
+"any log exists that day" — so a stray note no longer marks a habit done. `wl tick`
+and `wl checkin` write that metric.
+
+```fish
+wl tick 39                            # check in one habit today (writes a checkin metric)
+wl tick 39 40 41 --note "…"           # bulk check-in
 wl checkin                            # default multi-select (↑↓ space enter)
 wl checkin --per-item                 # alt: one-by-one y/n/note/q prompt
 wl checkin --all-kinds                # not limited to habit kind
 ```
+
+### Meta fields keep history (typed logs, not props)
+
+`wl goal` / `wl recap` (day), `wl set <week> overview` / `wl set <month> top5` are
+stored as `log.type` logs — each write appends, the latest is current, so edit
+history is kept (`prop` is only for truly-static single-value attributes).
 
 ### Recurrence rules (`--recur`), every variant supports `-1` for "last day of period"
 
@@ -165,6 +211,7 @@ echo '{
 ```
 
 - `children` nesting (parent id auto-propagates) + `ref`/`parent_ref` (in-batch reference)
+- a log entry may carry `"metrics":[{"tag":"glucose","value":5.4,"unit":"mmol/L"}]`; a node may carry node-level `"metrics":[...]` (one carrier log → N datapoints)
 - `--dry-run` to preview first
 
 ### `wl apply <file|->` (wl-diff, same format as `wl` output — lightweight edits for humans/AI)
