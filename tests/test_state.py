@@ -22,16 +22,15 @@ class TestStatusTransitions:
         assert row["status"] == "LATER"
         assert row["scheduled_at"] == "2026-06-15"
 
-    def test_start_marks_doing_and_logs_clock_in(self, cli, tmp_db):
+    def test_start_marks_doing_and_opens_clock(self, cli, tmp_db):
         cli("add", "task")
         cli("start", "1")
         con = tmp_db.db_connect()
-        row = con.execute("SELECT status FROM node WHERE id=1").fetchone()
-        assert row["status"] == "DOING"
-        log = con.execute("SELECT body FROM log WHERE node_id=1 ORDER BY id DESC LIMIT 1").fetchone()
-        assert log["body"] == "CLOCK_IN"
+        assert con.execute("SELECT status FROM node WHERE id=1").fetchone()["status"] == "DOING"
+        c = con.execute("SELECT start_at, end_at FROM clock WHERE node_id=1").fetchone()
+        assert c is not None and c["start_at"] and c["end_at"] is None  # open interval
 
-    def test_stop_appends_clock_out_with_elapsed(self, cli, tmp_db):
+    def test_stop_closes_clock_with_elapsed(self, cli, tmp_db):
         import time
         cli("add", "task")
         cli("start", "1")
@@ -39,15 +38,14 @@ class TestStatusTransitions:
         code, out, _ = cli("stop", "1")
         assert code == 0
         con = tmp_db.db_connect()
-        log = con.execute("SELECT body FROM log WHERE node_id=1 ORDER BY id DESC LIMIT 1").fetchone()
-        assert "CLOCK_OUT" in log["body"]
-        assert "elapsed=" in log["body"]
+        c = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
+        assert c["end_at"] is not None and c["elapsed_sec"] >= 60  # floored at 1 min
 
     def test_stop_without_start_fails(self, cli):
         cli("add", "task")
         code, _, err = cli("stop", "1")
         assert code != 0
-        assert "no open CLOCK_IN" in err
+        assert "no open clock" in err
 
     def test_done_nonexistent_fails(self, cli):
         code, _, err = cli("done", "99")

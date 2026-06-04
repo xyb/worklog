@@ -172,24 +172,23 @@ def _has_checkin(con, node_id, day):
     ).fetchone() is not None
 
 def _node_clock_min(con, nid):
-    """Total minutes spent on this node, auto-combined: CLOCK_OUT elapsed sum union log timestamp span.
-    Takes the greater so "no wl start/stop, only wl log" workflows still get a rough duration.
-    Design choice: auto-compute, no explicit --duration field. Auto-calc surfaces drift; an explicit field
-    rarely gets updated and pollutes upper-level aggregations.
+    """Total minutes spent on this node, auto-combined: structured clock intervals
+    (sum elapsed_sec) union the ordinary-log timestamp span. Takes the greater so a
+    "no wl start/stop, only wl log" workflow still gets a rough duration.
+    Design choice: auto-compute, no explicit --duration field. Auto-calc surfaces drift;
+    an explicit field rarely gets updated and pollutes upper-level aggregations.
     """
-    import re as _re
+    # 1. structured clock intervals (precise, from wl start/stop/spent)
+    secs = con.execute(
+        "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ?", (nid,)
+    ).fetchone()["s"]
+    clock = int((secs or 0) / 60)
 
-    # 1. CLOCK_OUT elapsed total (precise, from wl start/stop)
-    clock = 0
-    for r in con.execute("SELECT body FROM log WHERE node_id = ? AND body LIKE 'CLOCK_OUT%'", (nid,)):
-        m = _re.search(r"elapsed=(\d+)min", r["body"])
-        if m:
-            clock += int(m.group(1))
-
-    # 2. ordinary log timestamp span (rough, max - min, excluding CLOCK_*)
-    #    multiple logs at the same timestamp count as one "batch-backfilled instant", not duplicated
+    # 2. plain-note log timestamp span (rough, max - min); exclude typed logs (metric
+    #    carriers / goal / summary / …) so they don't inflate the span. Same-timestamp
+    #    rows collapse (a batch backfill is one instant, not a span).
     rows = list(con.execute(
-        "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND body NOT LIKE 'CLOCK_%' ESCAPE '\\' ORDER BY logged_at",
+        "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND type IS NULL ORDER BY logged_at",
         (nid,),
     ))
     span = 0

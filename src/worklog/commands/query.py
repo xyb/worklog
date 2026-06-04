@@ -558,11 +558,9 @@ def cmd_summary(args, con):
     doing = [n for n in nodes if n["status"] == "DOING"]
 
     clock_min = 0
-    for r in con.execute("SELECT body, logged_at FROM log WHERE body LIKE 'CLOCK_OUT%'"):
-        if inw(r["logged_at"]):
-            m = _re.search(r"elapsed=(\d+)min", r["body"])
-            if m:
-                clock_min += int(m.group(1))
+    for r in con.execute("SELECT end_at, elapsed_sec FROM clock WHERE end_at IS NOT NULL"):
+        if inw(r["end_at"]):
+            clock_min += int((r["elapsed_sec"] or 0) / 60)
 
     out(_c(f"📊 {since} ~ {until} summary", "header"))
     line = f"done {len(done)} · doing {len(doing)} · added-open {len(added_open)}"
@@ -900,17 +898,18 @@ def _show_one(args, con):
     if n["closed_at"]:
         events.append((n["closed_at"], f"✓ {n['status'] or 'closed'}", "", None))
     for r in logs:
-        body = r["body"]
-        if body.startswith("CLOCK_IN"):
-            events.append((r["logged_at"], "⏱ clock-in", "", r["id"]))
-        elif body.startswith("CLOCK_OUT"):
-            import re as _re
-            m = _re.search(r"elapsed=(\d+)min", body)
-            events.append((r["logged_at"], "⏱ clock-out", f"({m.group(1)}min)" if m else "", r["id"]))
+        # timeline log row: "    YYYY-MM-DD HH:MM:SS  #L<id>  ✎ log  <body>" indented ~ 32 cols
+        head = _truncate_log_body(r["body"], indent_cols=32, full=_log_full(args))
+        events.append((r["logged_at"], "✎ log", head, r["id"]))
+    # structured clock intervals (start→end, from the clock table)
+    for c in con.execute(
+        "SELECT start_at, end_at, elapsed_sec FROM clock WHERE node_id = ? ORDER BY id", (args.id,)
+    ):
+        if c["end_at"]:
+            extra = f"{c['start_at'][11:16]}→{c['end_at'][11:16]} ({(c['elapsed_sec'] or 0) // 60}min)"
         else:
-            # timeline log row: "    YYYY-MM-DD HH:MM:SS  #L<id>  ✎ log  <body>" indented ~ 32 cols
-            head = _truncate_log_body(body, indent_cols=32, full=_log_full(args))
-            events.append((r["logged_at"], "✎ log", head, r["id"]))
+            extra = f"{c['start_at'][11:16]}→… (running)"
+        events.append((c["start_at"], "⏱ clock", extra, None))
     if events:
         events.sort(key=lambda e: e[0])
         # tail: --no-timeline/brief=0 / --all-timelines=None full expansion / --timeline-tail N / default 5

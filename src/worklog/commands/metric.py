@@ -189,8 +189,6 @@ def cmd_metric_add(args, con):
             sys.exit(f"✗ log #L{args.on_log} not found")
         if log["node_id"] != node:
             sys.exit(f"✗ log #L{args.on_log} belongs to node #{log['node_id']}, not #{node}")
-        if re.match(r"^CLOCK_(IN|OUT)", log["body"] or ""):
-            sys.exit(f"✗ log #L{args.on_log} is a CLOCK event; pick a normal log to attach a metric to")
         log_id = args.on_log
         if at is None:
             at = log["logged_at"]  # inherit the existing log's time, not "now"

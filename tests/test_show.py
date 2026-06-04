@@ -54,7 +54,7 @@ class TestShow:
         assert "timeline / changes" in out
         assert "● created" in out
         assert "✎ log" in out and "progress one" in out
-        assert "⏱ clock-in" in out and "⏱ clock-out" in out
+        assert "⏱ clock" in out  # structured clock interval (start→end)
         assert "✓ DONE" in out
 
 

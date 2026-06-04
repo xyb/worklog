@@ -130,18 +130,6 @@ class TestRelog:
         assert "10:00:00" in show
         assert "old" not in show
 
-    def test_relog_refuses_clock(self, cli):
-        cli("add", "t1", "-k", "task")
-        cli("start", "1")  # CLOCK_IN = log id 1
-        code, _, err = cli("relog", "1", "fake")
-        assert code != 0
-        assert "CLOCK" in err or "CLOCK" in _
-
-    def test_relog_refuses_clock_in_body(self, cli):
-        cli("add", "t1", "-k", "task")
-        cli("log", "1", "ok")
-        code, _, err = cli("relog", "1", "-m", "CLOCK_IN spoofed")
-        assert code != 0
 
     def test_relog_invalid_at(self, cli):
         cli("add", "t1", "-k", "task")

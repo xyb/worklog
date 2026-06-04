@@ -24,7 +24,7 @@ class TestStartStopAt:
         cli("start", "1", "--at", "09:00")
         _, show, _ = cli("show", "1")
         assert " 09:00:00" in show
-        assert "⏱ clock-in" in show
+        assert "⏱ clock" in show
 
     def test_start_at_full_ts(self, cli):
         cli("add", "t1", "-k", "task")
@@ -88,9 +88,9 @@ class TestSpent:
         cli("add", "t1", "-k", "task")
         cli("spent", "1", "30m", "--at", "2025-01-02 14:30")
         _, show, _ = cli("show", "1")
-        # start 14:00, end 14:30
-        assert "2025-01-02 14:30:00" in show
+        # clock interval: start 14:00 (the timeline event time) → end 14:30 (in the range label)
         assert "2025-01-02 14:00:00" in show
+        assert "14:00→14:30" in show and "(30min)" in show
 
     def test_spent_invalid_duration(self, cli):
         cli("add", "t1", "-k", "task")
@@ -180,6 +180,62 @@ class TestActiveTodayTotal:
         assert "today's total" in out
         # at least 30 min from the closed session
         assert "30min" in out or "0h30m" in out
+
+
+class TestClockTable:
+    """Structured clock table (migration 0005): start/stop/spent/wait + backfill."""
+
+    def test_start_opens_interval_stop_closes(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("start", "1", "--at", "2026-06-01 09:00")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT end_at FROM clock WHERE node_id=1").fetchone()["end_at"] is None
+        cli("stop", "1", "--at", "2026-06-01 10:00")
+        c = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
+        assert c["end_at"] == "2026-06-01 10:00:00" and c["elapsed_sec"] == 3600
+
+    def test_wait_closes_open_clock(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("start", "1")
+        cli("wait", "1")
+        con = tmp_db.db_connect()
+        c = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
+        assert c["end_at"] is not None and c["elapsed_sec"] >= 60
+        assert con.execute("SELECT status FROM node WHERE id=1").fetchone()["status"] == "WAIT"
+
+    def test_no_clock_logs_written(self, cli, tmp_db):
+        """start/stop no longer write CLOCK_IN/OUT logs (timing lives in the clock table)."""
+        cli("add", "t", "-k", "task")
+        cli("start", "1")
+        cli("stop", "1")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM log WHERE body LIKE 'CLOCK%'").fetchone()[0] == 0
+
+    def test_clock_backfill_migration_sql(self, cli, tmp_db):
+        """0005 pairs legacy CLOCK_IN/CLOCK_OUT logs into clock rows and deletes the logs."""
+        import pathlib
+        cli("add", "t", "-k", "task")
+        con = tmp_db.db_connect()
+        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (1, '2026-06-01 09:00:00', 'CLOCK_IN')")
+        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (1, '2026-06-01 10:30:00', 'CLOCK_OUT elapsed=90min (from 2026-06-01 09:00:00)')")
+        con.commit()
+        mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0005_clock_table.sql"
+        con.executescript(mig.read_text())
+        con.commit()
+        c = con.execute("SELECT start_at, end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
+        assert c["start_at"] == "2026-06-01 09:00:00" and c["end_at"] == "2026-06-01 10:30:00"
+        assert c["elapsed_sec"] == 5400  # 90 min
+        assert con.execute("SELECT COUNT(*) FROM log WHERE body LIKE 'CLOCK%'").fetchone()[0] == 0
+
+    def test_node_clock_min_sums_intervals(self, cli, tmp_db):
+        from datetime import date
+        today = date.today().isoformat()
+        cli("add", "t", "-k", "task")
+        cli("sched", "1", today)
+        cli("spent", "1", "30m")
+        cli("spent", "1", "45m")
+        _, out, _ = cli("day", today)
+        assert "75m" in out or "75min" in out or "1h15m" in out
 
 
 class TestSpentBadAt:

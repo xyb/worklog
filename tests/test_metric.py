@@ -301,14 +301,6 @@ class TestMetricReviewFixes:
         con = tmp_db.db_connect()
         assert con.execute("SELECT at FROM metric").fetchone()["at"] == "2026-06-01 08:00:00"
 
-    def test_on_log_rejects_clock(self, cli, tmp_db):
-        self._node(cli)
-        cli("start", "1")  # creates a CLOCK_IN log (log #1 on a fresh node)
-        con = tmp_db.db_connect()
-        clock_id = con.execute("SELECT id FROM log WHERE body LIKE 'CLOCK_%'").fetchone()["id"]
-        code, _, err = cli("metric", "add", "1", "glucose", "5.4", "--on-log", str(clock_id))
-        assert code != 0 and "CLOCK" in err
-
     def test_inf_value_not_numeric(self, cli, tmp_db):
         self._node(cli)
         cli("metric", "add", "1", "x", "inf")  # inf must not become value_num

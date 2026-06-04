@@ -307,7 +307,7 @@ def cmd_start(args, con):
         sys.exit(f"✗ {e}")
     for nid in ids:
         con.execute("UPDATE node SET status = 'DOING' WHERE id = ?", (nid,))
-        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, 'CLOCK_IN')", (nid, ts))
+        con.execute("INSERT INTO clock (node_id, start_at) VALUES (?, ?)", (nid, ts))
     con.commit()
     note = f" @{ts[11:16]}" if getattr(args, "at", None) else ""
     for nid in ids:
@@ -323,21 +323,18 @@ def cmd_stop(args, con):
         sys.exit(f"✗ {e}")
     for nid in ids:
         row = con.execute(
-            "SELECT logged_at FROM log WHERE node_id = ? AND body = 'CLOCK_IN' ORDER BY id DESC LIMIT 1",
+            "SELECT id, start_at FROM clock WHERE node_id = ? AND end_at IS NULL ORDER BY id DESC LIMIT 1",
             (nid,),
         ).fetchone()
         if not row:
-            sys.exit(f"✗ no open CLOCK_IN for #{nid}")
-        started = datetime.fromisoformat(row["logged_at"])
+            sys.exit(f"✗ no open clock for #{nid}")
+        started = datetime.fromisoformat(row["start_at"])
         stopped = datetime.fromisoformat(stop_ts)
         if stopped < started:
-            sys.exit(f"✗ --at {stop_ts} is earlier than CLOCK_IN {row['logged_at']} (#{nid})")
-        mins = max(1, int((stopped - started).total_seconds() / 60))
-        con.execute(
-            "INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)",
-            (nid, stop_ts, f"CLOCK_OUT elapsed={mins}min (from {row['logged_at']})"),
-        )
-        print(f"✓ #{nid} stopped, elapsed {mins} min")
+            sys.exit(f"✗ --at {stop_ts} is earlier than the clock start {row['start_at']} (#{nid})")
+        secs = max(60, int((stopped - started).total_seconds()))  # floor at 1 min
+        con.execute("UPDATE clock SET end_at = ?, elapsed_sec = ? WHERE id = ?", (stop_ts, secs, row["id"]))
+        print(f"✓ #{nid} stopped, elapsed {secs // 60} min")
     con.commit()
 
 def cmd_spent(args, con):
@@ -370,10 +367,9 @@ def cmd_spent(args, con):
     from datetime import timedelta as _td
     start_dt = end_dt - _td(minutes=mins)
     start_ts = start_dt.strftime("%Y-%m-%d %H:%M:%S")
-    con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, 'CLOCK_IN')", (nid, start_ts))
     con.execute(
-        "INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)",
-        (nid, end_ts, f"CLOCK_OUT elapsed={mins}min (from {start_ts})"),
+        "INSERT INTO clock (node_id, start_at, end_at, elapsed_sec) VALUES (?, ?, ?, ?)",
+        (nid, start_ts, end_ts, mins * 60),
     )
     con.commit()
     print(f"✓ #{nid} spent {mins}min ({start_ts[11:16]} → {end_ts[11:16]})")
@@ -490,19 +486,17 @@ def cmd_wait(args, con):
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     for nid in ids:
-        # if there's an open CLOCK_IN, close it
+        # if there's an open clock, close it (WAIT = suspended, no longer timing)
         row = con.execute(
-            "SELECT id, logged_at FROM log WHERE node_id = ? AND body = 'CLOCK_IN' "
-            "AND NOT EXISTS (SELECT 1 FROM log l2 WHERE l2.node_id = log.node_id AND l2.id > log.id AND l2.body LIKE 'CLOCK_OUT%') "
-            "ORDER BY id DESC LIMIT 1",
+            "SELECT id, start_at FROM clock WHERE node_id = ? AND end_at IS NULL ORDER BY id DESC LIMIT 1",
             (nid,),
         ).fetchone()
         if row:
-            started = datetime.fromisoformat(row["logged_at"])
-            mins = max(1, int((datetime.now() - started).total_seconds() / 60))
+            now = datetime.now()
+            secs = max(60, int((now - datetime.fromisoformat(row["start_at"])).total_seconds()))
             con.execute(
-                "INSERT INTO log (node_id, body) VALUES (?, ?)",
-                (nid, f"CLOCK_OUT elapsed={mins}min (from {row['logged_at']}) [auto by wait]"),
+                "UPDATE clock SET end_at = ?, elapsed_sec = ? WHERE id = ?",
+                (now.strftime("%Y-%m-%d %H:%M:%S"), secs, row["id"]),
             )
         con.execute("UPDATE node SET status = 'WAIT' WHERE id = ?", (nid,))
         if args.note:
@@ -541,8 +535,6 @@ def cmd_unlog(args, con):
         row = con.execute("SELECT node_id, logged_at, body FROM log WHERE id = ?", (log_id,)).fetchone()
         if not row:
             sys.exit(f"✗ log #{log_id} not found")
-        if _re.match(r"^CLOCK_(IN|OUT)", row["body"]):
-            sys.exit(f"✗ log #{log_id} is a CLOCK event; use wl stop instead of unlog (to avoid breaking timing pairs)")
         nmetric = con.execute("SELECT COUNT(*) FROM metric WHERE log_id = ?", (log_id,)).fetchone()[0]
         con.execute("DELETE FROM log WHERE id = ?", (log_id,))
         con.commit()
@@ -599,8 +591,6 @@ def cmd_relog(args, con):
     row = con.execute("SELECT id, node_id, logged_at, body FROM log WHERE id = ?", (log_id,)).fetchone()
     if not row:
         sys.exit(f"✗ log #{log_id} not found")
-    if _re.match(r"^CLOCK_(IN|OUT)", row["body"]):
-        sys.exit(f"✗ log #{log_id} is a CLOCK event; relog not allowed (use wl stop --at to fix time, or the source command to delete)")
 
     # body: positional or -m, mutually exclusive; both empty -> EDITOR (only when --at also missing)
     new_body = None
@@ -645,10 +635,6 @@ def cmd_relog(args, con):
             return
         new_body = new_body.strip()
 
-    # prevent changing body to a CLOCK_* prefix (type collision)
-    if new_body is not None and _re.match(r"^CLOCK_(IN|OUT)", new_body):
-        sys.exit("✗ relog body cannot start with CLOCK_IN/CLOCK_OUT (to prevent forging timing events)")
-
     sets, params = [], []
     if new_body is not None:
         sets.append("body = ?")
@@ -679,14 +665,10 @@ def cmd_active(args, con):
     from datetime import datetime as _dt, date as _date
 
     rows = con.execute("""
-        SELECT l.node_id, l.logged_at, n.title, n.status, n.priority
-        FROM log l JOIN node n ON l.node_id = n.id
-        WHERE l.body = 'CLOCK_IN'
-          AND NOT EXISTS (
-              SELECT 1 FROM log l2
-              WHERE l2.node_id = l.node_id AND l2.id > l.id AND l2.body LIKE 'CLOCK_OUT%'
-          )
-        ORDER BY l.logged_at DESC
+        SELECT c.node_id, c.start_at, n.title, n.status, n.priority
+        FROM clock c JOIN node n ON c.node_id = n.id
+        WHERE c.end_at IS NULL
+        ORDER BY c.start_at DESC
     """).fetchall()
 
     if not rows:
@@ -698,30 +680,24 @@ def cmd_active(args, con):
     today = _date.today().isoformat()
     full = _log_full(args)
     for r in rows:
-        started = _dt.fromisoformat(r["logged_at"])
+        started = _dt.fromisoformat(r["start_at"])
         mins = int((now - started).total_seconds() / 60)
         pri = (_c(f"[#{r['priority']}]", _PRI_STYLE.get(r["priority"])) + " ") if r["priority"] else ""
         # head: id + priority + title + current session
-        head_tail = "" if brief else " " + _c(f"({mins}min, since {r['logged_at'][11:16]})", "meta")
+        head_tail = "" if brief else " " + _c(f"({mins}min, since {r['start_at'][11:16]})", "meta")
         out(_c("⏱", "clock") + " " + _c(f"#{r['node_id']}", "id") + " " + pri + _c(r["title"]) + head_tail)
         if brief:
             continue
-        # today's CLOCK total + log progress section (helps decide "continue or stop")
-        today_clock = con.execute(
-            "SELECT body FROM log WHERE node_id = ? AND date(logged_at) = ? AND body LIKE 'CLOCK_OUT elapsed=%'",
+        # today's completed clock total + the current open session (helps decide "continue or stop")
+        done_sec = con.execute(
+            "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND substr(end_at, 1, 10) = ?",
             (r["node_id"], today),
-        ).fetchall()
-        total_min = mins  # includes current open session
-        import re as _re
-        for row in today_clock:
-            m = _re.search(r"elapsed=(\d+)min", row["body"])
-            if m:
-                total_min += int(m.group(1))
+        ).fetchone()["s"]
+        total_min = mins + int((done_sec or 0) / 60)  # includes current open session
         out("    " + _c(f"today's total {total_min}min ({total_min // 60}h{total_min % 60}m), includes current session", "meta"))
-        # latest non-CLOCK log (oneline truncated)
+        # latest plain-note log (oneline truncated)
         last = con.execute(
-            "SELECT body FROM log WHERE node_id = ? AND body NOT LIKE 'CLOCK\\_%' ESCAPE '\\' "
-            "ORDER BY id DESC LIMIT 1", (r["node_id"],),
+            "SELECT body FROM log WHERE node_id = ? AND type IS NULL ORDER BY id DESC LIMIT 1", (r["node_id"],),
         ).fetchone()
         if last:
             body_one = _truncate_log_body(last["body"], indent_cols=_display_width("    latest log: "), full=full)

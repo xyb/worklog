@@ -190,14 +190,6 @@ class TestCheckin:
         _, show, _ = cli("show", "1")
         assert "✎ log" not in show
 
-    def test_unlog_refuses_clock(self, cli):
-        cli("add", "t1", "-k", "task")
-        cli("start", "1")  # add CLOCK_IN log
-        # CLOCK log id = 1
-        code, _, err = cli("unlog", "1")
-        assert code != 0
-        assert "CLOCK" in err or "CLOCK" in _
-
     def test_unlog_requires_id_xor_node(self, cli):
         cli("add", "t1", "-k", "task")
         # neither given

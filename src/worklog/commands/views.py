@@ -220,11 +220,11 @@ def cmd_day(args, con):
         if not items[nid]["logs"] and items[nid]["node"]["status"] not in ("DONE", "CANCELED")
     )
     parts = [f"{s} {stats[s]}" for s in ("DONE", "DOING", "TODO", "LATER", "WAIT", "DEFERRED", "CANCELED") if stats.get(s)]
-    clock = con.execute(
-        "SELECT body FROM log WHERE date(logged_at) = ? AND body LIKE 'CLOCK_OUT%'",
+    total_sec = con.execute(
+        "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE substr(end_at, 1, 10) = ?",
         (target,),
-    ).fetchall()
-    total_min = sum(int(m.group(1)) for r in clock if (m := re.search(r"elapsed=(\d+)min", r["body"])))
+    ).fetchone()["s"]
+    total_min = int((total_sec or 0) / 60)
     print()
     line = f"  ── {target}: {done}/{total} tasks with progress"
     if parts:
