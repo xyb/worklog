@@ -631,6 +631,34 @@ class TestMetricDayFolding:
         assert "↳ [glucose] 6.1 mmol/L" in out
 
 
+class TestHabitMonthProgress:
+    """habit lines in wl day / wl tree show month-to-date completion (本月 N/M)."""
+
+    def test_day_shows_habit_month_rate(self, cli):
+        from datetime import date, timedelta
+        today = date.today()
+        cli("add", "锻炼", "-k", "habit")
+        cli("sched", "1", "--recur", "daily")
+        cli("tick", "1")  # today
+        # a past day this month: 2 days ago (guard against month boundary by using day-before-yesterday only if same month)
+        dby = today - timedelta(days=2)
+        if dby.month == today.month:
+            cli("log", "1", "past", "--date", dby.isoformat(), "--metric", "checkin")
+            expected_done = 2
+        else:
+            expected_done = 1
+        _, out, _ = cli("day")
+        assert "本月" in out and f"{expected_done}/" in out
+
+    def test_no_schedule_no_rate(self, cli):
+        # a habit with no schedule shows no (本月 N/M)
+        cli("add", "随手习惯", "-k", "habit")
+        cli("tick", "1")
+        _, out, _ = cli("day")
+        # ticked today's day node exists; the habit line has no 本月 rate
+        assert "本月" not in out
+
+
 class TestMetricDispatch:
     def test_metric_no_sub_errors(self, cli):
         code, _, err = cli("metric")

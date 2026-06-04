@@ -380,7 +380,12 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
         else:
             mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
         pri = (_c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"])) + " ") if n["priority"] else ""
-        out(ind + mk + " " + _c(f"#{nid}", "id") + " " + pri + _c(n["title"]))
+        mh = ""
+        if n["kind"] == "habit":
+            prog = _habit_month_progress(con, nid, target)
+            if prog:
+                mh = _c(f"  (本月 {prog[0]}/{prog[1]})", "meta")
+        out(ind + mk + " " + _c(f"#{nid}", "id") + " " + pri + _c(n["title"]) + mh)
         if log_tail != 0 and (max_depth is None or depth + 1 < max_depth):
             logs = t["logs"]
             shown = logs if log_tail is None else logs[-log_tail:]
@@ -485,7 +490,13 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 # not the node's all-time total; see _node_clock_min docstring
                 dur = _fmt_dur(_node_clock_min(con, nid, day=day))
                 dur_str = (" " + _c(dur, "clock")) if dur else ""
-                out("      " + mk + " " + _c(f"#{nid}", "id") + " " + pri + _c(n["title"]) + dur_str + hint)
+                # habit month-to-date completion rate (本月 N/M); skip if no schedule
+                mh = ""
+                if n["kind"] == "habit" and day:
+                    prog = _habit_month_progress(con, nid, day)
+                    if prog:
+                        mh = _c(f"  (本月 {prog[0]}/{prog[1]})", "meta")
+                out("      " + mk + " " + _c(f"#{nid}", "id") + " " + pri + _c(n["title"]) + dur_str + hint + mh)
                 if log_tail == 0:
                     continue
                 bodies = logs if log_tail is None else logs[-log_tail:]
@@ -512,6 +523,31 @@ def _sec_sort_key(by):
     if by == "plan":
         return lambda lbl: _PLAN_ORDER.index(lbl) if lbl in _PLAN_ORDER else 99
     return None
+
+def _habit_month_progress(con, nid, day):
+    """For a habit, (done, expected) this month up to `day` (YYYY-MM-DD): done =
+    distinct days this month ≤ day with a checkin metric; expected = days this month
+    ≤ day on which the habit's schedule fires. Returns None when the habit has no
+    schedule (no meaningful rate)."""
+    from datetime import date, timedelta
+    scheds = list(con.execute("SELECT on_date, rrule FROM sched WHERE node_id = ?", (nid,)))
+    if not scheds:
+        return None
+    y, m, d = (int(x) for x in day.split("-"))
+    month = day[:7]
+    done = con.execute(
+        "SELECT COUNT(DISTINCT substr(at, 1, 10)) FROM metric WHERE node_id = ? AND tag = 'checkin' "
+        "AND substr(at, 1, 7) = ? AND substr(at, 1, 10) <= ?", (nid, month, day),
+    ).fetchone()[0]
+    expected = 0
+    cur, end = date(y, m, 1), date(y, m, d)
+    while cur <= end:
+        ds = cur.isoformat()
+        if any(_sched_fires(s["on_date"], s["rrule"], ds) for s in scheds):
+            expected += 1
+        cur += timedelta(days=1)
+    return done, expected
+
 
 def _sched_fires(on_date, rrule, target):
     """Whether this sched row fires on target (YYYY-MM-DD). Rules:
