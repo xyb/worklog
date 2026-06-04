@@ -829,6 +829,60 @@ Cannot move a log across nodes (that's unlog + log).""")
     rl.add_argument("-m", "--message", help="new body (mutually exclusive with positional body; explicit)")
     rl.add_argument("--at", help="change time: HH:MM (keep date) / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
 
+    # ── metric: structured datapoints on a log (node → log → metric) ──
+    mt = sub.add_parser("metric",
+        help="structured datapoints (check-in / number / measurement): add/ls/edit/rm",
+        description="CRUD for metrics — structured datapoints that hang off a log "
+                    "(node → log → metric). A metric has a `tag` (what it is: glucose / "
+                    "pullups / checkin …), an optional numeric or text value + unit, a note, "
+                    "and a timestamp.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Common examples:
+  wl metric add 42 glucose 5.4 --unit mmol/L     # a numeric datapoint on node #42
+  wl metric add 42 pullups 8 --unit reps         # reps
+  wl metric add 42 checkin                        # a pure marker (stored as value 1)
+  wl metric add 42 weight 70 --at yesterday       # backfill a timestamp
+  wl metric add 42 glucose 6.1 --on-log #L99      # attach to an existing log instead of a new carrier
+  wl metric ls 42                                 # list node #42's metrics
+  wl metric ls 42 --tag glucose --since 2026-06-01
+  wl metric edit #M7 --value 5.6 --note "post-meal"
+  wl metric rm #M7 #M8                            # delete one or more
+
+A metric must hang off a log; without --on-log a (possibly empty-body) carrier log is created.""")
+    _msub = mt.add_subparsers(dest="metric_sub")
+
+    _ma = _msub.add_parser("add", help="add a datapoint to a node")
+    _ma.add_argument("node", type=int, help="node id the datapoint belongs to")
+    _ma.add_argument("tag", help="what this datapoint is (glucose / pullups / checkin / …)")
+    _ma.add_argument("value", nargs="?", help="value (numeric → value_num, else text); omit for a pure marker (=1)")
+    _ma.add_argument("--text", action="store_true", help="treat value as text even if it looks numeric")
+    _ma.add_argument("--unit", help="unit of a numeric value (mmol/L, kg, reps, …)")
+    _ma.add_argument("--note", help="short inline note for this datapoint")
+    _ma.add_argument("--at", help="datapoint time: YYYY-MM-DD / 'YYYY-MM-DD HH:MM' / today / yesterday (default: now)")
+    _ma.add_argument("--on-log", dest="on_log", type=_log_id_arg,
+                     help="attach to an existing log (#L<id>) instead of creating a carrier log")
+    _ma.add_argument("--body", help="carrier log body (default empty); ignored with --on-log")
+
+    _ml = _msub.add_parser("ls", help="list a node's metrics (default: this week; --all for everything)",
+                           parents=[window])
+    _ml.add_argument("node", type=int, help="node id")
+    _ml.add_argument("--tag", help="filter by tag")
+    _ml.add_argument("--all", action="store_true", help="all datapoints (ignore the default this-week window)")
+
+    _me = _msub.add_parser("edit", help="edit a metric's fields")
+    _me.add_argument("metric_id", type=_metric_id_arg, help="metric id (#M7 / M7 / 7; from wl metric ls)")
+    _me.add_argument("--value", help="new value, autodetected numeric vs text (mutually exclusive with --num/--text)")
+    _me.add_argument("--num", type=float, help="set numeric value (clears text value)")
+    _me.add_argument("--text", help="set text value (clears numeric value)")
+    _me.add_argument("--unit", help="set unit ('' clears)")
+    _me.add_argument("--note", help="set note ('' clears)")
+    _me.add_argument("--tag", help="change tag")
+    _me.add_argument("--at", help="change timestamp")
+
+    _mr = _msub.add_parser("rm", help="delete one or more metrics")
+    _mr.add_argument("metric_ids", type=_metric_id_arg, nargs="+", help="metric id(s) (#M7 / M7 / 7)")
+
     ci = sub.add_parser("checkin",
         help="interactive check-in of today's habits (default multi-select arrows / space / Enter)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1044,6 +1098,8 @@ from .commands import (
     cmd_unlink,
     cmd_set,
     cmd_tag,
+    cmd_metric,
+    _metric_id_arg,
     cmd_active,
     cmd_wait,
     cmd_reopen,
@@ -1124,6 +1180,7 @@ HANDLERS = {
     "unlink": cmd_unlink,
     "set": cmd_set,
     "tag": cmd_tag,
+    "metric": cmd_metric,
     "show": cmd_show,
     "ls": cmd_ls,
     "tree": cmd_tree,

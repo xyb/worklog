@@ -29,6 +29,10 @@ from .state import (
     _bulk_status_change,
     _edit_in_editor,
 )
+from .metric import (
+    cmd_metric,
+    _metric_id_arg,
+)
 from .query import (
     cmd_show,
     cmd_ls,

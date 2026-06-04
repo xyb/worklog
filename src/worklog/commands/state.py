@@ -501,10 +501,12 @@ def cmd_unlog(args, con):
             sys.exit(f"✗ log #{log_id} not found")
         if _re.match(r"^CLOCK_(IN|OUT)", row["body"]):
             sys.exit(f"✗ log #{log_id} is a CLOCK event; use wl stop instead of unlog (to avoid breaking timing pairs)")
+        nmetric = con.execute("SELECT COUNT(*) FROM metric WHERE log_id = ?", (log_id,)).fetchone()[0]
         con.execute("DELETE FROM log WHERE id = ?", (log_id,))
         con.commit()
         body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
-        out(_c(f"✓ deleted log #{log_id} (node #{row['node_id']}, {row['logged_at']}): {body_preview}", "meta"))
+        extra = f" + {nmetric} metric(s)" if nmetric else ""
+        out(_c(f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {row['logged_at']}): {body_preview}", "meta"))
         return
 
     # --node <id>: delete latest log for that day
@@ -529,9 +531,11 @@ def cmd_unlog(args, con):
         out(_c(f"(node #{nid} has no non-CLOCK logs on {date})", "meta"))
         return
     for r in rows:
+        nmetric = con.execute("SELECT COUNT(*) FROM metric WHERE log_id = ?", (r["id"],)).fetchone()[0]
         con.execute("DELETE FROM log WHERE id = ?", (r["id"],))
         body_preview = r["body"][:60] + ("…" if len(r["body"]) > 60 else "")
-        out(_c(f"✓ deleted log #{r['id']} (node #{nid}, {r['logged_at']}): {body_preview}", "meta"))
+        extra = f" + {nmetric} metric(s)" if nmetric else ""
+        out(_c(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {r['logged_at']}): {body_preview}", "meta"))
     con.commit()
 
 def cmd_relog(args, con):
