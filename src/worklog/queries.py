@@ -139,6 +139,29 @@ def _has_tag(con, nid, tag):
     return con.execute("SELECT 1 FROM tag WHERE node_id = ? AND tag = ? LIMIT 1", (nid, tag)).fetchone() is not None
 
 
+_META_LOG_TYPES = ("goal", "summary", "overview", "top5")  # meta fields stored as typed logs
+
+
+def _latest_typed_log(con, node_id, log_type):
+    """The most recent log row of a given `type` on a node — the 'current' value of a
+    history-preserving meta field (goal / summary / overview / top5). Returns the Row
+    (body, logged_at) or None. Each edit appends a new log, so history is kept and the
+    latest one is the current value."""
+    return con.execute(
+        "SELECT body, logged_at FROM log WHERE node_id = ? AND type = ? "
+        "ORDER BY logged_at DESC, id DESC LIMIT 1",
+        (node_id, log_type),
+    ).fetchone()
+
+
+def _set_typed_log(con, node_id, log_type, body):
+    """Append a new typed log (history-preserving write of a meta field). No commit;
+    caller controls the transaction. Returns the new log id."""
+    return con.execute(
+        "INSERT INTO log (node_id, type, body) VALUES (?, ?, ?)", (node_id, log_type, body)
+    ).lastrowid
+
+
 def _has_checkin(con, node_id, day):
     """True if the node has a check-in metric on the given day (YYYY-MM-DD).
     This is the structured 'done today' signal (G1) — replaces the old, too-loose

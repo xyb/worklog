@@ -37,6 +37,7 @@ from ..queries import (
     _collect_descendants,
     _has_tag,
     _has_checkin,
+    _latest_typed_log,
     _insert_log,
     _node_bucket,
     _node_clock_min,
@@ -132,31 +133,35 @@ def cmd_day(args, con):
     label = _date_label(con, target)
     head = target + (f" {wd}" if wd else "") + (f" · {label}" if label else "")
     out(_c(head, "header"))
-    # meta (stored as props on the day node): goal / recap / Top5; plus parent week node's overview
+    # meta (history-preserving typed logs on the day node): goal / recap(summary) / Top5;
+    # plus the parent week node's overview. Each is the latest log of that type.
     if day:
-        meta = {r["key"]: r["value"] for r in con.execute("SELECT key, value FROM prop WHERE node_id = ?", (day["id"],))}
-        if meta.get("goal"):
-            out(_c("  > 🎯 " + meta["goal"], "meta"))
-        if meta.get("summary"):
-            at = meta.get("summary_at")
+        g = _latest_typed_log(con, day["id"], "goal")
+        if g and g["body"]:
+            out(_c("  > 🎯 " + g["body"], "meta"))
+        s = _latest_typed_log(con, day["id"], "summary")
+        if s and s["body"]:
+            at = s["logged_at"]
             when = _c(f" (written at {at[5:16]})", "meta") if at else ""
-            out(_c("  > Recap: " + meta["summary"], "meta") + when)
-            # stale check: after recap, if there are new non-CLOCK logs today, prompt to rewrite
+            out(_c("  > Recap: " + s["body"], "meta") + when)
+            # stale check: count plain-note logs (type IS NULL) added after the recap;
+            # meta logs (goal/summary/…) and metric carriers (type='metric') don't count.
             if at:
                 newer = con.execute(
                     "SELECT COUNT(*) FROM log WHERE logged_at > ? "
-                    "AND substr(logged_at, 1, 10) = ? AND body NOT LIKE 'CLOCK_%'",
+                    "AND substr(logged_at, 1, 10) = ? AND body NOT LIKE 'CLOCK_%' AND type IS NULL",
                     (at, target),
                 ).fetchone()[0]
                 if newer:
                     out(_c(f"  > ⚠ {newer} change(s) after recap; consider rewriting via wl recap", "doing"))
-        if meta.get("top5"):
-            out(_c("  > Top5: " + meta["top5"], "meta"))
+        t5 = _latest_typed_log(con, day["id"], "top5")
+        if t5 and t5["body"]:
+            out(_c("  > Top5: " + t5["body"], "meta"))
         wk = con.execute("SELECT id FROM node WHERE id = ? AND kind = 'week'", (day["parent_id"],)).fetchone()
         if wk:
-            ov = con.execute("SELECT value FROM prop WHERE node_id = ? AND key = 'overview'", (wk["id"],)).fetchone()
-            if ov:
-                out(_c("  > This week: " + ov["value"], "meta"))
+            ov = _latest_typed_log(con, wk["id"], "overview")
+            if ov and ov["body"]:
+                out(_c("  > This week: " + ov["body"], "meta"))
 
     inc_cancel = getattr(args, "show_canceled", False)
     cfrag, cparams = _status_filter_sql(include_canceled=inc_cancel, col="node.status")

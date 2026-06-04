@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .metric import checkin_metric
-from ..queries import _has_checkin
+from ..queries import _has_checkin, _latest_typed_log, _set_typed_log
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -202,19 +202,21 @@ def cmd_dateinfo(args, con):
             out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
 
 def cmd_goal(args, con):
-    """Shortcut to read/write today's goal: `wl goal` reads; `wl goal 'text'` writes. Today's day-node is auto-created if missing."""
+    """Shortcut to read/write today's goal: `wl goal` reads; `wl goal 'text'` writes. Today's day-node is auto-created if missing.
+    Stored as a tag=goal log (history-preserving): each write appends a new log; the latest is the current goal."""
     nid = _ensure_today_day(con)
     if not args.text:
-        v = _get_prop(con, nid, "goal")
-        out(v if v else _c("(no goal set for today)", "meta"))
+        row = _latest_typed_log(con, nid, "goal")
+        out(row["body"] if row and row["body"] else _c("(no goal set for today)", "meta"))
         return
-    _set_prop(con, nid, "goal", args.text)
+    _set_typed_log(con, nid, "goal", args.text)
+    con.commit()
     out(_c(f"✓ today's goal: {args.text}", "meta"))
 
 def cmd_summary_prop(args, con):
     """Shortcut to read/write a day's end-of-day recap (default today; --date for a past day).
-    On write, stamps summary_at (YYYY-MM-DD HH:MM:SS), so we can later detect changes added
-    after the recap (wl day shows a hint to rewrite)."""
+    Stored as a tag=summary log; each write appends a new log (history kept), and the log's
+    own logged_at is the 'written at' time used to detect changes added after the recap."""
     from datetime import date, datetime as _dt
     target = getattr(args, "date", None)
     if target:
@@ -229,18 +231,17 @@ def cmd_summary_prop(args, con):
         label = "today"
     nid = _ensure_day(con, d)
     if not args.text:
-        v = _get_prop(con, nid, "summary")
-        if not v:
+        row = _latest_typed_log(con, nid, "summary")
+        if not row or not row["body"]:
             out(_c(f"(no summary set for {label})", "meta"))
             return
-        at = _get_prop(con, nid, "summary_at")
-        out(v + (_c(f"  (written at {at})", "meta") if at else ""))
+        at = row["logged_at"]
+        out(row["body"] + (_c(f"  (written at {at})", "meta") if at else ""))
         return
-    now = _dt.now().strftime("%Y-%m-%d %H:%M:%S")
-    _upsert_prop(con, nid, "summary", args.text)
-    _upsert_prop(con, nid, "summary_at", now)
+    log_id = _set_typed_log(con, nid, "summary", args.text)
     con.commit()
-    out(_c(f"✓ {label}'s summary (written at {now}): {args.text}", "meta"))
+    at = con.execute("SELECT logged_at FROM log WHERE id = ?", (log_id,)).fetchone()["logged_at"]
+    out(_c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta"))
 
 def cmd_checkin(args, con):
     """Interactive check-in for today's habits.
@@ -340,14 +341,6 @@ def cmd_sched(args, con):
                 con.execute("INSERT INTO sched (node_id, on_date) VALUES (?, ?)", (nid, d))
                 out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
         con.commit()
-
-def _set_prop(con, nid, key, value):
-    _upsert_prop(con, nid, key, value)
-    con.commit()
-
-def _get_prop(con, nid, key):
-    r = con.execute("SELECT value FROM prop WHERE node_id = ? AND key = ?", (nid, key)).fetchone()
-    return r["value"] if r else None
 
 def _ensure_time_ancestors(con, d):
     """Ensure the time skeleton year→quarter→month→week exists for date `d`, creating

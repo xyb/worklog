@@ -1132,8 +1132,6 @@ from .commands import (
     _render_day_group,
     cmd_day,
     _ensure_today_day,
-    _set_prop,
-    _get_prop,
     cmd_goal,
     cmd_summary_prop,
     _checkin_collect,

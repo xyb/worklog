@@ -85,8 +85,6 @@ from .meta import (
     cmd_summary_prop,
     cmd_checkin,
     cmd_sched,
-    _set_prop,
-    _get_prop,
     _ensure_today_day,
     _checkin_collect,
     _is_interactive_tty,

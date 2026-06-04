@@ -47,6 +47,8 @@ from ..queries import (
     _sec_group,
     _status_filter_sql,
     _upsert_prop,
+    _set_typed_log,
+    _META_LOG_TYPES,
 )
 from .metric import attach_metric_specs, checkin_metric, _CARRIER_TYPE
 from ..render import (
@@ -415,6 +417,13 @@ def cmd_set(args, con):
         # silently create a shadow 'tags' prop while the real tag field went unchanged.
         sys.exit("✗ 'tags' is not a prop — use `wl tag <id> +x -y` to edit real tags "
                  "(plain `wl set` here would silently create a misleading shadow prop)")
+    if args.key in _META_LOG_TYPES:
+        # goal/summary/overview/top5 are history-preserving meta fields, stored as typed
+        # logs (not single-value props): each write appends a log, the latest is current.
+        _set_typed_log(con, args.id, args.key, args.value)
+        con.commit()
+        print(f"✓ #{args.id} {args.key} (logged): {args.value}")
+        return
     _upsert_prop(con, args.id, args.key, args.value)
     con.commit()
     print(f"✓ #{args.id} {args.key}={args.value}")

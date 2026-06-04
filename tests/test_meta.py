@@ -61,12 +61,13 @@ class TestGoalRecapTick:
         # read it back via --date
         _, rout, _ = cli("recap", "--date", "2026-06-01")
         assert "backfilled recap" in rout
-        assert "written at" in rout  # summary_at was stamped
+        assert "written at" in rout  # the summary log's logged_at is the write time
         con = tmp_db.db_connect()
         day = con.execute("SELECT id FROM node WHERE kind='day' AND title LIKE '2026-06-01%'").fetchone()
         assert day is not None  # day node was created on demand
-        at = con.execute("SELECT value FROM prop WHERE node_id=? AND key='summary_at'", (day["id"],)).fetchone()
-        assert at is not None  # stamped, unlike `wl set <day> summary`
+        # stored as a history-preserving typed log (not a prop); logged_at = write time
+        s = con.execute("SELECT logged_at FROM log WHERE node_id=? AND type='summary'", (day["id"],)).fetchone()
+        assert s is not None and s["logged_at"]
 
     def test_recap_past_date_read_empty(self, cli):
         _, out, _ = cli("recap", "--date", "2026-06-01")
@@ -96,7 +97,10 @@ class TestGoalRecapTick:
         con = tmp_db.db_connect()
         day = con.execute("SELECT id FROM node WHERE kind='day' AND title LIKE ?",
                           (date.today().isoformat() + "%",)).fetchone()
-        cli("set", str(day["id"]), "summary_at", "2000-01-01 00:00:00")
+        # backdate the summary log to simulate "recap written long ago"
+        con.execute("UPDATE log SET logged_at='2000-01-01 00:00:00' WHERE node_id=? AND type='summary'",
+                    (day["id"],))
+        con.commit()
         cli("add", "work item", "-k", "task")
         task = con.execute("SELECT id FROM node WHERE title='work item'").fetchone()
         cli("log", str(task["id"]), "小结后又干了活")

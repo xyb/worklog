@@ -525,6 +525,52 @@ class TestMetricImport:
         assert code != 0 and "tag" in err
 
 
+class TestMetaTypedLogs:
+    """goal / summary / overview / top5 are history-preserving typed logs, not props."""
+
+    def test_goal_edit_keeps_history(self, cli, tmp_db):
+        cli("goal", "今天交付 X")
+        cli("goal", "改成 Y")
+        _, out, _ = cli("goal")
+        assert "改成 Y" in out and "X" not in out  # reads latest
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM log WHERE type='goal'").fetchone()[0] == 2  # history kept
+
+    def test_set_meta_key_writes_typed_log_not_prop(self, cli, tmp_db):
+        cli("add", "2026-W23", "-k", "week")  # node 1
+        _, out, _ = cli("set", "1", "overview", "本周主线")
+        assert "logged" in out
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM log WHERE node_id=1 AND type='overview'").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM prop WHERE node_id=1 AND key='overview'").fetchone()[0] == 0
+
+    def test_set_non_meta_key_still_prop(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("set", "1", "owner", "xyb")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT value FROM prop WHERE node_id=1 AND key='owner'").fetchone()["value"] == "xyb"
+
+    def test_meta_prop_migration_sql(self, cli, tmp_db):
+        """0004: a legacy goal/summary prop is converted to a typed log + the prop dropped."""
+        import pathlib
+        cli("add", "2026-06-01", "-k", "day")  # node 1
+        con = tmp_db.db_connect()
+        # seed legacy props (as the pre-0004 world stored them)
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'goal', 'legacy goal')")
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'summary', 'legacy recap')")
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'summary_at', '2026-06-01 18:00:00')")
+        con.commit()
+        mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0004_meta_props_to_typed_logs.sql"
+        con.executescript(mig.read_text())
+        con.commit()
+        # props gone, typed logs created
+        assert con.execute("SELECT COUNT(*) FROM prop WHERE key IN ('goal','summary','summary_at')").fetchone()[0] == 0
+        g = con.execute("SELECT body FROM log WHERE node_id=1 AND type='goal'").fetchone()
+        s = con.execute("SELECT body, logged_at FROM log WHERE node_id=1 AND type='summary'").fetchone()
+        assert g["body"] == "legacy goal"
+        assert s["body"] == "legacy recap" and s["logged_at"] == "2026-06-01 18:00:00"  # summary_at preserved
+
+
 class TestMetricDispatch:
     def test_metric_no_sub_errors(self, cli):
         code, _, err = cli("metric")
