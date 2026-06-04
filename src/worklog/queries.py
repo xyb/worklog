@@ -101,15 +101,16 @@ def _node_project(con, nid):
     return None, "(unassigned)"
 
 def _node_plan(con, nid, sched_ids):
-    """Derive planned/unplanned: schedule-hit = planned; otherwise check transitional planned/unplanned tag; neither -> unplanned (untagged)."""
+    """Derive planned vs unplanned: scheduled that day (or carrying the transitional
+    'planned' tag) = planned; everything else = unplanned. The old separate
+    'unplanned (untagged)' bucket was a migration-era distinction — now that
+    planned/unplanned is derived from sched, anything not scheduled is just unplanned."""
     if nid in sched_ids:
         return "planned"
     tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (nid,))}
     if "planned" in tags:
         return "planned"
-    if "unplanned" in tags:
-        return "unplanned"
-    return "unplanned (untagged)"
+    return "unplanned"
 
 def _sec_group(con, nid, n, by, sched_ids):
     """(key, display title) for the secondary group. by in project/priority/plan."""

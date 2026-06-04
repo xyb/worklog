@@ -391,7 +391,7 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
 - **`wl day [date]` 基于 log 日期驱动**，不再依赖 day 节点存在（历史数据也能按天罗列）：查 `date(logged_at)=target` 的 log（排除 `CLOCK_*` 记账行 + 限 task/habit/meetlog），按 **桶 → 次级分组 → 任务 → 缩进 log** 渲染，底部统计「N 任务有进展 + 状态分布 + CLOCK」
 - **桶（bucket）= `work`/`personal` tag** → `工作`/`个人`/`其他`（`_node_bucket`），顺序 `_BUCKET_ORDER`
 - **次级分组 `--by`**（`_sec_group` / `_sec_sort_key`）：
-  - `plan`（**`wl day` 默认**，设计决策 2026-05-29——最贴近 markdown 日结构）：`planned` tag → `计划内`；`unplanned` → `计划外`；**没打标 → `计划外（未标）`**
+  - `plan`（**`wl day` 默认**，设计决策 2026-05-29——最贴近 markdown 日结构）：当天有排期（或迁移期 `planned` tag）→ `计划内`；其余 → `计划外`。（原来单独的 `计划外（未标）` 一档已并入 `计划外`——现在计划内外靠 sched 推导，那个 tag 区分没价值且 `（未标）` 文案误导，会被当成"没打 work/personal tag"。）
   - `project`：项目祖先（`_node_project` 取 kind=project 的 ancestor）。`wl logs --group day` 仍默认 `project`
   - `priority`：`A/B/C → P0/P1/P2`，无优先级 `—`（默认当计划外，但标注未显式确认，设计决策 2026-05-29）。⚠️ **计划内/计划外本质是 per-day（per-log）属性**（同一任务今天计划内、明天可能计划外），归并迁移后挂在任务上只是近似；要精确需把标记下沉到 log 行（schema 未做，留待决策）
 - **`wl logs --group day [--by ...]`** 复用 `_render_day_group`：先按日期 header 分组，每天内同 `wl day` 结构
@@ -410,7 +410,7 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
 - **`wl sched <id> [when] [--recur R] [--clear]`**：排期 / 重复 / 清除 / 无参列出。`when` 走 `_resolve_concrete_date`（YYYY-MM-DD / 今天 / 明天 / 后天）。
 - **`wl day` 推导（`_node_plan(con, nid, sched_ids)`）**：
   - 计划内 = `nid in sched_ids`（被 schedule 命中，事先排的）**或** 迁移期 `planned` tag。
-  - 计划外 = 有 log 但没命中：`unplanned` tag → 计划外；都没有 → 计划外（未标）。
+  - 计划外 = 没命中 sched 且无 `planned` tag（有 log 但没排期的就是计划外；原 `unplanned` tag 和"没打标"两种情况现在合并成一档）。
   - **被 schedule 命中但当天还没 log 的任务也列出**（`wl day` 把 sched-only node 并进 items，标 `«计划·未做»`），实现"计划提前可见，真正做时再加 log"。
 - **跟 `scheduled_at`（§20）的分工**：`scheduled_at` = 模糊待办时间（someday / 2026-06，backlog 提示）；`sched` = 具体日历落位（驱动计划内）。两者互补，不互相同步。
 - **迁移期过渡**：历史数据用 `planned`/`unplanned` tag 表达计划内外（无 sched），`_node_plan` 把 tag 作 fallback；将来真实排期走 sched 后逐步去 tag。

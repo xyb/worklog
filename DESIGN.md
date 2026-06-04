@@ -391,7 +391,7 @@ Goal: reproduce the day-dimension view of "all projects + progress on a given da
 - **`wl day [date]` is log-date driven**, no longer requires a day node to exist (historical data lists by day too): query logs with `date(logged_at)=target` (excluding `CLOCK_*` accounting rows, restricted to task/habit/meetlog), render as **bucket → secondary group → task → indented logs**, with footer stats "N tasks made progress + status distribution + CLOCK"
 - **Bucket = `work`/`personal` tag** → `Work` / `Personal` / `Other` (`_node_bucket`), order in `_BUCKET_ORDER`
 - **Secondary group `--by`** (`_sec_group` / `_sec_sort_key`):
-  - `plan` (**`wl day` default** — closest to markdown day structure): `planned` tag → `Planned`; `unplanned` → `Unplanned`; **no tag → `Unplanned (untagged)`**
+  - `plan` (**`wl day` default** — closest to markdown day structure): scheduled that day (or migration-era `planned` tag) → `Planned`; everything else → `Unplanned`. (The old separate `Unplanned (untagged)` bucket was merged into `Unplanned` — now that planned/unplanned derives from sched, the tag distinction has no value and the label misled.)
   - `project`: project ancestor (`_node_project` picks the `kind=project` ancestor). `wl logs --group day` still defaults to `project`
   - `priority`: `A/B/C → P0/P1/P2`, no priority → `—` (defaults to unplanned but flagged unconfirmed). ⚠️ **Planned/unplanned is fundamentally per-day (per-log)** (a task may be planned today, unplanned tomorrow); hanging the mark on the task itself is an approximation after merging migration. Precise modeling would push the mark down to log rows (schema not yet done, decision pending).
 - **`wl logs --group day [--by ...]`** reuses `_render_day_group`: groups by date header, each day has the same structure as `wl day`
@@ -410,7 +410,7 @@ The decision model: **schedule (forward planning, calendar-like) and log (retros
 - **`wl sched <id> [when] [--recur R] [--clear]`**: schedule / recur / clear / no-arg = list. `when` goes through `_resolve_concrete_date` (YYYY-MM-DD / today / tomorrow / day-after-tomorrow).
 - **`wl day` derivation (`_node_plan(con, nid, sched_ids)`)**:
   - Planned = `nid in sched_ids` (hit by schedule, scheduled in advance) **or** migration-period `planned` tag
-  - Unplanned = has a log but not in sched_ids: `unplanned` tag → Unplanned; neither → Unplanned (untagged)
+  - Unplanned = not in sched_ids and no `planned` tag (a logged-but-unscheduled task is unplanned; the former `unplanned` tag and the no-tag case are now one bucket)
   - **Tasks scheduled but not yet logged are also listed** (`wl day` merges sched-only nodes into items, marked `«planned · not yet done»`), implementing "plan visible in advance, log added when actually doing"
 - **Division of labor with `scheduled_at` (§20)**: `scheduled_at` = fuzzy todo time (someday / 2026-06, backlog hint); `sched` = specific calendar placement (drives planned). The two complement each other and do not auto-sync.
 - **Migration transition**: legacy data uses `planned`/`unplanned` tags for planned/unplanned (no sched), and `_node_plan` falls back to tags; future real scheduling goes through sched, gradually dropping the tags.

@@ -27,11 +27,13 @@ class TestDay:
         assert "#5" in out and "#6" in out
 
     def test_day_default_by_plan(self, cli):
-        # default --by plan: untagged tasks → unplanned (untagged), no grouping by project
+        # default --by plan: tasks not scheduled that day → unplanned (no separate
+        # "(untagged)" bucket — that migration-era distinction was merged away)
         self._seed(cli)
         code, out, _ = cli("day", "2026-05-28")
         assert code == 0
-        assert "unplanned (untagged)" in out
+        assert "unplanned" in out
+        assert "untagged" not in out  # the misleading label is gone
         assert "aggregated progress" in out and "crawler progress" in out
 
     def test_day_stats_line(self, cli):
@@ -71,14 +73,15 @@ class TestDay:
         code, out, _ = cli("day", "2026-05-28", "--by", "plan")
         assert "planned" in out and "unplanned" in out
 
-    def test_day_by_plan_untagged_as_unplanned(self, cli):
-        # no planned/unplanned tag → treated as unplanned, marked (untagged)
+    def test_day_by_plan_unscheduled_is_unplanned(self, cli):
+        # not scheduled that day + no planned tag → unplanned (no "(untagged)" suffix)
         cli("add", "2026", "-k", "year")
         cli("add", "proj", "-k", "project", "-t", "work", "--parent", "1")
-        cli("add", "untagged task", "-k", "task", "-t", "work", "--parent", "2")  # 3
-        cli("log", "3", "untagged progress", "--date", "2026-05-28")
+        cli("add", "some task", "-k", "task", "-t", "work", "--parent", "2")  # 3
+        cli("log", "3", "some progress", "--date", "2026-05-28")
         code, out, _ = cli("day", "2026-05-28", "--by", "plan")
-        assert "unplanned (untagged)" in out
+        assert "unplanned" in out
+        assert "untagged" not in out
 
 
 class TestDayMeta:

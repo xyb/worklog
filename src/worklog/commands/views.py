@@ -549,7 +549,7 @@ def _date_label(con, target):
 
 
 
-_PLAN_ORDER = ["planned", "unplanned", "unplanned (untagged)"]
+_PLAN_ORDER = ["planned", "unplanned"]
 _PRI_GROUP_ORDER = ["P0", "P1", "P2", "—"]
 _WEEKDAY_ABBR = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
