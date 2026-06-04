@@ -194,7 +194,16 @@ def cmd_day(args, con):
                 items[nid] = {"node": nr, "logs": []}
 
     if not items:
-        out(_c(f"  (no log progress for {target}, and nothing planned)", "meta"))
+        # clock-only day: time was tracked (wl spent / start-stop) but nothing logged/planned
+        clock_sec = con.execute(
+            "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE substr(end_at, 1, 10) = ?",
+            (target,),
+        ).fetchone()["s"]
+        if clock_sec:
+            cm = int(clock_sec / 60)
+            out(_c(f"  (no logged task progress for {target}) · CLOCK {cm}min ({cm // 60}h{cm % 60}m)", "meta"))
+        else:
+            out(_c(f"  (no log progress for {target}, and nothing planned)", "meta"))
         return
 
     # log_tail priority: --no-logs/--brief -> 0 / --all-logs -> None (full) /
@@ -462,8 +471,9 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 elif logs and log_tail == 0:
                     # compact mode: don't expand body, attach a count hint after the title line
                     hint = _c(f"  ({len(logs)} log)", "meta")
-                # total duration (CLOCK union log span); see _node_clock_min docstring
-                dur = _fmt_dur(_node_clock_min(con, nid))
+                # THIS DAY's duration (clock intervals + plain-note span scoped to the day),
+                # not the node's all-time total; see _node_clock_min docstring
+                dur = _fmt_dur(_node_clock_min(con, nid, day=day))
                 dur_str = (" " + _c(dur, "clock")) if dur else ""
                 out("      " + mk + " " + _c(f"#{nid}", "id") + " " + pri + _c(n["title"]) + dur_str + hint)
                 if log_tail == 0:

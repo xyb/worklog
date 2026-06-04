@@ -238,6 +238,82 @@ class TestClockTable:
         assert "75m" in out or "75min" in out or "1h15m" in out
 
 
+class TestClockReviewFixes:
+    """Fixes from the cross-model review of the clock increment."""
+
+    def test_double_start_skipped(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("start", "1")
+        _, out, _ = cli("start", "1")  # already running
+        assert "already has a running clock" in out
+        con = tmp_db.db_connect()
+        # only one open interval, not two
+        assert con.execute("SELECT COUNT(*) FROM clock WHERE node_id=1 AND end_at IS NULL").fetchone()[0] == 1
+
+    def test_clock_only_day_shows_total(self, cli):
+        cli("add", "t", "-k", "task")  # not scheduled, no logs
+        cli("spent", "1", "30m", "--at", "2026-06-01 14:00")
+        _, out, _ = cli("day", "2026-06-01")
+        assert "CLOCK 30min" in out  # clock total shown even with no logged progress
+
+    def test_backfill_double_in_no_double_count(self, cli, tmp_db):
+        """0005: IN1, IN2, OUT1 → IN2 closes at OUT1, IN1 stays open (not two intervals to OUT1)."""
+        import pathlib
+        cli("add", "t", "-k", "task")
+        con = tmp_db.db_connect()
+        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (1, '2026-06-01 09:00:00', 'CLOCK_IN')")
+        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (1, '2026-06-01 09:30:00', 'CLOCK_IN')")
+        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (1, '2026-06-01 10:00:00', 'CLOCK_OUT elapsed=30min (from 2026-06-01 09:30:00)')")
+        con.commit()
+        mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0005_clock_table.sql"
+        con.executescript(mig.read_text())
+        con.commit()
+        rows = con.execute("SELECT start_at, end_at, elapsed_sec FROM clock ORDER BY start_at").fetchall()
+        assert len(rows) == 2
+        # IN1 (09:00) left open; IN2 (09:30) closed at 10:00
+        assert rows[0]["start_at"] == "2026-06-01 09:00:00" and rows[0]["end_at"] is None
+        assert rows[1]["start_at"] == "2026-06-01 09:30:00" and rows[1]["end_at"] == "2026-06-01 10:00:00"
+        # total counted = 30min only (no double-count)
+        total = con.execute("SELECT COALESCE(SUM(elapsed_sec),0) AS s FROM clock").fetchone()["s"]
+        assert total == 1800
+
+    def test_backfill_nested_in_in_out_out(self, cli, tmp_db):
+        """0005: IN,IN,OUT,OUT (LIFO) reconstructs BOTH intervals from each OUT's
+        recorded "(from ...)" — no lost interval, total preserved."""
+        import pathlib
+        cli("add", "t", "-k", "task")
+        con = tmp_db.db_connect()
+        con.executescript("""
+            INSERT INTO log(node_id,logged_at,body) VALUES
+            (1,'2026-06-01 09:00:00','CLOCK_IN'),
+            (1,'2026-06-01 09:30:00','CLOCK_IN'),
+            (1,'2026-06-01 10:00:00','CLOCK_OUT elapsed=30min (from 2026-06-01 09:30:00)'),
+            (1,'2026-06-01 11:00:00','CLOCK_OUT elapsed=120min (from 2026-06-01 09:00:00)');
+        """)
+        con.commit()
+        mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0005_clock_table.sql"
+        con.executescript(mig.read_text())
+        con.commit()
+        rows = con.execute("SELECT start_at, end_at, elapsed_sec FROM clock ORDER BY start_at").fetchall()
+        assert len(rows) == 2  # both closed, none lost, none open
+        assert all(r["end_at"] is not None for r in rows)
+        assert con.execute("SELECT SUM(elapsed_sec) FROM clock").fetchone()[0] == 9000  # 150 min
+
+    def test_day_duration_is_per_day_not_all_time(self, cli):
+        """_node_clock_min(day=) scopes to the day — a task clocked on two days shows
+        only that day's duration on each day's row (no cross-day inflation)."""
+        cli("add", "t", "-k", "task")
+        cli("sched", "1", "2026-06-01")
+        cli("sched", "1", "2026-06-05")
+        cli("spent", "1", "30m", "--at", "2026-06-01 10:00")
+        cli("spent", "1", "120m", "--at", "2026-06-05 10:00")
+        _, d1, _ = cli("day", "2026-06-01")
+        _, d5, _ = cli("day", "2026-06-05")
+        # day 06-01 shows ~30m, NOT the 4-day span or the 150min total
+        assert "30m" in d1 and "2h" not in d1 and "96h" not in d1
+        assert "2h" in d5 or "120m" in d5
+
+
 class TestSpentBadAt:
     """`wl spent` with garbage --at should error cleanly."""
 

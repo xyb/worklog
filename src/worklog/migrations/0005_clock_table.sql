@@ -23,20 +23,37 @@ CREATE INDEX IF NOT EXISTS idx_clock_node ON clock(node_id);
 CREATE INDEX IF NOT EXISTS idx_clock_start ON clock(start_at);
 CREATE INDEX IF NOT EXISTS idx_clock_end ON clock(end_at);
 
--- Backfill: pair each CLOCK_IN log with the next CLOCK_OUT on the same node.
--- A CLOCK_IN with no following CLOCK_OUT becomes an open interval (end_at NULL).
--- elapsed_sec is the wall-clock span (matches the old elapsed=Nmin, to the second).
-INSERT INTO clock (node_id, start_at, end_at, elapsed_sec)
-SELECT i.node_id, i.logged_at, o.logged_at,
-       CASE WHEN o.logged_at IS NOT NULL
-            THEN CAST(round((julianday(o.logged_at) - julianday(i.logged_at)) * 86400) AS INTEGER)
-            END
-FROM log i
-LEFT JOIN log o ON o.id = (
-    SELECT MIN(o2.id) FROM log o2
-    WHERE o2.node_id = i.node_id AND o2.id > i.id AND o2.body LIKE 'CLOCK_OUT%'
-)
-WHERE i.body = 'CLOCK_IN';
+-- Backfill, using the authoritative record old `wl stop` already wrote: every
+-- CLOCK_OUT body carries "(from <start_ts>)" — the exact CLOCK_IN it closed
+-- (computed by the old LIFO stop). So we reconstruct each CLOSED interval
+-- directly from the OUT (start = its "from", end = its own logged_at), which is
+-- correct for any sequence (IN,IN,OUT / IN,IN,OUT,OUT / nested) with no pairing
+-- ambiguity and no change to the recorded totals. An OPEN interval is a CLOCK_IN
+-- whose timestamp is not the "from" of any OUT (a `wl start` never stopped).
+-- "(from " + 19-char "YYYY-MM-DD HH:MM:SS" (the format old stop/spent/wait wrote).
 
--- The CLOCK logs are now redundant — their timing lives in the clock table.
-DELETE FROM log WHERE body = 'CLOCK_IN' OR body LIKE 'CLOCK_OUT%';
+-- closed intervals: one per CLOCK_OUT, from its own recorded start + end
+INSERT INTO clock (node_id, start_at, end_at, elapsed_sec)
+SELECT node_id,
+       substr(body, instr(body, '(from ') + 6, 19) AS start_at,
+       logged_at,
+       CAST(round((julianday(logged_at)
+                   - julianday(substr(body, instr(body, '(from ') + 6, 19))) * 86400) AS INTEGER)
+FROM log
+WHERE body LIKE 'CLOCK_OUT elapsed=%(from %)%' AND instr(body, '(from ') > 0;
+
+-- open intervals: a CLOCK_IN whose start was never closed by any OUT
+INSERT INTO clock (node_id, start_at)
+SELECT i.node_id, i.logged_at
+FROM log i
+WHERE i.body = 'CLOCK_IN'
+  AND NOT EXISTS (
+      SELECT 1 FROM log o
+      WHERE o.node_id = i.node_id AND o.body LIKE 'CLOCK_OUT elapsed=%(from %)%'
+        AND substr(o.body, instr(o.body, '(from ') + 6, 19) = i.logged_at
+  );
+
+-- The migrated CLOCK logs are now redundant — their timing lives in the clock
+-- table. Narrow predicate (exact CLOCK_IN / command-format CLOCK_OUT) so a
+-- user-written log that merely starts with "CLOCK_OUT" is not deleted.
+DELETE FROM log WHERE body = 'CLOCK_IN' OR body LIKE 'CLOCK_OUT elapsed=%';

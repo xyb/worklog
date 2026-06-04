@@ -171,26 +171,43 @@ def _has_checkin(con, node_id, day):
         (node_id, day),
     ).fetchone() is not None
 
-def _node_clock_min(con, nid):
-    """Total minutes spent on this node, auto-combined: structured clock intervals
-    (sum elapsed_sec) union the ordinary-log timestamp span. Takes the greater so a
+def _node_clock_min(con, nid, day=None):
+    """Minutes spent on this node, auto-combined: structured clock intervals
+    (sum elapsed_sec) union the ordinary-log timestamp span; takes the greater so a
     "no wl start/stop, only wl log" workflow still gets a rough duration.
+    `day` (YYYY-MM-DD) scopes BOTH parts to that day — pass it in a per-day view so a
+    multi-day task doesn't show its all-time span on one day's row; omit it (None) for
+    the node's all-time total.
     Design choice: auto-compute, no explicit --duration field. Auto-calc surfaces drift;
     an explicit field rarely gets updated and pollutes upper-level aggregations.
     """
     # 1. structured clock intervals (precise, from wl start/stop/spent)
-    secs = con.execute(
-        "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ?", (nid,)
-    ).fetchone()["s"]
+    if day:
+        secs = con.execute(
+            "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND substr(end_at, 1, 10) = ?",
+            (nid, day),
+        ).fetchone()["s"]
+    else:
+        secs = con.execute(
+            "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ?", (nid,)
+        ).fetchone()["s"]
     clock = int((secs or 0) / 60)
 
     # 2. plain-note log timestamp span (rough, max - min); exclude typed logs (metric
     #    carriers / goal / summary / …) so they don't inflate the span. Same-timestamp
-    #    rows collapse (a batch backfill is one instant, not a span).
-    rows = list(con.execute(
-        "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND type IS NULL ORDER BY logged_at",
-        (nid,),
-    ))
+    #    rows collapse (a batch backfill is one instant, not a span). Scoped to `day`
+    #    when given so a multi-day task's span isn't counted on a single day's row.
+    if day:
+        rows = list(con.execute(
+            "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND type IS NULL "
+            "AND substr(logged_at, 1, 10) = ? ORDER BY logged_at",
+            (nid, day),
+        ))
+    else:
+        rows = list(con.execute(
+            "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND type IS NULL ORDER BY logged_at",
+            (nid,),
+        ))
     span = 0
     if len(rows) >= 2:
         try:

@@ -305,12 +305,19 @@ def cmd_start(args, con):
         ts = _resolve_at_ts(getattr(args, "at", None))
     except ValueError as e:
         sys.exit(f"✗ {e}")
+    note = f" @{ts[11:16]}" if getattr(args, "at", None) else ""
+    started = []
     for nid in ids:
+        # don't open a second interval on a node that's already running (would leave
+        # a stale open clock + duplicate wl active rows); stop the current one first.
+        if con.execute("SELECT 1 FROM clock WHERE node_id = ? AND end_at IS NULL LIMIT 1", (nid,)).fetchone():
+            out(_c(f"⚠ #{nid} already has a running clock — wl stop it first (skipped)", "later"))
+            continue
         con.execute("UPDATE node SET status = 'DOING' WHERE id = ?", (nid,))
         con.execute("INSERT INTO clock (node_id, start_at) VALUES (?, ?)", (nid, ts))
+        started.append(nid)
     con.commit()
-    note = f" @{ts[11:16]}" if getattr(args, "at", None) else ""
-    for nid in ids:
+    for nid in started:
         print(f"✓ #{nid} → DOING, clocked in{note}")
 
 def cmd_stop(args, con):

@@ -15,5 +15,6 @@ SELECT MIN(l.id), l.node_id, 'checkin', 1, substr(l.logged_at, 1, 10)
 FROM log l
 JOIN node n ON n.id = l.node_id
 WHERE n.kind = 'habit'
+  AND l.type IS NULL                       -- only plain note logs; skip metric carriers / typed logs
   AND l.body NOT LIKE 'CLOCK\_%' ESCAPE '\'
 GROUP BY l.node_id, substr(l.logged_at, 1, 10);
