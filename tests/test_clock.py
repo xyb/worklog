@@ -192,7 +192,8 @@ class TestClockTable:
         assert con.execute("SELECT end_at FROM clock WHERE node_id=1").fetchone()["end_at"] is None
         cli("stop", "1", "--at", "2026-06-01 10:00")
         c = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
-        assert c["end_at"] == "2026-06-01 10:00:00" and c["elapsed_sec"] == 3600
+        # --at is local (+08:00) → stored UTC (10:00 local = 02:00 UTC); duration unchanged
+        assert c["end_at"] == "2026-06-01 02:00:00" and c["elapsed_sec"] == 3600
 
     def test_wait_closes_open_clock(self, cli, tmp_db):
         cli("add", "t", "-k", "task")

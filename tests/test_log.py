@@ -290,14 +290,16 @@ class TestResolveAtTsEdges:
 
     def test_date_only_uses_current_time(self):
         from worklog.helpers import _resolve_at_ts
-        out = _resolve_at_ts("2026-06-15")
-        assert out.startswith("2026-06-15 ")
+        from worklog import timeutil as tu
+        out = _resolve_at_ts("2026-06-15")  # date only → that local day, current time, stored UTC
         assert len(out) == 19  # YYYY-MM-DD HH:MM:SS
+        assert tu.local_day_of(out) == "2026-06-15"  # local calendar day is the one asked for
 
     def test_full_iso_with_T_separator(self):
         from worklog.helpers import _resolve_at_ts
+        # 09:30 local (+08:00) is stored as 01:30 UTC
         out = _resolve_at_ts("2026-06-15T09:30")
-        assert out == "2026-06-15 09:30:00"
+        assert out == "2026-06-15 01:30:00"
 
     def test_term_width_oserror_falls_back_to_80(self, monkeypatch):
         """shutil.get_terminal_size raising OSError → default 80."""

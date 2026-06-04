@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .. import render
+from .. import timeutil as _tu
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
@@ -143,14 +144,14 @@ def cmd_day(args, con):
         s = _latest_typed_log(con, day["id"], "summary")
         if s and s["body"]:
             at = s["logged_at"]
-            when = _c(f" (written at {at[5:16]})", "meta") if at else ""
+            when = _c(f" (written at {_tu.utc_to_local(at)[5:16]})", "meta") if at else ""
             out(_c("  > Recap: " + s["body"], "meta") + when)
             # stale check: count plain-note logs (tag IS NULL) added after the recap;
             # meta logs (goal/summary/…) and metric carriers (type='metric') don't count.
             if at:
                 newer = con.execute(
-                    "SELECT COUNT(*) FROM log WHERE logged_at > ? "
-                    "AND substr(logged_at, 1, 10) = ? AND body NOT LIKE 'CLOCK_%' AND tag IS NULL",
+                    f"SELECT COUNT(*) FROM log WHERE logged_at > ? "
+                    f"AND {_tu.local_day_sql('logged_at')} = ? AND body NOT LIKE 'CLOCK_%' AND tag IS NULL",
                     (at, target),
                 ).fetchone()[0]
                 if newer:
@@ -171,7 +172,7 @@ def cmd_day(args, con):
         rf"""SELECT log.node_id, log.logged_at, log.body,
                    node.title, node.status, node.priority, node.kind
             FROM log JOIN node ON log.node_id = node.id
-            WHERE date(log.logged_at) = ?
+            WHERE {_tu.local_day_sql('log.logged_at')} = ?
               AND log.body NOT LIKE 'CLOCK\_%' ESCAPE '\'
               AND node.kind IN ('task', 'habit', 'meetlog')
               {cancel_sql}
@@ -197,7 +198,7 @@ def cmd_day(args, con):
     if not items:
         # clock-only day: time was tracked (wl spent / start-stop) but nothing logged/planned
         clock_sec = con.execute(
-            "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE substr(end_at, 1, 10) = ?",
+            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE {_tu.local_day_sql('end_at')} = ?",
             (target,),
         ).fetchone()["s"]
         if clock_sec:
@@ -231,7 +232,7 @@ def cmd_day(args, con):
     )
     parts = [f"{s} {stats[s]}" for s in ("DONE", "DOING", "TODO", "LATER", "WAIT", "DEFERRED", "CANCELED") if stats.get(s)]
     total_sec = con.execute(
-        "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE substr(end_at, 1, 10) = ?",
+        f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE {_tu.local_day_sql('end_at')} = ?",
         (target,),
     ).fetchone()["s"]
     total_min = int((total_sec or 0) / 60)
@@ -361,7 +362,7 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
     rows = con.execute(
         rf"""SELECT log.node_id, log.body, node.title, node.status, node.priority, node.kind
             FROM log JOIN node ON log.node_id = node.id
-            WHERE date(log.logged_at) = ?
+            WHERE {_tu.local_day_sql('log.logged_at')} = ?
               AND log.body NOT LIKE 'CLOCK\_%' ESCAPE '\'
               AND node.kind IN ('task', 'habit', 'meetlog')
               {cancel_sql}
@@ -400,7 +401,7 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
             indent = "  " * (depth + 2)
             mrows = [m for m in con.execute(
                 "SELECT tag, value_num, value_text, unit FROM metric WHERE node_id = ? "
-                "AND substr(at, 1, 10) = ? ORDER BY id", (nid, target)) if m["tag"] != "checkin"]
+                f"AND {_tu.local_day_sql('at')} = ? ORDER BY id", (nid, target)) if m["tag"] != "checkin"]
             for m in mrows[:5]:
                 out(indent + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta"))
             if len(mrows) > 5:
@@ -510,8 +511,8 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 # it's already reflected by the [x]); over-count elided
                 if day:
                     mrows = [m for m in con.execute(
-                        "SELECT tag, value_num, value_text, unit FROM metric WHERE node_id = ? "
-                        "AND substr(at, 1, 10) = ? ORDER BY id", (nid, day)) if m["tag"] != "checkin"]
+                        f"SELECT tag, value_num, value_text, unit FROM metric WHERE node_id = ? "
+                        f"AND {_tu.local_day_sql('at')} = ? ORDER BY id", (nid, day)) if m["tag"] != "checkin"]
                     for m in mrows[:5]:
                         out("        " + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta"))
                     if len(mrows) > 5:
@@ -536,8 +537,8 @@ def _habit_month_progress(con, nid, day):
     y, m, d = (int(x) for x in day.split("-"))
     month = day[:7]
     done = con.execute(
-        "SELECT COUNT(DISTINCT substr(at, 1, 10)) FROM metric WHERE node_id = ? AND tag = 'checkin' "
-        "AND substr(at, 1, 7) = ? AND substr(at, 1, 10) <= ?", (nid, month, day),
+        f"SELECT COUNT(DISTINCT {_tu.local_day_sql('at')}) FROM metric WHERE node_id = ? AND tag = 'checkin' "
+        f"AND {_tu.local_month_sql('at')} = ? AND {_tu.local_day_sql('at')} <= ?", (nid, month, day),
     ).fetchone()[0]
     expected = 0
     cur, end = date(y, m, 1), date(y, m, d)

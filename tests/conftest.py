@@ -1,8 +1,17 @@
 """pytest fixtures: one isolated SQLite DB per test (under tmp_path)."""
 import os
 import sys
+import time
 from pathlib import Path
 import pytest
+
+# Pin the timezone for the whole suite so UTC-stored *_at instants render and
+# day-group deterministically regardless of the CI/host zone. Asia/Shanghai is
+# a fixed +08:00 (no DST), matching where the tool is used; SQLite's
+# `datetime(col,'localtime')` and Python's `.astimezone()` both read this.
+os.environ["TZ"] = "Asia/Shanghai"
+if hasattr(time, "tzset"):
+    time.tzset()
 
 # Make the src layout importable (uv sync also installs it editable, but
 # running pytest from a fresh checkout pre-`uv sync` still needs this hint).

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .. import render
+from .. import timeutil as _tu
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -148,20 +149,20 @@ def cmd_add(args, con):
 
     if closed_at == "__NOW__":
         cur = con.execute(
-            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_at, deadline_at, body, closed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now', 'localtime'))""",
+            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_at, deadline_at, body, closed_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))""",
             (args.parent, args.title, args.kind, status, args.priority, scheduled, deadline, args.body),
         )
     elif closed_at:
         cur = con.execute(
-            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_at, deadline_at, body, closed_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_at, deadline_at, body, closed_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (args.parent, args.title, args.kind, status, args.priority, scheduled, deadline, args.body, closed_at),
         )
     else:
         cur = con.execute(
-            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_at, deadline_at, body)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_at, deadline_at, body, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (args.parent, args.title, args.kind, status, args.priority, scheduled, deadline, args.body),
         )
     node_id = cur.lastrowid
@@ -176,7 +177,7 @@ def cmd_add(args, con):
             d = _resolve_concrete_date(args.sched)
         except ValueError:
             sys.exit(f"✗ invalid --sched date '{args.sched}' (use YYYY-MM-DD / today / tomorrow / day-after-tomorrow / yesterday)")
-        con.execute("INSERT INTO sched (node_id, on_date) VALUES (?, ?)", (node_id, d))
+        con.execute("INSERT INTO sched (node_id, on_date, created_at) VALUES (?, ?, datetime('now'))", (node_id, d))
         sched_hint = " " + _c(f"@{d}", "planned")
 
     # --link: attach a vault doc
@@ -211,7 +212,8 @@ def cmd_add(args, con):
                         (node_id, at_ts, _CARRIER_TYPE))
             mlog_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
         else:
-            con.execute("INSERT INTO log (node_id, body, tag) VALUES (?, '', ?)", (node_id, _CARRIER_TYPE))
+            con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, ?, '', ?)",
+                        (node_id, _tu.utc_now(), _CARRIER_TYPE))
             mlog_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
         nm = attach_metric_specs(con, mlog_id, node_id, specs, at=at_ts or None)
         metric_hint = f" + {nm} metric(s)"
@@ -305,7 +307,7 @@ def cmd_start(args, con):
         ts = _resolve_at_ts(getattr(args, "at", None))
     except ValueError as e:
         sys.exit(f"✗ {e}")
-    note = f" @{ts[11:16]}" if getattr(args, "at", None) else ""
+    note = f" @{_tu.utc_to_local(ts)[11:16]}" if getattr(args, "at", None) else ""
     started = []
     for nid in ids:
         # don't open a second interval on a node that's already running (would leave
@@ -379,7 +381,7 @@ def cmd_spent(args, con):
         (nid, start_ts, end_ts, mins * 60),
     )
     con.commit()
-    print(f"✓ #{nid} spent {mins}min ({start_ts[11:16]} → {end_ts[11:16]})")
+    print(f"✓ #{nid} spent {mins}min ({_tu.utc_to_local(start_ts)[11:16]} → {_tu.utc_to_local(end_ts)[11:16]})")
 
 def cmd_link(args, con):
     if not args.vault_doc or not args.vault_doc.strip():
@@ -472,8 +474,7 @@ def cmd_tick(args, con):
     # empty note (--note '') falls back to default; we don't allow inserting a truly empty log
     note = (args.note or "").strip()
     body = note if note else "✓ done"
-    from datetime import date as _date
-    today = _date.today().isoformat()
+    today = _tu.today()
     for nid in ids:
         _insert_log(con, nid, body)
         log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -481,7 +482,7 @@ def cmd_tick(args, con):
         checkin_metric(con, log_id, nid, today)
         if args.done:
             con.execute(
-                "UPDATE node SET status = 'DONE', closed_at = datetime('now','localtime') WHERE id = ?", (nid,)
+                "UPDATE node SET status = 'DONE', closed_at = datetime('now') WHERE id = ?", (nid,)
             )
     con.commit()
     for nid in ids:
@@ -499,11 +500,11 @@ def cmd_wait(args, con):
             (nid,),
         ).fetchone()
         if row:
-            now = datetime.now()
-            secs = max(60, int((now - datetime.fromisoformat(row["start_at"])).total_seconds()))
+            now_s = _tu.utc_now()
+            secs = max(60, int((datetime.fromisoformat(now_s) - datetime.fromisoformat(row["start_at"])).total_seconds()))
             con.execute(
                 "UPDATE clock SET end_at = ?, elapsed_sec = ? WHERE id = ?",
-                (now.strftime("%Y-%m-%d %H:%M:%S"), secs, row["id"]),
+                (now_s, secs, row["id"]),
             )
         con.execute("UPDATE node SET status = 'WAIT' WHERE id = ?", (nid,))
         if args.note:
@@ -547,7 +548,7 @@ def cmd_unlog(args, con):
         con.commit()
         body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
-        out(_c(f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {row['logged_at']}): {body_preview}", "meta"))
+        out(_c(f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {_tu.utc_to_local(row['logged_at'])}): {body_preview}", "meta"))
         return
 
     # --node <id>: delete latest log for that day
@@ -563,7 +564,7 @@ def cmd_unlog(args, con):
         from datetime import date as _d
         date = _d.today().isoformat()
 
-    sql = ("SELECT id, logged_at, body FROM log WHERE node_id = ? AND date(logged_at) = ? "
+    sql = (f"SELECT id, logged_at, body FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} = ? "
            "AND body NOT LIKE 'CLOCK\\_%' ESCAPE '\\' ORDER BY id DESC")
     if not args.all:
         sql += " LIMIT 1"
@@ -576,7 +577,7 @@ def cmd_unlog(args, con):
         con.execute("DELETE FROM log WHERE id = ?", (r["id"],))
         body_preview = r["body"][:60] + ("…" if len(r["body"]) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
-        out(_c(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {r['logged_at']}): {body_preview}", "meta"))
+        out(_c(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}", "meta"))
     con.commit()
 
 def cmd_relog(args, con):
@@ -614,23 +615,27 @@ def cmd_relog(args, con):
     if at:
         from datetime import datetime as _dt
         at = at.strip()
-        orig_date = row["logged_at"][:10]
+        # the user enters --at in LOCAL time; derive the original's local wall-clock so
+        # an HH:MM-only edit keeps the same local day, then convert the result back to UTC
+        orig_local = _tu.utc_to_local(row["logged_at"])
+        orig_date = orig_local[:10]
         try:
             if _re.fullmatch(r"\d{2}:\d{2}", at):
                 _dt.strptime(at, "%H:%M")  # validate HH/MM range
-                new_ts = f"{orig_date} {at}:00"
+                local_ts = f"{orig_date} {at}:00"
             elif _re.fullmatch(r"\d{4}-\d{2}-\d{2}", at):
                 _dt.strptime(at, "%Y-%m-%d")
-                orig_time = row["logged_at"][11:] or "00:00:00"
-                new_ts = f"{at} {orig_time}"
+                orig_time = orig_local[11:] or "00:00:00"
+                local_ts = f"{at} {orig_time}"
             elif _re.fullmatch(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?", at):
                 ts = at.replace("T", " ")
                 if len(ts) == 16:
                     ts += ":00"
                 _dt.strptime(ts, "%Y-%m-%d %H:%M:%S")
-                new_ts = ts
+                local_ts = ts
             else:
                 raise ValueError("format")
+            new_ts = _tu.local_to_utc(local_ts)
         except ValueError:
             sys.exit(f"✗ invalid --at '{at}': supported formats: HH:MM / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
 
@@ -655,7 +660,7 @@ def cmd_relog(args, con):
 
     new_row = con.execute("SELECT logged_at, body FROM log WHERE id = ?", (log_id,)).fetchone()
     body_preview = new_row["body"][:60] + ("…" if len(new_row["body"]) > 60 else "")
-    out(_c(f"✓ relog #{log_id} (node #{row['node_id']}, {new_row['logged_at']}): {body_preview}", "meta"))
+    out(_c(f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}", "meta"))
 
 def cmd_active(args, con):
     """List tasks running right now: tasks with an open CLOCK_IN (actually timing).
@@ -683,21 +688,21 @@ def cmd_active(args, con):
         return
 
     brief = getattr(args, "brief", False)
-    now = _dt.now()
-    today = _date.today().isoformat()
+    now = _dt.fromisoformat(_tu.utc_now())  # UTC, to match the UTC-stored start_at
+    today = _tu.today()
     full = _log_full(args)
     for r in rows:
         started = _dt.fromisoformat(r["start_at"])
         mins = int((now - started).total_seconds() / 60)
         pri = (_c(f"[#{r['priority']}]", _PRI_STYLE.get(r["priority"])) + " ") if r["priority"] else ""
         # head: id + priority + title + current session
-        head_tail = "" if brief else " " + _c(f"({mins}min, since {r['start_at'][11:16]})", "meta")
+        head_tail = "" if brief else " " + _c(f"({mins}min, since {_tu.utc_to_local(r['start_at'])[11:16]})", "meta")
         out(_c("⏱", "clock") + " " + _c(f"#{r['node_id']}", "id") + " " + pri + _c(r["title"]) + head_tail)
         if brief:
             continue
         # today's completed clock total + the current open session (helps decide "continue or stop")
         done_sec = con.execute(
-            "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND substr(end_at, 1, 10) = ?",
+            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ?",
             (r["node_id"], today),
         ).fetchone()["s"]
         total_min = mins + int((done_sec or 0) / 60)  # includes current open session
@@ -753,7 +758,7 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
             parts.append("closed_at = ?")
             sql_params_extra.append(at_ts)
         else:
-            parts.append("closed_at = datetime('now', 'localtime')")
+            parts.append("closed_at = datetime('now')")
     elif reopen:
         parts.append("closed_at = NULL")
     sql = f"UPDATE node SET {', '.join(parts)} WHERE id = ?"

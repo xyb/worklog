@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import sqlite3
 import sys
+from . import timeutil as _tu
 from .helpers import GENERIC_TAGS  # noqa: F401
 from .helpers import _resolve_concrete_date
 
@@ -27,6 +28,7 @@ def _insert_log(con, nid, entry):
         m = _re.match(r"^(\d{4}-\d{2}-\d{2})[ T](.*)$", entry)
         if m:
             date, body = m.group(1), m.group(2)
+    from . import timeutil as _tu
     if date:
         # parse short form ("yesterday/today/day-before-yesterday/tomorrow/day-after-tomorrow" or YYYY-MM-DD)
         date = _resolve_concrete_date(date)
@@ -36,21 +38,23 @@ def _insert_log(con, nid, entry):
             # pad seconds
             if time_part.count(":") == 1:
                 time_part += ":00"
-            logged_at = f"{date} {time_part}"
+            # a date+time the user typed is local wall-clock -> store UTC
+            logged_at = _tu.local_to_utc(f"{date} {time_part}")
         else:
+            # date only, no time: a degenerate "logged on this day" — keep the
+            # bare local date verbatim (no instant to convert; day-grouping reads it as-is)
             logged_at = date
         con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)", (nid, logged_at, body))
     elif time_part:
-        # no date but time given -> today + that time
-        from datetime import date as _date
+        # no date but time given -> today + that time (local) -> store UTC
         if not _re.match(r"^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$", time_part):
             raise ValueError(f"invalid --time '{time_part}' (expected HH:MM or HH:MM:SS)")
         if time_part.count(":") == 1:
             time_part += ":00"
-        logged_at = f"{_date.today().isoformat()} {time_part}"
+        logged_at = _tu.local_to_utc(f"{_tu.today()} {time_part}")
         con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)", (nid, logged_at, body))
     else:
-        con.execute("INSERT INTO log (node_id, body) VALUES (?, ?)", (nid, body))
+        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)", (nid, _tu.utc_now(), body))
 
 def _project_members(con, proj_id):
     """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""
@@ -157,8 +161,10 @@ def _latest_typed_log(con, node_id, log_type):
 def _set_typed_log(con, node_id, log_type, body):
     """Append a new typed log (history-preserving write of a meta field). No commit;
     caller controls the transaction. Returns the new log id."""
+    from . import timeutil as _tu
     return con.execute(
-        "INSERT INTO log (node_id, tag, body) VALUES (?, ?, ?)", (node_id, log_type, body)
+        "INSERT INTO log (node_id, tag, body, logged_at) VALUES (?, ?, ?, ?)",
+        (node_id, log_type, body, _tu.utc_now()),
     ).lastrowid
 
 
@@ -167,7 +173,7 @@ def _has_checkin(con, node_id, day):
     This is the structured 'done today' signal (G1) — replaces the old, too-loose
     'did any log exist that day' heuristic, so a stray note no longer counts as done."""
     return con.execute(
-        "SELECT 1 FROM metric WHERE node_id = ? AND tag = 'checkin' AND substr(at, 1, 10) = ? LIMIT 1",
+        f"SELECT 1 FROM metric WHERE node_id = ? AND tag = 'checkin' AND {_tu.local_day_sql('at')} = ? LIMIT 1",
         (node_id, day),
     ).fetchone() is not None
 
@@ -184,7 +190,7 @@ def _node_clock_min(con, nid, day=None):
     # 1. structured clock intervals (precise, from wl start/stop/spent)
     if day:
         secs = con.execute(
-            "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND substr(end_at, 1, 10) = ?",
+            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ?",
             (nid, day),
         ).fetchone()["s"]
     else:
@@ -199,8 +205,8 @@ def _node_clock_min(con, nid, day=None):
     #    when given so a multi-day task's span isn't counted on a single day's row.
     if day:
         rows = list(con.execute(
-            "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND tag IS NULL "
-            "AND substr(logged_at, 1, 10) = ? ORDER BY logged_at",
+            f"SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND tag IS NULL "
+            f"AND {_tu.local_day_sql('logged_at')} = ? ORDER BY logged_at",
             (nid, day),
         ))
     else:

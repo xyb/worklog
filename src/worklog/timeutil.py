@@ -119,3 +119,17 @@ def tz_sql_modifier() -> str:
             total = abs(total)
             return f"{sign}{total // 3600:02d}:{(total % 3600) // 60:02d}"
     return "localtime"
+
+
+def local_day_sql(col: str) -> str:
+    """SQL fragment giving the **local calendar date** (`YYYY-MM-DD`) of a UTC
+    instant column — the day-grouping replacement for the old `substr(col,1,10)`
+    (which now yields the UTC date, off by a day near local midnight). The
+    modifier is a controlled value (`localtime` or a fixed `±HH:MM`), never user
+    input, so inlining it is safe. Usage: `f"... WHERE {local_day_sql('at')} = ?"`."""
+    return f"substr(datetime({col}, '{tz_sql_modifier()}'), 1, 10)"
+
+
+def local_month_sql(col: str) -> str:
+    """Like `local_day_sql` but the local `YYYY-MM` month (for month-to-date views)."""
+    return f"substr(datetime({col}, '{tz_sql_modifier()}'), 1, 7)"

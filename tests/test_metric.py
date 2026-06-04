@@ -63,7 +63,8 @@ class TestMetricAdd:
         self._node(cli)
         cli("metric", "add", "1", "glucose", "5", "--at", "2026-06-01 08:30")
         con = tmp_db.db_connect()
-        assert con.execute("SELECT at FROM metric").fetchone()["at"] == "2026-06-01 08:30:00"
+        # --at local (+08:00) stored UTC: 08:30 local = 00:30 UTC
+        assert con.execute("SELECT at FROM metric").fetchone()["at"] == "2026-06-01 00:30:00"
 
     def test_add_on_existing_log_no_new_log(self, cli, tmp_db):
         self._node(cli)
@@ -299,7 +300,8 @@ class TestMetricReviewFixes:
         cli("log", "1", "morning", "--date", "2026-06-01", "--time", "08:00")
         cli("metric", "add", "1", "glucose", "5.4", "--on-log", "1")  # no --at
         con = tmp_db.db_connect()
-        assert con.execute("SELECT at FROM metric").fetchone()["at"] == "2026-06-01 08:00:00"
+        # inherits the log's UTC logged_at (08:00 local = 00:00 UTC)
+        assert con.execute("SELECT at FROM metric").fetchone()["at"] == "2026-06-01 00:00:00"
 
     def test_inf_value_not_numeric(self, cli, tmp_db):
         self._node(cli)
@@ -413,7 +415,8 @@ class TestMetricHelperParams:
     def test_add_metric_at_inherited(self, cli, tmp_db):
         cli("add", "t", "-k", "task", "--at", "2026-06-01 08:00", "--metric", "glucose 5.4")
         con = tmp_db.db_connect()
-        assert con.execute("SELECT at FROM metric").fetchone()["at"] == "2026-06-01 08:00:00"
+        # --at local (+08:00) → metric inherits the UTC instant (08:00 local = 00:00 UTC)
+        assert con.execute("SELECT at FROM metric").fetchone()["at"] == "2026-06-01 00:00:00"
 
     def test_log_metric_empty_spec_errors(self, cli):
         cli("add", "h", "-k", "habit")

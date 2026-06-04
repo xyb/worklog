@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .. import render
+from .. import timeutil as _tu
 from .metric import checkin_metric
 from ..queries import _has_checkin, _latest_typed_log, _set_typed_log
 from ..helpers import (
@@ -322,7 +323,7 @@ def cmd_sched(args, con):
             if exists:
                 out(_c(f"= #{nid} already on recurring schedule: {rule}", "meta"))
             else:
-                con.execute("INSERT INTO sched (node_id, rrule) VALUES (?, ?)", (nid, rule))
+                con.execute("INSERT INTO sched (node_id, rrule, created_at) VALUES (?, ?, datetime('now'))", (nid, rule))
                 out(_c(f"✓ #{nid} recurring schedule: {rule}", "meta"))
         con.commit()
     if args.when:
@@ -338,7 +339,7 @@ def cmd_sched(args, con):
             if exists:
                 out(_c(f"= #{nid} already scheduled to {d}", "meta"))
             else:
-                con.execute("INSERT INTO sched (node_id, on_date) VALUES (?, ?)", (nid, d))
+                con.execute("INSERT INTO sched (node_id, on_date, created_at) VALUES (?, ?, datetime('now'))", (nid, d))
                 out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
         con.commit()
 
@@ -362,7 +363,7 @@ def _ensure_time_ancestors(con, d):
         if row:
             return row["id"]
         return con.execute(
-            "INSERT INTO node (parent_id, title, kind) VALUES (?, ?, ?)",
+            "INSERT INTO node (parent_id, title, kind, created_at) VALUES (?, ?, ?, datetime('now'))",
             (parent_id, new_title, kind),
         ).lastrowid
 
@@ -395,7 +396,7 @@ def _ensure_day(con, d):
         return r["id"]
     wk_id = _ensure_time_ancestors(con, d)
     cur = con.execute(
-        "INSERT INTO node (parent_id, title, kind) VALUES (?, ?, 'day')",
+        "INSERT INTO node (parent_id, title, kind, created_at) VALUES (?, ?, 'day', datetime('now'))",
         (wk_id, iso),
     )
     con.commit()

@@ -21,6 +21,7 @@ import math
 import re
 import sys
 
+from .. import timeutil as _tu
 from ..helpers import _resolve_concrete_date, _resolve_window
 from ..queries import _node_exists, _has_checkin
 from ..render import _c, out
@@ -50,7 +51,8 @@ def _resolve_at(s):
             sys.exit(f"✗ invalid --at time '{t}' (expected HH:MM or HH:MM:SS)")
         if t.count(":") == 1:
             t += ":00"
-        return f"{d} {t}"
+        # a date+time is a local instant -> store UTC; a bare date stays literal
+        return _tu.local_to_utc(f"{d} {t}")
     return d
 
 
@@ -97,7 +99,7 @@ def _fmt_value(row):
 
 def _line(row):
     line = (_c(f"#M{row['id']}", "id") + " " + _c(f"[{row['tag']}]", "planned")
-            + f" {_fmt_value(row)}".rstrip() + _c(f"  @{row['at']}", "meta"))
+            + f" {_fmt_value(row)}".rstrip() + _c(f"  @{_tu.utc_to_local(row['at'])}", "meta"))
     if row["note"]:
         line += _c(f"  — {row['note']}", "meta")
     line += _c(f"  ⟶ #L{row['log_id']}", "meta")
@@ -119,11 +121,10 @@ def _insert_metric_on_log(con, log_id, node_id, tag, value, *,
     if vnum is None and vtext is None:
         vnum = 1.0  # pure marker — satisfies CHECK, no reserved tag frozen into schema
     u = unit if vnum is not None else None  # unit only meaningful on a numeric value
-    cols = ["log_id", "node_id", "tag", "value_num", "value_text", "unit", "note"]
-    vals = [log_id, node_id, tag, vnum, vtext, u, note]
-    if at:
-        cols.append("at")
-        vals.append(at)
+    cols = ["log_id", "node_id", "tag", "value_num", "value_text", "unit", "note", "at"]
+    # explicit UTC "now" when no time given, so we never fall back to the
+    # localtime column DEFAULT; a caller-supplied `at` is already UTC (or a bare date)
+    vals = [log_id, node_id, tag, vnum, vtext, u, note, at if at else _tu.utc_now()]
     ph = ",".join("?" * len(cols))
     return con.execute(f"INSERT INTO metric ({','.join(cols)}) VALUES ({ph})", vals).lastrowid
 
@@ -198,8 +199,8 @@ def cmd_metric_add(args, con):
             con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, ?, ?, ?)",
                         (node, at, body, _CARRIER_TYPE))
         else:
-            con.execute("INSERT INTO log (node_id, body, tag) VALUES (?, ?, ?)",
-                        (node, body, _CARRIER_TYPE))
+            con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, ?, ?, ?)",
+                        (node, _tu.utc_now(), body, _CARRIER_TYPE))
         log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
 
     # carrier-log INSERT + metric INSERT are one unit of work; keep them atomic so
@@ -225,7 +226,7 @@ def cmd_metric_ls(args, con):
         params.append(args.tag.strip())
     if not args.all:
         since, until = _resolve_window(args)  # shared window: --since/--until/--week/--month
-        where.append("substr(at, 1, 10) BETWEEN ? AND ?")
+        where.append(f"{_tu.local_day_sql('at')} BETWEEN ? AND ?")
         params += [since, until]
     # ORDER BY at: a date-only `at` (no time given) sorts at the start of its day
     # — "no time" treated as day-start, consistent with the log.logged_at convention.

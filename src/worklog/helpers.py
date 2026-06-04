@@ -70,28 +70,32 @@ def _resolve_concrete_date(s):
     return s
 
 def _resolve_at_ts(at, default_now=True):
-    """Parse --at: HH:MM (today + that time) / YYYY-MM-DD (that day, current time) /
-    YYYY-MM-DD HH:MM[:SS] / ISO with 'T' separator. None -> now.
+    """Parse --at into a UTC storage string. The user always enters *local* time;
+    this returns the corresponding UTC instant (see timeutil). Accepts:
+    HH:MM (today + that time) / YYYY-MM-DD (that day, current time) /
+    YYYY-MM-DD HH:MM[:SS] / ISO with 'T' separator. None -> now (UTC).
     Validates range (rejects 25:00 / month 13); raises ValueError on error.
     """
     from datetime import datetime as _dt
     import re as _re
+    from . import timeutil as _tu
     if not at:
-        return _dt.now().strftime("%Y-%m-%d %H:%M:%S") if default_now else None
+        return _tu.utc_now() if default_now else None
     at = at.strip()
-    today = _dt.now().strftime("%Y-%m-%d")
+    local_now = _tu.local_now()  # 'YYYY-MM-DD HH:MM:SS' in the configured zone
+    today = local_now[:10]
     if _re.fullmatch(r"\d{2}:\d{2}", at):
         _dt.strptime(at, "%H:%M")
-        return f"{today} {at}:00"
+        return _tu.local_to_utc(f"{today} {at}:00")
     if _re.fullmatch(r"\d{4}-\d{2}-\d{2}", at):
         _dt.strptime(at, "%Y-%m-%d")
-        return f"{at} {_dt.now().strftime('%H:%M:%S')}"
+        return _tu.local_to_utc(f"{at} {local_now[11:]}")
     if _re.fullmatch(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?", at):
         ts = at.replace("T", " ")
         if len(ts) == 16:
             ts += ":00"
         _dt.strptime(ts, "%Y-%m-%d %H:%M:%S")
-        return ts
+        return _tu.local_to_utc(ts)
     raise ValueError(f"invalid --at '{at}': supported formats: HH:MM / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
 
 

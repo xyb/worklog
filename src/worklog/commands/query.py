@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .. import render
+from .. import timeutil as _tu
 from .metric import _fmt_value
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
 from ..helpers import (
@@ -137,8 +138,8 @@ def cmd_ls(args, con):
     if getattr(args, "recent", None):
         from datetime import date, timedelta
         cutoff = (date.today() - timedelta(days=args.recent)).isoformat()
-        where.append("(date(created_at) >= ? OR date(closed_at) >= ? "
-                     "OR id IN (SELECT node_id FROM log WHERE date(logged_at) >= ?))")
+        where.append(f"({_tu.local_day_sql('created_at')} >= ? OR {_tu.local_day_sql('closed_at')} >= ? "
+                     f"OR id IN (SELECT node_id FROM log WHERE {_tu.local_day_sql('logged_at')} >= ?))")
         params.extend([cutoff, cutoff, cutoff])
 
     sort_key = getattr(args, "sort", "pri") or "pri"
@@ -462,7 +463,7 @@ def cmd_projects(args, con):
             r_log = con.execute(f"SELECT MAX(logged_at) m FROM log WHERE node_id IN ({qm})", list(ids)).fetchone()["m"] if ids else None
             r_closed = con.execute(f"SELECT MAX(closed_at) m FROM node WHERE id IN ({qm})", list(ids)).fetchone()["m"] if ids else None
             activity = max([x for x in (r_log, r_closed) if x], default=None)
-            if not activity or activity[:10] < since:
+            if not activity or _tu.local_day_of(activity) < since:
                 continue
 
         pri = _c(f"[#{proj['priority']}]", _PRI_STYLE.get(proj["priority"])) if proj["priority"] else _c("[ ]", "todo")
@@ -486,7 +487,7 @@ def cmd_changes(args, con):
     since, until = _resolve_window(args)
 
     def in_win(ts):
-        return bool(ts) and since <= ts[:10] <= until
+        return bool(ts) and since <= _tu.local_day_of(ts) <= until
 
     out(_c(f"📅 {since} ~ {until} change summary", "header"))
     projects = con.execute(
@@ -505,7 +506,7 @@ def cmd_changes(args, con):
             elif in_win(n["created_at"]):
                 added_open.append(n)
             has_log = con.execute(
-                "SELECT 1 FROM log WHERE node_id = ? AND substr(logged_at,1,10) BETWEEN ? AND ? "
+                f"SELECT 1 FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} BETWEEN ? AND ? "
                 "AND body NOT LIKE 'CLOCK_%' LIMIT 1",
                 (mid, since, until),
             ).fetchone()
@@ -545,7 +546,8 @@ def cmd_summary(args, con):
     inc_cancel = getattr(args, "show_canceled", False)
 
     def inw(ts):
-        return bool(ts) and since <= ts[:10] <= until
+        # ts is a UTC *_at instant -> compare on its local calendar day
+        return bool(ts) and since <= _tu.local_day_of(ts) <= until
 
     sql = "SELECT * FROM node WHERE kind IN ('task','meetlog','habit')"
     sm_params = []
@@ -611,10 +613,12 @@ def cmd_summary(args, con):
 
         day_done = defaultdict(list)
         for n in done:
-            day_done[n["closed_at"][:10]].append(n)
+            day_done[_tu.local_day_of(n["closed_at"])].append(n)
         day_pend = defaultdict(list)
         for n in pending:
-            d = (n["scheduled_at"] or n["created_at"] or "")[:10] or "unscheduled"
+            # scheduled_at is a literal date; created_at is a UTC instant -> local day
+            d = (n["scheduled_at"][:10] if n["scheduled_at"]
+                 else (_tu.local_day_of(n["created_at"]) if n["created_at"] else "")) or "unscheduled"
             day_pend[d].append(n)
         if day_done or day_pend:
             out(_c("\n=== by day ===", "header"))
@@ -693,17 +697,17 @@ def cmd_logs(args, con):
             args.date = _resolve_concrete_date(args.date)
         except ValueError:
             sys.exit(f"✗ invalid --date '{args.date}' (use YYYY-MM-DD / today / yesterday)")
-        where.append("date(logged_at) = ?")
+        where.append(f"{_tu.local_day_sql('logged_at')} = ?")
         params.append(args.date)
     # default time window: when no id/date/since given, only the last N days (default 7)
     since = args.since
     if not args.id and not args.date and not since:
         since = (date.today() - timedelta(days=getattr(args, "days", 7) or 7)).isoformat()
     if since:
-        where.append("date(logged_at) >= ?")
+        where.append(f"{_tu.local_day_sql('logged_at')} >= ?")
         params.append(since)
     if getattr(args, "until", None):
-        where.append("date(logged_at) <= ?")
+        where.append(f"{_tu.local_day_sql('logged_at')} <= ?")
         params.append(args.until)
     grouped = getattr(args, "group", "none") == "day"
     cols = "log.id, log.node_id, log.logged_at, log.body, node.title"
@@ -743,7 +747,7 @@ def cmd_logs(args, con):
 
         by_date = OrderedDict()
         for r in rows:
-            by_date.setdefault(str(r["logged_at"])[:10], []).append(r)
+            by_date.setdefault(_tu.local_day_of(str(r["logged_at"])), []).append(r)
         log_tail = tail  # reuse (default 3 / 0 when brief / None when --all-logs)
         for d, drows in by_date.items():
             out(_c(d, "header"))
@@ -778,13 +782,13 @@ def cmd_logs(args, con):
             out(head)
             if brief:
                 # brief + by_task: list all dates, no body (bypassing tail=0-truncated picks)
-                dates = ", ".join(r["logged_at"][:10] for r in g["rows"])
+                dates = ", ".join(_tu.local_day_of(r["logged_at"]) for r in g["rows"])
                 out("    " + _c(dates, "meta"))
                 continue
             for r in picks:
                 # --by-task indent "    [YYYY-MM-DD HH:MM:SS] " ~ 26 cols
                 body = _truncate_log_body(r["body"], indent_cols=26, full=_log_full(args))
-                out("    " + _c(f"[{r['logged_at']}]", "meta") + " " + _c(body))
+                out("    " + _c(f"[{_tu.utc_to_local(r['logged_at'])}]", "meta") + " " + _c(body))
         return
 
     # --tail N also works in --id single-task mode (consistent with --by-task tail)
@@ -799,20 +803,21 @@ def cmd_logs(args, con):
         _print_truncation_hint(len(rows), total, extra="--limit 0 for all")
     for r in rows:
         lid = _c(f"#L{r['id']}", "id")
+        lat = _tu.utc_to_local(r["logged_at"])  # UTC stored -> local for display
         if brief:
-            out(_c(f"[{r['logged_at'][:10]}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"{r['title'][:50]}"))
+            out(_c(f"[{_tu.local_day_of(r['logged_at'])}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"{r['title'][:50]}"))
         else:
             # flat logs row "[YYYY-MM-DD HH:MM:SS] #L<id> #<node> 'title': <body>" — one
             # line. Both the title and the body are variable / CJK-wide, so budget the
             # terminal width across them instead of a fixed indent guess: a wide CJK
             # title alone used to fill the line and push the body to a second row (#415).
-            fixed_w = _display_width(f"[{r['logged_at']}] #L{r['id']} #{r['node_id']} '': ")
+            fixed_w = _display_width(f"[{lat}] #L{r['id']} #{r['node_id']} '': ")
             rem = max(20, _term_width() - fixed_w)
             # title takes up to ~40% of the remaining width, body the rest
             title_disp = _truncate_log_body(r["title"], indent_cols=_term_width() - max(8, int(rem * 0.4)))
             body_indent = fixed_w + _display_width(title_disp)
             body = _truncate_log_body(r["body"], indent_cols=body_indent, full=_log_full(args))
-            out(_c(f"[{r['logged_at']}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"'{title_disp}': {body}"))
+            out(_c(f"[{lat}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"'{title_disp}': {body}"))
 
 
 # --- completion generator (argparse -> fish/bash/zsh) ---
@@ -846,7 +851,9 @@ def _show_one(args, con):
         out("  " + _c("ancestors:", "meta") + " " + _c(" / ".join(f"#{p['id']} {p['title']}" for p in chain[:-1])))
     for k in ("created_at", "scheduled_at", "deadline_at", "closed_at"):
         if n[k]:
-            out("  " + _c(f"{k:9s}", "meta") + " " + _c(n[k]))
+            # *_at are UTC instants -> render local; *_date / scheduled / deadline are literal dates
+            v = _tu.utc_to_local(n[k]) if k in ("created_at", "closed_at") else n[k]
+            out("  " + _c(f"{k:9s}", "meta") + " " + _c(v))
     if n["body"]:
         out("  " + _c("body:", "meta") + "     " + _c(n["body"]))
     tags = _node_tags(con, args.id)
@@ -917,9 +924,9 @@ def _show_one(args, con):
         "SELECT start_at, end_at, elapsed_sec FROM clock WHERE node_id = ? ORDER BY id", (args.id,)
     ):
         if c["end_at"]:
-            extra = f"{c['start_at'][11:16]}→{c['end_at'][11:16]} ({(c['elapsed_sec'] or 0) // 60}min)"
+            extra = f"{_tu.utc_to_local(c['start_at'])[11:16]}→{_tu.utc_to_local(c['end_at'])[11:16]} ({(c['elapsed_sec'] or 0) // 60}min)"
         else:
-            extra = f"{c['start_at'][11:16]}→… (running)"
+            extra = f"{_tu.utc_to_local(c['start_at'])[11:16]}→… (running)"
         events.append((c["start_at"], "⏱ clock", extra, None, ()))
     if events:
         events.sort(key=lambda e: e[0])
@@ -937,7 +944,8 @@ def _show_one(args, con):
         # prefix #L<id> mirrors node #123 with '#'; 'L' distinguishes (letter prefix = log, plain digits = node)
         for ts, kind, extra, lid, metrics in shown:
             lid_str = _c(f"#L{lid}", "id") if lid is not None else _c("     ", "meta")
-            out("    " + _c(ts, "meta") + "  " + lid_str + "  " + _c(kind) + (f"  {_c(extra)}" if extra else ""))
+            # instants (created/closed/log/clock, len-19) render local; literal dates (scheduled) pass through
+            out("    " + _c(_tu.utc_to_local(ts), "meta") + "  " + lid_str + "  " + _c(kind) + (f"  {_c(extra)}" if extra else ""))
             # fold a log's metrics beneath it (over-count elision keeps it tidy)
             for m in metrics[:5]:
                 out("           " + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta"))

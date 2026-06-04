@@ -190,13 +190,13 @@ def cmd_apply(args, con):
             kind = f.get("kind", "task")
             if status == "DONE":
                 cur = con.execute(
-                    "INSERT INTO node (parent_id,title,kind,status,priority,closed_at) "
-                    "VALUES (?,?,?,?,?, datetime('now','localtime'))",
+                    "INSERT INTO node (parent_id,title,kind,status,priority,closed_at,created_at) "
+                    "VALUES (?,?,?,?,?, datetime('now'), datetime('now'))",
                     (parent_id, f["title"], kind, status, f.get("priority")),
                 )
             else:
                 cur = con.execute(
-                    "INSERT INTO node (parent_id,title,kind,status,priority) VALUES (?,?,?,?,?)",
+                    "INSERT INTO node (parent_id,title,kind,status,priority,created_at) VALUES (?,?,?,?,?, datetime('now'))",
                     (parent_id, f["title"], kind, status, f.get("priority")),
                 )
             nid = cur.lastrowid
@@ -231,7 +231,7 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         pid = ref_map[spec["parent_ref"]]
     closed_at = None
     if status == "DONE":
-        closed_at = "datetime_now"  # placeholder; the SQL below uses datetime('now','localtime')
+        closed_at = "datetime_now"  # placeholder; the SQL below uses datetime('now') (UTC)
 
     if dry:
         nid = f"<ref:{spec.get('ref', '?')}>"
@@ -239,15 +239,15 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
     else:
         if closed_at:
             cur = con.execute(
-                "INSERT INTO node (parent_id,title,kind,status,priority,scheduled_at,deadline_at,body,closed_at) "
-                "VALUES (?,?,?,?,?,?,?,?, datetime('now','localtime'))",
+                "INSERT INTO node (parent_id,title,kind,status,priority,scheduled_at,deadline_at,body,closed_at,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?, datetime('now'), datetime('now'))",
                 (pid, title, kind, status, spec.get("priority"), sched,
                  spec.get("deadline"), spec.get("body")),
             )
         else:
             cur = con.execute(
-                "INSERT INTO node (parent_id,title,kind,status,priority,scheduled_at,deadline_at,body) "
-                "VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO node (parent_id,title,kind,status,priority,scheduled_at,deadline_at,body,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?, datetime('now'))",
                 (pid, title, kind, status, spec.get("priority"), sched,
                  spec.get("deadline"), spec.get("body")),
             )
@@ -269,7 +269,7 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
                     import_metric(con, log_id, nid, mspec, default_at=log_at)
         # node-level metrics → a dedicated carrier log (1 carrier → N datapoints, e.g. a CGM import)
         if spec.get("metrics"):
-            con.execute("INSERT INTO log (node_id, body, tag) VALUES (?, '', ?)", (nid, _CARRIER_TYPE))
+            con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, datetime('now'), '', ?)", (nid, _CARRIER_TYPE))
             log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
             for mspec in spec["metrics"]:
                 import_metric(con, log_id, nid, mspec)
@@ -308,7 +308,7 @@ def _import_update(con, spec, dry, counters):
         fields.append("parent_id = ?")
         vals.append(spec["parent"])
     if spec.get("status") == "DONE" and "closed_at" not in spec:
-        fields.append("closed_at = datetime('now','localtime')")
+        fields.append("closed_at = datetime('now')")
     if fields:
         con.execute(f"UPDATE node SET {', '.join(fields)} WHERE id = ?", (*vals, nid))
     for t in spec.get("add_tags", []):
@@ -495,7 +495,7 @@ def _exec_update(con, o):
                     v = value
                 con.execute(f"UPDATE node SET {col} = ? WHERE id = ?", (v, nid))
                 if field == "status" and value == "DONE":
-                    con.execute("UPDATE node SET closed_at = datetime('now','localtime') WHERE id = ? AND closed_at IS NULL", (nid,))
+                    con.execute("UPDATE node SET closed_at = datetime('now') WHERE id = ? AND closed_at IS NULL", (nid,))
         elif field == "tag":
             if action == "add":
                 con.execute("INSERT OR IGNORE INTO tag (node_id,tag) VALUES (?,?)", (nid, value))
