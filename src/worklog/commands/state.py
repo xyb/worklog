@@ -48,6 +48,7 @@ from ..queries import (
     _status_filter_sql,
     _upsert_prop,
 )
+from .metric import attach_metric_specs, _CARRIER_TYPE
 from ..render import (
     _PRI_STYLE,
     _STATUS_STYLE,
@@ -186,18 +187,37 @@ def cmd_add(args, con):
 
     # --log: insert a log (using at_ts if given, otherwise NOW)
     log_hint = ""
+    created_log_id = None
     log_body = getattr(args, "log", None)
     if log_body and log_body.strip():
         if at_ts:
             _insert_log(con, node_id, {"date": at_ts[:10], "time": at_ts[11:16], "body": log_body.strip()})
         else:
             _insert_log(con, node_id, log_body.strip())
+        created_log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
         log_hint = " + log"
+
+    # --metric: attach datapoint(s); reuse the --log carrier if present, else make a
+    # dedicated (type='metric') carrier log so every datapoint still has a log.
+    metric_hint = ""
+    specs = getattr(args, "metric", None)
+    if specs:
+        if created_log_id is not None:
+            mlog_id = created_log_id
+        elif at_ts:
+            con.execute("INSERT INTO log (node_id, logged_at, body, type) VALUES (?, ?, '', ?)",
+                        (node_id, at_ts, _CARRIER_TYPE))
+            mlog_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+        else:
+            con.execute("INSERT INTO log (node_id, body, type) VALUES (?, '', ?)", (node_id, _CARRIER_TYPE))
+            mlog_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+        nm = attach_metric_specs(con, mlog_id, node_id, specs, at=at_ts or None)
+        metric_hint = f" + {nm} metric(s)"
 
     con.commit()
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
     out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{args.kind} '{args.title}'")
-        + st + sched_hint + link_hint + log_hint)
+        + st + sched_hint + link_hint + log_hint + metric_hint)
     if similar:
         out(_c(f"⚠ {len(similar)} similar open {args.kind}(s) already exist — reuse instead of duplicating?", "later"))
         for r in similar[:5]:
@@ -220,6 +240,7 @@ def cmd_log(args, con):
         _insert_log(con, args.id, entry)
     except ValueError as e:
         sys.exit(f"✗ invalid date: {e}")
+    log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
     # auto TODO -> DOING (when no --date, "I logged something" implies "I'm working on it")
     # backfilling history (--date) does not change status; --keep-status explicitly disables
     auto_progress_hint = ""
@@ -228,8 +249,15 @@ def cmd_log(args, con):
         if row and row["status"] == "TODO":
             con.execute("UPDATE node SET status = 'DOING' WHERE id = ?", (args.id,))
             auto_progress_hint = " (status: TODO → DOING)"
+    # --metric: attach structured datapoint(s) to this log (inherit its timestamp)
+    metric_hint = ""
+    specs = getattr(args, "metric", None)
+    if specs:
+        log_at = con.execute("SELECT logged_at FROM log WHERE id = ?", (log_id,)).fetchone()["logged_at"]
+        nm = attach_metric_specs(con, log_id, args.id, specs, at=log_at)
+        metric_hint = f" + {nm} metric(s)"
     con.commit()
-    print(f"✓ log added to #{args.id}{auto_progress_hint}")
+    print(f"✓ log added to #{args.id}{auto_progress_hint}{metric_hint}")
 
 def cmd_done(args, con):
     _warn_recurring_done(con, _ids_list(args))

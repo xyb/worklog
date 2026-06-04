@@ -288,6 +288,9 @@ Differences from related commands:
     a.add_argument("--done", action="store_true", help="mark DONE + write closed_at immediately after creation (retrospective task in one shot)")
     a.add_argument("--at", help="timestamp for --log + (if --done) closed_at (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
     a.add_argument("--link", help="also attach a vault doc (no .md suffix, same semantics as `wl link`)")
+    a.add_argument("--metric", action="append", metavar="'tag [value] [unit]'",
+                   help="attach a structured datapoint (repeatable); reuses the --log carrier or makes one: "
+                        "--metric 'glucose 5.4 mmol/L' / --metric checkin")
 
     g = sub.add_parser("log",
         help="add a log entry to a node (auto TODO -> DOING)",
@@ -311,6 +314,9 @@ Differences from related commands:
     g.add_argument("--time", help="log time HH:MM or HH:MM:SS (with --date, or alone for today)")
     g.add_argument("--keep-status", action="store_true",
                    help="do not auto-promote TODO to DOING (default: logging implies 'working on it'; DONE etc. unchanged)")
+    g.add_argument("--metric", action="append", metavar="'tag [value] [unit]'",
+                   help="attach a structured datapoint to this log (repeatable): "
+                        "--metric 'glucose 5.4 mmol/L' / --metric 'pullups 8' / --metric checkin")
 
     d = sub.add_parser("done",
         help="mark node DONE + closed_at (multiple ids; --log/--at for one-shot log+done)",

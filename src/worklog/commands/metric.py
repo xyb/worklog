@@ -103,20 +103,57 @@ def _line(row):
     return line
 
 
+def _insert_metric_on_log(con, log_id, node_id, tag, value, *,
+                          force_text=False, unit=None, note=None, at=None):
+    """Insert ONE metric onto an existing log (no commit; caller controls the txn).
+    Shared by `wl metric add` and the `--metric` helper on `wl log`/`wl add`.
+    Value parsing, the marker (value_num=1) rule, empty-value rejection, and
+    unit-only-for-numeric all live here so every entry point behaves the same.
+    Returns the new metric id."""
+    tag = (tag or "").strip()
+    if not tag:
+        sys.exit("✗ metric tag cannot be empty")
+    vnum, vtext = _parse_value(value, force_text)
+    vtext = _clean_text(vtext)
+    if vnum is None and vtext is None:
+        vnum = 1.0  # pure marker — satisfies CHECK, no reserved tag frozen into schema
+    u = unit if vnum is not None else None  # unit only meaningful on a numeric value
+    cols = ["log_id", "node_id", "tag", "value_num", "value_text", "unit", "note"]
+    vals = [log_id, node_id, tag, vnum, vtext, u, note]
+    if at:
+        cols.append("at")
+        vals.append(at)
+    ph = ",".join("?" * len(cols))
+    return con.execute(f"INSERT INTO metric ({','.join(cols)}) VALUES ({ph})", vals).lastrowid
+
+
+def _parse_metric_spec(s):
+    """A `--metric` spec is 'tag [value] [unit]' (whitespace-separated):
+    'glucose 5.4 mmol/L' / 'pullups 8' / 'checkin'. → (tag, value, unit)."""
+    parts = (s or "").split()
+    if not parts:
+        sys.exit("✗ --metric spec is empty (expected 'tag [value] [unit]')")
+    return parts[0], (parts[1] if len(parts) > 1 else None), (parts[2] if len(parts) > 2 else None)
+
+
+def attach_metric_specs(con, log_id, node_id, specs, *, at=None):
+    """Attach each `--metric` spec to a log (no commit; caller commits). Returns count."""
+    n = 0
+    for spec in specs or []:
+        tag, value, unit = _parse_metric_spec(spec)
+        _insert_metric_on_log(con, log_id, node_id, tag, value, unit=unit, at=at)
+        n += 1
+    return n
+
+
 def cmd_metric_add(args, con):
     """Attach a structured datapoint to a node (via a carrier log)."""
     node = args.node
     if not _node_exists(con, node):
         sys.exit(f"✗ node #{node} not found")
-    tag = (args.tag or "").strip()
-    if not tag:
+    if not (args.tag or "").strip():
         sys.exit("✗ metric tag cannot be empty")
     at = _resolve_at(args.at) if args.at else None
-    vnum, vtext = _parse_value(args.value, args.text)
-    vtext = _clean_text(vtext)
-    if vnum is None and vtext is None:
-        vnum = 1.0  # pure marker — satisfies CHECK, no reserved tag frozen into schema
-    unit = args.unit if vnum is not None else None  # unit only meaningful on a numeric value
 
     # carrier log: an existing one (--on-log, must belong to the node, not CLOCK) or a new one.
     if args.on_log is not None:
@@ -141,17 +178,11 @@ def cmd_metric_add(args, con):
                         (node, body, _CARRIER_TYPE))
         log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
 
-        # carrier-log INSERT above + metric INSERT below are one unit of work; keep
-        # them atomic so a failed metric INSERT can't leave an orphan carrier log.
-    cols = ["log_id", "node_id", "tag", "value_num", "value_text", "unit", "note"]
-    vals = [log_id, node, tag, vnum, vtext, unit, args.note]
-    if at:
-        cols.append("at")
-        vals.append(at)
-    ph = ",".join("?" * len(cols))
+    # carrier-log INSERT + metric INSERT are one unit of work; keep them atomic so
+    # a failed metric INSERT can't leave an orphan carrier log.
     try:
-        cur = con.execute(f"INSERT INTO metric ({','.join(cols)}) VALUES ({ph})", vals)
-        mid = cur.lastrowid
+        mid = _insert_metric_on_log(con, log_id, node, args.tag, args.value,
+                                    force_text=args.text, unit=args.unit, note=args.note, at=at)
         con.commit()
     except Exception:
         con.rollback()

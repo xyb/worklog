@@ -374,6 +374,61 @@ class TestMetricReviewFixes:
         assert "metric" in out  # "+ 1 metric(s)"
 
 
+class TestMetricHelperParams:
+    """--metric shortcut on `wl log` and `wl add` (one-step log + datapoint)."""
+
+    def test_log_metric_attaches_to_the_log(self, cli, tmp_db):
+        cli("add", "h", "-k", "habit")  # node 1
+        cli("log", "1", "morning", "--metric", "glucose 5.4 mmol/L", "--metric", "mood good")
+        con = tmp_db.db_connect()
+        rows = con.execute("SELECT * FROM metric ORDER BY id").fetchall()
+        assert len(rows) == 2
+        assert rows[0]["tag"] == "glucose" and rows[0]["value_num"] == 5.4 and rows[0]["unit"] == "mmol/L"
+        assert rows[1]["tag"] == "mood" and rows[1]["value_text"] == "good"
+        # both hang off the same (single) log
+        assert rows[0]["log_id"] == rows[1]["log_id"]
+        assert con.execute("SELECT COUNT(*) FROM log").fetchone()[0] == 1
+
+    def test_log_metric_inherits_log_timestamp(self, cli, tmp_db):
+        cli("add", "h", "-k", "habit")
+        cli("log", "1", "backfilled", "--date", "2026-06-01", "--metric", "glucose 5.4")
+        con = tmp_db.db_connect()
+        m = con.execute("SELECT at FROM metric").fetchone()
+        assert m["at"] == "2026-06-01"
+
+    def test_log_metric_hint_in_output(self, cli):
+        cli("add", "h", "-k", "habit")
+        _, out, _ = cli("log", "1", "x", "--metric", "glucose 5")
+        assert "1 metric(s)" in out
+
+    def test_add_metric_without_log_creates_carrier(self, cli, tmp_db):
+        cli("add", "weigh-in", "-k", "task", "--metric", "weight 70 kg")  # node 1
+        con = tmp_db.db_connect()
+        log = con.execute("SELECT type FROM log").fetchone()
+        assert log["type"] == "metric"  # dedicated carrier
+        m = con.execute("SELECT * FROM metric").fetchone()
+        assert m["tag"] == "weight" and m["value_num"] == 70 and m["unit"] == "kg"
+
+    def test_add_metric_reuses_log_carrier(self, cli, tmp_db):
+        cli("add", "run", "-k", "task", "--log", "5k done", "--metric", "distance 5 km", "--metric", "checkin")
+        con = tmp_db.db_connect()
+        # only one log (the --log one), both metrics on it
+        assert con.execute("SELECT COUNT(*) FROM log").fetchone()[0] == 1
+        rows = con.execute("SELECT * FROM metric ORDER BY id").fetchall()
+        assert len(rows) == 2 and rows[0]["log_id"] == rows[1]["log_id"]
+        assert rows[1]["tag"] == "checkin" and rows[1]["value_num"] == 1
+
+    def test_add_metric_at_inherited(self, cli, tmp_db):
+        cli("add", "t", "-k", "task", "--at", "2026-06-01 08:00", "--metric", "glucose 5.4")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT at FROM metric").fetchone()["at"] == "2026-06-01 08:00:00"
+
+    def test_log_metric_empty_spec_errors(self, cli):
+        cli("add", "h", "-k", "habit")
+        code, _, err = cli("log", "1", "x", "--metric", "   ")
+        assert code != 0 and "spec is empty" in err
+
+
 class TestMetricDispatch:
     def test_metric_no_sub_errors(self, cli):
         code, _, err = cli("metric")
