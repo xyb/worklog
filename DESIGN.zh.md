@@ -41,13 +41,13 @@ worklog 的整个职责就是把工作记录**结构化**，让信息能被精�
 - **kind 取值**：`lifetime / decade / year / quarter / month / week / day / area / project / task / meetlog / habit / signal`（可扩展，但加新 kind 要想清楚它在 tree / projects / summary 里怎么归类）
 - **status 只在 task / habit / meetlog 类用**；时间层级类（year/month/...）跟 project 类 status 留 NULL
 - 表：`node / tag / log / metric / clock / prop / link / sched / date_meta` + 派生 view `v_node_path`
-- **`node → log → metric` 主干**（log 为中心的核心）：一个 `node` 挂多条 `log`；一条 `log`(带 `type`——`note`/`goal`/`summary`/`overview`/`top5`/…，NULL = 普通笔记)下挂 0..N 条 `metric`。`metric` 是结构化数据点(`tag` = 它是什么，如 `glucose`/`pullups`/`checkin`，开放词表，跟 node 级 `tag` 不同命名空间；外加 `value_num`/`value_text`/`unit`/`note`/`at`)，且**必须挂在一条 log 上**(`metric.log_id` NOT NULL)——所以每个数据点都有 log 载体；`CHECK` 要求有值(纯标记如打卡存 `value_num=1`)。`metric.node_id` 是反范式冗余(免 join 查某 node 的数据点，无 FK；trigger 保证它始终等于载体 log 的 node)。CRUD 入口：`wl metric add/ls/edit/rm`(`add` 不带 `--on-log` 时建载体 log；无值标记存 `value_num=1`);`wl log`/`wl add` 的 `--metric` 和 `wl import` 的 `metrics` 可内联挂数据点。habit「今天做没做」= 当天有没有 `tag=checkin` 的 metric(`wl tick`/`wl checkin` 写),不再是「那天有没有 log」。
-- **元信息 = 历史保留的 typed log**：day 的 `goal`/`summary`、week 的 `overview`、month 的 `top5` 都是 `log.type` 化的 log(最新一条=当前值,每次改追加一条),由 `wl goal`/`wl recap`/`wl set <node> <key>` 写。(`prop` 回归只放真正静态的单值属性。)
+- **`node → log → metric` 主干**（log 为中心的核心）：一个 `node` 挂多条 `log`；一条 `log`(带 `tag`——`note`/`goal`/`summary`/`overview`/`top5`/`clock`(载体)/…，NULL = 普通笔记)下挂 0..N 条 `metric`。`metric` 是结构化数据点(`tag` = 它是什么，如 `glucose`/`pullups`/`checkin`；外加 `value_num`/`value_text`/`unit`/`note`/`at`)。**`tag` 是三处统一的分类字段**——node(多值标签集)、log(角色,单值)、metric(种类,单值);同一个词、不同范围、SQL 不混。metric **必须挂在一条 log 上**(`metric.log_id` NOT NULL)——所以每个数据点都有 log 载体；`CHECK` 要求有值(纯标记如打卡存 `value_num=1`)。`metric.node_id` 是反范式冗余(免 join 查某 node 的数据点，无 FK；trigger 保证它始终等于载体 log 的 node)。CRUD 入口：`wl metric add/ls/edit/rm`(`add` 不带 `--on-log` 时建载体 log；无值标记存 `value_num=1`);`wl log`/`wl add` 的 `--metric` 和 `wl import` 的 `metrics` 可内联挂数据点。habit「今天做没做」= 当天有没有 `tag=checkin` 的 metric(`wl tick`/`wl checkin` 写),不再是「那天有没有 log」。
+- **元信息 = 历史保留的 typed log**：day 的 `goal`/`summary`、week 的 `overview`、month 的 `top5` 都是 `log.tag` 化的 log(最新一条=当前值,每次改追加一条),由 `wl goal`/`wl recap`/`wl set <node> <key>` 写。(`prop` 回归只放真正静态的单值属性。)
 - **`clock` = 结构化计时**:`clock(node_id, start_at, end_at, elapsed_sec)`,由 `wl start`/`stop`/`spent`/`wait` 读写——替代旧的 `CLOCK_IN`/`CLOCK_OUT` log-body 约定;时长从 `elapsed_sec` 求和,不再从文本解析。
 - **两条并列树（都挂 lifetime 下）**（2026-05-29 起）：
   - **责任领域线**：`lifetime → area → project → task`（PARA：area 是跨时间的责任领域，project 归 area，task 归 project）
   - **时间线**：`lifetime → year → quarter → month → week → day`（承载时间骨架 + 元信息 typed log：day 的 goal/summary、month 的 top5/goal、week 的 overview）
-    - 小结(`summary` log)自带 `logged_at` = 写入时间。`wl day` 显示「(写于 …)」,若当天小结后还有普通笔记 log(`type IS NULL`)就提示「⚠ 小结后又有 N 条变更, 建议重写 recap」。(替代旧的 `summary_at` prop。)
+    - 小结(`summary` log)自带 `logged_at` = 写入时间。`wl day` 显示「(写于 …)」,若当天小结后还有普通笔记 log(`tag IS NULL`)就提示「⚠ 小结后又有 N 条变更, 建议重写 recap」。(替代旧的 `summary_at` prop。)
   - **project 不再挂 month**（旧设计曾挂月，已迁到 area）。日/月/周视图靠 **log 的 logged_at**（时间维度）跟 **kind/tag/祖先链**（领域维度）解耦：`wl day` 按 log 日期驱动、project 经祖先链解析、bucket 经 work/personal tag——所以 project 移到 area 下不影响任何按天/按项目视图
 
 ## 3. 状态机（#+TODO 风格）

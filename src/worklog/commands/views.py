@@ -145,12 +145,12 @@ def cmd_day(args, con):
             at = s["logged_at"]
             when = _c(f" (written at {at[5:16]})", "meta") if at else ""
             out(_c("  > Recap: " + s["body"], "meta") + when)
-            # stale check: count plain-note logs (type IS NULL) added after the recap;
+            # stale check: count plain-note logs (tag IS NULL) added after the recap;
             # meta logs (goal/summary/…) and metric carriers (type='metric') don't count.
             if at:
                 newer = con.execute(
                     "SELECT COUNT(*) FROM log WHERE logged_at > ? "
-                    "AND substr(logged_at, 1, 10) = ? AND body NOT LIKE 'CLOCK_%' AND type IS NULL",
+                    "AND substr(logged_at, 1, 10) = ? AND body NOT LIKE 'CLOCK_%' AND tag IS NULL",
                     (at, target),
                 ).fetchone()[0]
                 if newer:

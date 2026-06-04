@@ -148,7 +148,7 @@ def _latest_typed_log(con, node_id, log_type):
     (body, logged_at) or None. Each edit appends a new log, so history is kept and the
     latest one is the current value."""
     return con.execute(
-        "SELECT body, logged_at FROM log WHERE node_id = ? AND type = ? "
+        "SELECT body, logged_at FROM log WHERE node_id = ? AND tag = ? "
         "ORDER BY logged_at DESC, id DESC LIMIT 1",
         (node_id, log_type),
     ).fetchone()
@@ -158,7 +158,7 @@ def _set_typed_log(con, node_id, log_type, body):
     """Append a new typed log (history-preserving write of a meta field). No commit;
     caller controls the transaction. Returns the new log id."""
     return con.execute(
-        "INSERT INTO log (node_id, type, body) VALUES (?, ?, ?)", (node_id, log_type, body)
+        "INSERT INTO log (node_id, tag, body) VALUES (?, ?, ?)", (node_id, log_type, body)
     ).lastrowid
 
 
@@ -199,13 +199,13 @@ def _node_clock_min(con, nid, day=None):
     #    when given so a multi-day task's span isn't counted on a single day's row.
     if day:
         rows = list(con.execute(
-            "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND type IS NULL "
+            "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND tag IS NULL "
             "AND substr(logged_at, 1, 10) = ? ORDER BY logged_at",
             (nid, day),
         ))
     else:
         rows = list(con.execute(
-            "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND type IS NULL ORDER BY logged_at",
+            "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND tag IS NULL ORDER BY logged_at",
             (nid,),
         ))
     span = 0

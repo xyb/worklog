@@ -23,14 +23,14 @@ Likewise, before adding a dev todo under a project, check that project's existin
 
 | User says | Command |
 |---|---|
-| **Daily three** (the daily flow) | `wl goal "deliver X today"` (read = `wl goal`) / `wl recap "end-of-day summary..."` (read = `wl recap`) / `wl tick <id> [--note "..."] [--done]` to check in. **Auto-creates today's day node** (hung under the current ISO week), no need to manually `wl add ... -k day`. `wl recap`/`wl goal` write a history-preserving `log.type` log (latest = current); `wl day` shows "(written MM-DD HH:MM)" from the recap log's own time, and if more plain-note logs land after it, warns "⚠ N changes after recap, consider rewriting". Back-fill a past day with `wl recap --date YYYY-MM-DD "..."` (`goal --date` is not available — recap only) |
+| **Daily three** (the daily flow) | `wl goal "deliver X today"` (read = `wl goal`) / `wl recap "end-of-day summary..."` (read = `wl recap`) / `wl tick <id> [--note "..."] [--done]` to check in. **Auto-creates today's day node** (hung under the current ISO week), no need to manually `wl add ... -k day`. `wl recap`/`wl goal` write a history-preserving `log.tag` log (latest = current); `wl day` shows "(written MM-DD HH:MM)" from the recap log's own time, and if more plain-note logs land after it, warns "⚠ N changes after recap, consider rewriting". Back-fill a past day with `wl recap --date YYYY-MM-DD "..."` (`goal --date` is not available — recap only) |
 | Add a task / project / habit | `wl add "..." -k task -p A -t work,P0 --parent N` |
 | Add a task with scheduled time (precise or fuzzy) | `wl add "..." --scheduled 2026-06-15` / `--scheduled 2026-06` / `next-week` / `next-month` / `someday` |
 | Log progress on a task | `wl log <id> "..."` (backfill old logs with `--date 2026-05-06`, or use `import` with body `"2026-05-06 content"` so logs land on the original day, not today) |
 | Record a number / measurement / check-in | `wl metric add <id> glucose 5.4 --unit mmol/L` / `wl metric ls <id>` / `wl metric edit #M7` / `wl metric rm #M7`; inline: `wl log <id> "..." --metric 'pullups 8'`. Habit done-today = a `checkin` metric (`wl tick`/`wl checkin`) |
 | Mark done / defer (fuzzy time ok) / start clock | `wl done <id>` / `wl defer <id> next-month` (also accepts `2026-Q3` / `someday` / precise date) / `wl start <id>` `wl stop <id>` |
 | Schedule task to a date / repeat (drives "planned") | `wl sched <id> 2026-06-15` (also accepts `tomorrow` / `day-after-tomorrow`) / `--clear`. `--recur` supports period start / end: `daily` / `weekly:Mon,Fri` (also 1-7 / -1..-7) / `monthly:1` (month start) · `monthly:-1` (month end) / `quarterly:1-1` (quarter start) · `quarterly:-1` (quarter end) / `yearly:01-01` (year start) · `yearly:-1` (year end); `-1` always means period end. A task scheduled to a day shows up in `wl day` as "planned · not yet logged" even with no log |
-| Meta info (end-of-day summary / Top5 / today's goal) | History-preserving typed logs (`log.type`), not props: `wl goal "..."` (day) / `wl recap "..."` (day summary) / `wl set <month> top5 "..."` / `wl set <week> overview "..."`. Each write appends; the latest is current. `wl day` shows them at the top as a blockquote. Prefer `wl recap`/`wl goal` over `wl set` for day fields (read-back + stale-warning) |
+| Meta info (end-of-day summary / Top5 / today's goal) | History-preserving typed logs (`log.tag`), not props: `wl goal "..."` (day) / `wl recap "..."` (day summary) / `wl set <month> top5 "..."` / `wl set <week> overview "..."`. Each write appends; the latest is current. `wl day` shows them at the top as a blockquote. Prefer `wl recap`/`wl goal` over `wl set` for day fields (read-back + stale-warning) |
 | Date context (holidays / vacation / makeup days) | `wl dateinfo 2026-05-01 Labor-Day-holiday` / `wl dateinfo --import holidays.json` (`{"YYYY-MM-DD":"label"}`) / `wl dateinfo <date> --clear`. Weekday auto-computed; `wl day` header shows "date weekday · label" |
 | Reproduce a day's progress (like markdown worklog) | `wl day [YYYY-MM-DD]` (log-date based: work/personal split → secondary group → task → indented logs + stats). **Default `--by plan`** (planned / unplanned / unplanned-unmarked — anything without `planned`/`unplanned` tag is treated as unplanned); switch dimensions with `--by project` / `--by priority` (P0/P1/P2) |
 | List all active projects | `wl projects` |
@@ -155,7 +155,7 @@ wl checkin --all-kinds                # not limited to habit kind
 ### Meta fields keep history (typed logs, not props)
 
 `wl goal` / `wl recap` (day), `wl set <week> overview` / `wl set <month> top5` are
-stored as `log.type` logs — each write appends, the latest is current, so edit
+stored as `log.tag` logs — each write appends, the latest is current, so edit
 history is kept (`prop` is only for truly-static single-value attributes).
 
 ### Recurrence rules (`--recur`), every variant supports `-1` for "last day of period"

@@ -266,8 +266,8 @@ class TestMetricReviewFixes:
         self._node(cli)
         cli("metric", "add", "1", "checkin")
         con = tmp_db.db_connect()
-        log = con.execute("SELECT type FROM log").fetchone()
-        assert log["type"] == "metric"
+        log = con.execute("SELECT tag FROM log").fetchone()
+        assert log["tag"] == "metric"
 
     def test_rm_removes_empty_carrier_log(self, cli, tmp_db):
         self._node(cli)
@@ -396,8 +396,8 @@ class TestMetricHelperParams:
     def test_add_metric_without_log_creates_carrier(self, cli, tmp_db):
         cli("add", "weigh-in", "-k", "task", "--metric", "weight 70 kg")  # node 1
         con = tmp_db.db_connect()
-        log = con.execute("SELECT type FROM log").fetchone()
-        assert log["type"] == "metric"  # dedicated carrier
+        log = con.execute("SELECT tag FROM log").fetchone()
+        assert log["tag"] == "metric"  # dedicated carrier
         m = con.execute("SELECT * FROM metric").fetchone()
         assert m["tag"] == "weight" and m["value_num"] == 70 and m["unit"] == "kg"
 
@@ -455,6 +455,8 @@ class TestCheckinViaMetric:
         cli("log", "1", "✓ done")  # plain log, no checkin auto-created
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM metric WHERE tag='checkin'").fetchone()[0] == 0
+        # 0003 runs before the log.type→tag rename (0006); recreate its pre-0006 schema
+        con.execute("ALTER TABLE log RENAME COLUMN tag TO type")
         # run the 0003 backfill body against this legacy-shaped data
         mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0003_backfill_checkin_metrics.sql"
         con.executescript(mig.read_text())
@@ -526,14 +528,14 @@ class TestMetaTypedLogs:
         _, out, _ = cli("goal")
         assert "改成 Y" in out and "X" not in out  # reads latest
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM log WHERE type='goal'").fetchone()[0] == 2  # history kept
+        assert con.execute("SELECT COUNT(*) FROM log WHERE tag='goal'").fetchone()[0] == 2  # history kept
 
     def test_set_meta_key_writes_typed_log_not_prop(self, cli, tmp_db):
         cli("add", "2026-W23", "-k", "week")  # node 1
         _, out, _ = cli("set", "1", "overview", "本周主线")
         assert "logged" in out
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM log WHERE node_id=1 AND type='overview'").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM log WHERE node_id=1 AND tag='overview'").fetchone()[0] == 1
         assert con.execute("SELECT COUNT(*) FROM prop WHERE node_id=1 AND key='overview'").fetchone()[0] == 0
 
     def test_set_non_meta_key_still_prop(self, cli, tmp_db):
@@ -552,6 +554,8 @@ class TestMetaTypedLogs:
         con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'summary', 'legacy recap')")
         con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'summary_at', '2026-06-01 18:00:00')")
         con.commit()
+        # 0004 runs before the log.type→tag rename (0006); recreate its pre-0006 schema
+        con.execute("ALTER TABLE log RENAME COLUMN tag TO type")
         mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0004_meta_props_to_typed_logs.sql"
         con.executescript(mig.read_text())
         con.commit()

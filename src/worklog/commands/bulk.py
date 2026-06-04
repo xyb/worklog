@@ -269,7 +269,7 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
                     import_metric(con, log_id, nid, mspec, default_at=log_at)
         # node-level metrics → a dedicated carrier log (1 carrier → N datapoints, e.g. a CGM import)
         if spec.get("metrics"):
-            con.execute("INSERT INTO log (node_id, body, type) VALUES (?, '', ?)", (nid, _CARRIER_TYPE))
+            con.execute("INSERT INTO log (node_id, body, tag) VALUES (?, '', ?)", (nid, _CARRIER_TYPE))
             log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
             for mspec in spec["metrics"]:
                 import_metric(con, log_id, nid, mspec)

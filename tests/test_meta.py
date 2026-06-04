@@ -66,7 +66,7 @@ class TestGoalRecapTick:
         day = con.execute("SELECT id FROM node WHERE kind='day' AND title LIKE '2026-06-01%'").fetchone()
         assert day is not None  # day node was created on demand
         # stored as a history-preserving typed log (not a prop); logged_at = write time
-        s = con.execute("SELECT logged_at FROM log WHERE node_id=? AND type='summary'", (day["id"],)).fetchone()
+        s = con.execute("SELECT logged_at FROM log WHERE node_id=? AND tag='summary'", (day["id"],)).fetchone()
         assert s is not None and s["logged_at"]
 
     def test_recap_past_date_read_empty(self, cli):
@@ -98,7 +98,7 @@ class TestGoalRecapTick:
         day = con.execute("SELECT id FROM node WHERE kind='day' AND title LIKE ?",
                           (date.today().isoformat() + "%",)).fetchone()
         # backdate the summary log to simulate "recap written long ago"
-        con.execute("UPDATE log SET logged_at='2000-01-01 00:00:00' WHERE node_id=? AND type='summary'",
+        con.execute("UPDATE log SET logged_at='2000-01-01 00:00:00' WHERE node_id=? AND tag='summary'",
                     (day["id"],))
         con.commit()
         cli("add", "work item", "-k", "task")

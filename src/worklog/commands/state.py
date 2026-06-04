@@ -207,11 +207,11 @@ def cmd_add(args, con):
         if created_log_id is not None:
             mlog_id = created_log_id
         elif at_ts:
-            con.execute("INSERT INTO log (node_id, logged_at, body, type) VALUES (?, ?, '', ?)",
+            con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, ?, '', ?)",
                         (node_id, at_ts, _CARRIER_TYPE))
             mlog_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
         else:
-            con.execute("INSERT INTO log (node_id, body, type) VALUES (?, '', ?)", (node_id, _CARRIER_TYPE))
+            con.execute("INSERT INTO log (node_id, body, tag) VALUES (?, '', ?)", (node_id, _CARRIER_TYPE))
             mlog_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
         nm = attach_metric_specs(con, mlog_id, node_id, specs, at=at_ts or None)
         metric_hint = f" + {nm} metric(s)"
@@ -704,7 +704,7 @@ def cmd_active(args, con):
         out("    " + _c(f"today's total {total_min}min ({total_min // 60}h{total_min % 60}m), includes current session", "meta"))
         # latest plain-note log (oneline truncated)
         last = con.execute(
-            "SELECT body FROM log WHERE node_id = ? AND type IS NULL ORDER BY id DESC LIMIT 1", (r["node_id"],),
+            "SELECT body FROM log WHERE node_id = ? AND tag IS NULL ORDER BY id DESC LIMIT 1", (r["node_id"],),
         ).fetchone()
         if last:
             body_one = _truncate_log_body(last["body"], indent_cols=_display_width("    latest log: "), full=full)

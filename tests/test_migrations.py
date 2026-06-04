@@ -137,19 +137,36 @@ class TestMetricSchema:
             "value_num", "value_text", "unit", "note", "at",
         }
 
-    def test_log_has_type_column(self, cli, tmp_db):
+    def test_log_has_tag_column(self, cli, tmp_db):
+        # log.type was renamed to log.tag in 0006 (unified with node.tag / metric.tag)
         cli("init")
         con = tmp_db.db_connect()
         cols = {r["name"] for r in con.execute("PRAGMA table_info(log)")}
-        assert "type" in cols
+        assert "tag" in cols and "type" not in cols
 
-    def test_existing_logs_read_as_untyped(self, cli, tmp_db):
-        """Back-compat: a plain `wl log` writes a row whose type is NULL."""
+    def test_migration_0006_renames_type_to_tag_preserving_data(self, cli, tmp_db):
+        """0006 renames log.type→tag in place, keeping existing typed-log values."""
+        import pathlib
+        cli("add", "t", "-k", "task")  # node 1
+        con = tmp_db.db_connect()
+        # recreate the pre-0006 schema, seed a typed log, then replay 0006
+        con.execute("ALTER TABLE log RENAME COLUMN tag TO type")
+        con.execute("INSERT INTO log (node_id, type, body) VALUES (1, 'goal', 'keep me')")
+        con.commit()
+        mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0006_rename_log_type_to_tag.sql"
+        con.executescript(mig.read_text())
+        con.commit()
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(log)")}
+        assert "tag" in cols and "type" not in cols
+        assert con.execute("SELECT body FROM log WHERE tag = 'goal'").fetchone()["body"] == "keep me"
+
+    def test_existing_logs_read_as_untagged(self, cli, tmp_db):
+        """Back-compat: a plain `wl log` writes a row whose tag is NULL."""
         cli("add", "t", "-k", "task")
         cli("log", "1", "plain note")
         con = tmp_db.db_connect()
-        row = con.execute("SELECT type FROM log WHERE node_id = 1").fetchone()
-        assert row["type"] is None
+        row = con.execute("SELECT tag FROM log WHERE node_id = 1").fetchone()
+        assert row["tag"] is None
 
     def test_metric_requires_log_id(self, cli, tmp_db):
         """log_id is NOT NULL — a datapoint must have a log carrier."""

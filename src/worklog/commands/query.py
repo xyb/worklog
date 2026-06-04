@@ -889,7 +889,7 @@ def _show_one(args, con):
     brief = _is_brief(args, "no_timeline")
     if brief:
         return
-    logs = list(con.execute("SELECT id, logged_at, body, type FROM log WHERE node_id = ? ORDER BY id", (args.id,)))
+    logs = list(con.execute("SELECT id, logged_at, body, tag FROM log WHERE node_id = ? ORDER BY id", (args.id,)))
     # event tuple: (ts, kind_label, extra, log_id) -- log_id only for log events, meta events None
     # events: (ts, kind, extra, log_id, metrics) — metrics folded under their log line
     def _mline(m):
@@ -906,7 +906,7 @@ def _show_one(args, con):
         mrows = tuple(con.execute(
             "SELECT tag, value_num, value_text, unit FROM metric WHERE log_id = ? ORDER BY id", (r["id"],)))
         # an empty type='metric' carrier log shows its datapoints directly (no blank ✎ log line)
-        if r["type"] == "metric" and not (r["body"] or "").strip() and mrows:
+        if r["tag"] == "metric" and not (r["body"] or "").strip() and mrows:
             events.append((r["logged_at"], "📊 metric", _mline(mrows[0]), None, mrows[1:]))
         else:
             # timeline log row: "    YYYY-MM-DD HH:MM:SS  #L<id>  ✎ log  <body>" indented ~ 32 cols

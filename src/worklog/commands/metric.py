@@ -6,7 +6,7 @@ single-purpose CRUD surface: `wl metric add / ls / edit / rm`. A full CRUD on
 purpose — the project's lesson is to never ship "create but no delete".
 
 `wl metric add` without --on-log creates a carrier log on the node, tagged
-`log.type='metric'` so it's distinguishable from a user-written note (used for
+`log.tag='metric'` so it's distinguishable from a user-written note (used for
 folding and for cleaning it up on `rm`). A pure marker (no value, e.g. a
 check-in) is stored as value_num=1 to satisfy the table CHECK without freezing
 any reserved tag name into the schema.
@@ -25,7 +25,7 @@ from ..helpers import _resolve_concrete_date, _resolve_window
 from ..queries import _node_exists, _has_checkin
 from ..render import _c, out
 
-_CARRIER_TYPE = "metric"  # log.type marking an auto-created metric carrier log
+_CARRIER_TYPE = "metric"  # log.tag marking an auto-created metric carrier log
 CHECKIN_TAG = "checkin"   # reserved metric tag: the structured "done today" signal
 
 
@@ -195,10 +195,10 @@ def cmd_metric_add(args, con):
     else:
         body = args.body or ""
         if at:
-            con.execute("INSERT INTO log (node_id, logged_at, body, type) VALUES (?, ?, ?, ?)",
+            con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, ?, ?, ?)",
                         (node, at, body, _CARRIER_TYPE))
         else:
-            con.execute("INSERT INTO log (node_id, body, type) VALUES (?, ?, ?)",
+            con.execute("INSERT INTO log (node_id, body, tag) VALUES (?, ?, ?)",
                         (node, body, _CARRIER_TYPE))
         log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
 
@@ -319,9 +319,9 @@ def cmd_metric_rm(args, con):
         log_id = row["log_id"]
         con.execute("DELETE FROM metric WHERE id = ?", (mid,))
         msg = f"✓ deleted metric #M{mid}"
-        log = con.execute("SELECT body, type FROM log WHERE id = ?", (log_id,)).fetchone()
+        log = con.execute("SELECT body, tag FROM log WHERE id = ?", (log_id,)).fetchone()
         remaining = con.execute("SELECT COUNT(*) FROM metric WHERE log_id = ?", (log_id,)).fetchone()[0]
-        if log and log["type"] == _CARRIER_TYPE and not (log["body"] or "").strip() and remaining == 0:
+        if log and log["tag"] == _CARRIER_TYPE and not (log["body"] or "").strip() and remaining == 0:
             con.execute("DELETE FROM log WHERE id = ?", (log_id,))
             msg += f" + its empty carrier log #L{log_id}"
         msgs.append(msg)
