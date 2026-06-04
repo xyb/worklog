@@ -56,6 +56,21 @@ def utc_now() -> str:
     return datetime.now(_UTC).strftime(FMT)
 
 
+def local_now() -> str:
+    """Current wall-clock in the configured local zone (`YYYY-MM-DD HH:MM:SS`).
+    Use this to fill in "now" when a user supplies a partial local time (`--at
+    14:30` / `--at 2026-06-05`) — the pieces are local, then `local_to_utc`
+    stores UTC."""
+    return datetime.now(_local_tz()).strftime(FMT)
+
+
+def today() -> str:
+    """Today's date (`YYYY-MM-DD`) in the configured local zone — the calendar
+    "today" used for day views and default schedules. Follows `$WORKLOG_TZ`
+    when set, else the machine zone (so it agrees with `tz_sql_modifier()`)."""
+    return local_now()[:10]
+
+
 def local_to_utc(local_str: str) -> str:
     """A local wall-clock string (`YYYY-MM-DD HH:MM:SS`, optionally without
     seconds) -> UTC storage string. Used when the user supplies a time (`--at`)

@@ -41,6 +41,21 @@ class TestUtcNow:
         assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", tu.utc_now())
 
 
+class TestLocalNowToday:
+    def test_local_now_format(self, tz_shanghai):
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", tu.local_now())
+
+    def test_today_is_prefix_of_local_now(self, tz_shanghai):
+        assert tu.today() == tu.local_now()[:10]
+
+    def test_local_now_is_8h_ahead_of_utc(self, tz_shanghai):
+        # local_now (+8) converted back to UTC should match utc_now to the minute
+        from datetime import datetime
+        ln = datetime.strptime(tu.local_now(), tu.FMT)
+        un = datetime.strptime(tu.utc_now(), tu.FMT)
+        assert abs((ln - un).total_seconds() - 8 * 3600) < 5
+
+
 class TestLocalToUtc:
     def test_shanghai_subtracts_8h(self, tz_shanghai):
         # 14:30 local (+8) == 06:30 UTC
