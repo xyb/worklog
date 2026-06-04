@@ -11,6 +11,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .. import render
+from .metric import checkin_metric
+from ..queries import _has_checkin
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -271,7 +273,10 @@ def cmd_checkin(args, con):
         return
 
     for i in chosen:
-        _insert_log(con, pending[i]["id"], "✓ done")
+        nid = pending[i]["id"]
+        _insert_log(con, nid, "✓ done")
+        log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+        checkin_metric(con, log_id, nid, today)
     con.commit()
     done_now = len(chosen)
     skipped = len(pending) - done_now
@@ -425,11 +430,8 @@ def _checkin_collect(con, args):
             continue
         if n["status"] == "CANCELED" and not getattr(args, "show_canceled", False):
             continue
-        already = con.execute(
-            "SELECT 1 FROM log WHERE node_id = ? AND date(logged_at) = ? "
-            "AND body NOT LIKE 'CLOCK\\_%' ESCAPE '\\' LIMIT 1",
-            (nid, today),
-        ).fetchone()
+        # "already done today" = structured check-in metric (not "any log that day")
+        already = _has_checkin(con, nid, today)
         rows.append({
             "id": n["id"], "title": n["title"], "priority": n["priority"],
             "kind": n["kind"], "already": bool(already),
@@ -553,6 +555,9 @@ def _checkin_per_item(con, rows):
             continue
         body = "✓ done" if ans in ("", "y", "Y", "yes") else ans
         _insert_log(con, nid, body)
+        from datetime import date as _d
+        log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+        checkin_metric(con, log_id, nid, _d.today().isoformat())
         con.commit()
         done_now += 1
         marker = _c("    ✓", "done")

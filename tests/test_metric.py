@@ -429,6 +429,48 @@ class TestMetricHelperParams:
         assert code != 0 and "spec is empty" in err
 
 
+class TestCheckinViaMetric:
+    """`wl tick`/`wl checkin` write a structured checkin metric; habit 'done today'
+    detection reads it (not 'any log that day'), fixing the loose old heuristic."""
+
+    def test_tick_writes_checkin_metric(self, cli, tmp_db):
+        cli("add", "exercise", "-k", "habit")
+        cli("tick", "1")
+        con = tmp_db.db_connect()
+        m = con.execute("SELECT * FROM metric WHERE tag='checkin'").fetchone()
+        assert m is not None and m["value_num"] == 1 and m["node_id"] == 1
+
+    def test_tick_idempotent_same_day(self, cli, tmp_db):
+        cli("add", "exercise", "-k", "habit")
+        cli("tick", "1")
+        cli("tick", "1")  # second tick same day
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM metric WHERE tag='checkin'").fetchone()[0] == 1
+
+    def test_day_habit_done_only_with_checkin(self, cli):
+        cli("add", "exercise", "-k", "habit")   # node 1
+        cli("add", "vitamins", "-k", "habit")   # node 2
+        cli("tick", "1")                          # checkin
+        cli("log", "2", "随便记一句")              # a plain note, NOT a check-in
+        _, out, _ = cli("day")
+        assert "[x] #1" in out          # checked in → done
+        assert "[x] #2" not in out      # stray note → NOT done (bug fixed)
+
+    def test_checkin_backfill_migration_sql(self, cli, tmp_db):
+        """0003 backfill: a legacy habit log (no checkin metric) gets one synthesized."""
+        import pathlib
+        cli("add", "exercise", "-k", "habit")
+        cli("log", "1", "✓ done")  # plain log, no checkin auto-created
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM metric WHERE tag='checkin'").fetchone()[0] == 0
+        # run the 0003 backfill body against this legacy-shaped data
+        mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0003_backfill_checkin_metrics.sql"
+        con.executescript(mig.read_text())
+        con.commit()
+        m = con.execute("SELECT * FROM metric WHERE tag='checkin'").fetchone()
+        assert m is not None and m["node_id"] == 1 and m["value_num"] == 1
+
+
 class TestMetricDispatch:
     def test_metric_no_sub_errors(self, cli):
         code, _, err = cli("metric")

@@ -48,7 +48,7 @@ from ..queries import (
     _status_filter_sql,
     _upsert_prop,
 )
-from .metric import attach_metric_specs, _CARRIER_TYPE
+from .metric import attach_metric_specs, checkin_metric, _CARRIER_TYPE
 from ..render import (
     _PRI_STYLE,
     _STATUS_STYLE,
@@ -460,8 +460,13 @@ def cmd_tick(args, con):
     # empty note (--note '') falls back to default; we don't allow inserting a truly empty log
     note = (args.note or "").strip()
     body = note if note else "✓ done"
+    from datetime import date as _date
+    today = _date.today().isoformat()
     for nid in ids:
         _insert_log(con, nid, body)
+        log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+        # structured "done today" signal (one per node per day) — not "a log exists"
+        checkin_metric(con, log_id, nid, today)
         if args.done:
             con.execute(
                 "UPDATE node SET status = 'DONE', closed_at = datetime('now','localtime') WHERE id = ?", (nid,)

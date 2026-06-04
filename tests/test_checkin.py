@@ -129,12 +129,12 @@ class TestCheckin:
         yday = (date.today() - timedelta(days=1)).isoformat()
         cli("add", "维生素", "-k", "habit")
         cli("sched", "1", today)
-        # yesterday's log
-        cli("log", "1", "昨天吃了", "--date", yday)
-        # today's wl day should render [ ] (no log today)
+        # yesterday's check-in (log carrying a checkin metric, dated yesterday)
+        cli("log", "1", "昨天吃了", "--date", yday, "--metric", "checkin")
+        # today's wl day should render [ ] (no check-in today)
         _, today_out, _ = cli("day")
         assert "[ ] #1" in today_out
-        # yesterday's wl day should render [x] (had a log that day)
+        # yesterday's wl day should render [x] (checked in that day)
         _, yday_out, _ = cli("day", yday)
         assert "[x] #1" in yday_out
 

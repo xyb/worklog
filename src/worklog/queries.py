@@ -138,6 +138,16 @@ def _collect_descendants(con, root_id):
 def _has_tag(con, nid, tag):
     return con.execute("SELECT 1 FROM tag WHERE node_id = ? AND tag = ? LIMIT 1", (nid, tag)).fetchone() is not None
 
+
+def _has_checkin(con, node_id, day):
+    """True if the node has a check-in metric on the given day (YYYY-MM-DD).
+    This is the structured 'done today' signal (G1) — replaces the old, too-loose
+    'did any log exist that day' heuristic, so a stray note no longer counts as done."""
+    return con.execute(
+        "SELECT 1 FROM metric WHERE node_id = ? AND tag = 'checkin' AND substr(at, 1, 10) = ? LIMIT 1",
+        (node_id, day),
+    ).fetchone() is not None
+
 def _node_clock_min(con, nid):
     """Total minutes spent on this node, auto-combined: CLOCK_OUT elapsed sum union log timestamp span.
     Takes the greater so "no wl start/stop, only wl log" workflows still get a rough duration.

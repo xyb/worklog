@@ -246,9 +246,9 @@ class TestPrintDayActivityHabit:
         cli("add", "Lifetime", "-k", "lifetime")
         cli("add", today, "-k", "day", "--parent", "1")
         cli("add", "h1", "-k", "habit")
-        cli("log", "3", "done today")
+        cli("tick", "3")  # check-in (writes a checkin metric) = done today
         _, out, _ = cli("tree", "--root", "2", "--depth", "2")
-        # habit with a log that day should render [x]
+        # habit checked in that day should render [x]
         assert "[x]" in out
 
 

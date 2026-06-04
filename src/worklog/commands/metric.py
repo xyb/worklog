@@ -22,10 +22,11 @@ import re
 import sys
 
 from ..helpers import _resolve_concrete_date, _resolve_window
-from ..queries import _node_exists
+from ..queries import _node_exists, _has_checkin
 from ..render import _c, out
 
 _CARRIER_TYPE = "metric"  # log.type marking an auto-created metric carrier log
+CHECKIN_TAG = "checkin"   # reserved metric tag: the structured "done today" signal
 
 
 def _metric_id_arg(s):
@@ -134,6 +135,17 @@ def _parse_metric_spec(s):
     if not parts:
         sys.exit("✗ --metric spec is empty (expected 'tag [value] [unit]')")
     return parts[0], (parts[1] if len(parts) > 1 else None), (parts[2] if len(parts) > 2 else None)
+
+
+def checkin_metric(con, log_id, node_id, day):
+    """Attach a check-in marker metric to a log, idempotent per (node, day): if the
+    node already has a check-in that day, do nothing. Returns True if one was added.
+    Used by `wl tick` / `wl checkin` so 'done today' is a structured signal, not
+    'some log exists'. No commit — caller controls the transaction."""
+    if _has_checkin(con, node_id, day):
+        return False
+    _insert_metric_on_log(con, log_id, node_id, CHECKIN_TAG, None)  # marker → value_num=1
+    return True
 
 
 def attach_metric_specs(con, log_id, node_id, specs, *, at=None):

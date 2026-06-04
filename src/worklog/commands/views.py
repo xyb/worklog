@@ -36,6 +36,7 @@ from ..queries import (
     _check_ids_exist,
     _collect_descendants,
     _has_tag,
+    _has_checkin,
     _insert_log,
     _node_bucket,
     _node_clock_min,
@@ -197,7 +198,7 @@ def cmd_day(args, con):
     log_tail = _resolve_log_tail(args, brief, default_tail=3)
     _render_day_group(con, items, by=getattr(args, "by", "plan"),
                       sched_ids=sched_ids, log_tail=log_tail,
-                      full=_log_full(args))
+                      full=_log_full(args), day=target)
 
     # bottom stats: per-status distribution + planned-not-done count + CLOCK time
     import re
@@ -358,8 +359,8 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
     ind = "  " * (depth + 1)
     for nid, t in tasks.items():
         n = t["r"]
-        # habit with a log today = done today (render-layer smarts, same as _render_day_group)
-        if n["kind"] == "habit" and t["logs"]:
+        # habit done today = has a structured check-in metric that day (not "any log")
+        if n["kind"] == "habit" and _has_checkin(con, nid, target):
             mk = _c("[x]", "done")
         else:
             mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
@@ -415,7 +416,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
             if a["kind"] == "area":
                 out(_node_line(con, a, indent="  " * base, sched=True))
 
-def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=None, full=False):
+def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=None, full=False, day=None):
     """Render a day: items = {nid: {"node": row(title/status/priority), "logs": [body...]}}.
     Layout: bucket -> (plan/project/priority) -> task -> logs (indented). A task with no log but on a schedule is marked "planned·not-done".
     log_tail: None = full / 0 = no expansion / N = latest N per task.
@@ -441,8 +442,8 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
             for nid, it in g["tasks"].items():
                 n = it["node"]
                 logs = it["logs"]
-                # habit with a log today = done today (render-layer smarts; resets next day; DB untouched)
-                if n["kind"] == "habit" and logs:
+                # habit done today = has a structured check-in metric that day (not "any log")
+                if n["kind"] == "habit" and day and _has_checkin(con, nid, day):
                     mk = _c("[x]", "done")
                 else:
                     mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
