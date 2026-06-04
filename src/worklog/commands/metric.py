@@ -137,6 +137,20 @@ def _parse_metric_spec(s):
     return parts[0], (parts[1] if len(parts) > 1 else None), (parts[2] if len(parts) > 2 else None)
 
 
+def import_metric(con, log_id, node_id, mspec, *, default_at=None):
+    """Insert one metric from a bulk-import/apply spec dict on an existing log.
+    Spec: {tag (required), value?, unit?, note?, at?}. value may be a JSON number
+    or string (autodetected numeric vs text); omit it for a marker. `at` falls back
+    to default_at (typically the carrier log's timestamp). No commit."""
+    if not isinstance(mspec, dict) or not str(mspec.get("tag") or "").strip():
+        sys.exit("✗ metric spec must be an object with a non-empty 'tag'")
+    return _insert_metric_on_log(
+        con, log_id, node_id, str(mspec["tag"]), mspec.get("value"),
+        unit=mspec.get("unit"), note=mspec.get("note"),
+        at=mspec.get("at") or default_at,
+    )
+
+
 def checkin_metric(con, log_id, node_id, day):
     """Attach a check-in marker metric to a log, idempotent per (node, day): if the
     node already has a check-in that day, do nothing. Returns True if one was added.

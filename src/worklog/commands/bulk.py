@@ -47,6 +47,7 @@ from ..queries import (
     _status_filter_sql,
     _upsert_prop,
 )
+from .metric import import_metric, _CARRIER_TYPE
 from ..render import (
     _PRI_STYLE,
     _STATUS_STYLE,
@@ -260,6 +261,19 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
             con.execute("INSERT OR IGNORE INTO link (node_id,vault_doc) VALUES (?,?)", (nid, d))
         for entry in spec.get("logs", []):
             _insert_log(con, nid, entry)
+            # a log entry may carry structured datapoints: {"body":..., "metrics":[{tag,value,unit}]}
+            if isinstance(entry, dict) and entry.get("metrics"):
+                log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+                log_at = con.execute("SELECT logged_at FROM log WHERE id = ?", (log_id,)).fetchone()["logged_at"]
+                for mspec in entry["metrics"]:
+                    import_metric(con, log_id, nid, mspec, default_at=log_at)
+        # node-level metrics → a dedicated carrier log (1 carrier → N datapoints, e.g. a CGM import)
+        if spec.get("metrics"):
+            con.execute("INSERT INTO log (node_id, body, type) VALUES (?, '', ?)", (nid, _CARRIER_TYPE))
+            log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+            for mspec in spec["metrics"]:
+                import_metric(con, log_id, nid, mspec)
+            counters["metric"] = counters.get("metric", 0) + len(spec["metrics"])
 
     if spec.get("ref"):
         ref_map[spec["ref"]] = nid

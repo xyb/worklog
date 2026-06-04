@@ -471,6 +471,60 @@ class TestCheckinViaMetric:
         assert m is not None and m["node_id"] == 1 and m["value_num"] == 1
 
 
+class TestMetricImport:
+    """wl import: a log entry may carry `metrics`; a node may carry node-level
+    `metrics` (one carrier log → N datapoints, e.g. a CGM batch)."""
+
+    def _import(self, cli, tmp_path, data):
+        import json, pathlib
+        p = pathlib.Path(tmp_path) / "imp.json"
+        p.write_text(json.dumps(data))
+        return cli("import", str(p))
+
+    def test_import_log_with_metrics(self, cli, tmp_db, tmp_path):
+        self._import(cli, tmp_path, {"add": [
+            {"title": "bg", "kind": "habit", "logs": [
+                {"body": "fasting", "date": "2026-06-01",
+                 "metrics": [{"tag": "glucose", "value": 5.4, "unit": "mmol/L"}, {"tag": "checkin"}]}
+            ]}
+        ]})
+        con = tmp_db.db_connect()
+        rows = con.execute("SELECT * FROM metric ORDER BY id").fetchall()
+        assert len(rows) == 2
+        assert rows[0]["tag"] == "glucose" and rows[0]["value_num"] == 5.4 and rows[0]["unit"] == "mmol/L"
+        assert rows[1]["tag"] == "checkin" and rows[1]["value_num"] == 1
+        # both inherit the log's date and hang off the same log
+        assert rows[0]["at"] == "2026-06-01" and rows[0]["log_id"] == rows[1]["log_id"]
+
+    def test_import_node_level_metrics_single_carrier(self, cli, tmp_db, tmp_path):
+        self._import(cli, tmp_path, {"add": [
+            {"title": "cgm", "kind": "habit", "metrics": [
+                {"tag": "glucose", "value": 5.1, "at": "2026-06-01 00:05"},
+                {"tag": "glucose", "value": 5.3, "at": "2026-06-01 00:10"},
+                {"tag": "glucose", "value": 6.0, "at": "2026-06-01 00:15"},
+            ]}
+        ]})
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM metric").fetchone()[0] == 3
+        # one carrier log for the batch
+        assert con.execute("SELECT COUNT(DISTINCT log_id) FROM metric").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM log WHERE node_id = 1").fetchone()[0] == 1
+
+    def test_import_text_value(self, cli, tmp_db, tmp_path):
+        self._import(cli, tmp_path, {"add": [
+            {"title": "mood", "kind": "habit", "metrics": [{"tag": "mood", "value": "good"}]}
+        ]})
+        con = tmp_db.db_connect()
+        m = con.execute("SELECT * FROM metric").fetchone()
+        assert m["value_text"] == "good" and m["value_num"] is None
+
+    def test_import_metric_missing_tag_rejected(self, cli, tmp_path):
+        code, _, err = self._import(cli, tmp_path, {"add": [
+            {"title": "x", "kind": "task", "metrics": [{"value": 5}]}
+        ]})
+        assert code != 0 and "tag" in err
+
+
 class TestMetricDispatch:
     def test_metric_no_sub_errors(self, cli):
         code, _, err = cli("metric")
