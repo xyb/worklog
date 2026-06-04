@@ -239,14 +239,14 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
     else:
         if closed_at:
             cur = con.execute(
-                "INSERT INTO node (parent_id,title,kind,status,priority,scheduled_at,deadline_at,body,closed_at,created_at) "
+                "INSERT INTO node (parent_id,title,kind,status,priority,scheduled_date,deadline_date,body,closed_at,created_at) "
                 "VALUES (?,?,?,?,?,?,?,?, datetime('now'), datetime('now'))",
                 (pid, title, kind, status, spec.get("priority"), sched,
                  spec.get("deadline"), spec.get("body")),
             )
         else:
             cur = con.execute(
-                "INSERT INTO node (parent_id,title,kind,status,priority,scheduled_at,deadline_at,body,created_at) "
+                "INSERT INTO node (parent_id,title,kind,status,priority,scheduled_date,deadline_date,body,created_at) "
                 "VALUES (?,?,?,?,?,?,?,?, datetime('now'))",
                 (pid, title, kind, status, spec.get("priority"), sched,
                  spec.get("deadline"), spec.get("body")),
@@ -300,7 +300,7 @@ def _import_update(con, spec, dry, counters):
     if "parent" in spec and spec["parent"] is not None and not _node_exists(con, spec["parent"]):
         raise ValueError(f"update #{nid}: parent #{spec['parent']} does not exist")
     fields, vals = [], []
-    for col in ("status", "priority", "title", "scheduled_at", "deadline_at", "body"):
+    for col in ("status", "priority", "title", "scheduled_date", "deadline_date", "body"):
         if col in spec:
             fields.append(f"{col} = ?")
             vals.append(spec[col])
@@ -460,7 +460,7 @@ def _parse_wld(text):
 
 _STATUSES = {"TODO", "DOING", "LATER", "WAIT", "DONE", "DEFERRED", "CANCELED"}
 _SET_COL = {"status": "status", "priority": "priority", "title": "title",
-            "parent": "parent_id", "scheduled": "scheduled_at", "deadline": "deadline_at"}
+            "parent": "parent_id", "scheduled": "scheduled_date", "deadline": "deadline_date"}
 
 def _validate_fieldop(con, lineno, action, field, value, errs):
     if field == "status" and action == "set" and value not in _STATUSES:

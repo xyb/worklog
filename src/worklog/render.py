@@ -171,8 +171,8 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
     s = f"{indent}{marker} {pri} {nid} {kind}{title}"
     if planned and _has_tag(con, n["id"], "planned"):
         s += " " + _c("·planned", "planned")
-    if sched and n["scheduled_at"]:
-        s += " " + _c("@" + _sched_display(n["scheduled_at"]), "planned")
+    if sched and n["scheduled_date"]:
+        s += " " + _c("@" + _sched_display(n["scheduled_date"]), "planned")
     if clock:
         cm = _node_clock_min(con, n["id"])
         d = _fmt_dur(cm)

@@ -356,14 +356,14 @@ def cmd_agenda(args, con):
     show_all = getattr(args, "all", False)
 
     # Two schedule sources, both matter (else we recreate the very bug #434 is about —
-    # month/someday-level plans live in node.scheduled_at, not the sched table):
+    # month/someday-level plans live in node.scheduled_date, not the sched table):
     #   - sched table on_date: concrete one-off days (+ rrule, handled elsewhere)
-    #   - node.scheduled_at:    a single fuzzy-granularity pin (@2026-06 / someday / ...)
+    #   - node.scheduled_date:    a single fuzzy-granularity pin (@2026-06 / someday / ...)
     entries = []  # (node_id, sched_value)
     for r in con.execute("SELECT node_id, on_date FROM sched WHERE on_date IS NOT NULL"):
         entries.append((r["node_id"], r["on_date"]))
-    for r in con.execute("SELECT id, scheduled_at FROM node WHERE scheduled_at IS NOT NULL"):
-        entries.append((r["id"], r["scheduled_at"]))
+    for r in con.execute("SELECT id, scheduled_date FROM node WHERE scheduled_date IS NOT NULL"):
+        entries.append((r["id"], r["scheduled_date"]))
 
     hits = []          # (sort_key, node, value) for in-range scheds
     someday = []       # (node, value) for someday/unparseable, listed at the end
@@ -616,8 +616,8 @@ def cmd_summary(args, con):
             day_done[_tu.local_day_of(n["closed_at"])].append(n)
         day_pend = defaultdict(list)
         for n in pending:
-            # scheduled_at is a literal date; created_at is a UTC instant -> local day
-            d = (n["scheduled_at"][:10] if n["scheduled_at"]
+            # scheduled_date is a literal date; created_at is a UTC instant -> local day
+            d = (n["scheduled_date"][:10] if n["scheduled_date"]
                  else (_tu.local_day_of(n["created_at"]) if n["created_at"] else "")) or "unscheduled"
             day_pend[d].append(n)
         if day_done or day_pend:
@@ -849,7 +849,7 @@ def _show_one(args, con):
     chain = _ancestors_chain(con, args.id)
     if len(chain) > 1:
         out("  " + _c("ancestors:", "meta") + " " + _c(" / ".join(f"#{p['id']} {p['title']}" for p in chain[:-1])))
-    for k in ("created_at", "scheduled_at", "deadline_at", "closed_at"):
+    for k in ("created_at", "scheduled_date", "deadline_date", "closed_at"):
         if n[k]:
             # *_at are UTC instants -> render local; *_date / scheduled / deadline are literal dates
             v = _tu.utc_to_local(n[k]) if k in ("created_at", "closed_at") else n[k]
@@ -905,8 +905,8 @@ def _show_one(args, con):
     events = []
     if n["created_at"]:
         events.append((n["created_at"], "● created", "", None, ()))
-    if n["scheduled_at"]:
-        events.append((n["scheduled_at"], "◷ scheduled", "", None, ()))
+    if n["scheduled_date"]:
+        events.append((n["scheduled_date"], "◷ scheduled", "", None, ()))
     if n["closed_at"]:
         events.append((n["closed_at"], f"✓ {n['status'] or 'closed'}", "", None, ()))
     for r in logs:
@@ -957,7 +957,7 @@ _LS_SORT_SQL = {
     "pri": "priority NULLS LAST, id",
     "created": "created_at DESC, id DESC",     # like shell ls -t (newest first)
     "closed": "closed_at DESC NULLS LAST, id DESC",
-    "scheduled": "scheduled_at DESC NULLS LAST, id DESC",
+    "scheduled": "scheduled_date DESC NULLS LAST, id DESC",
     "title": "title COLLATE NOCASE, id",
     "id": "id",
     # updated goes through a subquery, not here

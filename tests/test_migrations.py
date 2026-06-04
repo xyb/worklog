@@ -326,3 +326,47 @@ class TestLoadUserAliasesEdges:
         loaded = wl._load_user_aliases()
         assert loaded == {"day": ["d"]}
         assert "bad" not in loaded
+
+
+class TestMigration0007UTC:
+    """0007: rename scheduled_at/deadline_at → *_date; convert *_at instants local(+8)→UTC."""
+
+    def _replay_0007(self, tmp_db, con):
+        import pathlib
+        # reconstruct the pre-0007 schema (columns still named *_at)
+        con.execute("ALTER TABLE node RENAME COLUMN scheduled_date TO scheduled_at")
+        con.execute("ALTER TABLE node RENAME COLUMN deadline_date TO deadline_at")
+        con.commit()
+        mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0007_utc_timestamps.sql"
+        con.executescript(mig.read_text())
+        con.commit()
+
+    def test_renames_scheduled_deadline_to_date(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        con = tmp_db.db_connect()
+        self._replay_0007(tmp_db, con)
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(node)")}
+        assert "scheduled_date" in cols and "scheduled_at" not in cols
+        assert "deadline_date" in cols and "deadline_at" not in cols
+
+    def test_converts_full_instants_minus_8h(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")  # node 1
+        con = tmp_db.db_connect()
+        # seed pre-v7 local-time instants on the *_at columns
+        con.execute("UPDATE node SET created_at='2026-06-01 08:00:00', closed_at='2026-06-01 09:30:00' WHERE id=1")
+        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (1, '2026-06-01 08:00:00', 'has-time')")
+        con.commit()
+        self._replay_0007(tmp_db, con)
+        assert con.execute("SELECT created_at FROM node WHERE id=1").fetchone()[0] == "2026-06-01 00:00:00"
+        assert con.execute("SELECT closed_at FROM node WHERE id=1").fetchone()[0] == "2026-06-01 01:30:00"
+        assert con.execute("SELECT logged_at FROM log WHERE body='has-time'").fetchone()[0] == "2026-06-01 00:00:00"
+
+    def test_leaves_bare_dates_untouched(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        con = tmp_db.db_connect()
+        # a date-only logged_at (from `wl log --date`) and a checkin metric.at backfilled
+        # as a bare date must NOT be shifted (subtracting 8h would roll them a day back)
+        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (1, '2026-06-01', 'bare-date')")
+        con.commit()
+        self._replay_0007(tmp_db, con)
+        assert con.execute("SELECT logged_at FROM log WHERE body='bare-date'").fetchone()[0] == "2026-06-01"

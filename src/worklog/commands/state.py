@@ -114,7 +114,7 @@ def cmd_add(args, con):
     # insert so the new node doesn't match itself.
     similar = _find_similar_open(con, args.title, args.kind)
     if args.sched and args.scheduled:
-        sys.exit("✗ --sched (precise, writes sched table) and --scheduled (rough hint, writes node.scheduled_at) are mutually exclusive; use --sched day-to-day")
+        sys.exit("✗ --sched (precise, writes sched table) and --scheduled (rough hint, writes node.scheduled_date) are mutually exclusive; use --sched day-to-day")
     tags = [t.strip() for t in (args.tag or "").split(",") if t.strip()]
     props = {}
     if args.proj:
@@ -149,19 +149,19 @@ def cmd_add(args, con):
 
     if closed_at == "__NOW__":
         cur = con.execute(
-            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_at, deadline_at, body, closed_at, created_at)
+            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_date, deadline_date, body, closed_at, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))""",
             (args.parent, args.title, args.kind, status, args.priority, scheduled, deadline, args.body),
         )
     elif closed_at:
         cur = con.execute(
-            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_at, deadline_at, body, closed_at, created_at)
+            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_date, deadline_date, body, closed_at, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (args.parent, args.title, args.kind, status, args.priority, scheduled, deadline, args.body, closed_at),
         )
     else:
         cur = con.execute(
-            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_at, deadline_at, body, created_at)
+            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_date, deadline_date, body, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
             (args.parent, args.title, args.kind, status, args.priority, scheduled, deadline, args.body),
         )
@@ -194,7 +194,10 @@ def cmd_add(args, con):
     log_body = getattr(args, "log", None)
     if log_body and log_body.strip():
         if at_ts:
-            _insert_log(con, node_id, {"date": at_ts[:10], "time": at_ts[11:16], "body": log_body.strip()})
+            # at_ts is already a UTC instant — insert it directly (don't round-trip
+            # through _insert_log's dict path, which would re-apply local→UTC)
+            con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)",
+                        (node_id, at_ts, log_body.strip()))
         else:
             _insert_log(con, node_id, log_body.strip())
         created_log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -292,7 +295,7 @@ def cmd_defer(args, con):
         sys.exit(f"✗ {e}")
     for nid in ids:
         con.execute(
-            "UPDATE node SET status = 'LATER', scheduled_at = ? WHERE id = ?",
+            "UPDATE node SET status = 'LATER', scheduled_date = ? WHERE id = ?",
             (when, nid),
         )
     con.commit()
@@ -747,7 +750,8 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
     if log_body:
         for nid in ids:
             if at_ts:
-                _insert_log(con, nid, {"date": at_ts[:10], "time": at_ts[11:16], "body": log_body})
+                # at_ts is already UTC — insert directly (avoid _insert_log re-localizing)
+                con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)", (nid, at_ts, log_body))
             else:
                 _insert_log(con, nid, log_body)
 

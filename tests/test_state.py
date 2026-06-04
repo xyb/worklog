@@ -5,6 +5,24 @@ import pytest
 ESC = "["  # ANSI escape prefix
 
 
+class TestAtLogNoDoubleConvert:
+    """--at + --log must store the log at the SAME UTC instant as the resolved at_ts,
+    not re-localize it (regression: at_ts is already UTC; routing it back through
+    _insert_log's local→UTC path would shift it another -8h)."""
+
+    def test_add_at_log_stores_single_utc(self, cli, tmp_db):
+        cli("add", "t", "-k", "task", "--at", "2026-06-01 08:00", "--log", "morning")
+        con = tmp_db.db_connect()
+        # 08:00 local (+08:00) → 00:00 UTC, once (not 2026-05-31 16:00)
+        assert con.execute("SELECT logged_at FROM log WHERE body='morning'").fetchone()[0] == "2026-06-01 00:00:00"
+
+    def test_done_at_log_stores_single_utc(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("done", "1", "--log", "wrapped up", "--at", "2026-06-01 08:00")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT logged_at FROM log WHERE body='wrapped up'").fetchone()[0] == "2026-06-01 00:00:00"
+
+
 class TestStatusTransitions:
     def test_done_sets_status_and_closed_at(self, cli, tmp_db):
         cli("add", "task")
@@ -18,9 +36,9 @@ class TestStatusTransitions:
         cli("add", "task")
         cli("defer", "1", "2026-06-15")
         con = tmp_db.db_connect()
-        row = con.execute("SELECT status, scheduled_at FROM node WHERE id=1").fetchone()
+        row = con.execute("SELECT status, scheduled_date FROM node WHERE id=1").fetchone()
         assert row["status"] == "LATER"
-        assert row["scheduled_at"] == "2026-06-15"
+        assert row["scheduled_date"] == "2026-06-15"
 
     def test_start_marks_doing_and_opens_clock(self, cli, tmp_db):
         cli("add", "task")

@@ -279,7 +279,7 @@ Differences from related commands:
     a.add_argument("--proj", help="project (stored as prop)")
     a.add_argument("--parent", type=int, help="parent node id")
     a.add_argument("--status")
-    a.add_argument("--scheduled", help="(rough hint, writes node.scheduled_at) scheduled time: YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
+    a.add_argument("--scheduled", help="(rough hint, writes node.scheduled_date) scheduled time: YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
     a.add_argument("--sched", help="(precise, writes the sched table = visible as planned in `wl day` for that date) date: YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow")
     a.add_argument("--deadline", help="deadline date YYYY-MM-DD")
     a.add_argument("--body", help="optional body text")
@@ -337,7 +337,7 @@ Inverse of wl reopen (undo DONE back to TODO).""")
     d.add_argument("--at", help="closed_at + log use this timestamp (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
 
     df = sub.add_parser("defer",
-        help="defer a task to a future point (LATER + scheduled_at; fuzzy times supported)",
+        help="defer a task to a future point (LATER + scheduled_date; fuzzy times supported)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
@@ -347,7 +347,7 @@ Common examples:
   wl defer 42 someday        # no scheduled time
 
 Differences from wl sched:
-  - wl defer  -> status=LATER + scheduled_at field (rough hint, does NOT appear as "planned" in wl day on that day)
+  - wl defer  -> status=LATER + scheduled_date field (rough hint, does NOT appear as "planned" in wl day on that day)
   - wl sched  -> writes to sched table (precise, appears as "planned" in wl day on that day)
 To schedule it as planned for a specific day, use wl sched. defer is for "set aside, vaguely revisit later".""")
     df.add_argument("id", type=int)
