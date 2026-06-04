@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .. import render
+from .metric import _fmt_value
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
@@ -888,19 +889,29 @@ def _show_one(args, con):
     brief = _is_brief(args, "no_timeline")
     if brief:
         return
-    logs = list(con.execute("SELECT id, logged_at, body FROM log WHERE node_id = ? ORDER BY id", (args.id,)))
+    logs = list(con.execute("SELECT id, logged_at, body, type FROM log WHERE node_id = ? ORDER BY id", (args.id,)))
     # event tuple: (ts, kind_label, extra, log_id) -- log_id only for log events, meta events None
+    # events: (ts, kind, extra, log_id, metrics) — metrics folded under their log line
+    def _mline(m):
+        return f"[{m['tag']}] {_fmt_value(m)}".rstrip()
+
     events = []
     if n["created_at"]:
-        events.append((n["created_at"], "● created", "", None))
+        events.append((n["created_at"], "● created", "", None, ()))
     if n["scheduled_at"]:
-        events.append((n["scheduled_at"], "◷ scheduled", "", None))
+        events.append((n["scheduled_at"], "◷ scheduled", "", None, ()))
     if n["closed_at"]:
-        events.append((n["closed_at"], f"✓ {n['status'] or 'closed'}", "", None))
+        events.append((n["closed_at"], f"✓ {n['status'] or 'closed'}", "", None, ()))
     for r in logs:
-        # timeline log row: "    YYYY-MM-DD HH:MM:SS  #L<id>  ✎ log  <body>" indented ~ 32 cols
-        head = _truncate_log_body(r["body"], indent_cols=32, full=_log_full(args))
-        events.append((r["logged_at"], "✎ log", head, r["id"]))
+        mrows = tuple(con.execute(
+            "SELECT tag, value_num, value_text, unit FROM metric WHERE log_id = ? ORDER BY id", (r["id"],)))
+        # an empty type='metric' carrier log shows its datapoints directly (no blank ✎ log line)
+        if r["type"] == "metric" and not (r["body"] or "").strip() and mrows:
+            events.append((r["logged_at"], "📊 metric", _mline(mrows[0]), None, mrows[1:]))
+        else:
+            # timeline log row: "    YYYY-MM-DD HH:MM:SS  #L<id>  ✎ log  <body>" indented ~ 32 cols
+            head = _truncate_log_body(r["body"], indent_cols=32, full=_log_full(args))
+            events.append((r["logged_at"], "✎ log", head, r["id"], mrows))
     # structured clock intervals (start→end, from the clock table)
     for c in con.execute(
         "SELECT start_at, end_at, elapsed_sec FROM clock WHERE node_id = ? ORDER BY id", (args.id,)
@@ -909,7 +920,7 @@ def _show_one(args, con):
             extra = f"{c['start_at'][11:16]}→{c['end_at'][11:16]} ({(c['elapsed_sec'] or 0) // 60}min)"
         else:
             extra = f"{c['start_at'][11:16]}→… (running)"
-        events.append((c["start_at"], "⏱ clock", extra, None))
+        events.append((c["start_at"], "⏱ clock", extra, None, ()))
     if events:
         events.sort(key=lambda e: e[0])
         # tail: --no-timeline/brief=0 / --all-timelines=None full expansion / --timeline-tail N / default 5
@@ -924,9 +935,14 @@ def _show_one(args, con):
             out("    " + _c(f"… ({len(events) - tail} earlier elided; use --all-timelines for full)", "meta"))
         # log.id used for operations (wl unlog #L<id>); meta events have no id, just a placeholder for alignment
         # prefix #L<id> mirrors node #123 with '#'; 'L' distinguishes (letter prefix = log, plain digits = node)
-        for ts, kind, extra, lid in shown:
+        for ts, kind, extra, lid, metrics in shown:
             lid_str = _c(f"#L{lid}", "id") if lid is not None else _c("     ", "meta")
             out("    " + _c(ts, "meta") + "  " + lid_str + "  " + _c(kind) + (f"  {_c(extra)}" if extra else ""))
+            # fold a log's metrics beneath it (over-count elision keeps it tidy)
+            for m in metrics[:5]:
+                out("           " + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta"))
+            if len(metrics) > 5:
+                out("           " + _c(f"↳ … {len(metrics) - 5} more datapoints", "meta"))
 
 
 _LS_SORT_SQL = {

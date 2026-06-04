@@ -563,6 +563,36 @@ class TestMetaTypedLogs:
         assert s["body"] == "legacy recap" and s["logged_at"] == "2026-06-01 18:00:00"  # summary_at preserved
 
 
+class TestMetricShowFolding:
+    """wl show timeline folds a log's metrics beneath it; empty metric carriers
+    render as a 📊 line (not a blank ✎ log); over-count is elided."""
+
+    def test_metrics_folded_under_log(self, cli):
+        cli("add", "bg", "-k", "habit")
+        cli("log", "1", "morning", "--metric", "glucose 5.4 mmol/L", "--metric", "mood good")
+        _, out, _ = cli("show", "1")
+        assert "✎ log" in out and "morning" in out
+        assert "↳ [glucose] 5.4 mmol/L" in out
+        assert "↳ [mood] good" in out
+
+    def test_empty_carrier_shows_as_metric_line(self, cli):
+        cli("add", "bg", "-k", "habit")
+        cli("metric", "add", "1", "weight", "70", "--unit", "kg")  # empty carrier
+        _, out, _ = cli("show", "1")
+        assert "📊 metric" in out and "[weight] 70 kg" in out
+        # no blank "✎ log" line for the carrier (only the metric line)
+        assert "✎ log" not in out
+
+    def test_over_count_elision(self, cli):
+        cli("add", "cgm", "-k", "habit")
+        cli("log", "1", "batch")  # log #1
+        # attach 8 metrics to the one log
+        for i in range(8):
+            cli("metric", "add", "1", "glucose", str(5 + i * 0.1), "--on-log", "1")
+        _, out, _ = cli("show", "1")
+        assert "↳ … 3 more datapoints" in out  # 8 - 5 shown = 3 elided
+
+
 class TestMetricDispatch:
     def test_metric_no_sub_errors(self, cli):
         code, _, err = cli("metric")

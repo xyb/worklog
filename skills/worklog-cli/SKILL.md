@@ -132,6 +132,9 @@ wl add "weigh-in" -k task --metric 'weight 70 kg'
 carry node-level `"metrics":[...]` on ONE carrier log (1 carrier → N points, e.g. a
 day of CGM readings without 288 separate logs).
 
+`wl show` folds a log's metrics beneath it (`↳ [glucose] 5.4 mmol/L`); an empty
+metric-carrier log shows its datapoint directly as a `📊 metric` line; >5 are elided.
+
 ### Multi-habit interactive check-in: `wl checkin` / `wl tick`
 
 Habit "done today" is a structured `tag=checkin` metric (idempotent per day), NOT
