@@ -39,16 +39,15 @@ def _parse_offset(tz: str) -> timezone | None:
     return timezone(sign * timedelta(hours=hours, minutes=minutes))
 
 
-def _local_tz() -> timezone:
-    """The timezone used for rendering / day-grouping: `$WORKLOG_TZ` fixed offset
-    if set and parseable, else the machine's current local timezone."""
+def _fixed_offset() -> timezone | None:
+    """The fixed-offset timezone from `$WORKLOG_TZ` if set and parseable, else None
+    — None means "use the machine's local zone", which we convert through the OS so
+    it stays DST-correct per-date (capturing a single fixed offset would mis-convert
+    timestamps from the other half of a DST year)."""
     tz = os.environ.get("WORKLOG_TZ", "").strip()
     if tz:
-        off = _parse_offset(tz)
-        if off is not None:
-            return off
-    # machine local — naive now carries the OS tzinfo once we astimezone()
-    return datetime.now().astimezone().tzinfo  # type: ignore[return-value]
+        return _parse_offset(tz)  # None if unparseable -> fall back to machine local
+    return None
 
 
 def utc_now() -> str:
@@ -61,7 +60,10 @@ def local_now() -> str:
     Use this to fill in "now" when a user supplies a partial local time (`--at
     14:30` / `--at 2026-06-05`) — the pieces are local, then `local_to_utc`
     stores UTC."""
-    return datetime.now(_local_tz()).strftime(FMT)
+    off = _fixed_offset()
+    if off is not None:
+        return datetime.now(off).strftime(FMT)
+    return datetime.now().strftime(FMT)  # naive system-local wall clock
 
 
 def today() -> str:
@@ -71,6 +73,13 @@ def today() -> str:
     return local_now()[:10]
 
 
+def today_date():
+    """`today()` as a `datetime.date`, for relative-date arithmetic (week ranges,
+    `--recent N`) that must also follow the configured zone."""
+    from datetime import date as _date
+    return _date.fromisoformat(today())
+
+
 def local_to_utc(local_str: str) -> str:
     """A local wall-clock string (`YYYY-MM-DD HH:MM:SS`, optionally without
     seconds) -> UTC storage string. Used when the user supplies a time (`--at`)
@@ -78,8 +87,12 @@ def local_to_utc(local_str: str) -> str:
     s = local_str.strip().replace("T", " ")
     if re.fullmatch(r"\d{4}-\d{2}-\d{2} \d{2}:\d{2}", s):
         s += ":00"
-    dt = datetime.strptime(s, FMT).replace(tzinfo=_local_tz())
-    return dt.astimezone(_UTC).strftime(FMT)
+    naive = datetime.strptime(s, FMT)
+    off = _fixed_offset()
+    # fixed offset: attach it; machine-local: a naive datetime's .astimezone(UTC)
+    # interprets it in the OS zone (DST-correct for the date in question)
+    aware = naive.replace(tzinfo=off) if off is not None else naive
+    return aware.astimezone(_UTC).strftime(FMT)
 
 
 def utc_to_local(utc_str: str) -> str:
@@ -92,7 +105,9 @@ def utc_to_local(utc_str: str) -> str:
         dt = datetime.strptime(utc_str.strip(), FMT).replace(tzinfo=_UTC)
     except ValueError:
         return utc_str
-    return dt.astimezone(_local_tz()).strftime(FMT)
+    off = _fixed_offset()
+    # machine-local: .astimezone() (no arg) converts to the OS zone, DST-correct
+    return dt.astimezone(off).strftime(FMT) if off is not None else dt.astimezone().strftime(FMT)
 
 
 def local_day_of(utc_str: str) -> str:
@@ -126,10 +141,19 @@ def local_day_sql(col: str) -> str:
     instant column — the day-grouping replacement for the old `substr(col,1,10)`
     (which now yields the UTC date, off by a day near local midnight). The
     modifier is a controlled value (`localtime` or a fixed `±HH:MM`), never user
-    input, so inlining it is safe. Usage: `f"... WHERE {local_day_sql('at')} = ?"`."""
-    return f"substr(datetime({col}, '{tz_sql_modifier()}'), 1, 10)"
+    input, so inlining it is safe. Usage: `f"... WHERE {local_day_sql('at')} = ?"`.
+
+    Bare `YYYY-MM-DD` values (date-only logged_at from `wl log --date`, and the
+    0003-backfilled checkin metric.at) are literal local dates — the CASE leaves
+    them untouched, because offsetting a midnight (e.g. a negative `$WORKLOG_TZ`)
+    would wrongly roll them to the previous day."""
+    mod = tz_sql_modifier()
+    return (f"CASE WHEN length({col}) >= 19 THEN substr(datetime({col}, '{mod}'), 1, 10) "
+            f"ELSE substr({col}, 1, 10) END")
 
 
 def local_month_sql(col: str) -> str:
     """Like `local_day_sql` but the local `YYYY-MM` month (for month-to-date views)."""
-    return f"substr(datetime({col}, '{tz_sql_modifier()}'), 1, 7)"
+    mod = tz_sql_modifier()
+    return (f"CASE WHEN length({col}) >= 19 THEN substr(datetime({col}, '{mod}'), 1, 7) "
+            f"ELSE substr({col}, 1, 7) END")

@@ -18,6 +18,12 @@
 --
 -- New rows are already written UTC by the application (datetime('now') / local_to_utc),
 -- so this only fixes pre-v7 historical data. China has no DST, so the fixed -8h is exact.
+--
+-- NOT idempotent — apply ONLY through the migration runner, which gates on
+-- PRAGMA user_version (so it runs exactly once) and wraps the whole file in one
+-- transaction (a stray replay would double-subtract, but then the RENAME COLUMN
+-- below fails because scheduled_at/deadline_at no longer exist, and the whole
+-- transaction rolls back — leaving data intact). Do not hand-run it twice.
 
 -- (1) local -> UTC for every full-timestamp instant column
 UPDATE node  SET created_at = datetime(created_at, '-8 hours')

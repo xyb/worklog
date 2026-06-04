@@ -228,7 +228,7 @@ def cmd_summary_prop(args, con):
         d = _dt.strptime(iso, "%Y-%m-%d").date()
         label = iso
     else:
-        d = date.today()
+        d = _tu.today_date()
         label = "today"
     nid = _ensure_day(con, d)
     if not args.text:
@@ -405,13 +405,13 @@ def _ensure_day(con, d):
 def _ensure_today_day(con):
     """Today's day-node id (thin wrapper over _ensure_day)."""
     from datetime import date
-    return _ensure_day(con, date.today())
+    return _ensure_day(con, _tu.today_date())
 
 def _checkin_collect(con, args):
     """Collect today's habits to check in. Returns [{id, title, priority, kind, already}]."""
     from datetime import date as _d
 
-    today = _d.today().isoformat()
+    today = _tu.today()
     sched_ids = _scheduled_node_ids(con, today)
     kinds = {args.kind} if args.kind else {"habit"}
     if args.all_kinds:
@@ -551,7 +551,7 @@ def _checkin_per_item(con, rows):
         _insert_log(con, nid, body)
         from datetime import date as _d
         log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
-        checkin_metric(con, log_id, nid, _d.today().isoformat())
+        checkin_metric(con, log_id, nid, _tu.today())
         con.commit()
         done_now += 1
         marker = _c("    ✓", "done")

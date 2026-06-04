@@ -125,7 +125,7 @@ def cmd_day(args, con):
         except ValueError:
             sys.exit(f"✗ invalid date '{args.date}' (use YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow)")
     else:
-        target = _date.today().isoformat()
+        target = _tu.today()
     day = con.execute(
         "SELECT * FROM node WHERE kind = 'day' AND title LIKE ? ORDER BY id LIMIT 1",
         (target + "%",),
@@ -424,7 +424,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
         base = 1
 
     # timeline -> path to today (year -> quarter -> month -> week -> day) + today's activity; if no day node today, fall back to the latest month
-    today = date.today().isoformat()
+    today = _tu.today()
     dayn = con.execute(
         "SELECT * FROM node WHERE kind = 'day' AND title LIKE ? ORDER BY id LIMIT 1", (today + "%",)
     ).fetchone()

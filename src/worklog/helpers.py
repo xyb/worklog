@@ -6,6 +6,8 @@ safely importable from any other module without side effects.
 """
 from __future__ import annotations
 
+from . import timeutil as _tu
+
 
 # generic-dimension tags (planning attributes / priority / type) -- excluded from focus --related, which links only on project/topic tags
 GENERIC_TAGS = {
@@ -42,7 +44,7 @@ def _resolve_window(args):
         first = date(y, m, 1)
         nxt = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
         return first.isoformat(), (nxt - timedelta(days=1)).isoformat()
-    today = date.today()
+    today = _tu.today_date()
     since = getattr(args, "since", None) or (today - timedelta(days=today.weekday())).isoformat()
     until = getattr(args, "until", None) or today.isoformat()
     return since, until
@@ -63,9 +65,9 @@ def _resolve_concrete_date(s):
         "day-after-tomorrow": 2, "后天": 2,
     }
     if s in rel:
-        return (date.today() + timedelta(days=rel[s])).isoformat()
+        return (_tu.today_date() + timedelta(days=rel[s])).isoformat()
     if lower in rel:
-        return (date.today() + timedelta(days=rel[lower])).isoformat()
+        return (_tu.today_date() + timedelta(days=rel[lower])).isoformat()
     date.fromisoformat(s)  # validate; raises ValueError on bad input
     return s
 
@@ -176,7 +178,7 @@ def _norm_sched(s):
     s = s.strip()
     if not s:
         return None
-    today = _dt.date.today()
+    today = _tu.today_date()
     if s in ("today", "今天"):
         return today.isoformat()
     if s in ("tomorrow", "明天"):

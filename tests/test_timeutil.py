@@ -105,6 +105,21 @@ class TestLocalDayOf:
         assert tu.local_day_of("2026-06-05 15:59:00") == "2026-06-05"
 
 
+class TestLocalDaySqlGuard:
+    """local_day_sql converts full instants but leaves bare YYYY-MM-DD values alone —
+    a negative offset would otherwise roll a bare midnight date back a day (GPT review)."""
+
+    def test_bare_date_untouched_instant_converted(self, tz_newyork):  # -05:00
+        import sqlite3
+        con = sqlite3.connect(":memory:")
+        con.execute("CREATE TABLE t (at TEXT, label TEXT)")
+        con.execute("INSERT INTO t VALUES ('2026-06-01', 'bare')")            # literal date
+        con.execute("INSERT INTO t VALUES ('2026-06-01 02:00:00', 'instant')")  # UTC instant
+        got = {r[1]: r[0] for r in con.execute(f"SELECT {tu.local_day_sql('at')}, label FROM t")}
+        assert got["bare"] == "2026-06-01"       # NOT shifted to 2026-05-31
+        assert got["instant"] == "2026-05-31"    # 02:00 UTC −05:00 = prev-day 21:00
+
+
 class TestTzSqlModifier:
     def test_fixed_offset(self, tz_shanghai):
         assert tu.tz_sql_modifier() == "+08:00"

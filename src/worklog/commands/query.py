@@ -137,7 +137,7 @@ def cmd_ls(args, con):
         where.append("id NOT IN (SELECT node_id FROM sched)")
     if getattr(args, "recent", None):
         from datetime import date, timedelta
-        cutoff = (date.today() - timedelta(days=args.recent)).isoformat()
+        cutoff = (_tu.today_date() - timedelta(days=args.recent)).isoformat()
         where.append(f"({_tu.local_day_sql('created_at')} >= ? OR {_tu.local_day_sql('closed_at')} >= ? "
                      f"OR id IN (SELECT node_id FROM log WHERE {_tu.local_day_sql('logged_at')} >= ?))")
         params.extend([cutoff, cutoff, cutoff])
@@ -474,7 +474,7 @@ def cmd_projects(args, con):
             parts.append(f"todo {pending}")
         stat = " · ".join(parts)
         if recent and not brief:
-            stat += f" · latest {recent[:16]}"
+            stat += f" · latest {_tu.utc_to_local(recent)[:16]}"
         lines.append(_c(f"#{proj['id']:<3d}", "id") + " " + pri + " " + _c(proj["title"], "header") + " — " + _c(stat, "meta"))
 
     lines, total_lines = _apply_top_limit(lines, args)
@@ -676,12 +676,12 @@ def cmd_logs(args, con):
     # presets: wl logs today / yesterday / week / recent
     preset = getattr(args, "preset", None)
     if preset == "today":
-        args.date = date.today().isoformat()
+        args.date = _tu.today()
     elif preset == "yesterday":
-        args.date = (date.today() - timedelta(days=1)).isoformat()
+        args.date = (_tu.today_date() - timedelta(days=1)).isoformat()
     elif preset == "week":
         # this Monday
-        today = date.today()
+        today = _tu.today_date()
         args.since = (today - timedelta(days=today.weekday())).isoformat()
     elif preset == "recent":
         args.days = 1
@@ -702,7 +702,7 @@ def cmd_logs(args, con):
     # default time window: when no id/date/since given, only the last N days (default 7)
     since = args.since
     if not args.id and not args.date and not since:
-        since = (date.today() - timedelta(days=getattr(args, "days", 7) or 7)).isoformat()
+        since = (_tu.today_date() - timedelta(days=getattr(args, "days", 7) or 7)).isoformat()
     if since:
         where.append(f"{_tu.local_day_sql('logged_at')} >= ?")
         params.append(since)

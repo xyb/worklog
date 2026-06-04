@@ -565,7 +565,7 @@ def cmd_unlog(args, con):
             sys.exit(f"✗ invalid --date '{date}'")
     else:
         from datetime import date as _d
-        date = _d.today().isoformat()
+        date = _tu.today()
 
     sql = (f"SELECT id, logged_at, body FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} = ? "
            "AND body NOT LIKE 'CLOCK\\_%' ESCAPE '\\' ORDER BY id DESC")
@@ -770,7 +770,7 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
         con.execute(sql, sql_params_extra + [nid])
     con.commit()
     label = msg or ("reopened → " + new_status if reopen else "→ " + new_status)
-    note = f" @{at_ts[11:16]}" if at_ts else ""
+    note = f" @{_tu.utc_to_local(at_ts)[11:16]}" if at_ts else ""
     log_hint = " + log" if log_body else ""
     for nid in ids:
         print(f"✓ #{nid} {label}{note}{log_hint}")
