@@ -593,6 +593,44 @@ class TestMetricShowFolding:
         assert "↳ … 3 more datapoints" in out  # 8 - 5 shown = 3 elided
 
 
+class TestMetricDayFolding:
+    """wl day / wl tree day-expansion fold a node's that-day metrics under it,
+    excluding the checkin marker (reflected by [x])."""
+
+    def test_day_folds_metrics(self, cli):
+        from datetime import date
+        today = date.today().isoformat()
+        cli("add", "bg", "-k", "habit")
+        cli("sched", "1", today)
+        cli("tick", "1")  # checkin
+        cli("log", "1", "morning", "--metric", "glucose 5.4 mmol/L", "--metric", "weight 70 kg")
+        _, out, _ = cli("day")
+        assert "↳ [glucose] 5.4 mmol/L" in out
+        assert "↳ [weight] 70 kg" in out
+        assert "[checkin]" not in out  # checkin not repeated as a datapoint line
+
+    def test_day_metric_elision(self, cli):
+        from datetime import date
+        today = date.today().isoformat()
+        cli("add", "cgm", "-k", "habit")
+        cli("sched", "1", today)
+        cli("log", "1", "batch")  # log #1 today
+        for i in range(8):
+            cli("metric", "add", "1", "glucose", str(5 + i), "--on-log", "1")
+        _, out, _ = cli("day")
+        assert "↳ … 3 more datapoints" in out
+
+    def test_tree_day_expansion_folds_metrics(self, cli):
+        from datetime import date
+        today = date.today().isoformat()
+        cli("add", "Lifetime", "-k", "lifetime")          # 1
+        cli("add", today, "-k", "day", "--parent", "1")   # 2
+        cli("add", "bg", "-k", "habit")                    # 3
+        cli("log", "3", "reading", "--metric", "glucose 6.1 mmol/L")
+        _, out, _ = cli("tree", "--root", "2", "--depth", "2")
+        assert "↳ [glucose] 6.1 mmol/L" in out
+
+
 class TestMetricDispatch:
     def test_metric_no_sub_errors(self, cli):
         code, _, err = cli("metric")

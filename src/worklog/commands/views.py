@@ -50,6 +50,7 @@ from ..queries import (
     _status_filter_sql,
     _upsert_prop,
 )
+from .metric import _fmt_value
 from ..render import (
     _PRI_STYLE,
     _STATUS_STYLE,
@@ -390,6 +391,15 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
                 indent = "  " * (depth + 2)
                 shown_body = _truncate_log_body(body, indent_cols=len(indent) + 2, full=full)
                 out(indent + _c("· " + shown_body, "meta"))
+            # fold that day's datapoints (skip checkin marker — reflected by [x]); elide >5
+            indent = "  " * (depth + 2)
+            mrows = [m for m in con.execute(
+                "SELECT tag, value_num, value_text, unit FROM metric WHERE node_id = ? "
+                "AND substr(at, 1, 10) = ? ORDER BY id", (nid, target)) if m["tag"] != "checkin"]
+            for m in mrows[:5]:
+                out(indent + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta"))
+            if len(mrows) > 5:
+                out(indent + _c(f"↳ … {len(mrows) - 5} more datapoints", "meta"))
 
 def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
     """Default wl tree: areas one level (area name only) + timeline expanded up to today (year -> quarter -> month -> week -> today + today's activity).
@@ -485,6 +495,16 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 for body in bodies:
                     shown = _truncate_log_body(body, indent_cols=10, full=full)
                     out("        " + _c("· " + shown, "meta"))
+                # fold this node's datapoints that day beneath it (skip the checkin marker —
+                # it's already reflected by the [x]); over-count elided
+                if day:
+                    mrows = [m for m in con.execute(
+                        "SELECT tag, value_num, value_text, unit FROM metric WHERE node_id = ? "
+                        "AND substr(at, 1, 10) = ? ORDER BY id", (nid, day)) if m["tag"] != "checkin"]
+                    for m in mrows[:5]:
+                        out("        " + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta"))
+                    if len(mrows) > 5:
+                        out("        " + _c(f"↳ … {len(mrows) - 5} more datapoints", "meta"))
 
 def _sec_sort_key(by):
     if by == "priority":

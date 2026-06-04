@@ -133,7 +133,9 @@ carry node-level `"metrics":[...]` on ONE carrier log (1 carrier → N points, e
 day of CGM readings without 288 separate logs).
 
 `wl show` folds a log's metrics beneath it (`↳ [glucose] 5.4 mmol/L`); an empty
-metric-carrier log shows its datapoint directly as a `📊 metric` line; >5 are elided.
+metric-carrier log shows its datapoint directly as a `📊 metric` line. `wl day` /
+`wl tree` day-expansion fold a node's that-day datapoints under it (the `checkin`
+marker is skipped — it's reflected by `[x]`); >5 are elided.
 
 ### Multi-habit interactive check-in: `wl checkin` / `wl tick`
 
