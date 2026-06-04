@@ -36,9 +36,12 @@ worklog 的整个职责就是把工作记录**结构化**，让信息能被精�
 
 单 `node` 表承载一切，`kind` 字段区分类型，`parent_id` 自引用建树。schema 以编号 SQL migrations 的形式发布,放在 `src/worklog/migrations/NNNN_*.sql`,`PRAGMA user_version` 记录最高已应用版本。`ensure_db()` 每条命令都自动 apply pending migrations,显式形式是 `wl migrate`。初始版本见 `src/worklog/migrations/0001_initial_schema.sql`,整体概览见 `README.md`。
 
+> **migration 编写规则**：runner 把每个文件包进一个 `BEGIN/COMMIT`(中途失败整文件回滚),所以 migration 文件本身**不要**写 `BEGIN`/`COMMIT`。
+
 - **kind 取值**：`lifetime / decade / year / quarter / month / week / day / area / project / task / meetlog / habit / signal`（可扩展，但加新 kind 要想清楚它在 tree / projects / summary 里怎么归类）
 - **status 只在 task / habit / meetlog 类用**；时间层级类（year/month/...）跟 project 类 status 留 NULL
-- 表：`node / tag / log / prop / link / sched / date_meta` + 派生 view `v_node_path`
+- 表：`node / tag / log / metric / prop / link / sched / date_meta` + 派生 view `v_node_path`
+- **`node → log → metric` 主干**（log 为中心的核心）：一个 `node` 挂多条 `log`；一条 `log`(带 `type`——`note`/`goal`/`summary`/`overview`/`top5`/…，NULL = 普通笔记)下挂 0..N 条 `metric`。`metric` 是结构化数据点(`tag` = 它是什么，如 `glucose`/`pullups`/`checkin`，开放词表，跟 node 级 `tag` 不同命名空间；外加 `value_num`/`value_text`/`unit`/`note`/`at`)，且**必须挂在一条 log 上**(`metric.log_id` NOT NULL)——所以每个数据点都有 log 载体；`CHECK` 要求有值(纯标记如打卡存 `value_num=1`)。`metric.node_id` 是反范式冗余(免 join 查某 node 的数据点，无 FK；trigger 保证它始终等于载体 log 的 node)。逐场景推进；元信息(goal/summary/…)从 `prop` 迁到 typed log、以及 clock/state，放后续 migration。
 - **两条并列树（都挂 lifetime 下）**（2026-05-29 起）：
   - **责任领域线**：`lifetime → area → project → task`（PARA：area 是跨时间的责任领域，project 归 area，task 归 project）
   - **时间线**：`lifetime → year → quarter → month → week → day`（只承载时间骨架 + 元信息 prop：day 的 goal/summary/summary_at、month 的 top5/goal、week 的 overview）

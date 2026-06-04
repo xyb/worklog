@@ -46,9 +46,17 @@ def db_version(con: sqlite3.Connection) -> int:
 def run_migrations(con: sqlite3.Connection, migrations_dir: Path, verbose: bool = False) -> list[Path]:
     """Apply every migration whose number > `PRAGMA user_version`.
 
-    Each migration runs in its own transaction; `user_version` is bumped
-    per file, so a mid-sequence failure leaves the DB at the last
-    successfully-applied number — re-run after fixing.
+    Each migration runs as ONE atomic transaction (the script is wrapped in
+    BEGIN/COMMIT, with the `user_version` bump inside it). SQLite DDL is
+    transactional, so a mid-script failure rolls the whole file back — no
+    half-applied schema. `user_version` is bumped per file, so a failure
+    leaves the DB at the last fully-applied number — re-run after fixing.
+
+    Why the explicit BEGIN/COMMIT wrap: Python's `executescript()` first
+    COMMITs any pending transaction, then runs statements in autocommit, so
+    each DDL would commit immediately and a later failure would leave earlier
+    statements applied (verified). Wrapping the script in its own transaction
+    is what makes the file atomic.
 
     Downgrade guard: if `PRAGMA user_version` exceeds the highest migration
     number shipped, the DB was written by a newer worklog and must not be
@@ -70,9 +78,11 @@ def run_migrations(con: sqlite3.Connection, migrations_dir: Path, verbose: bool 
             continue
         sql = path.read_text(encoding="utf-8")
         try:
-            con.executescript(sql)
-            con.execute(f"PRAGMA user_version = {n}")
-            con.commit()
+            # Wrap the whole file (plus the version bump) in one transaction so
+            # a mid-script failure rolls everything back instead of leaving a
+            # half-applied schema. executescript() COMMITs pending work first,
+            # then runs this BEGIN…COMMIT atomically.
+            con.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = {n};\nCOMMIT;")
         except Exception:
             con.rollback()
             raise

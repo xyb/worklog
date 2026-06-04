@@ -36,9 +36,12 @@ The tool must be simple enough to **use without reading the manual**, for both h
 
 A single `node` table carries everything; the `kind` field discriminates type; `parent_id` self-reference builds the tree. The schema is delivered as numbered SQL migrations under `src/worklog/migrations/NNNN_*.sql`; `PRAGMA user_version` tracks the highest applied migration. `ensure_db()` auto-applies pending migrations on every command; `wl migrate` is the explicit form. See `src/worklog/migrations/0001_initial_schema.sql` for the initial layout and `README.md` for the high-level picture.
 
+> **Migration-authoring rule**: the runner wraps each file in one `BEGIN/COMMIT` (so a mid-script failure rolls the whole file back). Migration files must therefore **not** contain their own `BEGIN`/`COMMIT`.
+
 - **kind values**: `lifetime / decade / year / quarter / month / week / day / area / project / task / meetlog / habit / signal` (extensible, but new kinds should have a clear place in tree / projects / summary classification)
 - **status only applies to task / habit / meetlog**; time-hierarchy kinds (year/month/...) and project kind leave status NULL
-- Tables: `node / tag / log / prop / link / sched / date_meta` + derived view `v_node_path`
+- Tables: `node / tag / log / metric / prop / link / sched / date_meta` + derived view `v_node_path`
+- **`node → log → metric` spine** (the log-centric core): a `node` has many `log`s; a `log` (carrying a `type` — `note`/`goal`/`summary`/`overview`/`top5`/… , NULL = plain note) has 0..N `metric`s. A `metric` is a structured datapoint (`tag` = what it is e.g. `glucose`/`pullups`/`checkin` (open vocabulary, distinct from node-level `tag`); `value_num`/`value_text`/`unit`/`note`/`at`) and **must hang off a log** (`metric.log_id` NOT NULL) — so every datapoint has a log carrier; a `CHECK` requires a value (pure markers store `value_num=1`). `metric.node_id` is denormalized for join-free per-node queries (no FK; triggers keep it equal to the carrier log's node). Phasing in incrementally; meta-info (goal/summary/…) moving from `prop` to typed logs, and clock/state, land in later migrations.
 - **Two parallel trees, both hung under lifetime**:
   - **Responsibility line**: `lifetime → area → project → task` (PARA model: area is a cross-time responsibility domain, projects belong to areas, tasks belong to projects)
   - **Time line**: `lifetime → year → quarter → month → week → day` (carries only the time skeleton + metadata props: day's `goal`/`summary`/`summary_at`, month's `top5`/`goal`, week's `overview`)
