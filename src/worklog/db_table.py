@@ -50,6 +50,10 @@ def _where(conds: dict):
         return "", []
     frags, params = [], []
     for key, val in conds.items():
+        # `col__op`: split on the first "__". This reserves "__" as the operator
+        # separator, so a column name must not contain "__" (worklog's schema has
+        # none — single underscores like created_at are fine). A typo'd / unknown
+        # op is then caught below rather than silently treated as a column.
         col, _, op = key.partition("__")
         _ident(col)
         op = op or "eq"
