@@ -7,7 +7,7 @@
 
 ## 0. Design goals (north star, override every specific convention)
 
-These two trade-offs are foundational. Pass them before adding or changing any feature; when they conflict with a specific convention below, they win.
+These goals are foundational. Pass them before adding or changing any feature; when they conflict with a specific convention below, they win.
 
 ### G1 Structured-first (no string matching)
 
@@ -23,6 +23,15 @@ The tool must be simple enough to **use without reading the manual**, for both h
 - Keep the **kinds of records hung under a node** restrained (fewer is better): each extra kind is one more concept to remember and one more block to render — heavier, harder to grasp.
 - Self-check any new design with three questions: (1) how many new concepts does it add? (2) does using it force AI/humans to make a choice ("A or B?")? (3) can you guess it right without docs? If any answer is poor, simplify further.
 - When G1 and G2 conflict, find the "structured AND fewest-concepts" answer — don't pile on new tables / fields / commands just to be structured.
+
+### G3 Few dependencies, simple logic, easy to maintain
+
+worklog deliberately stays **dependency-light and low-abstraction**: runtime is **stdlib + `rich` only**, and new features prefer **zero new dependencies**. Logic stays **explicit and direct** — plain SQL over query-builder DSLs, small purpose-built helpers over frameworks/ORMs that hide what is happening. The bar: a maintainer (human or AI) can read any code path top-to-bottom without first learning a hidden layer.
+
+- **Borrow the technique, not the library.** Prefer writing a tens-of-lines, zero-dependency helper over pulling in a package (e.g. a dict→`INSERT` helper in the spirit of sqlite-utils, *not* an ORM; a `field__op`→`WHERE` helper, *not* a query builder).
+- **No ORM / no query builder.** Wrap only the uniform ~80 % (single-table CRUD + existence/count) in thin helpers that map transparently to one SQL statement; keep the complex ~20 % (JOIN / CTE / CASE / time-window) as explicit SQL. Don't reinvent SQL as a kwargs DSL.
+- **Each table / module maintainable on its own.** Minimize forced coupling (hard FK cascades, cross-cutting magic, triggers that hide intent) so one part can change — or be migrated / synced — without rippling everywhere. Lean toward avoiding irreversible operations (prefer soft-delete / status over `DELETE`) where they create cross-table consistency burdens.
+- When a "clever" abstraction conflicts with G3, choose the boringly-simple version. Fewer moving parts beats elegance.
 
 ## 1. Command style (todo.sh school)
 
