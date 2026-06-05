@@ -23,6 +23,17 @@ class TestAtLogNoDoubleConvert:
         assert con.execute("SELECT logged_at FROM log WHERE body='wrapped up'").fetchone()[0] == "2026-06-01 00:00:00"
 
 
+class TestAddDoneTimestamps:
+    def test_created_and_done_share_one_now(self, cli, tmp_db):
+        # `wl add --done` stamps created_at and closed_at from one `now` read,
+        # so they're identical (regression: two separate utc_now() calls could
+        # differ by a second across a boundary).
+        cli("add", "t", "-k", "task", "--done")
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT created_at, closed_at FROM node WHERE id=1").fetchone()
+        assert row["created_at"] == row["closed_at"]
+
+
 class TestStatusTransitions:
     def test_done_sets_status_and_closed_at(self, cli, tmp_db):
         cli("add", "task")

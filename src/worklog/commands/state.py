@@ -150,14 +150,17 @@ def cmd_add(args, con):
 
     # one dict, three SQL variants collapsed — created_at is always stamped (UTC),
     # closed_at only when --done (now) or --done --at (a resolved UTC instant).
+    # One `now` read shared by both fields so a created-and-done task has
+    # created_at == closed_at (the old single-INSERT datetime('now') did this).
+    now = _tu.utc_now()
     row = {
         "parent_id": args.parent, "title": args.title, "kind": args.kind,
         "status": status, "priority": args.priority,
         "scheduled_date": scheduled, "deadline_date": deadline,
-        "body": args.body, "created_at": _tu.utc_now(),
+        "body": args.body, "created_at": now,
     }
     if closed_at == "__NOW__":
-        row["closed_at"] = _tu.utc_now()
+        row["closed_at"] = now
     elif closed_at:
         row["closed_at"] = closed_at
     node_id = _db.insert(con, "node", row)
