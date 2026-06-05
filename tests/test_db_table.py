@@ -136,6 +136,31 @@ class TestFindFilters:
             dt.find(con, "t", **{"n; DROP": 1})
 
 
+class TestClause:
+    def test_empty(self):
+        assert dt.clause() == ([], [])
+
+    def test_eq_and_ops(self):
+        frags, params = dt.clause(kind="task", status__ne="DONE", n__ge=3)
+        assert frags == ["kind = ?", "status != ?", "n >= ?"]
+        assert params == ["task", "DONE", 3]
+
+    def test_in_and_null(self):
+        frags, params = dt.clause(id__in=[1, 2], parent=None)
+        assert frags == ["id IN (?, ?)", "parent IS NULL"]
+        assert params == [1, 2]
+
+    def test_composable_with_manual_fragments(self, con):
+        # the intended use: helper conds + a hand-written subquery fragment
+        _seed(con, [{"name": "a", "kind": "task"}, {"name": "b", "kind": "habit"}])
+        frags, params = dt.clause(kind="task")
+        frags.append("name IN (SELECT name FROM t WHERE name = ?)")
+        params.append("a")
+        sql = "SELECT * FROM t WHERE " + " AND ".join(frags)
+        rows = con.execute(sql, params).fetchall()
+        assert len(rows) == 1 and rows[0]["name"] == "a"
+
+
 class TestFindShape:
     def test_order_and_limit(self, con):
         _seed(con, [{"n": 3}, {"n": 1}, {"n": 2}])

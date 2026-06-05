@@ -289,19 +289,14 @@ def _import_update(con, spec, dry, counters):
         return
     if "parent" in spec and spec["parent"] is not None and not _node_exists(con, spec["parent"]):
         raise ValueError(f"update #{nid}: parent #{spec['parent']} does not exist")
-    fields, vals = [], []
-    for col in ("status", "priority", "title", "scheduled_date", "deadline_date", "body"):
-        if col in spec:
-            fields.append(f"{col} = ?")
-            vals.append(spec[col])
-    if "parent" in spec:  # move; parent_id column name differs from spec key, handled separately
-        fields.append("parent_id = ?")
-        vals.append(spec["parent"])
+    changes = {col: spec[col] for col in
+               ("status", "priority", "title", "scheduled_date", "deadline_date", "body") if col in spec}
+    if "parent" in spec:  # move; spec key 'parent' maps to the parent_id column
+        changes["parent_id"] = spec["parent"]
     if spec.get("status") == "DONE" and "closed_at" not in spec:
-        fields.append("closed_at = ?")
-        vals.append(_tu.utc_now())
-    if fields:
-        con.execute(f"UPDATE node SET {', '.join(fields)} WHERE id = ?", (*vals, nid))
+        changes["closed_at"] = _tu.utc_now()
+    if changes:
+        _db.update(con, "node", nid, changes)
     for t in spec.get("add_tags", []):
         _db.insert(con, "tag", {"node_id": nid, "tag": t}, or_="ignore")
     for t in spec.get("remove_tags", []):

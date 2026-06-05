@@ -643,15 +643,12 @@ def cmd_relog(args, con):
             return
         new_body = new_body.strip()
 
-    sets, params = [], []
+    changes = {}
     if new_body is not None:
-        sets.append("body = ?")
-        params.append(new_body)
+        changes["body"] = new_body
     if new_ts is not None:
-        sets.append("logged_at = ?")
-        params.append(new_ts)
-    params.append(log_id)
-    con.execute(f"UPDATE log SET {', '.join(sets)} WHERE id = ?", params)
+        changes["logged_at"] = new_ts
+    _db.update(con, "log", log_id, changes)
     con.commit()
 
     new_row = _db.get(con, "log", log_id)
@@ -748,20 +745,13 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
             else:
                 _insert_log(con, nid, log_body)
 
-    parts = ["status = ?"]
-    sql_params_extra = [new_status]
+    changes = {"status": new_status}
     if close:
-        if at_ts:
-            parts.append("closed_at = ?")
-            sql_params_extra.append(at_ts)
-        else:
-            parts.append("closed_at = ?")
-            sql_params_extra.append(_tu.utc_now())
+        changes["closed_at"] = at_ts if at_ts else _tu.utc_now()
     elif reopen:
-        parts.append("closed_at = NULL")
-    sql = f"UPDATE node SET {', '.join(parts)} WHERE id = ?"
+        changes["closed_at"] = None   # -> SET closed_at = NULL
     for nid in ids:
-        con.execute(sql, sql_params_extra + [nid])
+        _db.update(con, "node", nid, changes)
     con.commit()
     label = msg or ("reopened → " + new_status if reopen else "→ " + new_status)
     note = f" @{_tu.utc_to_local(at_ts)[11:16]}" if at_ts else ""

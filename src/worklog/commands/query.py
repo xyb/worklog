@@ -112,15 +112,18 @@ def cmd_ls(args, con):
             out(_node_line(con, n, tags=not brief, sched=not brief))
         return
 
-    where = []
-    params = []
+    # simple equality conditions via the helper (no manual col/?/param alignment);
+    # complex fragments (NULL-aware status filter, tag/sched subqueries, the recent
+    # date expression) are ANDed on explicitly below.
+    simple = {}
     if args.kind:
-        where.append("kind = ?")
-        params.append(args.kind)
+        simple["kind"] = args.kind
     if args.status:
-        where.append("status = ?")
-        params.append(args.status)
-    elif not args.all:
+        simple["status"] = args.status
+    if args.parent is not None:
+        simple["parent_id"] = args.parent
+    where, params = _db.clause(**simple)
+    if not args.status and not args.all:
         # default: list non-DONE only (DONE hidden); --show-canceled decides CANCELED visibility separately
         frag, p = _status_filter_sql(inc_cancel, hide_done=True)
         if frag:
@@ -131,9 +134,6 @@ def cmd_ls(args, con):
         for t in tags_list:
             where.append("id IN (SELECT node_id FROM tag WHERE tag = ?)")
             params.append(t.strip())
-    if args.parent is not None:
-        where.append("parent_id = ?")
-        params.append(args.parent)
     if getattr(args, "unscheduled", False):
         where.append("id NOT IN (SELECT node_id FROM sched)")
     if getattr(args, "recent", None):
@@ -687,11 +687,9 @@ def cmd_logs(args, con):
         args.days = 1
         args.brief = True  # explicit brief
 
-    where = []
-    params = []
-    if args.id:
-        where.append("node_id = ?")
-        params.append(args.id)
+    # node_id via the helper; the day-range filters below use local_day_sql (an
+    # expression), so they stay explicit
+    where, params = _db.clause(node_id=args.id) if args.id else ([], [])
     if args.date:
         try:
             args.date = _resolve_concrete_date(args.date)

@@ -218,10 +218,10 @@ def cmd_metric_ls(args, con):
     node = args.node
     if not _node_exists(con, node):
         sys.exit(f"✗ node #{node} not found")
-    where, params = ["node_id = ?"], [node]
+    simple = {"node_id": node}
     if args.tag:
-        where.append("tag = ?")
-        params.append(args.tag.strip())
+        simple["tag"] = args.tag.strip()
+    where, params = _db.clause(**simple)
     if not args.all:
         since, until = _resolve_window(args)  # shared window: --since/--until/--week/--month
         where.append(f"{_tu.local_day_sql('at')} BETWEEN ? AND ?")
@@ -270,37 +270,30 @@ def cmd_metric_edit(args, con):
     if args.unit is not None and args.unit and not is_num:
         sys.exit("✗ unit only applies to a numeric value (this metric's value is text)")
 
-    sets, params = [], []
+    changes = {}
     if args.tag is not None:
         t = args.tag.strip()
         if not t:
             sys.exit("✗ metric tag cannot be empty")
-        sets.append("tag = ?")
-        params.append(t)
+        changes["tag"] = t
     if becomes_num is not None:
-        sets += ["value_num = ?", "value_text = ?"]
-        params += [new_num, new_text]
+        changes["value_num"], changes["value_text"] = new_num, new_text
     if becomes_num is False:
         # a text value has no unit — clear any stale one (no --unit can survive: it was rejected above)
-        sets.append("unit = ?")
-        params.append(None)
+        changes["unit"] = None
     elif args.unit is not None:
-        sets.append("unit = ?")
-        params.append(args.unit or None)  # --unit '' clears
+        changes["unit"] = args.unit or None  # --unit '' clears
     if args.note is not None:
-        sets.append("note = ?")
-        params.append(args.note or None)  # --note '' clears
+        changes["note"] = args.note or None  # --note '' clears
     if args.at is not None:
-        sets.append("at = ?")
-        params.append(_resolve_at(args.at))
+        changes["at"] = _resolve_at(args.at)
 
-    if not sets:
+    if not changes:
         sys.exit("✗ nothing to change (give --value/--num/--text/--unit/--note/--tag/--at)")
 
-    params.append(mid)
-    con.execute(f"UPDATE metric SET {', '.join(sets)} WHERE id = ?", params)
+    _db.update(con, "metric", mid, changes)
     con.commit()
-    out(_c("✓", "done") + " " + _line(con.execute("SELECT * FROM metric WHERE id = ?", (mid,)).fetchone()))
+    out(_c("✓", "done") + " " + _line(_db.get(con, "metric", mid)))
 
 
 def cmd_metric_rm(args, con):

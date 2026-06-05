@@ -42,12 +42,9 @@ def _ident(name: str) -> str:
     return name
 
 
-def _where(conds: dict):
-    """Build a `WHERE …` fragment + bound params from kwargs. ("", []) when empty.
-    Key `col` → `col = ?`; key `col__op` → operator; `col__in=[…]`; `col=None`
-    / `col__ne=None` → `IS NULL` / `IS NOT NULL`."""
-    if not conds:
-        return "", []
+def _clause(conds: dict):
+    """The condition fragment LIST + params for a kwargs dict (no leading WHERE).
+    Shared by `_where` and the public `clause()`."""
     frags, params = [], []
     for key, val in conds.items():
         # `col__op`: split on the first "__". This reserves "__" as the operator
@@ -71,6 +68,30 @@ def _where(conds: dict):
             params.append(val)
         else:
             raise ValueError(f"unknown filter operator {op!r} (in {key!r})")
+    return frags, params
+
+
+def clause(**conds):
+    """WHERE-condition fragments + bound params from kwargs (same `col__op` grammar
+    as `find`). For composing into a hand-assembled query that ALSO needs complex
+    fragments (subqueries, JOINs, expressions): build the simple equality/operator
+    conditions here — safe, no manual col / ? / param three-way alignment — then
+    AND your own fragments onto the returned list. Returns (list[str], list).
+
+        frags, params = clause(kind="task", status__ne="DONE")
+        frags.append("id IN (SELECT node_id FROM tag WHERE tag = ?)"); params.append(t)
+        sql = "SELECT * FROM node" + (" WHERE " + " AND ".join(frags) if frags else "")
+    """
+    return _clause(conds)
+
+
+def _where(conds: dict):
+    """Build a `WHERE …` fragment + bound params from a kwargs dict. ("", []) when
+    empty. Key `col` → `col = ?`; `col__op` → operator; `col__in=[…]`; `col=None`
+    / `col__ne=None` → `IS NULL` / `IS NOT NULL`."""
+    frags, params = _clause(conds)
+    if not frags:
+        return "", []
     return " WHERE " + " AND ".join(frags), params
 
 
