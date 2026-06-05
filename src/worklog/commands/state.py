@@ -313,7 +313,7 @@ def cmd_start(args, con):
             out(_c(f"⚠ #{nid} already has a running clock — wl stop it first (skipped)", "later"))
             continue
         _db.update(con, "node", nid, {"status": "DOING"})
-        con.execute("INSERT INTO clock (node_id, start_at) VALUES (?, ?)", (nid, ts))
+        _db.insert(con, "clock", {"node_id": nid, "start_at": ts})
         started.append(nid)
     con.commit()
     for nid in started:

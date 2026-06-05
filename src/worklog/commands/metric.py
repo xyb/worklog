@@ -186,8 +186,7 @@ def cmd_metric_add(args, con):
 
     # carrier log: an existing one (--on-log, must belong to the node, not CLOCK) or a new one.
     if args.on_log is not None:
-        log = con.execute("SELECT id, node_id, logged_at, body FROM log WHERE id = ?",
-                          (args.on_log,)).fetchone()
+        log = _db.get(con, "log", args.on_log)
         if not log:
             sys.exit(f"✗ log #L{args.on_log} not found")
         if log["node_id"] != node:
@@ -210,7 +209,7 @@ def cmd_metric_add(args, con):
     except Exception:
         con.rollback()
         raise
-    out(_c("✓", "done") + " " + _line(con.execute("SELECT * FROM metric WHERE id = ?", (mid,)).fetchone()))
+    out(_c("✓", "done") + " " + _line(_db.get(con, "metric", mid)))
 
 
 def cmd_metric_ls(args, con):
@@ -242,7 +241,7 @@ def cmd_metric_ls(args, con):
 def cmd_metric_edit(args, con):
     """Edit fields of a single metric."""
     mid = args.metric_id
-    row = con.execute("SELECT * FROM metric WHERE id = ?", (mid,)).fetchone()
+    row = _db.get(con, "metric", mid)
     if not row:
         sys.exit(f"✗ metric #M{mid} not found")
 
@@ -304,17 +303,17 @@ def cmd_metric_rm(args, con):
     # print "✓ deleted" for work that a later failure rolls back.
     msgs = []
     for mid in args.metric_ids:
-        row = con.execute("SELECT log_id FROM metric WHERE id = ?", (mid,)).fetchone()
+        row = _db.find_one(con, "metric", cols="log_id", id=mid)
         if not row:
             msgs.append(f"(metric #M{mid} not found)")
             continue
         log_id = row["log_id"]
-        con.execute("DELETE FROM metric WHERE id = ?", (mid,))
+        _db.delete(con, "metric", id=mid)
         msg = f"✓ deleted metric #M{mid}"
-        log = con.execute("SELECT body, tag FROM log WHERE id = ?", (log_id,)).fetchone()
-        remaining = con.execute("SELECT COUNT(*) FROM metric WHERE log_id = ?", (log_id,)).fetchone()[0]
+        log = _db.find_one(con, "log", cols="body, tag", id=log_id)
+        remaining = _db.count(con, "metric", log_id=log_id)
         if log and log["tag"] == _CARRIER_TYPE and not (log["body"] or "").strip() and remaining == 0:
-            con.execute("DELETE FROM log WHERE id = ?", (log_id,))
+            _db.delete(con, "log", id=log_id)
             msg += f" + its empty carrier log #L{log_id}"
         msgs.append(msg)
     con.commit()

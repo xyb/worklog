@@ -45,7 +45,7 @@ def _insert_log(con, nid, entry):
             # date only, no time: a degenerate "logged on this day" — keep the
             # bare local date verbatim (no instant to convert; day-grouping reads it as-is)
             logged_at = date
-        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)", (nid, logged_at, body))
+        _db.insert(con, "log", {"node_id": nid, "logged_at": logged_at, "body": body})
     elif time_part:
         # no date but time given -> today + that time (local) -> store UTC
         if not _re.match(r"^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$", time_part):
@@ -53,17 +53,15 @@ def _insert_log(con, nid, entry):
         if time_part.count(":") == 1:
             time_part += ":00"
         logged_at = _tu.local_to_utc(f"{_tu.today()} {time_part}")
-        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)", (nid, logged_at, body))
+        _db.insert(con, "log", {"node_id": nid, "logged_at": logged_at, "body": body})
     else:
-        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)", (nid, _tu.utc_now(), body))
+        _db.insert(con, "log", {"node_id": nid, "logged_at": _tu.utc_now(), "body": body})
 
 def _project_members(con, proj_id):
     """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""
     ids = set()
     proj_tags = {r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=proj_id)} - GENERIC_TAGS
-    for r in con.execute(
-        "SELECT id FROM node WHERE parent_id = ? AND kind IN ('task','meetlog','habit')", (proj_id,)
-    ):
+    for r in _db.find(con, "node", cols="id", parent_id=proj_id, kind__in=("task", "meetlog", "habit")):
         ids.add(r["id"])
     if proj_tags:
         qm = ",".join("?" * len(proj_tags))
@@ -152,21 +150,16 @@ def _latest_typed_log(con, node_id, log_type):
     history-preserving meta field (goal / summary / overview / top5). Returns the Row
     (body, logged_at) or None. Each edit appends a new log, so history is kept and the
     latest one is the current value."""
-    return con.execute(
-        "SELECT body, logged_at FROM log WHERE node_id = ? AND tag = ? "
-        "ORDER BY logged_at DESC, id DESC LIMIT 1",
-        (node_id, log_type),
-    ).fetchone()
+    return _db.find_one(con, "log", cols="body, logged_at", node_id=node_id, tag=log_type,
+                        order="logged_at DESC, id DESC")
 
 
 def _set_typed_log(con, node_id, log_type, body):
     """Append a new typed log (history-preserving write of a meta field). No commit;
     caller controls the transaction. Returns the new log id."""
-    from . import timeutil as _tu
-    return con.execute(
-        "INSERT INTO log (node_id, tag, body, logged_at) VALUES (?, ?, ?, ?)",
-        (node_id, log_type, body, _tu.utc_now()),
-    ).lastrowid
+    return _db.insert(con, "log", {
+        "node_id": node_id, "tag": log_type, "body": body, "logged_at": _tu.utc_now(),
+    })
 
 
 def _has_checkin(con, node_id, day):

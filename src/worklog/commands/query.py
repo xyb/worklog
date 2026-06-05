@@ -894,7 +894,7 @@ def _show_one(args, con):
     brief = _is_brief(args, "no_timeline")
     if brief:
         return
-    logs = list(con.execute("SELECT id, logged_at, body, tag FROM log WHERE node_id = ? ORDER BY id", (args.id,)))
+    logs = _db.find(con, "log", cols="id, logged_at, body, tag", node_id=args.id, order="id")
     # event tuple: (ts, kind_label, extra, log_id) -- log_id only for log events, meta events None
     # events: (ts, kind, extra, log_id, metrics) — metrics folded under their log line
     def _mline(m):
