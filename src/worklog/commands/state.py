@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .. import timeutil as _tu
-from .. import db_table as _dt
+from .. import db_table as _db
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -160,7 +160,7 @@ def cmd_add(args, con):
         row["closed_at"] = _tu.utc_now()
     elif closed_at:
         row["closed_at"] = closed_at
-    node_id = _dt.insert(con, "node", row)
+    node_id = _db.insert(con, "node", row)
     for t in tags:
         con.execute("INSERT OR IGNORE INTO tag (node_id, tag) VALUES (?, ?)", (node_id, t))
     if args.proj:
@@ -172,7 +172,7 @@ def cmd_add(args, con):
             d = _resolve_concrete_date(args.sched)
         except ValueError:
             sys.exit(f"✗ invalid --sched date '{args.sched}' (use YYYY-MM-DD / today / tomorrow / day-after-tomorrow / yesterday)")
-        _dt.insert(con, "sched", {"node_id": node_id, "on_date": d, "created_at": _tu.utc_now()})
+        _db.insert(con, "sched", {"node_id": node_id, "on_date": d, "created_at": _tu.utc_now()})
         sched_hint = " " + _c(f"@{d}", "planned")
 
     # --link: attach a vault doc
@@ -191,7 +191,7 @@ def cmd_add(args, con):
         if at_ts:
             # at_ts is already a UTC instant — insert it directly (don't round-trip
             # through _insert_log's dict path, which would re-apply local→UTC)
-            _dt.insert(con, "log", {"node_id": node_id, "logged_at": at_ts, "body": log_body.strip()})
+            _db.insert(con, "log", {"node_id": node_id, "logged_at": at_ts, "body": log_body.strip()})
         else:
             _insert_log(con, node_id, log_body.strip())
         created_log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -205,7 +205,7 @@ def cmd_add(args, con):
         if created_log_id is not None:
             mlog_id = created_log_id
         else:
-            mlog_id = _dt.insert(con, "log", {
+            mlog_id = _db.insert(con, "log", {
                 "node_id": node_id, "logged_at": at_ts or _tu.utc_now(),
                 "body": "", "tag": _CARRIER_TYPE,
             })
@@ -741,7 +741,7 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
         for nid in ids:
             if at_ts:
                 # at_ts is already UTC — insert directly (avoid _insert_log re-localizing)
-                _dt.insert(con, "log", {"node_id": nid, "logged_at": at_ts, "body": log_body})
+                _db.insert(con, "log", {"node_id": nid, "logged_at": at_ts, "body": log_body})
             else:
                 _insert_log(con, nid, log_body)
 

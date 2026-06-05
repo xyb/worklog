@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .. import timeutil as _tu
-from .. import db_table as _dt
+from .. import db_table as _db
 from .metric import checkin_metric
 from ..queries import _has_checkin, _latest_typed_log, _set_typed_log
 from ..helpers import (
@@ -324,7 +324,7 @@ def cmd_sched(args, con):
             if exists:
                 out(_c(f"= #{nid} already on recurring schedule: {rule}", "meta"))
             else:
-                _dt.insert(con, "sched", {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
+                _db.insert(con, "sched", {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
                 out(_c(f"✓ #{nid} recurring schedule: {rule}", "meta"))
         con.commit()
     if args.when:
@@ -340,7 +340,7 @@ def cmd_sched(args, con):
             if exists:
                 out(_c(f"= #{nid} already scheduled to {d}", "meta"))
             else:
-                _dt.insert(con, "sched", {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
+                _db.insert(con, "sched", {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
                 out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
         con.commit()
 
@@ -363,7 +363,7 @@ def _ensure_time_ancestors(con, d):
         row = con.execute(lookup_sql, lookup_param).fetchone()
         if row:
             return row["id"]
-        return _dt.insert(con, "node", {
+        return _db.insert(con, "node", {
             "parent_id": parent_id, "title": new_title, "kind": kind, "created_at": _tu.utc_now(),
         })
 
@@ -395,7 +395,7 @@ def _ensure_day(con, d):
     if r:
         return r["id"]
     wk_id = _ensure_time_ancestors(con, d)
-    nid = _dt.insert(con, "node", {
+    nid = _db.insert(con, "node", {
         "parent_id": wk_id, "title": iso, "kind": "day", "created_at": _tu.utc_now(),
     })
     con.commit()

@@ -22,7 +22,7 @@ import re
 import sys
 
 from .. import timeutil as _tu
-from .. import db_table as _dt
+from .. import db_table as _db
 from ..helpers import _resolve_concrete_date, _resolve_window
 from ..queries import _node_exists, _has_checkin
 from ..render import _c, out
@@ -124,7 +124,7 @@ def _insert_metric_on_log(con, log_id, node_id, tag, value, *,
     u = unit if vnum is not None else None  # unit only meaningful on a numeric value
     # explicit UTC "now" when no time given, so we never fall back to the localtime
     # column DEFAULT; a caller-supplied `at` is already UTC (or a bare date)
-    return _dt.insert(con, "metric", {
+    return _db.insert(con, "metric", {
         "log_id": log_id, "node_id": node_id, "tag": tag,
         "value_num": vnum, "value_text": vtext, "unit": u, "note": note,
         "at": at if at else _tu.utc_now(),
@@ -196,7 +196,7 @@ def cmd_metric_add(args, con):
         if at is None:
             at = log["logged_at"]  # inherit the existing log's time, not "now"
     else:
-        log_id = _dt.insert(con, "log", {
+        log_id = _db.insert(con, "log", {
             "node_id": node, "logged_at": at or _tu.utc_now(),
             "body": args.body or "", "tag": _CARRIER_TYPE,
         })
