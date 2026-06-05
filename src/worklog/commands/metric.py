@@ -22,6 +22,7 @@ import re
 import sys
 
 from .. import timeutil as _tu
+from .. import db_table as _dt
 from ..helpers import _resolve_concrete_date, _resolve_window
 from ..queries import _node_exists, _has_checkin
 from ..render import _c, out
@@ -121,12 +122,13 @@ def _insert_metric_on_log(con, log_id, node_id, tag, value, *,
     if vnum is None and vtext is None:
         vnum = 1.0  # pure marker — satisfies CHECK, no reserved tag frozen into schema
     u = unit if vnum is not None else None  # unit only meaningful on a numeric value
-    cols = ["log_id", "node_id", "tag", "value_num", "value_text", "unit", "note", "at"]
-    # explicit UTC "now" when no time given, so we never fall back to the
-    # localtime column DEFAULT; a caller-supplied `at` is already UTC (or a bare date)
-    vals = [log_id, node_id, tag, vnum, vtext, u, note, at if at else _tu.utc_now()]
-    ph = ",".join("?" * len(cols))
-    return con.execute(f"INSERT INTO metric ({','.join(cols)}) VALUES ({ph})", vals).lastrowid
+    # explicit UTC "now" when no time given, so we never fall back to the localtime
+    # column DEFAULT; a caller-supplied `at` is already UTC (or a bare date)
+    return _dt.insert(con, "metric", {
+        "log_id": log_id, "node_id": node_id, "tag": tag,
+        "value_num": vnum, "value_text": vtext, "unit": u, "note": note,
+        "at": at if at else _tu.utc_now(),
+    })
 
 
 def _parse_metric_spec(s):
@@ -194,14 +196,10 @@ def cmd_metric_add(args, con):
         if at is None:
             at = log["logged_at"]  # inherit the existing log's time, not "now"
     else:
-        body = args.body or ""
-        if at:
-            con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, ?, ?, ?)",
-                        (node, at, body, _CARRIER_TYPE))
-        else:
-            con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, ?, ?, ?)",
-                        (node, _tu.utc_now(), body, _CARRIER_TYPE))
-        log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+        log_id = _dt.insert(con, "log", {
+            "node_id": node, "logged_at": at or _tu.utc_now(),
+            "body": args.body or "", "tag": _CARRIER_TYPE,
+        })
 
     # carrier-log INSERT + metric INSERT are one unit of work; keep them atomic so
     # a failed metric INSERT can't leave an orphan carrier log.

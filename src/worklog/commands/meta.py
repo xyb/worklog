@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .. import timeutil as _tu
+from .. import db_table as _dt
 from .metric import checkin_metric
 from ..queries import _has_checkin, _latest_typed_log, _set_typed_log
 from ..helpers import (
@@ -323,7 +324,7 @@ def cmd_sched(args, con):
             if exists:
                 out(_c(f"= #{nid} already on recurring schedule: {rule}", "meta"))
             else:
-                con.execute("INSERT INTO sched (node_id, rrule, created_at) VALUES (?, ?, datetime('now'))", (nid, rule))
+                _dt.insert(con, "sched", {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
                 out(_c(f"✓ #{nid} recurring schedule: {rule}", "meta"))
         con.commit()
     if args.when:
@@ -339,7 +340,7 @@ def cmd_sched(args, con):
             if exists:
                 out(_c(f"= #{nid} already scheduled to {d}", "meta"))
             else:
-                con.execute("INSERT INTO sched (node_id, on_date, created_at) VALUES (?, ?, datetime('now'))", (nid, d))
+                _dt.insert(con, "sched", {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
                 out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
         con.commit()
 
@@ -362,10 +363,9 @@ def _ensure_time_ancestors(con, d):
         row = con.execute(lookup_sql, lookup_param).fetchone()
         if row:
             return row["id"]
-        return con.execute(
-            "INSERT INTO node (parent_id, title, kind, created_at) VALUES (?, ?, ?, datetime('now'))",
-            (parent_id, new_title, kind),
-        ).lastrowid
+        return _dt.insert(con, "node", {
+            "parent_id": parent_id, "title": new_title, "kind": kind, "created_at": _tu.utc_now(),
+        })
 
     lt = con.execute("SELECT id FROM node WHERE kind='lifetime' ORDER BY id LIMIT 1").fetchone()
     lt_id = lt["id"] if lt else None
@@ -395,12 +395,11 @@ def _ensure_day(con, d):
     if r:
         return r["id"]
     wk_id = _ensure_time_ancestors(con, d)
-    cur = con.execute(
-        "INSERT INTO node (parent_id, title, kind, created_at) VALUES (?, ?, 'day', datetime('now'))",
-        (wk_id, iso),
-    )
+    nid = _dt.insert(con, "node", {
+        "parent_id": wk_id, "title": iso, "kind": "day", "created_at": _tu.utc_now(),
+    })
     con.commit()
-    return cur.lastrowid
+    return nid
 
 def _ensure_today_day(con):
     """Today's day-node id (thin wrapper over _ensure_day)."""

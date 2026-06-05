@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .. import timeutil as _tu
+from .. import db_table as _dt
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -147,25 +148,19 @@ def cmd_add(args, con):
     except ValueError as e:
         sys.exit(f"✗ {e}")
 
+    # one dict, three SQL variants collapsed — created_at is always stamped (UTC),
+    # closed_at only when --done (now) or --done --at (a resolved UTC instant).
+    row = {
+        "parent_id": args.parent, "title": args.title, "kind": args.kind,
+        "status": status, "priority": args.priority,
+        "scheduled_date": scheduled, "deadline_date": deadline,
+        "body": args.body, "created_at": _tu.utc_now(),
+    }
     if closed_at == "__NOW__":
-        cur = con.execute(
-            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_date, deadline_date, body, closed_at, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))""",
-            (args.parent, args.title, args.kind, status, args.priority, scheduled, deadline, args.body),
-        )
+        row["closed_at"] = _tu.utc_now()
     elif closed_at:
-        cur = con.execute(
-            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_date, deadline_date, body, closed_at, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-            (args.parent, args.title, args.kind, status, args.priority, scheduled, deadline, args.body, closed_at),
-        )
-    else:
-        cur = con.execute(
-            """INSERT INTO node (parent_id, title, kind, status, priority, scheduled_date, deadline_date, body, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))""",
-            (args.parent, args.title, args.kind, status, args.priority, scheduled, deadline, args.body),
-        )
-    node_id = cur.lastrowid
+        row["closed_at"] = closed_at
+    node_id = _dt.insert(con, "node", row)
     for t in tags:
         con.execute("INSERT OR IGNORE INTO tag (node_id, tag) VALUES (?, ?)", (node_id, t))
     if args.proj:
@@ -177,7 +172,7 @@ def cmd_add(args, con):
             d = _resolve_concrete_date(args.sched)
         except ValueError:
             sys.exit(f"✗ invalid --sched date '{args.sched}' (use YYYY-MM-DD / today / tomorrow / day-after-tomorrow / yesterday)")
-        con.execute("INSERT INTO sched (node_id, on_date, created_at) VALUES (?, ?, datetime('now'))", (node_id, d))
+        _dt.insert(con, "sched", {"node_id": node_id, "on_date": d, "created_at": _tu.utc_now()})
         sched_hint = " " + _c(f"@{d}", "planned")
 
     # --link: attach a vault doc
@@ -196,8 +191,7 @@ def cmd_add(args, con):
         if at_ts:
             # at_ts is already a UTC instant — insert it directly (don't round-trip
             # through _insert_log's dict path, which would re-apply local→UTC)
-            con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)",
-                        (node_id, at_ts, log_body.strip()))
+            _dt.insert(con, "log", {"node_id": node_id, "logged_at": at_ts, "body": log_body.strip()})
         else:
             _insert_log(con, node_id, log_body.strip())
         created_log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
@@ -210,14 +204,11 @@ def cmd_add(args, con):
     if specs:
         if created_log_id is not None:
             mlog_id = created_log_id
-        elif at_ts:
-            con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, ?, '', ?)",
-                        (node_id, at_ts, _CARRIER_TYPE))
-            mlog_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
         else:
-            con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, ?, '', ?)",
-                        (node_id, _tu.utc_now(), _CARRIER_TYPE))
-            mlog_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+            mlog_id = _dt.insert(con, "log", {
+                "node_id": node_id, "logged_at": at_ts or _tu.utc_now(),
+                "body": "", "tag": _CARRIER_TYPE,
+            })
         nm = attach_metric_specs(con, mlog_id, node_id, specs, at=at_ts or None)
         metric_hint = f" + {nm} metric(s)"
 
@@ -750,7 +741,7 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
         for nid in ids:
             if at_ts:
                 # at_ts is already UTC — insert directly (avoid _insert_log re-localizing)
-                con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?, ?, ?)", (nid, at_ts, log_body))
+                _dt.insert(con, "log", {"node_id": nid, "logged_at": at_ts, "body": log_body})
             else:
                 _insert_log(con, nid, log_body)
 

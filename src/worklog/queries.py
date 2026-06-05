@@ -10,6 +10,7 @@ from __future__ import annotations
 import sqlite3
 import sys
 from . import timeutil as _tu
+from . import db_table as _dt
 from .helpers import GENERIC_TAGS  # noqa: F401
 from .helpers import _resolve_concrete_date
 
@@ -140,7 +141,7 @@ def _collect_descendants(con, root_id):
     return acc
 
 def _has_tag(con, nid, tag):
-    return con.execute("SELECT 1 FROM tag WHERE node_id = ? AND tag = ? LIMIT 1", (nid, tag)).fetchone() is not None
+    return _dt.exists(con, "tag", node_id=nid, tag=tag)
 
 
 _META_LOG_TYPES = ("goal", "summary", "overview", "top5")  # meta fields stored as typed logs
@@ -227,12 +228,12 @@ def _node_clock_min(con, nid, day=None):
     return max(clock, span)
 
 def _node_exists(con, node_id):
-    return con.execute("SELECT 1 FROM node WHERE id = ?", (node_id,)).fetchone() is not None
+    return _dt.exists(con, "node", id=node_id)
 
 
 def _node_tags(con, nid):
     """Return the tag list for a node (insertion order)."""
-    return [r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (nid,))]
+    return [r["tag"] for r in _dt.find(con, "tag", cols="tag", node_id=nid)]
 
 
 def _check_ids_exist(con, ids):
