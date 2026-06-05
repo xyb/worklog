@@ -167,3 +167,44 @@ class TestDayPlannedNotDoneSuppression:
         cli("sched", "1", "2026-06-15")
         _, out, _ = cli("day", "2026-06-15")
         assert "planned·not-done" in out
+
+
+class TestDayNature:
+    """The wl day header states what kind of day it is — workday / weekend, refined to
+    holiday / leave / workday by a date_meta label (set via wl dateinfo)."""
+
+    def test_weekday_is_workday(self, cli):
+        # 2026-06-05 is a Friday, no date_meta -> workday baseline
+        _, out, _ = cli("day", "2026-06-05")
+        assert "2026-06-05 Fri · workday" in out
+
+    def test_weekend_is_weekend(self, cli):
+        # 2026-06-06 is a Saturday
+        _, out, _ = cli("day", "2026-06-06")
+        assert "Sat · weekend" in out
+
+    def test_holiday_label_classified(self, cli):
+        # a weekday holiday shows the label, not a contradictory "workday"
+        cli("dateinfo", "2026-06-01", "Children's Day holiday")  # a Monday
+        _, out, _ = cli("day", "2026-06-01")
+        assert "Children's Day holiday" in out
+        assert "workday" not in out
+
+    def test_leave_label_classified(self, cli):
+        cli("dateinfo", "2026-06-08", "annual leave")  # a Monday
+        _, out, _ = cli("day", "2026-06-08")
+        assert "annual leave" in out
+        assert "workday" not in out
+
+    def test_makeup_workday_on_weekend(self, cli):
+        # a Saturday makeup workday: the label says working, so no "weekend"
+        cli("dateinfo", "2026-06-13", "makeup workday (swap)")  # a Saturday
+        _, out, _ = cli("day", "2026-06-13")
+        assert "makeup workday" in out
+        assert "weekend" not in out
+
+    def test_neutral_label_keeps_weekday_baseline(self, cli):
+        # a solar term is neither work nor rest: keep the weekday baseline + append the label
+        cli("dateinfo", "2026-05-21", "Grain Buds solar term")  # a Thursday
+        _, out, _ = cli("day", "2026-05-21")
+        assert "workday (Grain Buds solar term)" in out

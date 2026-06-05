@@ -721,7 +721,7 @@ Dedup: by default a task appearing in multiple projects (via parent + shared tag
 
     dy = sub.add_parser("day", parents=[filters],
         help="full view of a day (default today): bucket -> project/plan -> task -> log",
-        description="Full view of one day: work/personal/other -> (planned/unplanned/project/priority) -> task -> indented logs. Top shows end-of-day summary + today's goal + Top5 (if set). Defaults to log-date-driven (works for past days too).",
+        description="Full view of one day: work/personal/other -> (planned/unplanned/project/priority) -> task -> indented logs. The header states the day's nature (workday / weekend, refined to holiday / leave / makeup by a `wl dateinfo` label). Top shows end-of-day summary + today's goal + Top5 (if set). Defaults to log-date-driven (works for past days too).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:

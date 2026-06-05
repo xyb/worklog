@@ -141,10 +141,11 @@ def cmd_day(args, con):
     else:
         target = _tu.today()
     day = _db.query_one(con, "node", kind="day", title__like=target + "%", order="id")
-    # date context: date + auto-computed weekday + date_meta label (holiday/vacation/working-day swap)
+    # date context: date + weekday + the day's nature (workday/weekend/holiday/leave,
+    # refined by any date_meta label) so the header conveys "what kind of day" at a glance
     wd = _cn_weekday(target)
-    label = _date_label(con, target)
-    head = target + (f" {wd}" if wd else "") + (f" · {label}" if label else "")
+    nature = _day_nature(con, target)
+    head = target + (f" {wd}" if wd else "") + (f" · {nature}" if nature else "")
     out(_c(head, "header"))
     # meta (history-preserving typed logs on the day node): goal / recap(summary) / Top5;
     # plus the parent week node's overview. Each is the latest log of that type.
@@ -701,6 +702,39 @@ def _date_label(con, target):
     """Label (holiday/vacation/working-day-swap) for the date from date_meta, or None."""
     r = _db.query_one(con, "date_meta", cols="label", date=target)
     return r["label"] if r else None
+
+
+# date_meta labels are free text; these hints classify one into a work/rest word so the
+# wl day header reads at a glance. Matched case-insensitively (Chinese is unaffected by lower()).
+_OFF_HINTS = ("holiday", "vacation", "leave", "off", "假", "休", "假期")
+_WORK_HINTS = ("makeup", "swap", "working", "调休", "补班", "上班")
+
+
+def _day_nature(con, target):
+    """A short 'what kind of day is this' note for the wl day header, so every day reads
+    at a glance — workday / weekend by default, refined to holiday / leave / workday when
+    a date_meta label (set via `wl dateinfo`) says so. The baseline comes from the weekday;
+    an explicit label overrides the work/rest word and is appended for context (e.g.
+    `workday (Grain Buds solar term)`, `holiday (Labor Day)`). Returns None on a bad date."""
+    from datetime import date
+    try:
+        y, m, d = (int(x) for x in target.split("-"))
+        wd = date(y, m, d).weekday()  # 0=Mon .. 6=Sun
+    except (ValueError, IndexError):
+        return None
+    base = "workday" if wd < 5 else "weekend"
+    label = _date_label(con, target)
+    if not label:
+        return base
+    low = label.lower()
+    if any(h in low for h in _OFF_HINTS):
+        status = "leave" if any(h in low for h in ("leave", "vacation", "休")) else "holiday"
+    elif any(h in low for h in _WORK_HINTS):
+        status = "workday"
+    else:
+        status = base  # a neutral annotation (e.g. a solar term): keep the weekday baseline
+    # append the label unless the status word is already in it (avoid "holiday (… holiday)")
+    return f"{status} ({label})" if status not in low else label
 
 
 
