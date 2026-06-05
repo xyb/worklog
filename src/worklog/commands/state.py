@@ -479,7 +479,7 @@ def cmd_tick(args, con):
         checkin_metric(con, log_id, nid, today)
         if args.done:
             con.execute(
-                "UPDATE node SET status = 'DONE', closed_at = datetime('now') WHERE id = ?", (nid,)
+                "UPDATE node SET status = 'DONE', closed_at = ? WHERE id = ?", (_tu.utc_now(), nid)
             )
     con.commit()
     for nid in ids:
@@ -755,7 +755,8 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
             parts.append("closed_at = ?")
             sql_params_extra.append(at_ts)
         else:
-            parts.append("closed_at = datetime('now')")
+            parts.append("closed_at = ?")
+            sql_params_extra.append(_tu.utc_now())
     elif reopen:
         parts.append("closed_at = NULL")
     sql = f"UPDATE node SET {', '.join(parts)} WHERE id = ?"

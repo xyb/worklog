@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .. import db_table as _db
+from .. import timeutil as _tu
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -189,18 +190,14 @@ def cmd_apply(args, con):
             parent_id = stack.get(depth - 1) if depth > 0 else None
             status = _MARKER_STATUS.get(f.get("marker", " "), "TODO")
             kind = f.get("kind", "task")
+            now = _tu.utc_now()
+            node_row = {
+                "parent_id": parent_id, "title": f["title"], "kind": kind,
+                "status": status, "priority": f.get("priority"), "created_at": now,
+            }
             if status == "DONE":
-                cur = con.execute(
-                    "INSERT INTO node (parent_id,title,kind,status,priority,closed_at,created_at) "
-                    "VALUES (?,?,?,?,?, datetime('now'), datetime('now'))",
-                    (parent_id, f["title"], kind, status, f.get("priority")),
-                )
-            else:
-                cur = con.execute(
-                    "INSERT INTO node (parent_id,title,kind,status,priority,created_at) VALUES (?,?,?,?,?, datetime('now'))",
-                    (parent_id, f["title"], kind, status, f.get("priority")),
-                )
-            nid = cur.lastrowid
+                node_row["closed_at"] = now
+            nid = _db.insert(con, "node", node_row)
             for t in f.get("tags", []):
                 _db.insert(con, "tag", {"node_id": nid, "tag": t}, or_="ignore")
             for kind_, val in o["subs"]:
@@ -230,29 +227,20 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         if spec["parent_ref"] not in ref_map:
             raise ValueError(f"parent_ref '{spec['parent_ref']}' undefined (must appear before reference)")
         pid = ref_map[spec["parent_ref"]]
-    closed_at = None
-    if status == "DONE":
-        closed_at = "datetime_now"  # placeholder; the SQL below uses datetime('now') (UTC)
-
     if dry:
         nid = f"<ref:{spec.get('ref', '?')}>"
         counters["add"] += 1
     else:
-        if closed_at:
-            cur = con.execute(
-                "INSERT INTO node (parent_id,title,kind,status,priority,scheduled_date,deadline_date,body,closed_at,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?, datetime('now'), datetime('now'))",
-                (pid, title, kind, status, spec.get("priority"), sched,
-                 spec.get("deadline"), spec.get("body")),
-            )
-        else:
-            cur = con.execute(
-                "INSERT INTO node (parent_id,title,kind,status,priority,scheduled_date,deadline_date,body,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?, datetime('now'))",
-                (pid, title, kind, status, spec.get("priority"), sched,
-                 spec.get("deadline"), spec.get("body")),
-            )
-        nid = cur.lastrowid
+        now = _tu.utc_now()
+        node_row = {
+            "parent_id": pid, "title": title, "kind": kind, "status": status,
+            "priority": spec.get("priority"), "scheduled_date": sched,
+            "deadline_date": spec.get("deadline"), "body": spec.get("body"),
+            "created_at": now,
+        }
+        if status == "DONE":
+            node_row["closed_at"] = now
+        nid = _db.insert(con, "node", node_row)
         counters["add"] += 1
         for t in spec.get("tags", []):
             _db.insert(con, "tag", {"node_id": nid, "tag": t}, or_="ignore")
@@ -270,8 +258,9 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
                     import_metric(con, log_id, nid, mspec, default_at=log_at)
         # node-level metrics → a dedicated carrier log (1 carrier → N datapoints, e.g. a CGM import)
         if spec.get("metrics"):
-            con.execute("INSERT INTO log (node_id, logged_at, body, tag) VALUES (?, datetime('now'), '', ?)", (nid, _CARRIER_TYPE))
-            log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+            log_id = _db.insert(con, "log", {
+                "node_id": nid, "logged_at": _tu.utc_now(), "body": "", "tag": _CARRIER_TYPE,
+            })
             for mspec in spec["metrics"]:
                 import_metric(con, log_id, nid, mspec)
             counters["metric"] = counters.get("metric", 0) + len(spec["metrics"])
@@ -309,7 +298,8 @@ def _import_update(con, spec, dry, counters):
         fields.append("parent_id = ?")
         vals.append(spec["parent"])
     if spec.get("status") == "DONE" and "closed_at" not in spec:
-        fields.append("closed_at = datetime('now')")
+        fields.append("closed_at = ?")
+        vals.append(_tu.utc_now())
     if fields:
         con.execute(f"UPDATE node SET {', '.join(fields)} WHERE id = ?", (*vals, nid))
     for t in spec.get("add_tags", []):
@@ -496,7 +486,7 @@ def _exec_update(con, o):
                     v = value
                 con.execute(f"UPDATE node SET {col} = ? WHERE id = ?", (v, nid))
                 if field == "status" and value == "DONE":
-                    con.execute("UPDATE node SET closed_at = datetime('now') WHERE id = ? AND closed_at IS NULL", (nid,))
+                    con.execute("UPDATE node SET closed_at = ? WHERE id = ? AND closed_at IS NULL", (_tu.utc_now(), nid))
         elif field == "tag":
             if action == "add":
                 _db.insert(con, "tag", {"node_id": nid, "tag": value}, or_="ignore")
