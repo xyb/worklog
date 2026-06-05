@@ -470,7 +470,7 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
         if n["kind"] == "habit":
             prog = _habit_month_progress(con, nid, target)
             if prog:
-                mh = _c(f"  (本月 {prog[0]}/{prog[1]})", "meta")
+                mh = _c(f"  (this month {prog[0]}/{prog[1]})", "meta")
         out(ind + mk + " " + _c(f"#{nid}", "id") + " " + pri + _c(n["title"]) + mh)
         if log_tail != 0 and (max_depth is None or depth + 1 < max_depth):
             logs = t["logs"]
@@ -574,12 +574,12 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 # not the node's all-time total; see _node_clock_min docstring
                 dur = _fmt_dur(_node_clock_min(con, nid, day=day))
                 dur_str = (" " + _c(dur, "clock")) if dur else ""
-                # habit month-to-date completion rate (本月 N/M); skip if no schedule
+                # habit month-to-date completion rate (this month N/M); skip if no schedule
                 mh = ""
                 if n["kind"] == "habit" and day:
                     prog = _habit_month_progress(con, nid, day)
                     if prog:
-                        mh = _c(f"  (本月 {prog[0]}/{prog[1]})", "meta")
+                        mh = _c(f"  (this month {prog[0]}/{prog[1]})", "meta")
                 out("      " + mk + " " + _c(f"#{nid}", "id") + " " + pri + _c(n["title"]) + dur_str + hint + mh)
                 if log_tail == 0:
                     continue

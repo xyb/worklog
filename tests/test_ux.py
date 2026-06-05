@@ -20,9 +20,9 @@ class TestUXShortcuts:
         assert "backfill yesterday" in yday
 
     def test_add_sched_invalid_date_errors(self, cli):
-        code, _, err = cli("add", "work item", "-k", "task", "--sched", "胡说八道")
+        code, _, err = cli("add", "work item", "-k", "task", "--sched", "not-a-date")
         assert code != 0
-        assert "日期写错" in err or "日期写错" in _ or "✗" in (err + _)
+        assert "bad date" in err or "bad date" in _ or "✗" in (err + _)
 
     def test_done_multiple_ids(self, cli):
         cli("add", "t1", "-k", "task")
@@ -49,19 +49,19 @@ class TestUXShortcuts:
     def test_link_multiple_ids(self, cli):
         cli("add", "t1", "-k", "task")
         cli("add", "t2", "-k", "task")
-        _, out, _ = cli("link", "1", "2", "共同文档")
-        assert "#1" in out and "共同文档" in out
+        _, out, _ = cli("link", "1", "2", "shared doc")
+        assert "#1" in out and "shared doc" in out
         assert "#2" in out
 
     def test_log_with_time(self, cli):
-        cli("add", "吃饭", "-k", "task")
-        cli("log", "1", "早饭", "--time", "11:09")
+        cli("add", "eat", "-k", "task")
+        cli("log", "1", "breakfast", "--time", "11:09")
         _, show, _ = cli("show", "1")
         assert "11:09:00" in show  # time stored in logged_at
 
     def test_log_with_date_and_time(self, cli):
         cli("add", "work item", "-k", "task")
-        cli("log", "1", "回看", "--date", "2026-05-28", "--time", "14:30")
+        cli("log", "1", "review", "--date", "2026-05-28", "--time", "14:30")
         _, show, _ = cli("show", "1")
         assert "2026-05-28 14:30:00" in show
 
@@ -92,7 +92,7 @@ class TestUXShortcuts:
         assert "yesterday thing" in out
 
     def test_day_invalid_date_errors(self, cli):
-        code, _, err = cli("day", "胡说八道")
+        code, _, err = cli("day", "not-a-date")
         assert code != 0
 
     def test_active_lists_clock_in_tasks(self, cli):
@@ -116,10 +116,10 @@ class TestUXShortcuts:
 
     def test_wait_marks_status(self, cli):
         cli("add", "t1", "-k", "task")
-        cli("wait", "1", "--note", "等 review")
+        cli("wait", "1", "--note", "waiting on review")
         _, show, _ = cli("show", "1")
         assert "WAIT" in show
-        assert "等 review" in show
+        assert "waiting on review" in show
 
     def test_wait_auto_clocks_out(self, cli):
         cli("add", "t1", "-k", "task")
@@ -173,14 +173,14 @@ class TestUXShortcuts:
         cli("add", "h1", "-k", "habit")
         cli("add", "h2", "-k", "habit")
         cli("add", "h3", "-k", "habit")
-        _, out, _ = cli("tick", "1", "2", "3", "--note", "今天都做")
+        _, out, _ = cli("tick", "1", "2", "3", "--note", "do all today")
         assert "#1 checked in" in out
         assert "#2 checked in" in out
         assert "#3 checked in" in out
         # each one got a log entry
         for nid in ("1", "2", "3"):
             _, show, _ = cli("show", nid)
-            assert "今天都做" in show
+            assert "do all today" in show
 
     def test_tick_single_id_still_works(self, cli):
         cli("add", "h1", "-k", "habit")
@@ -226,9 +226,9 @@ class TestUXShortcuts:
 
     def test_logs_preset_week(self, cli):
         cli("add", "t1", "-k", "task")
-        cli("log", "1", "本周的事")
+        cli("log", "1", "this week's items")
         _, out, _ = cli("logs", "week")
-        assert "本周的事" in out
+        assert "this week's items" in out
 
     def test_find_empty_rejected(self, cli):
         code, _, err = cli("find", "")
@@ -377,11 +377,11 @@ class TestCanceledFilter:
 
     def test_projects_default_hides_canceled(self, cli):
         cli("add", "active proj", "-k", "project")
-        cli("add", "废弃 proj", "-k", "project")
+        cli("add", "obsolete proj", "-k", "project")
         cli("cancel", "2")
         _, out, _ = cli("projects")
         assert "active proj" in out
-        assert "废弃 proj" not in out
+        assert "obsolete proj" not in out
 
     def test_find_default_hides_canceled(self, cli):
         cli("add", "find-target alpha", "-k", "task")
@@ -402,20 +402,20 @@ class TestCanceledFilter:
     def test_day_hides_canceled_task_log(self, cli):
         cli("add", "active", "-k", "task")
         cli("add", "dropped", "-k", "task")
-        cli("log", "1", "今天做了")
-        cli("log", "2", "今天的废弃 log")
+        cli("log", "1", "did today")
+        cli("log", "2", "today's obsolete log")
         cli("cancel", "2")
         _, out, _ = cli("day")
-        assert "今天做了" in out
-        assert "今天的废弃 log" not in out
+        assert "did today" in out
+        assert "today's obsolete log" not in out
 
     def test_tree_hides_canceled_root(self, cli):
         cli("add", "active", "-k", "task")
-        cli("add", "废弃 root", "-k", "task")
+        cli("add", "obsolete root", "-k", "task")
         cli("cancel", "2")
         _, out, _ = cli("tree", "--depth", "1")
         assert "active" in out
-        assert "废弃 root" not in out
+        assert "obsolete root" not in out
 
     def test_summary_hides_canceled(self, cli):
         cli("add", "active", "-k", "task")
@@ -432,14 +432,14 @@ class TestDurationAndAutoProgress:
 
     def test_log_auto_promotes_todo_to_doing(self, cli):
         cli("add", "t1", "-k", "task")
-        _, out, _ = cli("log", "1", "进展")
+        _, out, _ = cli("log", "1", "progress")
         assert "TODO → DOING" in out
         _, show, _ = cli("show", "1")
         assert "DOING" in show
 
     def test_log_keep_status_disables_auto(self, cli):
         cli("add", "t1", "-k", "task")
-        _, out, _ = cli("log", "1", "进展", "--keep-status")
+        _, out, _ = cli("log", "1", "progress", "--keep-status")
         assert "TODO → DOING" not in out
         _, show, _ = cli("show", "1")
         # still TODO
@@ -448,7 +448,7 @@ class TestDurationAndAutoProgress:
     def test_log_with_date_keeps_status(self, cli):
         """backfilling a historical log does not change status"""
         cli("add", "t1", "-k", "task")
-        cli("log", "1", "历史", "--date", "2020-01-01")
+        cli("log", "1", "history", "--date", "2020-01-01")
         _, show, _ = cli("show", "1")
         assert "TODO" in show
 
@@ -456,7 +456,7 @@ class TestDurationAndAutoProgress:
         """logging after DONE does not auto-revert status"""
         cli("add", "t1", "-k", "task")
         cli("done", "1")
-        cli("log", "1", "补充说明")
+        cli("log", "1", "addendum")
         _, show, _ = cli("show", "1")
         assert "DONE" in show
 
@@ -516,7 +516,7 @@ class TestLimitTopWindow:
         """projects uses the window parent parser; --week resolves to a since cutoff"""
         cli("add", "old", "-k", "project")
         cli("add", "t-old", "-k", "task", "--parent", "1")
-        cli("log", "2", "古早", "--date", "2020-01-01")
+        cli("log", "2", "old", "--date", "2020-01-01")
         cli("add", "new", "-k", "project")
         cli("add", "t-new", "-k", "task", "--parent", "3")
         cli("log", "4", "today")

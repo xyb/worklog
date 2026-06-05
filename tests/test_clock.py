@@ -125,10 +125,10 @@ class TestActiveBatteryIncluded:
         assert "no active task right now" in out or "wl start" in out
 
     def test_active_shows_running_task(self, cli):
-        cli("add", "在跑的活", "-k", "task")
+        cli("add", "running task", "-k", "task")
         cli("start", "1")
         _, out, _ = cli("active")
-        assert "在跑的活" in out
+        assert "running task" in out
         assert "#1" in out
 
     def test_active_shows_today_total(self, cli):
@@ -145,7 +145,7 @@ class TestActiveBatteryIncluded:
         _, out, _ = cli("active")
         assert "latest log" in out
         # body should appear (truncated oneline or full)
-        assert "完成了 A 部分" in out or "progress" in out
+        assert "finished part A" in out or "progress" in out
 
     def test_active_brief_skips_detail(self, cli):
         """-q compact mode: skips total / latest log expansion"""

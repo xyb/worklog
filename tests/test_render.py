@@ -8,10 +8,10 @@ ESC = "["  # ANSI escape prefix
 class TestColorRendering:
     def test_default_no_ansi_in_non_tty(self, cli):
         """default auto + non-TTY (StringIO in tests) → plain text, no ANSI"""
-        cli("add", "高亮测试", "-k", "task", "-p", "A")
+        cli("add", "highlight test", "-k", "task", "-p", "A")
         code, out, _ = cli("ls")
         assert ESC not in out
-        assert "高亮测试" in out
+        assert "highlight test" in out
 
     def test_color_never_no_ansi(self, cli):
         cli("add", "abc", "-p", "A")
@@ -19,52 +19,52 @@ class TestColorRendering:
         assert ESC not in out
 
     def test_color_always_emits_ansi(self, cli):
-        cli("add", "彩色任务", "-p", "A")
+        cli("add", "colored task", "-p", "A")
         code, out, _ = cli("--color", "always", "ls")
         assert ESC in out  # forced on → ANSI color codes present
-        assert "彩色任务" in out  # content still intact
+        assert "colored task" in out  # content still intact
 
     def test_brackets_in_title_not_eaten_by_markup(self, cli):
         """[brackets] in title must not be eaten as rich markup"""
-        cli("add", "修复 [登录] 模块", "-p", "A")
+        cli("add", "fix [login] module", "-p", "A")
         code, out, _ = cli("--color", "always", "ls")
-        assert "[登录]" in out  # escape works; brackets preserved verbatim
+        assert "[login]" in out  # escape works; brackets preserved verbatim
 
     def test_wikilink_double_bracket_preserved_in_find(self, cli):
         """find expands link match; [[doc]] double brackets preserved"""
-        cli("add", "关联任务")
+        cli("add", "linked task")
         cli("link", "1", "Dev tooling")
         code, out, _ = cli("--color", "always", "find", "Dev", "--in", "link")
         assert "[[Dev tooling]]" in out
 
     def test_find_hit_highlighted_styled(self, cli):
         """styled mode: hit gets ANSI (hit style), no *…* markers"""
-        cli("add", "搜索目标")
-        cli("log", "1", "这里有一个关键词 needle 在中间")
+        cli("add", "search target")
+        cli("log", "1", "there is a keyword needle in the middle")
         code, out, _ = cli("--color", "always", "find", "needle")
         assert ESC in out
         assert "*needle*" not in out  # styled uses color, not asterisks
 
     def test_find_hit_marked_plain(self, cli):
         """plain mode: hit marked with *…*"""
-        cli("add", "搜索目标")
-        cli("log", "1", "这里有一个关键词 needle 在中间")
+        cli("add", "search target")
+        cli("log", "1", "there is a keyword needle in the middle")
         code, out, _ = cli("--color", "never", "find", "needle")
         assert "*needle*" in out
 
     def test_mono_theme_no_color_codes(self, cli):
         """mono theme: even with always, elements stay default style (no color SGR, only resets allowed)"""
-        cli("add", "单色", "-p", "A")
+        cli("add", "mono", "-p", "A")
         code, out, _ = cli("--color", "always", "--theme", "mono", "ls")
         # mono all default → no color codes like 32(green)/31(red)/36(cyan)/35(magenta)
         for sgr in ("[32m", "[31m", "[36m", "[35m", "[33m"):
             assert sgr not in out
-        assert "单色" in out
+        assert "mono" in out
 
     def test_c_helper_plain_when_console_none(self, tmp_db):
         wl = tmp_db
         wl._init_console("never", None)
-        assert wl._c("文本", "done") == "文本"
+        assert wl._c("text", "done") == "text"
         assert wl.render._CONSOLE is None
 
     def test_c_helper_wraps_and_escapes_when_styled(self, tmp_db):
@@ -119,11 +119,11 @@ class TestThemes:
             cli("--theme", "nope", "ls")
 
     def test_each_theme_usable_in_ls(self, cli):
-        cli("add", "样例", "-p", "A")
+        cli("add", "sample", "-p", "A")
         for name in self.EXPECTED:
             code, out, _ = cli("--color", "always", "--theme", name, "ls")
             assert code == 0
-            assert "样例" in out
+            assert "sample" in out
 
     def test_auto_themes_command_works(self, cli):
         code, out, _ = cli("--color", "never", "themes")

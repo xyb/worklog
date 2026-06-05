@@ -1,6 +1,6 @@
 -- worklog schema v7: store precise instants (*_at) as UTC; name literal dates *date.
 --
--- Naming convention (see DESIGN / [[wl 打卡与时序数据建模设计]]):
+-- Naming convention (see DESIGN.md):
 --   *_at  = a precise instant, stored UTC ('YYYY-MM-DD HH:MM:SS'), rendered local.
 --   *date = a literal local calendar date ('YYYY-MM-DD'), never timezone-converted.
 --

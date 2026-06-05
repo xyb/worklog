@@ -9,7 +9,7 @@ class TestDay:
     def _seed(self, cli, date="2026-05-28"):
         cli("add", "2026", "-k", "year")                                          # 1
         cli("add", "2026-05", "-k", "month", "--parent", "1")                     # 2
-        cli("add", "业务聚合", "-k", "project", "-t", "work", "--parent", "2")     # 3
+        cli("add", "biz aggregation", "-k", "project", "-t", "work", "--parent", "2")     # 3
         cli("add", "czbooks", "-k", "project", "-t", "personal", "--parent", "2")  # 4
         cli("add", "agg taskA", "-k", "task", "-p", "A", "-t", "work", "--parent", "3")     # 5
         cli("add", "crawler taskB", "-k", "task", "-p", "C", "-t", "personal", "--parent", "4")  # 6
@@ -22,7 +22,7 @@ class TestDay:
         code, out, _ = cli("day", "2026-05-28", "--by", "project")
         assert code == 0
         assert "work" in out and "personal" in out
-        assert "业务聚合" in out and "czbooks" in out
+        assert "biz aggregation" in out and "czbooks" in out
         assert "aggregated progress" in out and "crawler progress" in out
         assert "#5" in out and "#6" in out
 
@@ -67,9 +67,9 @@ class TestDay:
         cli("add", "2026", "-k", "year")
         cli("add", "proj", "-k", "project", "-t", "work", "--parent", "1")
         cli("add", "planned task", "-k", "task", "-t", "work,planned", "--parent", "2")    # 3
-        cli("add", "临时任务", "-k", "task", "-t", "work,unplanned", "--parent", "2")  # 4
-        cli("log", "3", "计划进展", "--date", "2026-05-28")
-        cli("log", "4", "临时进展", "--date", "2026-05-28")
+        cli("add", "temp task", "-k", "task", "-t", "work,unplanned", "--parent", "2")  # 4
+        cli("log", "3", "planned progress", "--date", "2026-05-28")
+        cli("log", "4", "temp progress", "--date", "2026-05-28")
         code, out, _ = cli("day", "2026-05-28", "--by", "plan")
         assert "planned" in out and "unplanned" in out
 
@@ -92,15 +92,15 @@ class TestDayMeta:
         cli("add", "2026-05", "-k", "month", "--parent", "1")                # 2
         cli("add", "2026-05-20", "-k", "day", "--parent", "2")               # 3
         cli("add", "t", "-k", "task", "-t", "work")                          # 4
-        cli("log", "4", "做了点事", "--date", "2026-05-20")
+        cli("log", "4", "did something", "--date", "2026-05-20")
 
     def test_day_shows_goal_and_summary(self, cli):
         self._seed_day(cli)
-        cli("set", "3", "goal", "今天交付 X")
-        cli("set", "3", "summary", "今天小结 Y")
+        cli("set", "3", "goal", "deliver X today")
+        cli("set", "3", "summary", "daily recap Y")
         code, out, _ = cli("day", "2026-05-20")
-        assert "🎯 今天交付 X" in out
-        assert "Recap: 今天小结 Y" in out
+        assert "🎯 deliver X today" in out
+        assert "Recap: daily recap Y" in out
 
 
 class TestDayMetaRendering:
@@ -121,12 +121,12 @@ class TestDayMetaRendering:
         assert "🎯" in out and "today goal" in out
 
     def test_day_renders_summary(self, cli):
-        today = self._setup_day_with_props(cli, summary="日终复盘内容")
+        today = self._setup_day_with_props(cli, summary="end-of-day review content")
         _, out, _ = cli("day", today)
-        assert "Recap" in out and "日终复盘内容" in out
+        assert "Recap" in out and "end-of-day review content" in out
 
     def test_day_renders_top5(self, cli):
-        today = self._setup_day_with_props(cli, top5="Top5 内容")
+        today = self._setup_day_with_props(cli, top5="Top5 content")
         _, out, _ = cli("day", today)
         assert "Top5" in out
 
@@ -136,9 +136,9 @@ class TestDayMetaRendering:
         # build a week → day parent-child chain, write overview on the week
         cli("add", "2026-W22", "-k", "week")  # id 1
         cli("add", today, "-k", "day", "--parent", "1")  # id 2
-        cli("set", "1", "overview", "本周主线")
+        cli("set", "1", "overview", "this week's focus")
         _, out, _ = cli("day", today)
-        assert "This week" in out and "本周主线" in out
+        assert "This week" in out and "this week's focus" in out
 
     def test_day_renders_clock_total(self, cli):
         from datetime import date
@@ -155,7 +155,7 @@ class TestDayPlannedNotDoneSuppression:
     """A DONE task scheduled on a day with no logs must not be tagged «planned·not-done»."""
 
     def test_done_task_no_planned_not_done(self, cli):
-        cli("add", "完成任务", "-k", "task", "-t", "work")
+        cli("add", "done task", "-k", "task", "-t", "work")
         cli("sched", "1", "2026-06-15")
         cli("done", "1")
         _, out, _ = cli("day", "2026-06-15")
@@ -163,7 +163,7 @@ class TestDayPlannedNotDoneSuppression:
         assert "planned·not-done" not in out
 
     def test_open_task_still_planned_not_done(self, cli):
-        cli("add", "待办任务", "-k", "task", "-t", "work")
+        cli("add", "todo task", "-k", "task", "-t", "work")
         cli("sched", "1", "2026-06-15")
         _, out, _ = cli("day", "2026-06-15")
         assert "planned·not-done" in out

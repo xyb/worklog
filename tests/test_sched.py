@@ -22,14 +22,14 @@ class TestFuzzySchedule:
         assert wl._norm_sched("today") == today.isoformat()
         assert wl._norm_sched("tomorrow") == (today + dt.timedelta(days=1)).isoformat()
         assert wl._norm_sched("以后") == "someday"
-        # 下周/下月/下季 normalize to the corresponding granularity formats
+        # 下周/下月/下季 (next week/month/quarter, Chinese date aliases) normalize to the corresponding granularity formats
         assert wl._sched_kind(wl._norm_sched("下周")) == "week"
         assert wl._sched_kind(wl._norm_sched("下月")) == "month"
         assert wl._sched_kind(wl._norm_sched("下季")) == "quarter"
 
     def test_norm_rejects_invalid(self, tmp_db):
         wl = tmp_db
-        for bad in ("2026-13", "2026-02-30", "2026-W99", "随便写的", "next-decade"):
+        for bad in ("2026-13", "2026-02-30", "2026-W99", "garbage-date", "next-decade"):
             with pytest.raises(ValueError):
                 wl._norm_sched(bad)
 
@@ -60,22 +60,22 @@ class TestFuzzySchedule:
         assert wl._sched_display(None) == ""
 
     def test_add_fuzzy_scheduled_shows_in_ls(self, cli):
-        cli("add", "模糊任务", "--scheduled", "2026-06")
+        cli("add", "fuzzy task", "--scheduled", "2026-06")
         code, out, _ = cli("ls")
         assert "@2026-06" in out
 
     def test_add_relative_scheduled(self, cli):
-        cli("add", "下周做", "--scheduled", "下周")
+        cli("add", "do next week", "--scheduled", "下周")
         code, out, _ = cli("ls")
         assert "@2026-W" in out
 
     def test_add_rejects_invalid_scheduled(self, cli):
-        code, out, err = cli("add", "坏时间", "--scheduled", "2026-13")
+        code, out, err = cli("add", "bad time", "--scheduled", "2026-13")
         assert code != 0
         assert "invalid month" in err or "unrecognized" in err
 
     def test_defer_fuzzy(self, cli):
-        cli("add", "待顺延")
+        cli("add", "to defer")
         code, out, _ = cli("defer", "1", "下月")
         assert code == 0
         code, out, _ = cli("show", "1")
@@ -89,14 +89,14 @@ class TestFuzzySchedule:
 
     def test_import_accepts_fuzzy_scheduled(self, cli, tmp_path):
         f = tmp_path / "ok.json"
-        f.write_text('{"add":[{"title":"季度任务","scheduled":"2026-Q3"}]}', encoding="utf-8")
+        f.write_text('{"add":[{"title":"quarter task","scheduled":"2026-Q3"}]}', encoding="utf-8")
         code, out, _ = cli("import", str(f))
         assert code == 0
         code, out, _ = cli("ls")
         assert "@2026-Q3" in out
 
     def test_apply_update_scheduled_fuzzy(self, cli, tmp_path):
-        cli("add", "改计划时间")
+        cli("add", "change plan time")
         f = tmp_path / "u.wld"
         f.write_text("~ #1\n  scheduled 2026-06\n", encoding="utf-8")
         code, out, _ = cli("apply", str(f))
@@ -105,7 +105,7 @@ class TestFuzzySchedule:
         assert "@2026-06" in out
 
     def test_apply_rejects_invalid_scheduled(self, cli, tmp_path):
-        cli("add", "改坏时间")
+        cli("add", "change bad time")
         f = tmp_path / "bad.wld"
         f.write_text("~ #1\n  scheduled 2026-77\n", encoding="utf-8")
         code, out, err = cli("apply", "--dry-run", str(f))
@@ -113,7 +113,7 @@ class TestFuzzySchedule:
 
     def test_apply_delete_cascades_subtree(self, cli, tmp_path):
         """deleting a parent must cascade to the whole subtree; children must not become orphans (node self-ref is ON DELETE SET NULL)"""
-        cli("add", "父项目", "-k", "project")          # #1
+        cli("add", "parent project", "-k", "project")          # #1
         cli("add", "subtaskA", "--parent", "1")          # #2
         cli("add", "subtaskB", "--parent", "1")          # #3
         cli("add", "grandchild", "--parent", "2")           # #4
@@ -123,7 +123,7 @@ class TestFuzzySchedule:
         assert code == 0
         # if children orphaned (bug) they'd still appear in ls --all; all-absent = whole subtree truly cleaned
         code, out, _ = cli("ls", "--all")
-        for t in ("父项目", "subtaskA", "subtaskB", "grandchild"):
+        for t in ("parent project", "subtaskA", "subtaskB", "grandchild"):
             assert t not in out
 
 
@@ -131,7 +131,7 @@ class TestSched:
     """forward planning: wl sched schedules a task to a day/recurrence; wl day derives planned status from it (even without log)"""
 
     def test_sched_oneoff_shows_in_day_as_planned(self, cli):
-        cli("add", "未来任务", "-k", "task", "-t", "work")
+        cli("add", "future task", "-k", "task", "-t", "work")
         cli("sched", "1", "2026-06-15")
         code, out, _ = cli("day", "2026-06-15")
         assert code == 0
@@ -155,7 +155,7 @@ class TestSched:
         assert "#1" not in tue
 
     def test_sched_recur_daily_fires_every_day(self, cli):
-        cli("add", "每日", "-k", "habit", "-t", "personal")
+        cli("add", "daily", "-k", "habit", "-t", "personal")
         cli("sched", "1", "--recur", "daily")
         for d in ("2026-06-01", "2026-06-02", "2026-06-03"):
             code, out, _ = cli("day", d)
@@ -446,28 +446,28 @@ class TestQuarterlyAndYearlyNeg1Norm:
 
 class TestQuarterlyE2E:
     def test_sched_quarterly_neg1_end_to_end(self, cli):
-        cli("add", "季度末复盘", "-k", "habit")
+        cli("add", "quarter-end review", "-k", "habit")
         cli("sched", "1", "--recur", "quarterly:-1")
         # Q1 end = 03-31
         _, out, _ = cli("day", "2026-03-31")
-        assert "季度末复盘" in out
+        assert "quarter-end review" in out
         _, out, _ = cli("day", "2026-04-30")
-        assert "季度末复盘" not in out
+        assert "quarter-end review" not in out
 
     def test_sched_quarterly_first_month_first_day(self, cli):
-        cli("add", "季度首日", "-k", "habit")
+        cli("add", "quarter first day", "-k", "habit")
         cli("sched", "1", "--recur", "quarterly:1-1")
         for ymd in ("2026-01-01", "2026-04-01", "2026-07-01", "2026-10-01"):
             _, out, _ = cli("day", ymd)
-            assert "季度首日" in out, f"should hit {ymd}"
+            assert "quarter first day" in out, f"should hit {ymd}"
 
     def test_sched_weekly_numeric_end_to_end(self, cli):
         """wl sched with weekly:-1 (=Sun) → fires on Sundays"""
-        cli("add", "周日复盘", "-k", "habit")
+        cli("add", "Sunday review", "-k", "habit")
         cli("sched", "1", "--recur", "weekly:-1")
         # 2026-01-04 is a Sunday
         _, out, _ = cli("day", "2026-01-04")
-        assert "周日复盘" in out
+        assert "Sunday review" in out
 
 
 class TestNormRruleNew:
@@ -516,29 +516,29 @@ class TestRecurEndToEnd:
 
     def test_sched_monthly_via_cli_and_day_hits(self, cli):
         from datetime import date
-        cli("add", "月初打卡", "-k", "habit")
+        cli("add", "month-start check-in", "-k", "habit")
         # use today's day-of-month as the monthly rule so it always fires today
         today = date.today()
         cli("sched", "1", "--recur", f"monthly:{today.day}")
         _, out, _ = cli("day", today.isoformat())
-        assert "月初打卡" in out
+        assert "month-start check-in" in out
 
     def test_sched_yearly_via_cli_and_day_hits(self, cli):
         from datetime import date
-        cli("add", "纪念日", "-k", "habit")
+        cli("add", "anniversary", "-k", "habit")
         today = date.today()
         cli("sched", "1", "--recur", f"yearly:{today.month:02d}-{today.day:02d}")
         _, out, _ = cli("day", today.isoformat())
-        assert "纪念日" in out
+        assert "anniversary" in out
 
     def test_sched_monthly_last_day_via_cli(self, cli):
-        cli("add", "月末复盘", "-k", "habit")
+        cli("add", "month-end review", "-k", "habit")
         cli("sched", "1", "--recur", "monthly:-1")
         # test 2026-02-28 (short month-end)
         _, out, _ = cli("day", "2026-02-28")
-        assert "月末复盘" in out
+        assert "month-end review" in out
         _, out, _ = cli("day", "2026-02-27")
-        assert "月末复盘" not in out
+        assert "month-end review" not in out
 
     def test_sched_invalid_monthly_rejected(self, cli):
         cli("add", "x", "-k", "habit")

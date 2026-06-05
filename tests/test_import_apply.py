@@ -50,7 +50,7 @@ class TestImport:
     def test_import_update(self, cli, tmp_db):
         cli("add", "task", "-k", "task")
         import json, tempfile, os
-        spec = {"update": [{"id": 1, "status": "DONE", "add_tags": ["urgent"], "add_logs": ["补的"]}]}
+        spec = {"update": [{"id": 1, "status": "DONE", "add_tags": ["urgent"], "add_logs": ["backfilled"]}]}
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(spec, f); f.close()
         code, out, _ = cli("import", f.name)
@@ -76,20 +76,20 @@ class TestImport:
 
     def test_import_dry_run_no_write(self, cli, tmp_db):
         import json, tempfile, os
-        spec = {"add": [{"title": "不该写入", "kind": "task"}]}
+        spec = {"add": [{"title": "should-not-write", "kind": "task"}]}
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(spec, f); f.close()
         code, out, _ = cli("import", f.name, "--dry-run")
         os.unlink(f.name)
         assert "dry-run" in out and "add 1" in out
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM node WHERE title='不该写入'").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM node WHERE title='should-not-write'").fetchone()[0] == 0
 
     def test_import_bad_parent_ref_rolls_back(self, cli, tmp_db):
         import json, tempfile, os
         spec = {"add": [
-            {"title": "好的", "kind": "task"},
-            {"title": "坏的", "kind": "task", "parent_ref": "does not exist"},
+            {"title": "good", "kind": "task"},
+            {"title": "bad", "kind": "task", "parent_ref": "does not exist"},
         ]}
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(spec, f); f.close()
@@ -97,8 +97,8 @@ class TestImport:
         os.unlink(f.name)
         assert code != 0 and "rolled back" in err
         con = tmp_db.db_connect()
-        # rollback: 好的 should not remain either
-        assert con.execute("SELECT COUNT(*) FROM node WHERE title='好的'").fetchone()[0] == 0
+        # rollback: good should not remain either
+        assert con.execute("SELECT COUNT(*) FROM node WHERE title='good'").fetchone()[0] == 0
 
 
 class TestApply:
@@ -114,21 +114,21 @@ class TestApply:
     def test_apply_add_nested(self, cli, tmp_db):
         code, out, _ = self._apply(cli,
             "+ [ ] [#A] [project] P :work:\n"
-            "+   [x] [#A] 子任务 :x:\n")
+            "+   [x] [#A] subtask :x:\n")
         assert code == 0 and "added 2" in out
         con = tmp_db.db_connect()
         p = con.execute("SELECT id FROM node WHERE title='P'").fetchone()
-        c = con.execute("SELECT parent_id, status FROM node WHERE title='子任务'").fetchone()
+        c = con.execute("SELECT parent_id, status FROM node WHERE title='subtask'").fetchone()
         assert c["parent_id"] == p["id"] and c["status"] == "DONE"
 
     def test_apply_anchor_parent(self, cli, tmp_db):
         cli("add", "project", "-k", "project")  # id 1
         code, out, _ = self._apply(cli,
-            "  #1 [project] 项目\n"
-            "+   [ ] [#B] 新子任务\n")
+            "  #1 [project] project\n"
+            "+   [ ] [#B] new subtask\n")
         assert code == 0 and "added 1" in out
         con = tmp_db.db_connect()
-        c = con.execute("SELECT parent_id FROM node WHERE title='新子任务'").fetchone()
+        c = con.execute("SELECT parent_id FROM node WHERE title='new subtask'").fetchone()
         assert c["parent_id"] == 1
 
     def test_apply_update_fields(self, cli, tmp_db):
@@ -142,20 +142,20 @@ class TestApply:
     # ── anti-wipe: core safety tests (2026-05-28 safety hardening requirement) ──
     def test_apply_update_only_touches_declared_fields(self, cli, tmp_db):
         """only status changes; priority/title/tag/prop all preserved (no wipe)"""
-        cli("add", "原标题", "-k", "task", "-p", "A", "-t", "keep1,keep2")
+        cli("add", "original title", "-k", "task", "-p", "A", "-t", "keep1,keep2")
         cli("set", "1", "owner", "xyb")
-        cli("link", "1", "某文档")
+        cli("link", "1", "some doc")
         # only update status
         self._apply(cli, "~ #1\n  status DONE\n")
         con = tmp_db.db_connect()
         n = con.execute("SELECT title, priority, status FROM node WHERE id=1").fetchone()
         assert n["status"] == "DONE"
-        assert n["title"] == "原标题"      # untouched
+        assert n["title"] == "original title"      # untouched
         assert n["priority"] == "A"        # untouched
         tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1")}
         assert tags == {"keep1", "keep2"}  # not wiped
         assert con.execute("SELECT value FROM prop WHERE node_id=1 AND key='owner'").fetchone()["value"] == "xyb"
-        assert con.execute("SELECT 1 FROM link WHERE node_id=1 AND vault_doc='某文档'").fetchone()  # not wiped
+        assert con.execute("SELECT 1 FROM link WHERE node_id=1 AND vault_doc='some doc'").fetchone()  # not wiped
 
     def test_apply_clear_priority(self, cli, tmp_db):
         cli("add", "t", "-k", "task", "-p", "A")
@@ -231,40 +231,40 @@ class TestApply:
         assert code != 0 and "has no field operations" in err
 
     def test_apply_delete(self, cli, tmp_db):
-        cli("add", "删我", "-k", "task")  # id 1
-        code, out, _ = self._apply(cli, "- #1 删我\n")
+        cli("add", "delete me", "-k", "task")  # id 1
+        code, out, _ = self._apply(cli, "- #1 delete me\n")
         assert "deleted 1" in out
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM node WHERE id=1").fetchone()[0] == 0
 
     def test_apply_subfields(self, cli, tmp_db):
         code, out, _ = self._apply(cli,
-            "+ [x] [#A] 任务\n"
-            "+   @log 进展记录\n"
-            "+   @link 某文档\n"
+            "+ [x] [#A] task\n"
+            "+   @log progress note\n"
+            "+   @link some doc\n"
             "+   @prop owner=xyb\n")
         assert code == 0
         con = tmp_db.db_connect()
-        nid = con.execute("SELECT id FROM node WHERE title='任务'").fetchone()["id"]
-        assert con.execute("SELECT 1 FROM log WHERE node_id=? AND body='进展记录'", (nid,)).fetchone()
-        assert con.execute("SELECT 1 FROM link WHERE node_id=? AND vault_doc='某文档'", (nid,)).fetchone()
+        nid = con.execute("SELECT id FROM node WHERE title='task'").fetchone()["id"]
+        assert con.execute("SELECT 1 FROM log WHERE node_id=? AND body='progress note'", (nid,)).fetchone()
+        assert con.execute("SELECT 1 FROM link WHERE node_id=? AND vault_doc='some doc'", (nid,)).fetchone()
         assert con.execute("SELECT value FROM prop WHERE node_id=? AND key='owner'", (nid,)).fetchone()["value"] == "xyb"
 
     def test_apply_dry_run_no_write(self, cli, tmp_db):
-        code, out, _ = self._apply(cli, "+ [ ] 不写入\n", "--dry-run")
+        code, out, _ = self._apply(cli, "+ [ ] no-write\n", "--dry-run")
         assert "dry-run" in out
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM node WHERE title='不写入'").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM node WHERE title='no-write'").fetchone()[0] == 0
 
     def test_apply_validation_errors(self, cli, tmp_db):
         code, _, err = self._apply(cli,
-            "+ [ ] #99 新增带id\n"
-            "- #888 删不存在\n")
+            "+ [ ] #99 new with id\n"
+            "- #888 delete missing\n")
         assert code != 0
         assert "add should not carry #id" in err and "#888 does not exist" in err
 
     def test_apply_tilde_no_id_rejected(self, cli, tmp_db):
-        code, _, err = self._apply(cli, "~ [x] 没id\n")
+        code, _, err = self._apply(cli, "~ [x] no id\n")
         assert code != 0 and "requires #id" in err
 
     def test_apply_status_doing(self, cli, tmp_db):
@@ -276,12 +276,12 @@ class TestApply:
     # ── inline shorthand (same as node list; only touches declared fields) ──
     def test_apply_inline_marker_only(self, cli, tmp_db):
         """~ [x] #1 only updates status, leaves priority/title alone"""
-        cli("add", "原名", "-k", "task", "-p", "A")
+        cli("add", "original name", "-k", "task", "-p", "A")
         self._apply(cli, "~ [x] #1\n")
         con = tmp_db.db_connect()
         n = con.execute("SELECT status, priority, title FROM node WHERE id=1").fetchone()
         assert n["status"] == "DONE"
-        assert n["priority"] == "A" and n["title"] == "原名"  # not declared = unchanged
+        assert n["priority"] == "A" and n["title"] == "original name"  # not declared = unchanged
 
     def test_apply_inline_priority_only_no_marker(self, cli, tmp_db):
         """~ [#B] #1 no marker → status untouched"""
@@ -293,19 +293,19 @@ class TestApply:
         assert n["status"] == "TODO"  # no marker = status unchanged
 
     def test_apply_inline_title_only(self, cli, tmp_db):
-        cli("add", "旧标题", "-k", "task", "-p", "A")
-        self._apply(cli, "~ #1 新标题\n")
+        cli("add", "old title", "-k", "task", "-p", "A")
+        self._apply(cli, "~ #1 new title\n")
         con = tmp_db.db_connect()
         n = con.execute("SELECT title, priority, status FROM node WHERE id=1").fetchone()
-        assert n["title"] == "新标题"
+        assert n["title"] == "new title"
         assert n["priority"] == "A"  # untouched
 
     def test_apply_inline_all_three(self, cli, tmp_db):
         cli("add", "old", "-k", "task")
-        self._apply(cli, "~ [x] [#A] #1 新名\n")
+        self._apply(cli, "~ [x] [#A] #1 new name\n")
         con = tmp_db.db_connect()
         n = con.execute("SELECT status, priority, title FROM node WHERE id=1").fetchone()
-        assert n["status"] == "DONE" and n["priority"] == "A" and n["title"] == "新名"
+        assert n["status"] == "DONE" and n["priority"] == "A" and n["title"] == "new name"
 
     def test_apply_inline_plus_fieldops(self, cli, tmp_db):
         """inline shorthand combined with following indented field operations"""
@@ -562,7 +562,7 @@ class TestExecUpdateDirect:
         op = {
             "id": 1,
             "fieldops": [
-                (10, ("set", "title", "新标题")),
+                (10, ("set", "title", "new title")),
                 (11, ("set", "status", "DONE")),  # triggers DONE auto closed_at
                 (12, ("clear", "scheduled", None)),
                 (13, ("add", "log", "from-exec-update")),
@@ -577,7 +577,7 @@ class TestExecUpdateDirect:
         wl._exec_update(con, op)
         con.commit()
         _, show, _ = cli("show", "1")
-        assert "新标题" in show
+        assert "new title" in show
         assert "from-exec-update" in show
         assert "DocB" in show
 

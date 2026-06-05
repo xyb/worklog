@@ -7,20 +7,20 @@ ESC = "["  # ANSI escape prefix
 
 class TestFind:
     def _seed(self, cli):
-        cli("add", "gaming 项目", "-k", "project", "-t", "gaming,work")  # 1
+        cli("add", "gaming project", "-k", "project", "-t", "gaming,work")  # 1
         cli("add", "other task", "-k", "task")                             # 2
-        cli("log", "2", "这条 log 提到 gaming 关键词")
-        cli("add", "带prop", "-k", "task")                              # 3
+        cli("log", "2", "this log mentions the gaming keyword")
+        cli("add", "with prop", "-k", "task")                              # 3
         cli("set", "3", "owner", "gaming-team")
-        cli("add", "带link", "-k", "task")                              # 4
-        cli("link", "4", "gaming 文档")
+        cli("add", "with link", "-k", "task")                              # 4
+        cli("link", "4", "gaming doc")
 
     def test_find_title(self, cli):
         self._seed(cli)
         code, out, _ = cli("find", "gaming")
         assert code == 0
         # title hit highlighted (plain uses *…*), title field marked
-        assert "*gaming* 项目" in out and "title" in out
+        assert "*gaming* project" in out and "title" in out
 
     def test_find_in_log(self, cli):
         self._seed(cli)
@@ -32,29 +32,29 @@ class TestFind:
     def test_find_in_prop(self, cli):
         self._seed(cli)
         code, out, _ = cli("find", "gaming-team")
-        assert "带prop" in out
+        assert "with prop" in out
 
     def test_find_in_link(self, cli):
         self._seed(cli)
-        code, out, _ = cli("find", "gaming 文档", "--in", "link")
-        assert "带link" in out
+        code, out, _ = cli("find", "gaming doc", "--in", "link")
+        assert "with link" in out
 
     def test_find_in_restricts(self, cli):
         self._seed(cli)
         # only search title; gaming inside log should not match #2
         code, out, _ = cli("find", "gaming", "--in", "title")
-        assert "*gaming* 项目" in out
+        assert "*gaming* project" in out
         assert "other task" not in out
 
     def test_find_kind_filter(self, cli):
         self._seed(cli)
         code, out, _ = cli("find", "gaming", "--kind", "project")
-        assert "*gaming* 项目" in out
+        assert "*gaming* project" in out
         assert "other task" not in out
 
     def test_find_no_match(self, cli):
         self._seed(cli)
-        code, out, _ = cli("find", "不存在的词xyz")
+        code, out, _ = cli("find", "nonexistent-word-xyz")
         assert "no matches" in out
 
     def test_find_expands_log_hit(self, cli):
@@ -92,8 +92,8 @@ class TestFindTitleHighlight:
 
     def test_title_no_match_no_marker(self, cli):
         """hit in log but not title -> title should not be marked with *…*"""
-        cli("add", "纯标题任务")
-        cli("log", "1", "log 里有 needle 词")
+        cli("add", "title-only task")
+        cli("log", "1", "log has the needle word")
         code, out, _ = cli("--color", "never", "find", "needle")
-        assert "纯标题任务" in out  # title verbatim, no marker
-        assert "*纯" not in out
+        assert "title-only task" in out  # title verbatim, no marker
+        assert "*pure" not in out

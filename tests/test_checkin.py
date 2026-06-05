@@ -41,11 +41,11 @@ class TestCheckin:
 
     def test_checkin_note(self, cli, monkeypatch):
         self._setup_habits(cli, 1)
-        inputs = iter(["20s × 3 组"])
+        inputs = iter(["20s x 3 sets"])
         monkeypatch.setattr("builtins.input", lambda *a: next(inputs))
         cli("checkin")
         _, show, _ = cli("show", "1")
-        assert "20s × 3 组" in show
+        assert "20s x 3 sets" in show
 
     def test_checkin_quit(self, cli, monkeypatch):
         self._setup_habits(cli, 3)
@@ -58,7 +58,7 @@ class TestCheckin:
     def test_checkin_skips_already_done(self, cli, monkeypatch):
         today = self._setup_habits(cli, 2)
         # tick #1 in advance
-        cli("tick", "1", "--note", "提前打卡")
+        cli("tick", "1", "--note", "early check-in")
         # checkin should skip #1 (already logged) and prompt only for #2
         inputs = iter(["y"])
         monkeypatch.setattr("builtins.input", lambda *a: next(inputs))
@@ -127,10 +127,10 @@ class TestCheckin:
         from datetime import date, timedelta
         today = date.today().isoformat()
         yday = (date.today() - timedelta(days=1)).isoformat()
-        cli("add", "维生素", "-k", "habit")
+        cli("add", "vitamin", "-k", "habit")
         cli("sched", "1", today)
         # yesterday's check-in (log carrying a checkin metric, dated yesterday)
-        cli("log", "1", "昨天吃了", "--date", yday, "--metric", "checkin")
+        cli("log", "1", "ate yesterday", "--date", yday, "--metric", "checkin")
         # today's wl day should render [ ] (no check-in today)
         _, today_out, _ = cli("day")
         assert "[ ] #1" in today_out

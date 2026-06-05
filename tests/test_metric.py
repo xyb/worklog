@@ -446,7 +446,7 @@ class TestCheckinViaMetric:
         cli("add", "exercise", "-k", "habit")   # node 1
         cli("add", "vitamins", "-k", "habit")   # node 2
         cli("tick", "1")                          # checkin
-        cli("log", "2", "随便记一句")              # a plain note, NOT a check-in
+        cli("log", "2", "just a note")              # a plain note, NOT a check-in
         _, out, _ = cli("day")
         assert "[x] #1" in out          # checked in → done
         assert "[x] #2" not in out      # stray note → NOT done (bug fixed)
@@ -526,16 +526,16 @@ class TestMetaTypedLogs:
     """goal / summary / overview / top5 are history-preserving typed logs, not props."""
 
     def test_goal_edit_keeps_history(self, cli, tmp_db):
-        cli("goal", "今天交付 X")
-        cli("goal", "改成 Y")
+        cli("goal", "deliver X today")
+        cli("goal", "change to Y")
         _, out, _ = cli("goal")
-        assert "改成 Y" in out and "X" not in out  # reads latest
+        assert "change to Y" in out and "X" not in out  # reads latest
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM log WHERE tag='goal'").fetchone()[0] == 2  # history kept
 
     def test_set_meta_key_writes_typed_log_not_prop(self, cli, tmp_db):
         cli("add", "2026-W23", "-k", "week")  # node 1
-        _, out, _ = cli("set", "1", "overview", "本周主线")
+        _, out, _ = cli("set", "1", "overview", "this week's focus")
         assert "logged" in out
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM log WHERE node_id=1 AND tag='overview'").fetchone()[0] == 1
@@ -639,12 +639,12 @@ class TestMetricDayFolding:
 
 
 class TestHabitMonthProgress:
-    """habit lines in wl day / wl tree show month-to-date completion (本月 N/M)."""
+    """habit lines in wl day / wl tree show month-to-date completion (this month N/M)."""
 
     def test_day_shows_habit_month_rate(self, cli):
         from datetime import date, timedelta
         today = date.today()
-        cli("add", "锻炼", "-k", "habit")
+        cli("add", "exercise", "-k", "habit")
         cli("sched", "1", "--recur", "daily")
         cli("tick", "1")  # today
         # a past day this month: 2 days ago (guard against month boundary by using day-before-yesterday only if same month)
@@ -655,15 +655,15 @@ class TestHabitMonthProgress:
         else:
             expected_done = 1
         _, out, _ = cli("day")
-        assert "本月" in out and f"{expected_done}/" in out
+        assert "this month" in out and f"{expected_done}/" in out
 
     def test_no_schedule_no_rate(self, cli):
-        # a habit with no schedule shows no (本月 N/M)
-        cli("add", "随手习惯", "-k", "habit")
+        # a habit with no schedule shows no (this month N/M)
+        cli("add", "ad-hoc habit", "-k", "habit")
         cli("tick", "1")
         _, out, _ = cli("day")
-        # ticked today's day node exists; the habit line has no 本月 rate
-        assert "本月" not in out
+        # ticked today's day node exists; the habit line has no this-month rate
+        assert "this month" not in out
 
 
 class TestMetricDispatch:

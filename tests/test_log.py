@@ -43,25 +43,25 @@ class TestLogHistoricalDate:
 
     def test_import_log_iso_prefix_sets_date(self, cli, tmp_path):
         f = tmp_path / "h.json"
-        f.write_text('{"add":[{"title":"历史","logs":["2026-05-06 起头","2026-05-08 跑通"]}]}', encoding="utf-8")
+        f.write_text('{"add":[{"title":"history","logs":["2026-05-06 start","2026-05-08 works"]}]}', encoding="utf-8")
         cli("import", str(f))
         code, out, _ = cli("show", "1")
-        assert "2026-05-06" in out and "起头" in out
+        assert "2026-05-06" in out and "start" in out
         assert "2026-05-08" in out
 
     def test_import_log_no_date_uses_today(self, cli, tmp_path):
         import datetime as dt
         f = tmp_path / "h.json"
-        f.write_text('{"add":[{"title":"x","logs":["无日期一条"]}]}', encoding="utf-8")
+        f.write_text('{"add":[{"title":"x","logs":["one without date"]}]}', encoding="utf-8")
         cli("import", str(f))
         code, out, _ = cli("show", "1")
         assert dt.date.today().isoformat() in out  # no date → today
 
     def test_log_cmd_date_flag(self, cli):
         cli("add", "task")
-        cli("log", "1", "历史进展", "--date", "2026-05-10")
+        cli("log", "1", "historical progress", "--date", "2026-05-10")
         code, out, _ = cli("show", "1")
-        assert "2026-05-10" in out and "历史进展" in out
+        assert "2026-05-10" in out and "historical progress" in out
 
     def test_log_invalid_date_rejected(self, cli):
         cli("add", "task")
@@ -70,14 +70,14 @@ class TestLogHistoricalDate:
 
     def test_import_log_dict_form(self, cli, tmp_path):
         f = tmp_path / "h.json"
-        f.write_text('{"add":[{"title":"y","logs":[{"date":"2026-05-01","body":"dict 形式"}]}]}', encoding="utf-8")
+        f.write_text('{"add":[{"title":"y","logs":[{"date":"2026-05-01","body":"dict form"}]}]}', encoding="utf-8")
         cli("import", str(f))
         code, out, _ = cli("show", "1")
-        assert "2026-05-01" in out and "dict 形式" in out
+        assert "2026-05-01" in out and "dict form" in out
 
     def test_log_timeline_sorted_by_real_date(self, cli, tmp_path):
         f = tmp_path / "h.json"
-        f.write_text('{"add":[{"title":"z","logs":["2026-05-20 晚","2026-05-05 早"]}]}', encoding="utf-8")
+        f.write_text('{"add":[{"title":"z","logs":["2026-05-20 evening","2026-05-05 morning"]}]}', encoding="utf-8")
         cli("import", str(f))
         code, out, _ = cli("show", "1")
         assert out.index("2026-05-05") < out.index("2026-05-20")  # sorted by real date

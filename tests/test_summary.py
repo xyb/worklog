@@ -61,7 +61,7 @@ class TestSummary:
 
     def test_summary_orphan_bucket(self, cli):
         from datetime import date
-        cli("add", "无项目任务", "-k", "task", "-t", "planned")
+        cli("add", "no-project task", "-k", "task", "-t", "planned")
         cli("done", "1")
         code, out, _ = cli("summary")
         assert "unassigned" in out

@@ -7,13 +7,13 @@ class TestGoalRecapTick:
     """shortcuts: wl goal / wl recap (today) + wl tick (check-in)"""
 
     def test_goal_set_and_read(self, cli):
-        cli("goal", "今天交付 X")
+        cli("goal", "deliver X today")
         code, out, _ = cli("goal")
-        assert "今天交付 X" in out
+        assert "deliver X today" in out
 
     def test_goal_auto_creates_day(self, cli):
         # wl goal on an empty DB should auto-create today's day node
-        cli("goal", "测试目标")
+        cli("goal", "test target")
         from datetime import date
         today = date.today().isoformat()
         code, out, _ = cli("ls", "--kind", "day")
@@ -49,9 +49,9 @@ class TestGoalRecapTick:
         assert n_years == 1, "lenient lookup should reuse the existing year, not add an ISO duplicate"
 
     def test_recap_set_and_read(self, cli):
-        cli("recap", "今天小结 Y")
+        cli("recap", "daily recap Y")
         code, out, _ = cli("recap")
-        assert "今天小结 Y" in out
+        assert "daily recap Y" in out
 
     def test_recap_past_date_writes_and_stamps(self, cli, tmp_db):
         """wl recap --date <past day> back-fills that day's summary + stamps summary_at,
@@ -83,7 +83,7 @@ class TestGoalRecapTick:
 
     def test_recap_stamps_summary_at(self, cli):
         # recap writes a stamp; read and wl day both show "written at"; no new changes → no rewrite prompt
-        cli("recap", "小结 X")
+        cli("recap", "recap X")
         _, rout, _ = cli("recap")
         assert "written at" in rout
         _, dout, _ = cli("day")
@@ -93,7 +93,7 @@ class TestGoalRecapTick:
     def test_day_warns_when_changes_after_summary(self, cli, tmp_db):
         # mock recap written long ago; later non-CLOCK log that day → wl day suggests rewriting recap
         from datetime import date
-        cli("recap", "小结 v1")  # auto-creates today's day (+ its time-ancestor chain)
+        cli("recap", "recap v1")  # auto-creates today's day (+ its time-ancestor chain)
         con = tmp_db.db_connect()
         day = con.execute("SELECT id FROM node WHERE kind='day' AND title LIKE ?",
                           (date.today().isoformat() + "%",)).fetchone()
@@ -103,18 +103,18 @@ class TestGoalRecapTick:
         con.commit()
         cli("add", "work item", "-k", "task")
         task = con.execute("SELECT id FROM node WHERE title='work item'").fetchone()
-        cli("log", str(task["id"]), "小结后又干了活")
+        cli("log", str(task["id"]), "worked more after recap")
         _, out, _ = cli("day")
         assert "consider rewriting" in out
 
     def test_tick_adds_log(self, cli):
         cli("add", "workout", "-k", "habit")
-        cli("tick", "1", "--note", "引体 6 个")
+        cli("tick", "1", "--note", "pull-ups x6")
         code, out, _ = cli("show", "1")
-        assert "引体 6 个" in out
+        assert "pull-ups x6" in out
 
     def test_tick_done_flag(self, cli):
-        cli("add", "一次性活", "-k", "task")
+        cli("add", "one-off task", "-k", "task")
         cli("tick", "1", "--done")
         code, out, _ = cli("show", "1")
         assert "DONE" in out

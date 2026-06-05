@@ -65,7 +65,7 @@ class TestShowSchedule:
     """wl show surfaces the sched table (one-off dates + recurring rules)."""
 
     def test_show_displays_oneoff_and_recur(self, cli):
-        cli("add", "巡检", "-k", "habit")
+        cli("add", "patrol", "-k", "habit")
         cli("sched", "1", "2026-06-15")
         cli("sched", "1", "--recur", "daily")
         _, out, _ = cli("show", "1")
@@ -74,6 +74,6 @@ class TestShowSchedule:
         assert "2026-06-15" in out
 
     def test_show_no_schedule_section_when_unscheduled(self, cli):
-        cli("add", "无排期", "-k", "task")
+        cli("add", "unscheduled", "-k", "task")
         _, out, _ = cli("show", "1")
         assert "schedule:" not in out

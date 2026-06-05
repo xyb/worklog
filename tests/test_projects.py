@@ -8,9 +8,9 @@ class TestProjects:
         cli("add", "month", "-k", "month")                                              # 1
         cli("add", "projectA", "-k", "project", "-p", "A", "-t", "projA", "--parent", "1")  # 2
         cli("add", "projectB done", "-k", "project", "-p", "B", "-t", "projB", "--parent", "1")  # 3
-        cli("add", "A任务1", "-k", "task", "-t", "projA", "--parent", "1")             # 4
-        cli("add", "A任务2", "-k", "task", "-t", "projA", "--parent", "1")             # 5
-        cli("add", "A子任务", "-k", "task", "--parent", "2")                           # 6 (structural subtask)
+        cli("add", "A task1", "-k", "task", "-t", "projA", "--parent", "1")             # 4
+        cli("add", "A task2", "-k", "task", "-t", "projA", "--parent", "1")             # 5
+        cli("add", "A subtask", "-k", "task", "--parent", "2")                           # 6 (structural subtask)
         cli("done", "4")
         cli("done", "3")  # mark projectB done
 
@@ -30,7 +30,7 @@ class TestProjects:
     def test_projects_stats(self, cli):
         self._seed(cli)
         code, out, _ = cli("projects")
-        # projectA: A任务1(done) + A任务2(todo) + A子任务(todo, structural) = 3, done 1
+        # projectA: A task1(done) + A task2(todo) + A subtask(todo, structural) = 3, done 1
         line = [l for l in out.split("\n") if "projectA" in l][0]
         assert "done 1/3" in line
         assert "todo 2" in line

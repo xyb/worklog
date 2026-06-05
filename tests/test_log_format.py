@@ -105,7 +105,7 @@ class TestLogFormatOneline:
 
     def test_truncate_helper_short_body_unchanged(self):
         from worklog import cli as wl
-        assert wl._truncate_log_body("短", 10, full=False) == "短"
+        assert wl._truncate_log_body("short", 10, full=False) == "short"
 
     def test_log_full_helper(self):
         from worklog import cli as wl

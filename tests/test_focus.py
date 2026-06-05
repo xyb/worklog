@@ -10,7 +10,7 @@ class TestFocus:
         cli("add", "login fix", "-k", "task", "-t", "gaming,work,P0", "--parent", "1")     # 3
         cli("add", "decision meeting", "-k", "meetlog", "-t", "gaming,work,P0,strategy", "--parent", "1")  # 4
         cli("add", "digest system", "-k", "task", "-t", "gaming,followup", "--parent", "4")    # 5 (meeting subtask)
-        cli("add", "无关任务", "-k", "task", "-t", "biz_agg,work", "--parent", "1")       # 6
+        cli("add", "unrelated task", "-k", "task", "-t", "biz_agg,work", "--parent", "1")       # 6
 
     def test_focus_shows_upstream_self_downstream(self, cli):
         self._seed(cli)
@@ -26,9 +26,9 @@ class TestFocus:
         code, out, _ = cli("focus", "4", "--related")
         # gaming-related #2 #3 should appear
         assert "data-viz" in out or "login fix" in out
-        # 无关任务 #6 (biz_agg/work) should not mix in — it only shares work(generic), not gaming
+        # unrelated task #6 (biz_agg/work) should not mix in — it only shares work(generic), not gaming
         rel_section = out.split("related")[-1] if "related" in out else ""
-        assert "无关任务" not in rel_section
+        assert "unrelated task" not in rel_section
 
     def test_focus_related_only_generic_tags(self, cli):
         cli("add", "isolated", "-k", "task", "-t", "work,P0,planned")  # all generic tags

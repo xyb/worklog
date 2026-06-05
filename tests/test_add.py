@@ -187,15 +187,15 @@ class TestAddDuplicateWarning:
     """wl add warns (without blocking) when a similar open task/project already exists (#435)."""
 
     def test_warns_on_substring_overlap(self, cli):
-        cli("add", "业务聚合 slack-log 整合", "-k", "task")
-        code, out, _ = cli("add", "slack-log 整合", "-k", "task")
+        cli("add", "biz-agg slack-log merge", "-k", "task")
+        code, out, _ = cli("add", "slack-log merge", "-k", "task")
         assert code == 0  # not blocked — the node is still created
         assert "similar open" in out
         assert "#1" in out  # points at the existing one
 
     def test_no_warn_when_unrelated(self, cli):
-        cli("add", "业务聚合 slack-log 整合", "-k", "task")
-        _, out, _ = cli("add", "买菜", "-k", "task")
+        cli("add", "biz-agg slack-log merge", "-k", "task")
+        _, out, _ = cli("add", "buy groceries", "-k", "task")
         assert "similar open" not in out
 
     def test_no_warn_on_short_title_noise(self, cli):

@@ -145,9 +145,9 @@ class TestDoneCompound:
 
     def test_done_with_log_and_at(self, cli):
         cli("add", "t1", "-k", "task")
-        cli("done", "1", "--log", "结果说明", "--at", "16:00")
+        cli("done", "1", "--log", "result note", "--at", "16:00")
         _, show, _ = cli("show", "1")
-        assert "结果说明" in show
+        assert "result note" in show
         assert " 16:00:00" in show  # both log + closed_at use 16:00
 
     def test_done_with_m_alias(self, cli):
@@ -158,7 +158,7 @@ class TestDoneCompound:
 
     def test_cancel_with_log(self, cli):
         cli("add", "t1", "-k", "task")
-        cli("cancel", "1", "--log", "abandon: 不再做这条")
+        cli("cancel", "1", "--log", "abandon: drop this one")
         _, show, _ = cli("show", "1")
         assert "CANCELED" in show
         assert "abandon" in show
@@ -171,25 +171,25 @@ class TestDoneCompound:
     def test_done_multi_id_with_log(self, cli):
         cli("add", "t1", "-k", "task")
         cli("add", "t2", "-k", "task")
-        cli("done", "1", "2", "--log", "批量收尾")
+        cli("done", "1", "2", "--log", "batch wrap-up")
         for nid in ("1", "2"):
             _, show, _ = cli("show", nid)
             assert "DONE" in show
-            assert "批量收尾" in show
+            assert "batch wrap-up" in show
 
 
 class TestDoneRecurringWarning:
     """wl done on a recurring task hints to use wl tick (occurrence) vs done (retire)."""
 
     def test_done_recurring_warns(self, cli):
-        cli("add", "每日巡检", "-k", "habit")
+        cli("add", "daily patrol", "-k", "habit")
         cli("sched", "1", "--recur", "daily")
         _, out, _ = cli("done", "1")
         assert "recurring" in out
         assert "wl tick 1" in out
 
     def test_done_oneoff_no_warn(self, cli):
-        cli("add", "一次性", "-k", "task")
+        cli("add", "one-off", "-k", "task")
         cli("sched", "1", "2026-06-15")
         _, out, _ = cli("done", "1")
         assert "recurring" not in out

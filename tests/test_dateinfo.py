@@ -21,13 +21,13 @@ class TestDateInfo:
 
     def test_dateinfo_import(self, cli, tmp_path):
         f = tmp_path / "d.json"
-        f.write_text('{"2026-05-01":"劳动节","2026-05-21":"小满"}', encoding="utf-8")
+        f.write_text('{"2026-05-01":"Labor Day","2026-05-21":"Grain Buds"}', encoding="utf-8")
         cli("dateinfo", "--import", str(f))
         code, out, _ = cli("dateinfo")
-        assert "劳动节" in out and "小满" in out
+        assert "Labor Day" in out and "Grain Buds" in out
 
     def test_dateinfo_clear(self, cli):
-        cli("dateinfo", "2026-05-01", "劳动节")
+        cli("dateinfo", "2026-05-01", "Labor Day")
         cli("dateinfo", "2026-05-01", "--clear")
         code, out, _ = cli("dateinfo", "2026-05-01")
         assert "no label" in out

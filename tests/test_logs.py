@@ -15,7 +15,7 @@ class TestLogsLineWidth:
         from worklog import helpers
         monkeypatch.setattr(helpers, "_term_width", lambda: 80)
         cli("add", "标" * 30, "-k", "task")          # 30 CJK chars = 60 display cols
-        cli("log", "1", "这是一条非常长的日志正文用来测试折行" * 4)
+        cli("log", "1", "a very long log body to test wrapping" * 4)
         _, out, _ = cli("logs", "today")
         body_lines = [ln for ln in out.splitlines() if ln.strip() and not ln.startswith("(")]
         assert body_lines

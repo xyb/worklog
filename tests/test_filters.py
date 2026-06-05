@@ -7,13 +7,13 @@ import pytest
 class TestFilters:
     def _seed(self, cli, date="2026-05-28"):
         cli("add", "Lifetime", "-k", "lifetime")                                    # 1
-        cli("add", "工作域", "-k", "area", "-t", "work", "--parent", "1")            # 2
-        cli("add", "个人域", "-k", "area", "-t", "personal", "--parent", "1")        # 3
-        cli("add", "项目A", "-k", "project", "-t", "work", "--parent", "2")          # 4
-        cli("add", "写代码", "-k", "task", "-t", "work", "--parent", "4", "--sched", date)      # 5
-        cli("add", "买菜", "-k", "task", "-t", "personal", "--parent", "3", "--sched", date)    # 6
+        cli("add", "work area", "-k", "area", "-t", "work", "--parent", "1")            # 2
+        cli("add", "personal area", "-k", "area", "-t", "personal", "--parent", "1")        # 3
+        cli("add", "project A", "-k", "project", "-t", "work", "--parent", "2")          # 4
+        cli("add", "write code", "-k", "task", "-t", "work", "--parent", "4", "--sched", date)      # 5
+        cli("add", "buy groceries", "-k", "task", "-t", "personal", "--parent", "3", "--sched", date)    # 6
         # a node carrying BOTH tags (to exercise AND)
-        cli("add", "复盘", "-k", "task", "-t", "work,personal", "--parent", "4", "--sched", date)  # 7
+        cli("add", "retro", "-k", "task", "-t", "work,personal", "--parent", "4", "--sched", date)  # 7
         # logs dated to the viewed day (a bare --log on add lands at *now*, not `date`)
         cli("log", "5", "wrote filter", "--date", date)
         cli("log", "6", "bought food", "--date", date)
@@ -23,8 +23,8 @@ class TestFilters:
     def test_ls_tag_filters_to_bucket(self, cli):
         self._seed(cli)
         _, out, _ = cli("ls", "-t", "work")
-        assert "写代码" in out and "复盘" in out
-        assert "买菜" not in out
+        assert "write code" in out and "retro" in out
+        assert "buy groceries" not in out
 
     def test_ls_tag_short_and_long_equivalent(self, cli):
         self._seed(cli)
@@ -36,33 +36,33 @@ class TestFilters:
         self._seed(cli)
         _, out, _ = cli("ls", "-t", "work,personal")
         # only #7 carries BOTH tags
-        assert "复盘" in out
-        assert "写代码" not in out and "买菜" not in out
+        assert "retro" in out
+        assert "write code" not in out and "buy groceries" not in out
 
     def test_ls_kind_filter(self, cli):
         self._seed(cli)
         _, out, _ = cli("ls", "--kind", "project")
-        assert "项目A" in out
-        assert "写代码" not in out
+        assert "project A" in out
+        assert "write code" not in out
 
     def test_ls_no_filter_unchanged(self, cli):
         self._seed(cli)
         _, out, _ = cli("ls")
-        assert "写代码" in out and "买菜" in out and "复盘" in out
+        assert "write code" in out and "buy groceries" in out and "retro" in out
 
     # ---- day ----
     def test_day_tag_work_hides_personal_bucket(self, cli):
         self._seed(cli)
         _, out, _ = cli("day", "2026-05-28", "-t", "work")
-        assert "写代码" in out
-        assert "买菜" not in out
+        assert "write code" in out
+        assert "buy groceries" not in out
         assert "personal" not in out  # empty bucket not rendered
 
     def test_day_tag_personal(self, cli):
         self._seed(cli)
         _, out, _ = cli("day", "2026-05-28", "-t", "personal")
-        assert "买菜" in out
-        assert "写代码" not in out
+        assert "buy groceries" in out
+        assert "write code" not in out
 
     def test_day_filter_no_match_message(self, cli):
         self._seed(cli)
@@ -71,7 +71,7 @@ class TestFilters:
 
     def test_day_stats_reflect_filter(self, cli):
         self._seed(cli)
-        # work,personal AND → only #7 复盘 matches → exactly 1 task with progress
+        # work,personal AND → only #7 retro matches → exactly 1 task with progress
         _, out, _ = cli("day", "2026-05-28", "-t", "work,personal")
         assert "0/1 tasks with progress" in out
 
@@ -80,29 +80,29 @@ class TestFilters:
         self._seed(cli)
         _, out, _ = cli("tree", "-t", "work")
         # work task + its structural ancestors kept; personal task pruned
-        assert "写代码" in out and "项目A" in out and "工作域" in out
-        assert "买菜" not in out and "个人域" not in out
+        assert "write code" in out and "project A" in out and "work area" in out
+        assert "buy groceries" not in out and "personal area" not in out
 
     def test_tree_root_filter_subtree(self, cli):
         self._seed(cli)
         _, out, _ = cli("tree", "--root", "4", "-t", "work")
-        assert "写代码" in out
-        assert "买菜" not in out
+        assert "write code" in out
+        assert "buy groceries" not in out
 
     def test_tree_by_tag_respects_filter(self, cli):
         self._seed(cli)
         # work/personal are generic tags (excluded from --by tag); use a real semantic
         # tag shared by a work and a personal task, then filter by direction.
-        cli("tag", "5", "alpha")   # 写代码 (work) + alpha (a non-generic tag)
-        cli("tag", "6", "alpha")   # 买菜 (personal) + alpha
+        cli("tag", "5", "alpha")   # write code (work) + alpha (a non-generic tag)
+        cli("tag", "6", "alpha")   # buy groceries (personal) + alpha
         _, out, _ = cli("tree", "--by", "tag", "-t", "personal")
-        assert "买菜" in out          # #dev group, matches personal
-        assert "写代码" not in out    # filtered out (not personal)
+        assert "buy groceries" in out          # #alpha group, matches personal
+        assert "write code" not in out    # filtered out (not personal)
 
     def test_tree_no_filter_unchanged(self, cli):
         self._seed(cli)
         _, plain, _ = cli("tree", "--depth", "9")
-        assert "写代码" in plain and "买菜" in plain
+        assert "write code" in plain and "buy groceries" in plain
 
     # ---- logs ----
     def test_logs_tag_filter(self, cli):
@@ -115,8 +115,8 @@ class TestFilters:
     def test_agenda_tag_filter(self, cli):
         self._seed(cli)
         _, out, _ = cli("agenda", "2026-05-01", "2026-06-30", "-t", "personal")
-        assert "买菜" in out
-        assert "写代码" not in out
+        assert "buy groceries" in out
+        assert "write code" not in out
 
 
 class TestFilterEdgeCases:
@@ -124,11 +124,11 @@ class TestFilterEdgeCases:
 
     def _seed(self, cli, date="2026-05-28"):
         cli("add", "Lifetime", "-k", "lifetime")                                    # 1
-        cli("add", "工作域", "-k", "area", "-t", "work", "--parent", "1")            # 2
-        cli("add", "个人域", "-k", "area", "-t", "personal", "--parent", "1")        # 3
-        cli("add", "项目A", "-k", "project", "-t", "work", "--parent", "2")          # 4
-        cli("add", "写代码", "-k", "task", "-t", "work", "--parent", "4", "--sched", date)    # 5
-        cli("add", "买菜", "-k", "task", "-t", "personal", "--parent", "3", "--sched", date)  # 6
+        cli("add", "work area", "-k", "area", "-t", "work", "--parent", "1")            # 2
+        cli("add", "personal area", "-k", "area", "-t", "personal", "--parent", "1")        # 3
+        cli("add", "project A", "-k", "project", "-t", "work", "--parent", "2")          # 4
+        cli("add", "write code", "-k", "task", "-t", "work", "--parent", "4", "--sched", date)    # 5
+        cli("add", "buy groceries", "-k", "task", "-t", "personal", "--parent", "3", "--sched", date)  # 6
         cli("log", "5", "wrote filter", "--date", date)
         cli("log", "6", "bought food", "--date", date)
 
@@ -152,21 +152,21 @@ class TestFilterEdgeCases:
         self._seed(cli)
         cli("cancel", "6", "--at", "2026-05-28 09:00")
         _, out, _ = cli("day", "2026-05-28", "--status", "CANCELED")
-        assert "买菜" in out          # the canceled task is shown, not pre-hidden
-        assert "写代码" not in out    # non-canceled filtered out
+        assert "buy groceries" in out          # the canceled task is shown, not pre-hidden
+        assert "write code" not in out    # non-canceled filtered out
 
     def test_status_canceled_honored_in_agenda(self, cli):
         self._seed(cli)
         cli("cancel", "6", "--at", "2026-05-28 09:00")
         _, out, _ = cli("agenda", "2026-05-01", "2026-06-30", "--status", "CANCELED")
-        assert "买菜" in out
-        assert "写代码" not in out
+        assert "buy groceries" in out
+        assert "write code" not in out
 
     def test_status_canceled_honored_in_tree(self, cli):
         self._seed(cli)
         cli("cancel", "5", "--at", "2026-05-28 09:00")
         _, out, _ = cli("tree", "--status", "CANCELED")
-        assert "写代码" in out  # filtered tree recurses into the canceled match
+        assert "write code" in out  # filtered tree recurses into the canceled match
 
     # finding 3: the CLOCK total on `day` must be scoped to the filtered items
     def test_day_clock_total_respects_filter(self, cli):
@@ -183,4 +183,4 @@ class TestFilterEdgeCases:
     def test_tree_by_project_kind_project(self, cli):
         self._seed(cli)
         _, out, _ = cli("tree", "--by", "project", "--kind", "project")
-        assert "项目A" in out
+        assert "project A" in out
