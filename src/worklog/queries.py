@@ -60,7 +60,7 @@ def _insert_log(con, nid, entry):
 def _project_members(con, proj_id):
     """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""
     ids = set()
-    proj_tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (proj_id,))} - GENERIC_TAGS
+    proj_tags = {r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=proj_id)} - GENERIC_TAGS
     for r in con.execute(
         "SELECT id FROM node WHERE parent_id = ? AND kind IN ('task','meetlog','habit')", (proj_id,)
     ):
@@ -78,12 +78,12 @@ def _project_members(con, proj_id):
 def _ancestors_chain(con, node_id):
     """Return the path list[Row] from the top-level root to node (inclusive)."""
     chain = []
-    cur = con.execute("SELECT * FROM node WHERE id = ?", (node_id,)).fetchone()
+    cur = _db.get(con, "node", node_id)
     if not cur:
         return chain
     chain.append(cur)
     while cur["parent_id"]:
-        cur = con.execute("SELECT * FROM node WHERE id = ?", (cur["parent_id"],)).fetchone()
+        cur = _db.get(con, "node", cur["parent_id"])
         if not cur:
             break
         chain.append(cur)
@@ -91,7 +91,7 @@ def _ancestors_chain(con, node_id):
 
 def _node_bucket(con, nid):
     """Bucket a node into work / personal / other by work/personal tag."""
-    tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (nid,))}
+    tags = {r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=nid)}
     if "work" in tags:
         return "work"
     if "personal" in tags:
@@ -112,7 +112,7 @@ def _node_plan(con, nid, sched_ids):
     planned/unplanned is derived from sched, anything not scheduled is just unplanned."""
     if nid in sched_ids:
         return "planned"
-    tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (nid,))}
+    tags = {r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=nid)}
     if "planned" in tags:
         return "planned"
     return "unplanned"
@@ -134,7 +134,7 @@ def _collect_descendants(con, root_id):
     stack = [root_id]
     while stack:
         pid = stack.pop()
-        children = con.execute("SELECT id FROM node WHERE parent_id = ?", (pid,)).fetchall()
+        children = _db.find(con, "node", cols="id", parent_id=pid)
         for c in children:
             acc.append(c["id"])
             stack.append(c["id"])

@@ -191,7 +191,7 @@ def cmd_dateinfo(args, con):
         out(_c(f"✓ {args.date} {_cn_weekday(args.date)} · {args.label}", "meta"))
         return
     if args.date and args.clear:
-        con.execute("DELETE FROM date_meta WHERE date = ?", (args.date,))
+        _db.delete(con, "date_meta", date=args.date)
         con.commit()
         out(_c(f"✓ cleared metadata for {args.date}", "meta"))
         return
@@ -200,7 +200,7 @@ def cmd_dateinfo(args, con):
         lbl = _date_label(con, args.date)
         out(_c(f"{args.date} {_cn_weekday(args.date)}" + (f" · {lbl}" if lbl else " (no label)"), "meta"))
     else:
-        for r in con.execute("SELECT date, label FROM date_meta ORDER BY date"):
+        for r in _db.find(con, "date_meta", cols="date, label", order="date"):
             out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
 
 def cmd_goal(args, con):
@@ -242,7 +242,7 @@ def cmd_summary_prop(args, con):
         return
     log_id = _set_typed_log(con, nid, "summary", args.text)
     con.commit()
-    at = con.execute("SELECT logged_at FROM log WHERE id = ?", (log_id,)).fetchone()["logged_at"]
+    at = _db.get(con, "log", log_id)["logged_at"]
     out(_c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta"))
 
 def cmd_checkin(args, con):
@@ -296,8 +296,8 @@ def cmd_sched(args, con):
     _check_ids_exist(con, ids)
     if args.clear:
         for nid in ids:
-            cur = con.execute("DELETE FROM sched WHERE node_id = ?", (nid,))
-            out(_c(f"✓ #{nid} cleared {cur.rowcount} schedule entries", "meta"))
+            n = _db.delete(con, "sched", node_id=nid)
+            out(_c(f"✓ #{nid} cleared {n} schedule entries", "meta"))
         con.commit()
         return
     if not args.when and not args.recur:
@@ -367,7 +367,7 @@ def _ensure_time_ancestors(con, d):
             "parent_id": parent_id, "title": new_title, "kind": kind, "created_at": _tu.utc_now(),
         })
 
-    lt = con.execute("SELECT id FROM node WHERE kind='lifetime' ORDER BY id LIMIT 1").fetchone()
+    lt = _db.find_one(con, "node", cols="id", kind="lifetime", order="id")
     lt_id = lt["id"] if lt else None
     yr_id = _get_or_make(
         "year", "SELECT id FROM node WHERE kind='year' AND title LIKE ? ORDER BY id LIMIT 1",
@@ -418,7 +418,7 @@ def _checkin_collect(con, args):
 
     rows = []
     for nid in sorted(sched_ids):
-        n = con.execute("SELECT * FROM node WHERE id = ?", (nid,)).fetchone()
+        n = _db.get(con, "node", nid)
         if not n or n["kind"] not in kinds:
             continue
         if n["status"] == "CANCELED" and not getattr(args, "show_canceled", False):

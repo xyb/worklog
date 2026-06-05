@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .. import timeutil as _tu
+from .. import db_table as _db
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
@@ -87,7 +88,7 @@ def cmd_tree(args, con):
         return
     if args.root is not None:
         # expand subtree from a specified node as root (no longer requires parent_id IS NULL)
-        root = con.execute("SELECT * FROM node WHERE id = ?", (args.root,)).fetchone()
+        root = _db.get(con, "node", args.root)
         if not root:
             sys.exit(f"✗ node #{args.root} not found")
         roots = [root]
@@ -159,7 +160,7 @@ def cmd_day(args, con):
         t5 = _latest_typed_log(con, day["id"], "top5")
         if t5 and t5["body"]:
             out(_c("  > Top5: " + t5["body"], "meta"))
-        wk = con.execute("SELECT id FROM node WHERE id = ? AND kind = 'week'", (day["parent_id"],)).fetchone()
+        wk = _db.find_one(con, "node", cols="id", id=day["parent_id"], kind="week")
         if wk:
             ov = _latest_typed_log(con, wk["id"], "overview")
             if ov and ov["body"]:
@@ -248,7 +249,7 @@ def cmd_day(args, con):
 def _tree_by(con, by):
     """Flat 2-level view, regrouped by dimension (avoids deep time-layered nesting)."""
     if by == "tag":
-        tags = [r["tag"] for r in con.execute("SELECT DISTINCT tag FROM tag ORDER BY tag")]
+        tags = [r["tag"] for r in _db.find(con, "tag", cols="DISTINCT tag", order="tag")]
         sem = [t for t in tags if t not in GENERIC_TAGS]
         if not sem:
             print("(no semantic tags)")
@@ -272,10 +273,10 @@ def _tree_by(con, by):
             return
         claimed = set()
         for proj in projects:
-            proj_tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id = ?", (proj["id"],))} - GENERIC_TAGS
+            proj_tags = {r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=proj["id"])} - GENERIC_TAGS
             ids = set()
             # (a) structural children
-            for r in con.execute("SELECT id FROM node WHERE parent_id = ?", (proj["id"],)):
+            for r in _db.find(con, "node", cols="id", parent_id=proj["id"]):
                 ids.add(r["id"])
             # (b) task/meetlog/habit sharing a semantic tag
             if proj_tags:
@@ -289,7 +290,7 @@ def _tree_by(con, by):
             pri = (" " + _c(f"[#{proj['priority']}]", _PRI_STYLE.get(proj["priority"]))) if proj["priority"] else ""
             out("▸ " + _c(f"#{proj['id']}", "id") + pri + " " + _c(proj["title"], "header") + "  " + _c(f"({len(ids)})", "meta"))
             for nid in sorted(ids):
-                n = con.execute("SELECT * FROM node WHERE id = ?", (nid,)).fetchone()
+                n = _db.get(con, "node", nid)
                 claimed.add(nid)
                 out(_node_line(con, n))
             if not ids:
@@ -410,9 +411,9 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
     To drill into an area's projects use --root <area>; for other days use --root <week/month>. CANCELED excluded by default."""
     from datetime import date
 
-    life = con.execute("SELECT * FROM node WHERE kind = 'lifetime' ORDER BY id LIMIT 1").fetchone()
-    has_day = con.execute("SELECT 1 FROM node WHERE kind = 'day' LIMIT 1").fetchone()
-    has_month = con.execute("SELECT 1 FROM node WHERE kind = 'month' LIMIT 1").fetchone()
+    life = _db.find_one(con, "node", kind="lifetime", order="id")
+    has_day = _db.exists(con, "node", kind="day")
+    has_month = _db.exists(con, "node", kind="month")
     if not life and not has_day and not has_month:
         print("(no root nodes)")
         return
@@ -434,7 +435,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
         day_depth = base + len(chain) - 1
         _print_day_activity(con, dayn, day_depth, max_depth=day_depth + 1, log_tail=log_tail, full=full)
     else:
-        mon = con.execute("SELECT * FROM node WHERE kind = 'month' ORDER BY title DESC LIMIT 1").fetchone()
+        mon = _db.find_one(con, "node", kind="month", order="title DESC")
         if mon:
             out(_node_line(con, mon, indent="  " * base, sched=True))
 
@@ -529,7 +530,7 @@ def _habit_month_progress(con, nid, day):
     ≤ day on which the habit's schedule fires. Returns None when the habit has no
     schedule (no meaningful rate)."""
     from datetime import date, timedelta
-    scheds = list(con.execute("SELECT on_date, rrule FROM sched WHERE node_id = ?", (nid,)))
+    scheds = _db.find(con, "sched", cols="on_date, rrule", node_id=nid)
     if not scheds:
         return None
     y, m, d = (int(x) for x in day.split("-"))
@@ -607,14 +608,14 @@ def _sched_fires(on_date, rrule, target):
 def _scheduled_node_ids(con, target):
     """Set of node_ids hit by a schedule on target (forward planning -> planned bucket)."""
     ids = set()
-    for r in con.execute("SELECT node_id, on_date, rrule FROM sched"):
+    for r in _db.find(con, "sched", cols="node_id, on_date, rrule"):
         if _sched_fires(r["on_date"], r["rrule"], target):
             ids.add(r["node_id"])
     return ids
 
 def _date_label(con, target):
     """Label (holiday/vacation/working-day-swap) for the date from date_meta, or None."""
-    r = con.execute("SELECT label FROM date_meta WHERE date = ?", (target,)).fetchone()
+    r = _db.find_one(con, "date_meta", cols="label", date=target)
     return r["label"] if r else None
 
 

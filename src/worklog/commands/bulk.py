@@ -183,7 +183,7 @@ def cmd_apply(args, con):
                 # recursive subtree delete: node self-ref is ON DELETE SET NULL, only deleting the parent would orphan children, so we must explicitly collect descendants
                 ids = [f["id"]] + _collect_descendants(con, f["id"])
                 for did in ids:
-                    con.execute("DELETE FROM node WHERE id = ?", (did,))
+                    _db.delete(con, "node", id=did)
                 counts["delete"] += len(ids)
                 continue
             # pfx == "+": add new node
@@ -253,7 +253,7 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
             # a log entry may carry structured datapoints: {"body":..., "metrics":[{tag,value,unit}]}
             if isinstance(entry, dict) and entry.get("metrics"):
                 log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
-                log_at = con.execute("SELECT logged_at FROM log WHERE id = ?", (log_id,)).fetchone()["logged_at"]
+                log_at = _db.get(con, "log", log_id)["logged_at"]
                 for mspec in entry["metrics"]:
                     import_metric(con, log_id, nid, mspec, default_at=log_at)
         # node-level metrics → a dedicated carrier log (1 carrier → N datapoints, e.g. a CGM import)
@@ -305,7 +305,7 @@ def _import_update(con, spec, dry, counters):
     for t in spec.get("add_tags", []):
         _db.insert(con, "tag", {"node_id": nid, "tag": t}, or_="ignore")
     for t in spec.get("remove_tags", []):
-        con.execute("DELETE FROM tag WHERE node_id = ? AND tag = ?", (nid, t))
+        _db.delete(con, "tag", node_id=nid, tag=t)
     for d in spec.get("add_links", []):
         _db.insert(con, "link", {"node_id": nid, "vault_doc": d}, or_="ignore")
     for entry in spec.get("add_logs", []):
@@ -476,7 +476,7 @@ def _exec_update(con, o):
         if field in _SET_COL:
             col = _SET_COL[field]
             if action == "clear":
-                con.execute(f"UPDATE node SET {col} = NULL WHERE id = ?", (nid,))
+                _db.update(con, "node", nid, {col: None})
             else:
                 if field == "parent":
                     v = int(value)
@@ -484,27 +484,27 @@ def _exec_update(con, o):
                     v = _norm_sched(value)
                 else:
                     v = value
-                con.execute(f"UPDATE node SET {col} = ? WHERE id = ?", (v, nid))
+                _db.update(con, "node", nid, {col: v})
                 if field == "status" and value == "DONE":
                     con.execute("UPDATE node SET closed_at = ? WHERE id = ? AND closed_at IS NULL", (_tu.utc_now(), nid))
         elif field == "tag":
             if action == "add":
                 _db.insert(con, "tag", {"node_id": nid, "tag": value}, or_="ignore")
             else:
-                con.execute("DELETE FROM tag WHERE node_id = ? AND tag = ?", (nid, value))
+                _db.delete(con, "tag", node_id=nid, tag=value)
         elif field == "log":
             _insert_log(con, nid, value)
         elif field == "link":
             if action == "add":
                 _db.insert(con, "link", {"node_id": nid, "vault_doc": value}, or_="ignore")
             else:
-                con.execute("DELETE FROM link WHERE node_id = ? AND vault_doc = ?", (nid, value))
+                _db.delete(con, "link", node_id=nid, vault_doc=value)
         elif field == "prop":
             if action == "set":
                 k, v = value
                 _upsert_prop(con, nid, k, v)
             else:
-                con.execute("DELETE FROM prop WHERE node_id = ? AND key = ?", (nid, value))
+                _db.delete(con, "prop", node_id=nid, key=value)
 
 def _fieldop_desc(action, field, value):
     if action == "clear":

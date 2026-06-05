@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .. import timeutil as _tu
+from .. import db_table as _db
 from .metric import _fmt_value
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
 from ..helpers import (
@@ -100,7 +101,7 @@ def cmd_ls(args, con):
     if getattr(args, "ids", None):
         rows = []
         for nid in args.ids:
-            r = con.execute("SELECT * FROM node WHERE id = ?", (nid,)).fetchone()
+            r = _db.get(con, "node", nid)
             if r:
                 rows.append(r)
         if not rows:
@@ -208,22 +209,22 @@ def cmd_find(args, con):
             hits.setdefault(r[0], set()).add(where)
 
     if "title" in fields:
-        mark(con.execute("SELECT id FROM node WHERE title LIKE ?", (like,)), "title")
+        mark(_db.find(con, "node", cols="id", title__like=like), "title")
     if "body" in fields:
-        mark(con.execute("SELECT id FROM node WHERE body LIKE ?", (like,)), "body")
+        mark(_db.find(con, "node", cols="id", body__like=like), "body")
     if "log" in fields:
-        mark(con.execute("SELECT DISTINCT node_id FROM log WHERE body LIKE ?", (like,)), "log")
+        mark(_db.find(con, "log", cols="DISTINCT node_id", body__like=like), "log")
     if "tag" in fields:
-        mark(con.execute("SELECT DISTINCT node_id FROM tag WHERE tag LIKE ?", (like,)), "tag")
+        mark(_db.find(con, "tag", cols="DISTINCT node_id", tag__like=like), "tag")
     if "prop" in fields:
         mark(con.execute("SELECT DISTINCT node_id FROM prop WHERE key LIKE ? OR value LIKE ?", (like, like)), "prop")
     if "link" in fields:
-        mark(con.execute("SELECT DISTINCT node_id FROM link WHERE vault_doc LIKE ?", (like,)), "link")
+        mark(_db.find(con, "link", cols="DISTINCT node_id", vault_doc__like=like), "link")
 
     inc_cancel = getattr(args, "show_canceled", False)
     rows = []
     for nid in hits:
-        n = con.execute("SELECT * FROM node WHERE id = ?", (nid,)).fetchone()
+        n = _db.get(con, "node", nid)
         if args.kind and n["kind"] != args.kind:
             continue
         if not inc_cancel and n["status"] == "CANCELED":
@@ -252,21 +253,21 @@ def cmd_find(args, con):
         if "body" in where and n["body"]:
             out("    " + _c("body:", "meta") + " " + _snippet(n["body"], q))
         if "log" in where:
-            for r in con.execute("SELECT body FROM log WHERE node_id=? AND body LIKE ? ORDER BY id", (nid, like)):
+            for r in _db.find(con, "log", cols="body", node_id=nid, body__like=like, order="id"):
                 out("    " + _c("log:", "meta") + " " + _snippet(r["body"], q))
         if "tag" in where:
-            tg = [r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=? AND tag LIKE ?", (nid, like))]
+            tg = [r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=nid, tag__like=like)]
             out("    " + _c("tag:", "meta") + " " + _c(", ".join(tg), "tag"))
         if "prop" in where:
             for r in con.execute("SELECT key,value FROM prop WHERE node_id=? AND (key LIKE ? OR value LIKE ?)", (nid, like, like)):
                 out("    " + _c("prop:", "meta") + " " + _c(f"{r['key']}={r['value']}"))
         if "link" in where:
-            for r in con.execute("SELECT vault_doc FROM link WHERE node_id=? AND vault_doc LIKE ?", (nid, like)):
+            for r in _db.find(con, "link", cols="vault_doc", node_id=nid, vault_doc__like=like):
                 out("    " + _c("link:", "meta") + " " + _c(f"[[{r['vault_doc']}]]"))
 
 def cmd_focus(args, con):
     """Focus on a node: upstream path + self + downstream subtree."""
-    n = con.execute("SELECT * FROM node WHERE id = ?", (args.id,)).fetchone()
+    n = _db.get(con, "node", args.id)
     if not n:
         sys.exit(f"✗ node #{args.id} not found")
 
@@ -335,7 +336,7 @@ def cmd_ancestors(args, con):
 
 def cmd_descendants(args, con):
     """Show only the downstream subtree (node -> all descendants)."""
-    n = con.execute("SELECT * FROM node WHERE id = ?", (args.id,)).fetchone()
+    n = _db.get(con, "node", args.id)
     if not n:
         sys.exit(f"✗ node #{args.id} not found")
     _print_tree(con, n, depth=0, max_depth=args.depth)
@@ -360,9 +361,9 @@ def cmd_agenda(args, con):
     #   - sched table on_date: concrete one-off days (+ rrule, handled elsewhere)
     #   - node.scheduled_date:    a single fuzzy-granularity pin (@2026-06 / someday / ...)
     entries = []  # (node_id, sched_value)
-    for r in con.execute("SELECT node_id, on_date FROM sched WHERE on_date IS NOT NULL"):
+    for r in _db.find(con, "sched", cols="node_id, on_date", on_date__ne=None):
         entries.append((r["node_id"], r["on_date"]))
-    for r in con.execute("SELECT id, scheduled_date FROM node WHERE scheduled_date IS NOT NULL"):
+    for r in _db.find(con, "node", cols="id, scheduled_date", scheduled_date__ne=None):
         entries.append((r["id"], r["scheduled_date"]))
 
     hits = []          # (sort_key, node, value) for in-range scheds
@@ -373,7 +374,7 @@ def cmd_agenda(args, con):
         if key in seen:
             continue
         seen.add(key)
-        n = con.execute("SELECT * FROM node WHERE id = ?", (node_id,)).fetchone()
+        n = _db.get(con, "node", node_id)
         if not n:
             continue
         if not show_all and n["status"] in ("DONE", "CANCELED") and not (inc_cancel and n["status"] == "CANCELED"):
@@ -499,7 +500,7 @@ def cmd_changes(args, con):
         members = _project_members(con, proj["id"])
         done, added_open, logged = [], [], 0
         for mid in members:
-            n = con.execute("SELECT * FROM node WHERE id = ?", (mid,)).fetchone()
+            n = _db.get(con, "node", mid)
             d = in_win(n["closed_at"])
             if d:
                 done.append(n)
@@ -560,7 +561,7 @@ def cmd_summary(args, con):
     doing = [n for n in nodes if n["status"] == "DOING"]
 
     clock_min = 0
-    for r in con.execute("SELECT end_at, elapsed_sec FROM clock WHERE end_at IS NOT NULL"):
+    for r in _db.find(con, "clock", cols="end_at, elapsed_sec", end_at__ne=None):
         if inw(r["end_at"]):
             clock_min += int((r["elapsed_sec"] or 0) / 60)
 
@@ -837,7 +838,7 @@ def cmd_logs(args, con):
 # --- zsh backend ---
 
 def _show_one(args, con):
-    n = con.execute("SELECT * FROM node WHERE id = ?", (args.id,)).fetchone()
+    n = _db.get(con, "node", args.id)
     if not n:
         sys.exit(f"✗ node #{args.id} not found")
     out(_c(f"#{n['id']}", "id") + " " + _c(f"[{n['kind']}]", "kind") + " " + _c(n["title"], "header"))
@@ -858,12 +859,12 @@ def _show_one(args, con):
     tags = _node_tags(con, args.id)
     if tags:
         out("  " + _c("tags:", "meta") + "     " + _c(f":{':'.join(tags)}:", "tag"))
-    props = list(con.execute("SELECT key, value FROM prop WHERE node_id = ?", (args.id,)))
+    props = _db.find(con, "prop", cols="key, value", node_id=args.id)
     if props:
         out("  " + _c("props:", "meta"))
         for r in props:
             out("    " + _c(f"{r['key']:12s} = {r['value']}"))
-    links = [r["vault_doc"] for r in con.execute("SELECT vault_doc FROM link WHERE node_id = ?", (args.id,))]
+    links = [r["vault_doc"] for r in _db.find(con, "link", cols="vault_doc", node_id=args.id)]
     if links:
         out("  " + _c("links:", "meta") + "    " + _c(", ".join(f"[[{d}]]" for d in links)))
     # schedule (sched table): one-off dates + recurring rules. First-hand info for debugging

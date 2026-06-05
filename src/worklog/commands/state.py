@@ -246,15 +246,15 @@ def cmd_log(args, con):
     # backfilling history (--date) does not change status; --keep-status explicitly disables
     auto_progress_hint = ""
     if not getattr(args, "keep_status", False) and not date:
-        row = con.execute("SELECT status FROM node WHERE id = ?", (args.id,)).fetchone()
+        row = _db.find_one(con, "node", cols="status", id=args.id)
         if row and row["status"] == "TODO":
-            con.execute("UPDATE node SET status = 'DOING' WHERE id = ?", (args.id,))
+            _db.update(con, "node", args.id, {"status": "DOING"})
             auto_progress_hint = " (status: TODO → DOING)"
     # --metric: attach structured datapoint(s) to this log (inherit its timestamp)
     metric_hint = ""
     specs = getattr(args, "metric", None)
     if specs:
-        log_at = con.execute("SELECT logged_at FROM log WHERE id = ?", (log_id,)).fetchone()["logged_at"]
+        log_at = _db.get(con, "log", log_id)["logged_at"]
         nm = attach_metric_specs(con, log_id, args.id, specs, at=log_at)
         metric_hint = f" + {nm} metric(s)"
     con.commit()
@@ -309,10 +309,10 @@ def cmd_start(args, con):
     for nid in ids:
         # don't open a second interval on a node that's already running (would leave
         # a stale open clock + duplicate wl active rows); stop the current one first.
-        if con.execute("SELECT 1 FROM clock WHERE node_id = ? AND end_at IS NULL LIMIT 1", (nid,)).fetchone():
+        if _db.exists(con, "clock", node_id=nid, end_at=None):
             out(_c(f"⚠ #{nid} already has a running clock — wl stop it first (skipped)", "later"))
             continue
-        con.execute("UPDATE node SET status = 'DOING' WHERE id = ?", (nid,))
+        _db.update(con, "node", nid, {"status": "DOING"})
         con.execute("INSERT INTO clock (node_id, start_at) VALUES (?, ?)", (nid, ts))
         started.append(nid)
     con.commit()
@@ -339,7 +339,7 @@ def cmd_stop(args, con):
         if stopped < started:
             sys.exit(f"✗ --at {stop_ts} is earlier than the clock start {row['start_at']} (#{nid})")
         secs = max(60, int((stopped - started).total_seconds()))  # floor at 1 min
-        con.execute("UPDATE clock SET end_at = ?, elapsed_sec = ? WHERE id = ?", (stop_ts, secs, row["id"]))
+        _db.update(con, "clock", row["id"], {"end_at": stop_ts, "elapsed_sec": secs})
         print(f"✓ #{nid} stopped, elapsed {secs // 60} min")
     con.commit()
 
@@ -401,8 +401,8 @@ def cmd_unlink(args, con):
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     for nid in ids:
-        cur = con.execute("DELETE FROM link WHERE node_id = ? AND vault_doc = ?", (nid, args.vault_doc))
-        if cur.rowcount:
+        n = _db.delete(con, "link", node_id=nid, vault_doc=args.vault_doc)
+        if n:
             out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"unlinked [[{args.vault_doc}]]"))
         else:
             out(_c(f"#{nid} had no link to [[{args.vault_doc}]]", "meta"))
@@ -448,7 +448,7 @@ def cmd_tag(args, con):
         if op.startswith("-"):
             t = op[1:].strip()
             if t:
-                con.execute("DELETE FROM tag WHERE node_id = ? AND tag = ?", (args.id, t))
+                _db.delete(con, "tag", node_id=args.id, tag=t)
                 removed.append(t)
         else:
             t = op[1:].strip() if op.startswith("+") else op
@@ -503,7 +503,7 @@ def cmd_wait(args, con):
                 "UPDATE clock SET end_at = ?, elapsed_sec = ? WHERE id = ?",
                 (now_s, secs, row["id"]),
             )
-        con.execute("UPDATE node SET status = 'WAIT' WHERE id = ?", (nid,))
+        _db.update(con, "node", nid, {"status": "WAIT"})
         if args.note:
             _insert_log(con, nid, f"WAIT: {args.note}")
     con.commit()
@@ -537,11 +537,11 @@ def cmd_unlog(args, con):
         sys.exit("✗ provide either positional <log_id> or --node <id>; pick one")
 
     if log_id is not None:
-        row = con.execute("SELECT node_id, logged_at, body FROM log WHERE id = ?", (log_id,)).fetchone()
+        row = _db.get(con, "log", log_id)
         if not row:
             sys.exit(f"✗ log #{log_id} not found")
-        nmetric = con.execute("SELECT COUNT(*) FROM metric WHERE log_id = ?", (log_id,)).fetchone()[0]
-        con.execute("DELETE FROM log WHERE id = ?", (log_id,))
+        nmetric = _db.count(con, "metric", log_id=log_id)
+        _db.delete(con, "log", id=log_id)
         con.commit()
         body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
@@ -569,8 +569,8 @@ def cmd_unlog(args, con):
         out(_c(f"(node #{nid} has no non-CLOCK logs on {date})", "meta"))
         return
     for r in rows:
-        nmetric = con.execute("SELECT COUNT(*) FROM metric WHERE log_id = ?", (r["id"],)).fetchone()[0]
-        con.execute("DELETE FROM log WHERE id = ?", (r["id"],))
+        nmetric = _db.count(con, "metric", log_id=r["id"])
+        _db.delete(con, "log", id=r["id"])
         body_preview = r["body"][:60] + ("…" if len(r["body"]) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
         out(_c(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}", "meta"))
@@ -592,7 +592,7 @@ def cmd_relog(args, con):
     import re as _re
 
     log_id = args.log_id
-    row = con.execute("SELECT id, node_id, logged_at, body FROM log WHERE id = ?", (log_id,)).fetchone()
+    row = _db.get(con, "log", log_id)
     if not row:
         sys.exit(f"✗ log #{log_id} not found")
 
@@ -654,7 +654,7 @@ def cmd_relog(args, con):
     con.execute(f"UPDATE log SET {', '.join(sets)} WHERE id = ?", params)
     con.commit()
 
-    new_row = con.execute("SELECT logged_at, body FROM log WHERE id = ?", (log_id,)).fetchone()
+    new_row = _db.get(con, "log", log_id)
     body_preview = new_row["body"][:60] + ("…" if len(new_row["body"]) > 60 else "")
     out(_c(f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}", "meta"))
 
