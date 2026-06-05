@@ -32,7 +32,7 @@ Likewise, before adding a dev todo under a project, check that project's existin
 | Schedule task to a date / repeat (drives "planned") | `wl sched <id> 2026-06-15` (also accepts `tomorrow` / `day-after-tomorrow`) / `--clear`. `--recur` supports period start / end: `daily` / `weekly:Mon,Fri` (also 1-7 / -1..-7) / `monthly:1` (month start) · `monthly:-1` (month end) / `quarterly:1-1` (quarter start) · `quarterly:-1` (quarter end) / `yearly:01-01` (year start) · `yearly:-1` (year end); `-1` always means period end. A task scheduled to a day shows up in `wl day` as "planned · not yet logged" even with no log |
 | Meta info (end-of-day summary / Top5 / today's goal) | History-preserving typed logs (`log.tag`), not props: `wl goal "..."` (day) / `wl recap "..."` (day summary) / `wl set <month> top5 "..."` / `wl set <week> overview "..."`. Each write appends; the latest is current. `wl day` shows them at the top as a blockquote. Prefer `wl recap`/`wl goal` over `wl set` for day fields (read-back + stale-warning) |
 | Date context (holidays / vacation / makeup days) | `wl dateinfo 2026-05-01 Labor-Day-holiday` / `wl dateinfo --import holidays.json` (`{"YYYY-MM-DD":"label"}`) / `wl dateinfo <date> --clear`. Weekday auto-computed; `wl day` header shows "date weekday · label" |
-| Reproduce a day's progress (like markdown worklog) | `wl day [YYYY-MM-DD]` (log-date based: work/personal split → secondary group → task → indented logs + stats). **Default `--by plan`** (planned / unplanned / unplanned-unmarked — anything without `planned`/`unplanned` tag is treated as unplanned); switch dimensions with `--by project` / `--by priority` (P0/P1/P2) |
+| Reproduce a day's progress (like markdown worklog) | `wl day [YYYY-MM-DD]` (log-date based: work/personal split → secondary group → task → indented logs + stats). **Default `--by plan`** (planned / unplanned). **Planned = has a `sched`/recur entry firing that day (source of truth, set via `wl sched`); everything else = unplanned.** The legacy `:planned:` tag is honored only as a transitional fallback — do NOT add it to new tasks, use `wl sched`. Switch dimensions with `--by project` / `--by priority` (P0/P1/P2) |
 | List all active projects | `wl projects` |
 | Tree view | `wl tree` (**default = overview: timeline expanded to today [year→quarter→month→week→today + today's tasks] + areas only listed as names, ~30 lines to avoid flooding**) / `wl tree --root <area>` (projects + tasks under that area) / `wl tree --root <week/month>` (per-day activity) / `wl tree --depth N` (fully expanded from lifetime) / `wl tree --by project/tag/direction` (switch dimension). Time nodes sorted by date; **day node expansion = tasks that have logs that day + only their logs from that day** |
 | Time-range progress (weekly report input) | `wl changes --week 2026-W22` / `wl summary --week ... --by project/day` |
@@ -224,7 +224,7 @@ echo '{
 
 ```
   #6 [day] 2026-05-29 Friday      ← anchor: locate existing node as parent, don't modify
-+   [x] [#A] morning-check :planned:P0:   ← add (indent = child), [x]=DONE
++   [x] [#A] morning-check          ← add (indent = child), [x]=DONE; for planned use `wl sched`, not a :planned: tag
 +     @log check key points
 ~ [x] #14                         ← change #14 status (single-line shorthand)
 ~ #20                             ← complex update: lock + field operations
