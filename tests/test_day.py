@@ -208,3 +208,30 @@ class TestDayNature:
         cli("dateinfo", "2026-05-21", "Grain Buds solar term")  # a Thursday
         _, out, _ = cli("day", "2026-05-21")
         assert "workday (Grain Buds solar term)" in out
+
+    # regression: cross-model review (GPT-5.5) found the keyword classifier too loose
+    def test_office_label_not_misclassified_as_off(self, cli):
+        # "office" contains "off" but must NOT be read as a day off
+        cli("dateinfo", "2026-06-05", "office maintenance")  # a Friday
+        _, out, _ = cli("day", "2026-06-05")
+        assert "workday (office maintenance)" in out
+
+    def test_makeup_work_chinese_not_leave(self, cli):
+        # 调休上班 = working a makeup day; the bare 休 inside must not flip it to leave
+        cli("dateinfo", "2026-06-13", "调休上班")  # a Saturday
+        _, out, _ = cli("day", "2026-06-13")
+        assert "leave" not in out and "weekend" not in out
+        assert "workday" in out
+
+    def test_swap_to_workday_beats_holiday_word(self, cli):
+        # an explicit working-day signal wins over a co-occurring "holiday" word
+        cli("dateinfo", "2026-06-13", "swap to workday for the holiday")  # a Saturday
+        _, out, _ = cli("day", "2026-06-13")
+        assert "workday" in out
+
+    def test_swap_meet_not_workday(self, cli):
+        # regression (Kimi): bare "swap" was too loose; "swap meet" on a Saturday is an
+        # event, not a workday — stays weekend
+        cli("dateinfo", "2026-06-13", "swap meet")  # a Saturday
+        _, out, _ = cli("day", "2026-06-13")
+        assert "weekend (swap meet)" in out

@@ -705,9 +705,16 @@ def _date_label(con, target):
 
 
 # date_meta labels are free text; these hints classify one into a work/rest word so the
-# wl day header reads at a glance. Matched case-insensitively (Chinese is unaffected by lower()).
-_OFF_HINTS = ("holiday", "vacation", "leave", "off", "假", "休", "假期")
-_WORK_HINTS = ("makeup", "swap", "working", "调休", "补班", "上班")
+# wl day header reads at a glance. Matched case-insensitively (Chinese is unaffected by
+# lower()). Hints are deliberately specific multi-char terms — a loose hint like "off"
+# wrongly fired on "office"/"kickoff", and a bare "休" fired inside "调休" (a makeup
+# workday). WORK is checked before OFF so an explicit working-day signal wins when both
+# appear (e.g. "swap to workday for the holiday" -> workday, "调休上班" -> workday).
+# note: no bare "swap" — it fired on "swap meet" / "swap space"; a real swapped workday
+# already matches "makeup"/"workday"/"调休"/"补班".
+_WORK_HINTS = ("makeup", "working", "workday", "调休", "补班", "上班", "值班")
+_OFF_HINTS = ("holiday", "vacation", "leave", "day off", "假期", "节假日", "放假", "休假", "请假", "年假")
+_LEAVE_HINTS = ("leave", "vacation", "休假", "请假", "年假")
 
 
 def _day_nature(con, target):
@@ -727,10 +734,10 @@ def _day_nature(con, target):
     if not label:
         return base
     low = label.lower()
-    if any(h in low for h in _OFF_HINTS):
-        status = "leave" if any(h in low for h in ("leave", "vacation", "休")) else "holiday"
-    elif any(h in low for h in _WORK_HINTS):
-        status = "workday"
+    if any(h in low for h in _WORK_HINTS):
+        status = "workday"  # explicit working-day signal wins over a co-occurring holiday word
+    elif any(h in low for h in _OFF_HINTS):
+        status = "leave" if any(h in low for h in _LEAVE_HINTS) else "holiday"
     else:
         status = base  # a neutral annotation (e.g. a solar term): keep the weekday baseline
     # append the label unless the status word is already in it (avoid "holiday (… holiday)")
