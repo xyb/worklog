@@ -155,8 +155,10 @@ class TestTreeEmpty:
 
     def test_tree_root_no_kind_filter_match(self, cli):
         cli("add", "t1", "-k", "task")  # parent_id=NULL, kind=task
+        # --kind now flows through the shared filter (make_node_filter); an unmatched
+        # filter prunes the tree to nothing.
         _, out, _ = cli("tree", "--kind", "nosuch")
-        assert "no root nodes" in out
+        assert "nothing matches the filter" in out
 
 
 class TestDefaultTreeAreaListing:

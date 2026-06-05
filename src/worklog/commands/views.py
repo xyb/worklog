@@ -38,6 +38,7 @@ from ..queries import (
     _check_ids_exist,
     _collect_descendants,
     _has_tag,
+    make_node_filter,
     nodes_with_tag,
     _has_checkin,
     _latest_typed_log,
@@ -79,11 +80,23 @@ from .. import cli as _cli  # noqa: E402
 def cmd_tree(args, con):
     inc_cancel = getattr(args, "show_canceled", False)
     log_tail = _resolve_log_tail(args, _is_brief(args, "no_logs"), default_tail=3)
+    nf = make_node_filter(con, args)  # shared --tag/--kind/--status filter
     if args.by:
-        _tree_by(con, args.by)
+        _tree_by(con, args.by, nf=nf)
         return
     full = _log_full(args)
-    if args.root is None and args.kind is None and args.depth is None:
+    # a filter prunes the structural tree to matching nodes + their ancestor paths
+    # (separate code path; the bare/unfiltered tree below stays byte-identical).
+    if nf is not None:
+        root_node = None
+        if args.root is not None:
+            root_node = _db.get(con, "node", args.root)
+            if not root_node:
+                sys.exit(f"✗ node #{args.root} not found")
+        _print_filtered_tree(con, nf, root_node=root_node,
+                             include_canceled=inc_cancel, log_tail=log_tail, full=full)
+        return
+    if args.root is None and args.depth is None:
         # bare wl tree: areas one level + timeline up to today
         _print_default_tree(con, include_canceled=inc_cancel, log_tail=log_tail, full=full)
         return
@@ -96,9 +109,6 @@ def cmd_tree(args, con):
     else:
         root_sql = "SELECT * FROM node WHERE parent_id IS NULL"
         params_root = []
-        if args.kind:
-            root_sql += " AND kind = ?"
-            params_root.append(args.kind)
         if not inc_cancel:
             frag, p = _status_filter_sql(include_canceled=False)
             if frag:
@@ -193,6 +203,15 @@ def cmd_day(args, con):
                     continue
                 items[nid] = {"node": nr, "logs": []}
 
+    # shared --tag/--kind/--status filter: keep only matching nodes. Empty buckets /
+    # groups then simply don't get rendered (_render_day_group builds them from items).
+    nf = make_node_filter(con, args)
+    if nf:
+        items = {nid: it for nid, it in items.items() if nf(nid)}
+        if not items:
+            out(_c(f"  (nothing matches the filter on {target})", "meta"))
+            return
+
     if not items:
         # clock-only day: time was tracked (wl spent / start-stop) but nothing logged/planned
         clock_sec = con.execute(
@@ -217,7 +236,9 @@ def cmd_day(args, con):
     # bottom stats: per-status distribution + planned-not-done count + CLOCK time
     import re
 
-    logged = {r["node_id"]: (r["status"] or "TODO") for r in rows}
+    # tasks "with progress" = items that have logs today; derive from the (possibly
+    # filtered) items so the summary line matches what was actually rendered.
+    logged = {nid: (it["node"]["status"] or "TODO") for nid, it in items.items() if it["logs"]}
     stats = {}
     for s in logged.values():
         stats[s] = stats.get(s, 0) + 1
@@ -244,8 +265,10 @@ def cmd_day(args, con):
         line += f" · CLOCK {total_min}min ({total_min // 60}h{total_min % 60}m)"
     out(_c(line, "meta"))
 
-def _tree_by(con, by):
-    """Flat 2-level view, regrouped by dimension (avoids deep time-layered nesting)."""
+def _tree_by(con, by, nf=None):
+    """Flat 2-level view, regrouped by dimension (avoids deep time-layered nesting).
+    `nf` (from make_node_filter) further restricts the listed nodes; empty groups are
+    skipped when a filter is active."""
     if by == "tag":
         tags = [r["tag"] for r in _db.query(con, "tag", cols="DISTINCT tag", order="tag")]
         sem = [t for t in tags if t not in GENERIC_TAGS]
@@ -254,6 +277,10 @@ def _tree_by(con, by):
             return
         for tag in sem:
             rows = nodes_with_tag(con, tag, order="priority NULLS LAST, id")
+            if nf:
+                rows = [n for n in rows if nf(n["id"])]
+                if not rows:
+                    continue
             out(_c(f"#{tag}", "tag") + "  " + _c(f"({len(rows)})", "meta"))
             for n in rows:
                 out(_node_line(con, n))
@@ -276,6 +303,10 @@ def _tree_by(con, by):
             if proj_tags:
                 for r in nodes_with_tag(con, proj_tags, kinds=("task", "meetlog", "habit"), cols="id"):
                     ids.add(r["id"])
+            if nf:
+                ids = {i for i in ids if nf(i)}
+                if not ids:
+                    continue  # skip projects with no matching members when filtering
             pri = (" " + _c(f"[#{proj['priority']}]", _PRI_STYLE.get(proj["priority"]))) if proj["priority"] else ""
             out("▸ " + _c(f"#{proj['id']}", "id") + pri + " " + _c(proj["title"], "header") + "  " + _c(f"({len(ids)})", "meta"))
             for nid in sorted(ids):
@@ -289,6 +320,8 @@ def _tree_by(con, by):
             f"SELECT * FROM node WHERE kind IN ('task','meetlog','habit') {_ORDER_BY_PRI_ID}"
         ).fetchall()
         orphans = [n for n in orphans if n["id"] not in claimed]
+        if nf:
+            orphans = [n for n in orphans if nf(n["id"])]
         if orphans:
             out("▸ " + _c("(unassigned)", "header") + "  " + _c(f"({len(orphans)})", "meta"))
             for n in orphans:
@@ -298,6 +331,10 @@ def _tree_by(con, by):
         for direction in ("work", "personal"):
             rows = nodes_with_tag(con, direction, kinds=("task", "meetlog", "habit", "project"),
                                   order="priority NULLS LAST, id")
+            if nf:
+                rows = [n for n in rows if nf(n["id"])]
+                if not rows:
+                    continue
             out(_c(f"[{direction}]", "header") + " " + _c(f"({len(rows)})", "meta"))
             for n in rows:
                 out(_node_line(con, n))
@@ -331,6 +368,49 @@ def _print_tree(con, node, depth, max_depth, *, include_canceled=False, log_tail
     for c in _tree_children(con, node, include_canceled=include_canceled):
         _print_tree(con, c, depth + 1, max_depth,
                     include_canceled=include_canceled, log_tail=log_tail, full=full)
+
+
+def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log_tail=3, full=False):
+    """Render the structural tree pruned to nodes matching `nf` plus the ancestor paths
+    that lead to them (so matches keep their context instead of being orphaned). Used by
+    `wl tree` whenever a --tag/--kind/--status filter is active. `root_node` restricts the
+    search to that subtree. Note: this is the structural (area→project→task) tree — the
+    log-derived day-activity expansion isn't shown here; use `wl day --tag …` for that."""
+    if root_node is not None:
+        universe = [root_node["id"]] + _collect_descendants(con, root_node["id"])
+        subtree = set(universe)
+    else:
+        universe = [r["id"] for r in con.execute("SELECT id FROM node")]
+        subtree = None
+    keep = set()
+    for nid in universe:
+        if nf(nid):
+            for a in _ancestors_chain(con, nid):  # node itself + chain up to the top
+                keep.add(a["id"])
+    if subtree is not None:
+        keep &= subtree  # drop ancestors above the requested root
+    if not keep:
+        where = "" if root_node is None else f" under #{root_node['id']}"
+        print(f"(nothing{where} matches the filter)")
+        return
+    if root_node is not None:
+        roots = [root_node]
+    else:
+        roots = [r for r in con.execute("SELECT * FROM node WHERE parent_id IS NULL")
+                 if r["id"] in keep]
+    for root in roots:
+        _print_kept_subtree(con, root, 0, keep, include_canceled=include_canceled,
+                            log_tail=log_tail, full=full)
+
+
+def _print_kept_subtree(con, node, depth, keep, *, include_canceled=False, log_tail=3, full=False):
+    """Print `node` and recurse only into children in the `keep` set (the filtered-tree
+    companion to _print_tree; no depth cap — `keep` is already the pruned node set)."""
+    out(_node_line(con, node, indent="  " * depth, sched=True))
+    for c in _tree_children(con, node, include_canceled=include_canceled):
+        if c["id"] in keep:
+            _print_kept_subtree(con, c, depth + 1, keep,
+                                include_canceled=include_canceled, log_tail=log_tail, full=full)
 
 
 _BUCKET_ORDER = ["work", "personal", "other"]

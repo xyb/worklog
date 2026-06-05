@@ -40,6 +40,7 @@ from ..queries import (
     _check_ids_exist,
     _collect_descendants,
     _has_tag,
+    make_node_filter,
     nodes_with_tag,
     _insert_log,
     _node_bucket,
@@ -113,14 +114,11 @@ def cmd_ls(args, con):
             out(_node_line(con, n, tags=not brief, sched=not brief))
         return
 
-    # simple equality conditions via the helper (no manual col/?/param alignment);
-    # complex fragments (NULL-aware status filter, tag/sched subqueries, the recent
-    # date expression) are ANDed on explicitly below.
+    # the shared --tag/--kind/--status filter is applied as a post-pass via
+    # make_node_filter (one definition for all list/view commands); only ls-specific
+    # dimensions (--parent / --unscheduled / --recent) and the default DONE-hide are
+    # built into SQL here.
     simple = {}
-    if args.kind:
-        simple["kind"] = args.kind
-    if args.status:
-        simple["status"] = args.status
     if args.parent is not None:
         simple["parent_id"] = args.parent
     where, params = _db.clause(**simple)
@@ -130,11 +128,6 @@ def cmd_ls(args, con):
         if frag:
             where.append(frag)
             params.extend(p)
-    if args.tag:
-        tags_list = args.tag.split(",") if "," in args.tag else [args.tag]
-        for t in tags_list:
-            where.append("id IN (SELECT node_id FROM tag WHERE tag = ?)")
-            params.append(t.strip())
     if getattr(args, "unscheduled", False):
         where.append("id NOT IN (SELECT node_id FROM sched)")
     if getattr(args, "recent", None):
@@ -170,6 +163,9 @@ def cmd_ls(args, con):
     sql += f" ORDER BY {order_by}"
 
     rows = list(con.execute(sql, params))
+    nf = make_node_filter(con, args)
+    if nf:
+        rows = [n for n in rows if nf(n["id"])]
     if not rows:
         print("(no nodes)")
         return
@@ -361,6 +357,7 @@ def cmd_agenda(args, con):
     for r in _db.query(con, "node", cols="id, scheduled_date", scheduled_date__ne=None):
         entries.append((r["id"], r["scheduled_date"]))
 
+    nf = make_node_filter(con, args)  # shared --tag/--kind/--status filter
     hits = []          # (sort_key, node, value) for in-range scheds
     someday = []       # (node, value) for someday/unparseable, listed at the end
     seen = set()       # (node_id, value) dedup
@@ -371,6 +368,8 @@ def cmd_agenda(args, con):
         seen.add(key)
         n = _db.get(con, "node", node_id)
         if not n:
+            continue
+        if nf and not nf(node_id):
             continue
         if not show_all and n["status"] in ("DONE", "CANCELED") and not (inc_cancel and n["status"] == "CANCELED"):
             continue
@@ -709,6 +708,10 @@ def cmd_logs(args, con):
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY log.logged_at"
     rows = con.execute(sql, params).fetchall()
+    # shared --tag/--kind/--status filter: drop logs whose node doesn't match
+    nf = make_node_filter(con, args)
+    if nf:
+        rows = [r for r in rows if nf(r["node_id"])]
 
     if not rows:
         # provide a useful hint explaining why empty

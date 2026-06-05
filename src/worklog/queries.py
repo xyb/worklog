@@ -154,6 +154,39 @@ def nodes_with_tag(con, tags, *, kinds=None, cols="*", order=None):
     return _db.query(con, "node", cols=cols, order=order, **conds)
 
 
+def make_node_filter(con, args):
+    """Shared --tag / --kind / --status filter, used by ls/tree/day/logs/agenda so every
+    list/view command filters the same way (one definition, DESIGN §12 single entry point).
+    Returns a memoized predicate `node_id -> bool`, or **None** when no filter flag is set —
+    callers treat None as "no filtering", keeping unfiltered behavior byte-identical.
+    `--tag` is comma-separated AND: the node must carry every listed tag."""
+    tag = getattr(args, "tag", None)
+    kind = getattr(args, "kind", None)
+    status = getattr(args, "status", None)
+    if not (tag or kind or status):
+        return None
+    wanted = {t.strip() for t in tag.split(",") if t.strip()} if tag else None
+
+    cache = {}
+
+    def ok(nid):
+        if nid in cache:
+            return cache[nid]
+        n = _db.get(con, "node", nid)
+        res = n is not None
+        if res and kind and n["kind"] != kind:
+            res = False
+        if res and status and n["status"] != status:
+            res = False
+        if res and wanted:
+            have = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)}
+            res = wanted <= have
+        cache[nid] = res
+        return res
+
+    return ok
+
+
 _META_LOG_TYPES = ("goal", "summary", "overview", "top5")  # meta fields stored as typed logs
 
 

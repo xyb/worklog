@@ -183,6 +183,14 @@ def build_parser():
     window.add_argument("--week", help="YYYY-Www (ISO week, overrides since/until)")
     window.add_argument("--month", help="YYYY-MM (overrides since/until)")
 
+    # node-filter parent parser (reused by ls/tree/day/logs/agenda so every list/view
+    # command takes the SAME --tag/--kind/--status, with the same meaning — see
+    # make_node_filter). --tag is comma-separated AND.
+    filters = argparse.ArgumentParser(add_help=False)
+    filters.add_argument("-t", "--tag", help="comma-separated tags, AND filter (e.g. -t work)")
+    filters.add_argument("--kind", help="filter by kind (task/habit/meetlog/project/area/...)")
+    filters.add_argument("--status", help="filter by status (TODO/DOING/DONE/WAIT/LATER/CANCELED)")
+
     _real_sub = p.add_subparsers(dest="cmd", required=False)
 
     # wrap add_parser to inject user aliases (cross-shell uniform: wl d == wl day)
@@ -537,7 +545,8 @@ Differences from related commands:
     sh.add_argument("--all-timelines", action="store_true",
                     help="full timeline, no elision")
 
-    ls = sub.add_parser("ls", help="list nodes (default limit 20; see shell ls -t / -S / -r-style dimensions)",
+    ls = sub.add_parser("ls", parents=[filters],
+                        help="list nodes (default limit 20; see shell ls -t / -S / -r-style dimensions)",
                         formatter_class=argparse.RawDescriptionHelpFormatter,
                         epilog="""\
 Common examples (precise queries, shell-ls multi-dimensional):
@@ -553,9 +562,6 @@ Common examples (precise queries, shell-ls multi-dimensional):
   wl ls --all                           remove the 20-row limit + include DONE/CANCELED
 
 See also: wl find <q> / wl day / wl active / wl projects (each has a dedicated entry point sharper than ls)""")
-    ls.add_argument("--kind", help="filter by kind (task/habit/meetlog/project/area/...)")
-    ls.add_argument("--status", help="filter by status (TODO/DOING/DONE/WAIT/LATER/CANCELED)")
-    ls.add_argument("--tag", help="comma-separated tags, AND filter")
     ls.add_argument("--parent", type=int, help="only direct children of this node")
     ls.add_argument("--all", action="store_true", help="include DONE/CANCELED + remove the limit cap")
     ls.add_argument("--limit", type=int, metavar="N",
@@ -574,7 +580,7 @@ See also: wl find <q> / wl day / wl active / wl projects (each has a dedicated e
     ls.add_argument("--ids", type=int, nargs="+", metavar="id",
                     help="list specific ids directly, skipping filters (like shell `ls file1 file2`)")
 
-    tr = sub.add_parser("tree",
+    tr = sub.add_parser("tree", parents=[filters],
         help="tree view of nodes (default: timeline up to today + areas one level, ~30 rows)",
         description="Tree view of nodes. Default: timeline expanded up to today (year -> quarter -> month -> week -> today + today's tasks) + areas one level, ~30 rows to avoid scrolling. Use --root <id> to drill into a node.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -593,7 +599,6 @@ Differences from related commands:
   - wl day             log-date-driven view of a single day (not tied to tree)
   - wl projects        list projects as cards (subtask counts, no tree expansion)
   - wl ls --parent <N> flat list of direct children, no recursion""")
-    tr.add_argument("--kind")
     tr.add_argument("--proj")
     tr.add_argument("--root", type=int, help="start tree from this node id")
     tr.add_argument("--by", choices=["project", "tag", "direction"], help="regroup by dimension (flat 2-level)")
@@ -632,7 +637,7 @@ Related: wl show is self + timeline only; wl ancestors/descendants only go one d
     de.add_argument("id", type=int)
     de.add_argument("--depth", type=int, help="max depth")
 
-    ag = sub.add_parser("agenda",
+    ag = sub.add_parser("agenda", parents=[filters],
         help="cross-time-range scheduling overview: everything scheduled in [start, end]",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
@@ -714,7 +719,7 @@ Dedup: by default a task appearing in multiple projects (via parent + shared tag
     sm.add_argument("--no-dedup", action="store_true",
                     help="no dedup: a task across multiple projects is repeated in each bucket (old behavior)")
 
-    dy = sub.add_parser("day",
+    dy = sub.add_parser("day", parents=[filters],
         help="full view of a day (default today): bucket -> project/plan -> task -> log",
         description="Full view of one day: work/personal/other -> (planned/unplanned/project/priority) -> task -> indented logs. Top shows end-of-day summary + today's goal + Top5 (if set). Defaults to log-date-driven (works for past days too).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -723,6 +728,7 @@ Common examples:
   wl day                              # today
   wl day 2026-05-30                   # historical day
   wl day yesterday                    # short form (yesterday / day-before-yesterday / tomorrow / day-after-tomorrow)
+  wl day -t work                      # only work items (filter; -t/--tag, AND); -t personal for personal
   wl day --by project                 # change grouping (default plan: planned/unplanned)
   wl day --by priority                # group by P0/P1/P2
   wl day --log-tail 1                 # logs default to last 3, narrow to 1
@@ -1018,7 +1024,7 @@ Before writing a new task / log, run wl find to check if there's an existing nod
     fd.add_argument("--limit", type=int, metavar="N", help="show only the first N (default 20; use 0 or --all for no cap)")
     fd.add_argument("--all", action="store_true", help="no row limit")
 
-    lg = sub.add_parser("logs", parents=[window],
+    lg = sub.add_parser("logs", parents=[window, filters],
         help="list log entries (default last 7 days; preset today/yesterday/week/recent)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
