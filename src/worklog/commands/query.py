@@ -40,6 +40,7 @@ from ..queries import (
     _check_ids_exist,
     _collect_descendants,
     _has_tag,
+    nodes_with_tag,
     _insert_log,
     _node_bucket,
     _node_clock_min,
@@ -217,7 +218,7 @@ def cmd_find(args, con):
     if "tag" in fields:
         mark(_db.query(con, "tag", cols="DISTINCT node_id", tag__like=like), "tag")
     if "prop" in fields:
-        mark(con.execute("SELECT DISTINCT node_id FROM prop WHERE key LIKE ? OR value LIKE ?", (like, like)), "prop")
+        mark(_db.query(con, "prop", cols="node_id", key__like=like) + _db.query(con, "prop", cols="node_id", value__like=like), "prop")
     if "link" in fields:
         mark(_db.query(con, "link", cols="DISTINCT node_id", vault_doc__like=like), "link")
 
@@ -308,14 +309,8 @@ def cmd_focus(args, con):
         if not sem_tags:
             out(_c("related: (only generic-dimension tags; no project/topic tag to link by)", "meta"))
         else:
-            qmarks = ",".join("?" * len(sem_tags))
             exclude = set(c["id"] for c in children) | {p["id"] for p in chain}
-            rel = con.execute(
-                f"SELECT DISTINCT n.* FROM node n "
-                f"JOIN tag t ON n.id = t.node_id WHERE t.tag IN ({qmarks}) "
-                f"ORDER BY n.id",
-                sem_tags,
-            ).fetchall()
+            rel = nodes_with_tag(con, sem_tags, order="id")
             rel = [r for r in rel if r["id"] not in exclude]
             if rel:
                 out(_c(f"related (shared tag {'/'.join(sem_tags)}):", "header"))
@@ -451,18 +446,16 @@ def cmd_projects(args, con):
                     pass
                 else:
                     pending += c
-            r1 = con.execute(f"SELECT MAX(logged_at) m FROM log WHERE node_id IN ({qm})", list(ids)).fetchone()["m"]
-            r2 = con.execute(
-                f"SELECT MAX(COALESCE(closed_at, created_at)) m FROM node WHERE id IN ({qm})", list(ids)
-            ).fetchone()["m"]
+            r1 = _db.query(con, "log", cols="MAX(logged_at) AS m", node_id__in=ids)[0]["m"]
+            r2 = _db.query(con, "node", cols="MAX(COALESCE(closed_at, created_at)) AS m", id__in=ids)[0]["m"]
             cands = [x for x in (r1, r2) if x]
             recent = max(cands) if cands else None
 
         # --since filter: based on real activity signals (log time / closed_at), not created_at
         # (a newly-created task doesn't count as "active"; if it sits idle a few days it still gets filtered out)
         if since:
-            r_log = con.execute(f"SELECT MAX(logged_at) m FROM log WHERE node_id IN ({qm})", list(ids)).fetchone()["m"] if ids else None
-            r_closed = con.execute(f"SELECT MAX(closed_at) m FROM node WHERE id IN ({qm})", list(ids)).fetchone()["m"] if ids else None
+            r_log = _db.query(con, "log", cols="MAX(logged_at) AS m", node_id__in=ids)[0]["m"]
+            r_closed = _db.query(con, "node", cols="MAX(closed_at) AS m", id__in=ids)[0]["m"]
             activity = max([x for x in (r_log, r_closed) if x], default=None)
             if not activity or _tu.local_day_of(activity) < since:
                 continue

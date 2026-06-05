@@ -389,9 +389,7 @@ def _ensure_day(con, d):
     building the full time skeleton (year→quarter→month→week) above it so it never
     dangles (#410). Works for any date, not just today — back-fills past days too."""
     iso = d.isoformat()
-    r = con.execute(
-        "SELECT id FROM node WHERE kind='day' AND title LIKE ? ORDER BY id LIMIT 1", (iso + "%",)
-    ).fetchone()
+    r = _db.query_one(con, "node", cols="id", kind="day", title__like=iso + "%", order="id")
     if r:
         return r["id"]
     wk_id = _ensure_time_ancestors(con, d)

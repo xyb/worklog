@@ -64,12 +64,7 @@ def _project_members(con, proj_id):
     for r in _db.query(con, "node", cols="id", parent_id=proj_id, kind__in=("task", "meetlog", "habit")):
         ids.add(r["id"])
     if proj_tags:
-        qm = ",".join("?" * len(proj_tags))
-        for r in con.execute(
-            f"SELECT DISTINCT n.id FROM node n JOIN tag t ON n.id = t.node_id "
-            f"WHERE t.tag IN ({qm}) AND n.kind IN ('task','meetlog','habit')",
-            list(proj_tags),
-        ):
+        for r in nodes_with_tag(con, proj_tags, kinds=("task", "meetlog", "habit"), cols="id"):
             ids.add(r["id"])
     return ids
 
@@ -140,6 +135,23 @@ def _collect_descendants(con, root_id):
 
 def _has_tag(con, nid, tag):
     return _db.exists(con, "tag", node_id=nid, tag=tag)
+
+
+def nodes_with_tag(con, tags, *, kinds=None, cols="*", order=None):
+    """Nodes carrying ANY of `tags` (a str or an iterable) — the single-table
+    decomposition of `node JOIN tag`: collect node ids from the tag table, then
+    read those nodes. `kinds` further restricts node.kind; `cols` / `order` pass
+    through to the node read. Returns list[Row] (deduped by node; empty tags → [])."""
+    tag_list = [tags] if isinstance(tags, str) else list(tags)
+    if not tag_list:
+        return []
+    ids = sorted({r["node_id"] for r in _db.query(con, "tag", cols="node_id", tag__in=tag_list)})
+    if not ids:
+        return []
+    conds = {"id__in": ids}
+    if kinds is not None:
+        conds["kind__in"] = list(kinds)
+    return _db.query(con, "node", cols=cols, order=order, **conds)
 
 
 _META_LOG_TYPES = ("goal", "summary", "overview", "top5")  # meta fields stored as typed logs

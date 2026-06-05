@@ -38,6 +38,7 @@ from ..queries import (
     _check_ids_exist,
     _collect_descendants,
     _has_tag,
+    nodes_with_tag,
     _has_checkin,
     _latest_typed_log,
     _insert_log,
@@ -127,10 +128,7 @@ def cmd_day(args, con):
             sys.exit(f"✗ invalid date '{args.date}' (use YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow)")
     else:
         target = _tu.today()
-    day = con.execute(
-        "SELECT * FROM node WHERE kind = 'day' AND title LIKE ? ORDER BY id LIMIT 1",
-        (target + "%",),
-    ).fetchone()
+    day = _db.query_one(con, "node", kind="day", title__like=target + "%", order="id")
     # date context: date + auto-computed weekday + date_meta label (holiday/vacation/working-day swap)
     wd = _cn_weekday(target)
     label = _date_label(con, target)
@@ -255,11 +253,7 @@ def _tree_by(con, by):
             print("(no semantic tags)")
             return
         for tag in sem:
-            rows = con.execute(
-                "SELECT n.* FROM node n JOIN tag t ON n.id = t.node_id WHERE t.tag = ? "
-                "ORDER BY n.priority NULLS LAST, n.id",
-                (tag,),
-            ).fetchall()
+            rows = nodes_with_tag(con, tag, order="priority NULLS LAST, id")
             out(_c(f"#{tag}", "tag") + "  " + _c(f"({len(rows)})", "meta"))
             for n in rows:
                 out(_node_line(con, n))
@@ -280,12 +274,7 @@ def _tree_by(con, by):
                 ids.add(r["id"])
             # (b) task/meetlog/habit sharing a semantic tag
             if proj_tags:
-                qm = ",".join("?" * len(proj_tags))
-                for r in con.execute(
-                    f"SELECT DISTINCT n.id FROM node n JOIN tag t ON n.id = t.node_id "
-                    f"WHERE t.tag IN ({qm}) AND n.kind IN ('task','meetlog','habit')",
-                    list(proj_tags),
-                ):
+                for r in nodes_with_tag(con, proj_tags, kinds=("task", "meetlog", "habit"), cols="id"):
                     ids.add(r["id"])
             pri = (" " + _c(f"[#{proj['priority']}]", _PRI_STYLE.get(proj["priority"]))) if proj["priority"] else ""
             out("▸ " + _c(f"#{proj['id']}", "id") + pri + " " + _c(proj["title"], "header") + "  " + _c(f"({len(ids)})", "meta"))
@@ -307,12 +296,8 @@ def _tree_by(con, by):
 
     elif by == "direction":
         for direction in ("work", "personal"):
-            rows = con.execute(
-                "SELECT n.* FROM node n JOIN tag t ON n.id = t.node_id WHERE t.tag = ? "
-                "AND n.kind IN ('task','meetlog','habit','project') "
-                "ORDER BY n.priority NULLS LAST, n.id",
-                (direction,),
-            ).fetchall()
+            rows = nodes_with_tag(con, direction, kinds=("task", "meetlog", "habit", "project"),
+                                  order="priority NULLS LAST, id")
             out(_c(f"[{direction}]", "header") + " " + _c(f"({len(rows)})", "meta"))
             for n in rows:
                 out(_node_line(con, n))
@@ -424,9 +409,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
 
     # timeline -> path to today (year -> quarter -> month -> week -> day) + today's activity; if no day node today, fall back to the latest month
     today = _tu.today()
-    dayn = con.execute(
-        "SELECT * FROM node WHERE kind = 'day' AND title LIKE ? ORDER BY id LIMIT 1", (today + "%",)
-    ).fetchone()
+    dayn = _db.query_one(con, "node", kind="day", title__like=today + "%", order="id")
     if dayn:
         chain = [n for n in _ancestors_chain(con, dayn["id"]) if n["kind"] != "lifetime"]
         for d, n in enumerate(chain):
