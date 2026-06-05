@@ -78,7 +78,9 @@ from .. import cli as _cli  # noqa: E402
 
 
 def cmd_tree(args, con):
-    inc_cancel = getattr(args, "show_canceled", False)
+    # explicit --status overrides the default CANCELED hide so the filtered tree can
+    # recurse into the matching terminal-status nodes (no-filter path: status is unset).
+    inc_cancel = getattr(args, "show_canceled", False) or bool(getattr(args, "status", None))
     log_tail = _resolve_log_tail(args, _is_brief(args, "no_logs"), default_tail=3)
     nf = make_node_filter(con, args)  # shared --tag/--kind/--status filter
     if args.by:
@@ -174,7 +176,9 @@ def cmd_day(args, con):
             if ov and ov["body"]:
                 out(_c("  > This week: " + ov["body"], "meta"))
 
-    inc_cancel = getattr(args, "show_canceled", False)
+    # an explicit --status filter (applied below via make_node_filter) must override the
+    # default CANCELED hide, else `day --status CANCELED` would drop its own matches.
+    inc_cancel = getattr(args, "show_canceled", False) or bool(getattr(args, "status", None))
     cfrag, cparams = _status_filter_sql(include_canceled=inc_cancel, col="node.status")
     cancel_sql = (" AND " + cfrag) if cfrag else ""
     rows = con.execute(
@@ -250,10 +254,24 @@ def cmd_day(args, con):
         if not items[nid]["logs"] and items[nid]["node"]["status"] not in ("DONE", "CANCELED")
     )
     parts = [f"{s} {stats[s]}" for s in ("DONE", "DOING", "TODO", "LATER", "WAIT", "DEFERRED", "CANCELED") if stats.get(s)]
-    total_sec = con.execute(
-        f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE {_tu.local_day_sql('end_at')} = ?",
-        (target,),
-    ).fetchone()["s"]
+    # CLOCK total: unfiltered = all clock for the day; filtered = only the shown items'
+    # clock, so `day -t work` doesn't report personal tasks' time on a work-only view.
+    if nf:
+        ids = list(items)
+        if ids:
+            qm = ",".join("?" * len(ids))
+            total_sec = con.execute(
+                f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock "
+                f"WHERE {_tu.local_day_sql('end_at')} = ? AND node_id IN ({qm})",
+                [target] + ids,
+            ).fetchone()["s"]
+        else:
+            total_sec = 0
+    else:
+        total_sec = con.execute(
+            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE {_tu.local_day_sql('end_at')} = ?",
+            (target,),
+        ).fetchone()["s"]
     total_min = int((total_sec or 0) / 60)
     print()
     line = f"  ── {target}: {done}/{total} tasks with progress"
@@ -305,8 +323,11 @@ def _tree_by(con, by, nf=None):
                     ids.add(r["id"])
             if nf:
                 ids = {i for i in ids if nf(i)}
-                if not ids:
-                    continue  # skip projects with no matching members when filtering
+                # keep the project if it has matching members OR the project node itself
+                # matches (e.g. --kind project) — else `--by project --kind project` would
+                # drop every project because no member is itself a project.
+                if not ids and not nf(proj["id"]):
+                    continue
             pri = (" " + _c(f"[#{proj['priority']}]", _PRI_STYLE.get(proj["priority"]))) if proj["priority"] else ""
             out("▸ " + _c(f"#{proj['id']}", "id") + pri + " " + _c(proj["title"], "header") + "  " + _c(f"({len(ids)})", "meta"))
             for nid in sorted(ids):

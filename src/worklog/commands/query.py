@@ -371,7 +371,11 @@ def cmd_agenda(args, con):
             continue
         if nf and not nf(node_id):
             continue
-        if not show_all and n["status"] in ("DONE", "CANCELED") and not (inc_cancel and n["status"] == "CANCELED"):
+        # an explicit --status filter (handled by nf) overrides the default DONE/CANCELED
+        # hide — otherwise `agenda --status DONE` would drop everything it just selected.
+        if (not show_all and not getattr(args, "status", None)
+                and n["status"] in ("DONE", "CANCELED")
+                and not (inc_cancel and n["status"] == "CANCELED")):
             continue
         kind = _sched_kind(val)
         if kind in ("someday", "fuzzy"):

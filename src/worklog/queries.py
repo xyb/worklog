@@ -163,9 +163,12 @@ def make_node_filter(con, args):
     tag = getattr(args, "tag", None)
     kind = getattr(args, "kind", None)
     status = getattr(args, "status", None)
-    if not (tag or kind or status):
+    # parse tags first so an effective-empty tag (--tag "" / "," / ",,") collapses to
+    # "no tag filter" rather than an all-pass predicate (which would still route tree to
+    # the filtered path); if nothing real is left to filter on, return None.
+    wanted = {t.strip() for t in tag.split(",") if t.strip()} if tag else set()
+    if not wanted and not kind and not status:
         return None
-    wanted = {t.strip() for t in tag.split(",") if t.strip()} if tag else None
 
     cache = {}
 

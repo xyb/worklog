@@ -117,3 +117,70 @@ class TestFilters:
         _, out, _ = cli("agenda", "2026-05-01", "2026-06-30", "-t", "personal")
         assert "买菜" in out
         assert "写代码" not in out
+
+
+class TestFilterEdgeCases:
+    """Regression cases from the cross-model review (GPT-5.5)."""
+
+    def _seed(self, cli, date="2026-05-28"):
+        cli("add", "Lifetime", "-k", "lifetime")                                    # 1
+        cli("add", "工作域", "-k", "area", "-t", "work", "--parent", "1")            # 2
+        cli("add", "个人域", "-k", "area", "-t", "personal", "--parent", "1")        # 3
+        cli("add", "项目A", "-k", "project", "-t", "work", "--parent", "2")          # 4
+        cli("add", "写代码", "-k", "task", "-t", "work", "--parent", "4", "--sched", date)    # 5
+        cli("add", "买菜", "-k", "task", "-t", "personal", "--parent", "3", "--sched", date)  # 6
+        cli("log", "5", "wrote filter", "--date", date)
+        cli("log", "6", "bought food", "--date", date)
+
+    # finding 1: an effective-empty tag (",") must be a no-op, not an all-pass filter
+    def test_empty_comma_tag_is_noop_ls(self, cli):
+        self._seed(cli)
+        _, plain, _ = cli("ls")
+        _, comma, _ = cli("ls", "-t", ",")
+        assert plain == comma
+
+    def test_empty_comma_tag_is_noop_tree(self, cli):
+        self._seed(cli)
+        # bare tree shows the default overview (areas one level); ",", being a no-op,
+        # must NOT route to the filtered (full structural) path.
+        _, plain, _ = cli("tree")
+        _, comma, _ = cli("tree", "-t", ",")
+        assert plain == comma
+
+    # finding 2: explicit --status CANCELED overrides the default terminal-status hide
+    def test_status_canceled_honored_in_day(self, cli):
+        self._seed(cli)
+        cli("cancel", "6", "--at", "2026-05-28 09:00")
+        _, out, _ = cli("day", "2026-05-28", "--status", "CANCELED")
+        assert "买菜" in out          # the canceled task is shown, not pre-hidden
+        assert "写代码" not in out    # non-canceled filtered out
+
+    def test_status_canceled_honored_in_agenda(self, cli):
+        self._seed(cli)
+        cli("cancel", "6", "--at", "2026-05-28 09:00")
+        _, out, _ = cli("agenda", "2026-05-01", "2026-06-30", "--status", "CANCELED")
+        assert "买菜" in out
+        assert "写代码" not in out
+
+    def test_status_canceled_honored_in_tree(self, cli):
+        self._seed(cli)
+        cli("cancel", "5", "--at", "2026-05-28 09:00")
+        _, out, _ = cli("tree", "--status", "CANCELED")
+        assert "写代码" in out  # filtered tree recurses into the canceled match
+
+    # finding 3: the CLOCK total on `day` must be scoped to the filtered items
+    def test_day_clock_total_respects_filter(self, cli):
+        self._seed(cli)
+        # 30 min of clock on the PERSONAL task only
+        cli("spent", "6", "30m", "--at", "2026-05-28 10:00")
+        _, allout, _ = cli("day", "2026-05-28")
+        assert "CLOCK 30min" in allout
+        _, workout, _ = cli("day", "2026-05-28", "-t", "work")
+        # work view must not report the personal task's clock time
+        assert "CLOCK" not in workout
+
+    # finding 4: --by project + --kind project keeps the project headers
+    def test_tree_by_project_kind_project(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("tree", "--by", "project", "--kind", "project")
+        assert "项目A" in out
