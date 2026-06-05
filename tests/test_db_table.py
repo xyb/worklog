@@ -47,6 +47,22 @@ class TestInsert:
         with pytest.raises(ValueError):
             dt.insert(con, "t", {"name; DROP": "x"})
 
+    def test_or_ignore_swallows_conflict(self, con):
+        con.execute("CREATE TABLE u (a TEXT PRIMARY KEY, b TEXT)")
+        dt.insert(con, "u", {"a": "k", "b": "1"})
+        dt.insert(con, "u", {"a": "k", "b": "2"}, or_="ignore")  # conflict ignored
+        assert con.execute("SELECT b FROM u WHERE a='k'").fetchone()["b"] == "1"
+
+    def test_or_replace_overwrites(self, con):
+        con.execute("CREATE TABLE u (a TEXT PRIMARY KEY, b TEXT)")
+        dt.insert(con, "u", {"a": "k", "b": "1"})
+        dt.insert(con, "u", {"a": "k", "b": "2"}, or_="replace")  # conflict replaces
+        assert con.execute("SELECT b FROM u WHERE a='k'").fetchone()["b"] == "2"
+
+    def test_bad_or_rejected(self, con):
+        with pytest.raises(ValueError):
+            dt.insert(con, "t", {"name": "x"}, or_="bogus")
+
 
 class TestUpdate:
     def test_update_changes_and_rowcount(self, con):

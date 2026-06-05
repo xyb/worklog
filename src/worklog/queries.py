@@ -246,7 +246,7 @@ def _check_ids_exist(con, ids):
 def _upsert_prop(con, nid, key, value):
     """Unified prop UPSERT (no commit; caller controls the transaction). Batch-friendly.
     `_set_prop` is the commit version for single daily operations."""
-    con.execute("INSERT OR REPLACE INTO prop (node_id, key, value) VALUES (?, ?, ?)", (nid, key, value))
+    _db.insert(con, "prop", {"node_id": nid, "key": key, "value": value}, or_="replace")
 
 
 # generic ORDER BY fragment: priority A/B/C first, NULL last; same priority by id ascending.

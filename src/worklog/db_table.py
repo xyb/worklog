@@ -74,15 +74,23 @@ def _where(conds: dict):
     return " WHERE " + " AND ".join(frags), params
 
 
-def insert(con, table, row: dict) -> int:
-    """INSERT one row from a dict; return the new rowid. No commit."""
+def insert(con, table, row: dict, *, or_=None) -> int:
+    """INSERT one row from a dict; return the new rowid. No commit.
+    `or_="ignore"` / `or_="replace"` adds an `INSERT OR IGNORE/REPLACE` conflict
+    clause (for idempotent tag/link/prop writes and date_meta upserts)."""
     _ident(table)
     if not row:
         raise ValueError("insert: empty row")
+    if or_ is None:
+        conflict = ""
+    elif or_ in ("ignore", "replace"):
+        conflict = f" OR {or_.upper()}"
+    else:
+        raise ValueError(f"insert or_ must be 'ignore' / 'replace' / None, got {or_!r}")
     cols = [_ident(c) for c in row]
     ph = ", ".join("?" * len(cols))
     return con.execute(
-        f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({ph})", list(row.values())
+        f"INSERT{conflict} INTO {table} ({', '.join(cols)}) VALUES ({ph})", list(row.values())
     ).lastrowid
 
 

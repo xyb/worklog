@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .. import render
+from .. import db_table as _db
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -201,7 +202,7 @@ def cmd_apply(args, con):
                 )
             nid = cur.lastrowid
             for t in f.get("tags", []):
-                con.execute("INSERT OR IGNORE INTO tag (node_id,tag) VALUES (?,?)", (nid, t))
+                _db.insert(con, "tag", {"node_id": nid, "tag": t}, or_="ignore")
             for kind_, val in o["subs"]:
                 _apply_sub(con, nid, kind_, val)
             counts["add"] += 1
@@ -254,11 +255,11 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         nid = cur.lastrowid
         counters["add"] += 1
         for t in spec.get("tags", []):
-            con.execute("INSERT OR IGNORE INTO tag (node_id,tag) VALUES (?,?)", (nid, t))
+            _db.insert(con, "tag", {"node_id": nid, "tag": t}, or_="ignore")
         for k, v in (spec.get("props") or {}).items():
             _upsert_prop(con, nid, k, str(v))
         for d in spec.get("links", []):
-            con.execute("INSERT OR IGNORE INTO link (node_id,vault_doc) VALUES (?,?)", (nid, d))
+            _db.insert(con, "link", {"node_id": nid, "vault_doc": d}, or_="ignore")
         for entry in spec.get("logs", []):
             _insert_log(con, nid, entry)
             # a log entry may carry structured datapoints: {"body":..., "metrics":[{tag,value,unit}]}
@@ -312,11 +313,11 @@ def _import_update(con, spec, dry, counters):
     if fields:
         con.execute(f"UPDATE node SET {', '.join(fields)} WHERE id = ?", (*vals, nid))
     for t in spec.get("add_tags", []):
-        con.execute("INSERT OR IGNORE INTO tag (node_id,tag) VALUES (?,?)", (nid, t))
+        _db.insert(con, "tag", {"node_id": nid, "tag": t}, or_="ignore")
     for t in spec.get("remove_tags", []):
         con.execute("DELETE FROM tag WHERE node_id = ? AND tag = ?", (nid, t))
     for d in spec.get("add_links", []):
-        con.execute("INSERT OR IGNORE INTO link (node_id,vault_doc) VALUES (?,?)", (nid, d))
+        _db.insert(con, "link", {"node_id": nid, "vault_doc": d}, or_="ignore")
     for entry in spec.get("add_logs", []):
         _insert_log(con, nid, entry)
     counters["update"] += 1
@@ -498,14 +499,14 @@ def _exec_update(con, o):
                     con.execute("UPDATE node SET closed_at = datetime('now') WHERE id = ? AND closed_at IS NULL", (nid,))
         elif field == "tag":
             if action == "add":
-                con.execute("INSERT OR IGNORE INTO tag (node_id,tag) VALUES (?,?)", (nid, value))
+                _db.insert(con, "tag", {"node_id": nid, "tag": value}, or_="ignore")
             else:
                 con.execute("DELETE FROM tag WHERE node_id = ? AND tag = ?", (nid, value))
         elif field == "log":
             _insert_log(con, nid, value)
         elif field == "link":
             if action == "add":
-                con.execute("INSERT OR IGNORE INTO link (node_id,vault_doc) VALUES (?,?)", (nid, value))
+                _db.insert(con, "link", {"node_id": nid, "vault_doc": value}, or_="ignore")
             else:
                 con.execute("DELETE FROM link WHERE node_id = ? AND vault_doc = ?", (nid, value))
         elif field == "prop":
@@ -530,7 +531,7 @@ def _apply_sub(con, nid, kind, val):
     if kind == "log":
         _insert_log(con, nid, val)
     elif kind == "link":
-        con.execute("INSERT OR IGNORE INTO link (node_id,vault_doc) VALUES (?,?)", (nid, val))
+        _db.insert(con, "link", {"node_id": nid, "vault_doc": val}, or_="ignore")
     elif kind == "prop":
         if "=" in val:
             k, v = val.split("=", 1)

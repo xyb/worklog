@@ -165,9 +165,9 @@ def cmd_add(args, con):
         row["closed_at"] = closed_at
     node_id = _db.insert(con, "node", row)
     for t in tags:
-        con.execute("INSERT OR IGNORE INTO tag (node_id, tag) VALUES (?, ?)", (node_id, t))
+        _db.insert(con, "tag", {"node_id": node_id, "tag": t}, or_="ignore")
     if args.proj:
-        con.execute("INSERT OR IGNORE INTO prop (node_id, key, value) VALUES (?, ?, ?)", (node_id, "project", args.proj))
+        _db.insert(con, "prop", {"node_id": node_id, "key": "project", "value": args.proj}, or_="ignore")
     # --sched: write directly to sched table (one command = "create task + schedule it as planned for a day")
     sched_hint = ""
     if getattr(args, "sched", None):
@@ -183,7 +183,7 @@ def cmd_add(args, con):
     if getattr(args, "link", None):
         link_doc = args.link.strip()
         if link_doc:
-            con.execute("INSERT OR IGNORE INTO link (node_id, vault_doc) VALUES (?, ?)", (node_id, link_doc))
+            _db.insert(con, "link", {"node_id": node_id, "vault_doc": link_doc}, or_="ignore")
             link_hint = " → " + _c(f"[[{link_doc}]]", "meta")
 
     # --log: insert a log (using at_ts if given, otherwise NOW)
@@ -387,7 +387,7 @@ def cmd_link(args, con):
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     for nid in ids:
-        con.execute("INSERT OR IGNORE INTO link (node_id, vault_doc) VALUES (?, ?)", (nid, args.vault_doc))
+        _db.insert(con, "link", {"node_id": nid, "vault_doc": args.vault_doc}, or_="ignore")
     con.commit()
     for nid in ids:
         out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{args.vault_doc}]]"))
@@ -453,7 +453,7 @@ def cmd_tag(args, con):
         else:
             t = op[1:].strip() if op.startswith("+") else op
             if t:
-                con.execute("INSERT OR IGNORE INTO tag (node_id, tag) VALUES (?, ?)", (args.id, t))
+                _db.insert(con, "tag", {"node_id": args.id, "tag": t}, or_="ignore")
                 added.append(t)
     con.commit()
     parts = []
