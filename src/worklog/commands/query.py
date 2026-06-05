@@ -212,7 +212,7 @@ def cmd_find(args, con):
     if "body" in fields:
         mark(con.execute("SELECT id FROM node WHERE body LIKE ?", (like,)), "body")
     if "log" in fields:
-        mark(con.execute("SELECT DISTINCT node_id FROM log WHERE body LIKE ? AND body NOT LIKE 'CLOCK_%'", (like,)), "log")
+        mark(con.execute("SELECT DISTINCT node_id FROM log WHERE body LIKE ?", (like,)), "log")
     if "tag" in fields:
         mark(con.execute("SELECT DISTINCT node_id FROM tag WHERE tag LIKE ?", (like,)), "tag")
     if "prop" in fields:
@@ -252,7 +252,7 @@ def cmd_find(args, con):
         if "body" in where and n["body"]:
             out("    " + _c("body:", "meta") + " " + _snippet(n["body"], q))
         if "log" in where:
-            for r in con.execute("SELECT body FROM log WHERE node_id=? AND body LIKE ? AND body NOT LIKE 'CLOCK_%' ORDER BY id", (nid, like)):
+            for r in con.execute("SELECT body FROM log WHERE node_id=? AND body LIKE ? ORDER BY id", (nid, like)):
                 out("    " + _c("log:", "meta") + " " + _snippet(r["body"], q))
         if "tag" in where:
             tg = [r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=? AND tag LIKE ?", (nid, like))]
@@ -506,8 +506,7 @@ def cmd_changes(args, con):
             elif in_win(n["created_at"]):
                 added_open.append(n)
             has_log = con.execute(
-                f"SELECT 1 FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} BETWEEN ? AND ? "
-                "AND body NOT LIKE 'CLOCK_%' LIMIT 1",
+                f"SELECT 1 FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} BETWEEN ? AND ? LIMIT 1",
                 (mid, since, until),
             ).fetchone()
             if has_log:

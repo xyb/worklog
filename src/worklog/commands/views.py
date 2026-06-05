@@ -151,7 +151,7 @@ def cmd_day(args, con):
             if at:
                 newer = con.execute(
                     f"SELECT COUNT(*) FROM log WHERE logged_at > ? "
-                    f"AND {_tu.local_day_sql('logged_at')} = ? AND body NOT LIKE 'CLOCK_%' AND tag IS NULL",
+                    f"AND {_tu.local_day_sql('logged_at')} = ? AND tag IS NULL",
                     (at, target),
                 ).fetchone()[0]
                 if newer:
@@ -173,7 +173,6 @@ def cmd_day(args, con):
                    node.title, node.status, node.priority, node.kind
             FROM log JOIN node ON log.node_id = node.id
             WHERE {_tu.local_day_sql('log.logged_at')} = ?
-              AND log.body NOT LIKE 'CLOCK\_%' ESCAPE '\'
               AND node.kind IN ('task', 'habit', 'meetlog')
               {cancel_sql}
             ORDER BY log.logged_at, log.node_id""",
@@ -363,7 +362,6 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
         rf"""SELECT log.node_id, log.body, node.title, node.status, node.priority, node.kind
             FROM log JOIN node ON log.node_id = node.id
             WHERE {_tu.local_day_sql('log.logged_at')} = ?
-              AND log.body NOT LIKE 'CLOCK\_%' ESCAPE '\'
               AND node.kind IN ('task', 'habit', 'meetlog')
               {cancel_sql}
             ORDER BY log.node_id""",

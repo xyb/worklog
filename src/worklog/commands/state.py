@@ -328,7 +328,7 @@ def cmd_start(args, con):
 def cmd_stop(args, con):
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
-    # --at: backfill past stop time (must be later than the matching CLOCK_IN)
+    # --at: backfill past stop time (must be later than the open clock's start)
     try:
         stop_ts = _resolve_at_ts(getattr(args, "at", None))
     except ValueError as e:
@@ -351,8 +351,8 @@ def cmd_stop(args, con):
 
 def cmd_spent(args, con):
     """Record a past time spent without opening a live CLOCK pair (retrospective entries).
-    wl spent <id> 45            45 minutes (default: CLOCK_IN = NOW - 45m, CLOCK_OUT = NOW)
-    wl spent <id> 45 --at 14:30  specify end time (CLOCK_IN = at - 45m, CLOCK_OUT = at)
+    wl spent <id> 45            45 minutes (default: start = NOW - 45m, end = NOW)
+    wl spent <id> 45 --at 14:30  specify end time (start = at - 45m, end = at)
     wl spent <id> 1h30m          supports 1h / 30m / 1h30m
     """
     import re as _re
@@ -493,7 +493,7 @@ def cmd_tick(args, con):
 
 def cmd_wait(args, con):
     """Mark WAIT status (blocked on others / external input). Optional --note adds a log explaining what we're waiting on.
-    If the task has an open CLOCK_IN, auto-emits CLOCK_OUT (WAIT = suspended, no longer timing)."""
+    If the task has an open clock, closes it (WAIT = suspended, no longer timing)."""
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     for nid in ids:
@@ -564,11 +564,10 @@ def cmd_unlog(args, con):
         except ValueError:
             sys.exit(f"✗ invalid --date '{date}'")
     else:
-        from datetime import date as _d
         date = _tu.today()
 
     sql = (f"SELECT id, logged_at, body FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} = ? "
-           "AND body NOT LIKE 'CLOCK\\_%' ESCAPE '\\' ORDER BY id DESC")
+           "ORDER BY id DESC")
     if not args.all:
         sql += " LIMIT 1"
     rows = list(con.execute(sql, (nid, date)))
@@ -593,7 +592,7 @@ def cmd_relog(args, con):
        wl relog #L282                       no body/--at -> open $EDITOR to edit body
 
     Constraints:
-    - Cannot edit CLOCK_IN/CLOCK_OUT logs (breaks timing stats; use wl stop --at to fix time)
+    - Timing lives in the clock table, not logs (use wl stop --at to fix a clock interval)
     - Cannot move across nodes (that's unlog + log, not relog)
     """
     import re as _re
@@ -666,7 +665,7 @@ def cmd_relog(args, con):
     out(_c(f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}", "meta"))
 
 def cmd_active(args, con):
-    """List tasks running right now: tasks with an open CLOCK_IN (actually timing).
+    """List tasks running right now: tasks with an open clock interval (actually timing).
     Each task shows: id / title / current-session elapsed + today's total + latest log (context).
 
     Use cases:

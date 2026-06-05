@@ -358,12 +358,12 @@ To schedule it as planned for a specific day, use wl sched. defer is for "set as
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl start 42                       # start timing now (inserts CLOCK_IN log)
+  wl start 42                       # start timing now (opens a clock interval)
   wl start 42 43                    # multiple tasks at once (parallel timers)
   wl start 42 --at 09:00            # backfill 9am start (forgot to clock in)
   wl start 42 --at 2026-05-30 14:30 # full ts
 
-Related: close with wl stop <id>; see what's running via wl active; wl spent records a CLOCK pair from a duration.""")
+Related: close with wl stop <id>; see what's running via wl active; wl spent records a clock interval from a duration.""")
     s.add_argument("ids", type=int, nargs="+", help="node id(s)")
     s.add_argument("--at", help="backfill start time: HH:MM (today) / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
 
@@ -372,17 +372,17 @@ Related: close with wl stop <id>; see what's running via wl active; wl spent rec
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl stop 42                            # stop now, write CLOCK_OUT elapsed=Nmin
+  wl stop 42                            # stop now, close the interval (elapsed=Nmin)
   wl stop 42 43                         # batch stop
-  wl stop 42 --at 11:30                 # backfill 11:30 end (must be later than CLOCK_IN)
+  wl stop 42 --at 11:30                 # backfill 11:30 end (must be later than the clock start)
   wl stop 42 --at 2026-05-30 16:00      # full ts
 
-Difference from wl spent: stop pairs with a prior CLOCK_IN; spent creates a pair directly from a duration.""")
+Difference from wl spent: stop closes a prior open clock; spent creates a closed interval directly from a duration.""")
     st.add_argument("ids", type=int, nargs="+", help="node id(s)")
-    st.add_argument("--at", help="backfill end time (must be later than CLOCK_IN)")
+    st.add_argument("--at", help="backfill end time (must be later than the clock start)")
 
     sp = sub.add_parser("spent",
-        help="record a past time spent (build CLOCK pair from duration, good for retrospective entries)",
+        help="record a past time spent (build a clock interval from a duration, good for retrospective entries)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
@@ -392,14 +392,14 @@ Common examples:
   wl spent 42 2h               # 2 hours
   wl spent 42 30m --at 14:30   # end at 14:30, backfill start at 14:00
 
-Difference from wl start/stop: spent builds CLOCK_IN+OUT pair from a duration in one step; no need to start first. Good for "forgot to clock, recording it after the fact".""")
+Difference from wl start/stop: spent builds a closed clock interval from a duration in one step; no need to start first. Good for "forgot to clock, recording it after the fact".""")
     sp.add_argument("id", type=int, help="node id")
     sp.add_argument("duration", help="duration: 90 / 90m / 1h30m / 2h")
     sp.add_argument("--at", help="end timestamp (default NOW); start = at - duration")
 
     ac = sub.add_parser("active",
-        help="tasks running right now (open CLOCK_IN) + today's elapsed + latest log",
-        description="List tasks that are timing right now (open CLOCK_IN). Shows current session elapsed, today's total, and the most recent log. Good for live focus check and finding tasks you forgot to stop.",
+        help="tasks running right now (open clock) + today's elapsed + latest log",
+        description="List tasks that are timing right now (an open clock interval). Shows current session elapsed, today's total, and the most recent log. Good for live focus check and finding tasks you forgot to stop.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Use cases:
@@ -409,14 +409,14 @@ Use cases:
 
 Difference from wl day:
   - wl day        = full progress for the day (includes done / not-yet-started planned items), for end-of-day review
-  - wl active     = what's timing right now (open CLOCK_IN), for live focus check
+  - wl active     = what's timing right now (open clock), for live focus check
 
 Output includes: current session elapsed + today's total (to decide stop or continue) + latest log (context).
 Brief mode -q: id + elapsed only. Full log body: --log-format full.""")
     # ac has no other flags but we keep the variable for future args (e.g. --since to look at past activity)
 
     wa = sub.add_parser("wait",
-        help="mark WAIT (blocked on others / external input); auto-closes CLOCK; multiple ids",
+        help="mark WAIT (blocked on others / external input); auto-closes the clock; multiple ids",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
@@ -424,7 +424,7 @@ Common examples:
   wl wait 42 --note "waiting on review" # add a log explaining what we're waiting on
   wl wait 42 43 --note "waiting on approval" # batch
 
-Note: marking WAIT auto-closes any open CLOCK_IN (WAIT = suspended, no longer timing). Use wl reopen to revert to TODO.""")
+Note: marking WAIT auto-closes any open clock (WAIT = suspended, no longer timing). Use wl reopen to revert to TODO.""")
     wa.add_argument("ids", type=int, nargs="+", help="node id(s)")
     wa.add_argument("--note", help="add a log explaining what you're waiting on")
 
@@ -770,7 +770,7 @@ Common examples:
   wl recap --date yesterday            # read yesterday's recap
 
 wl day shows "Recap: ... (written at MM-DD HH:MM)" at the top;
-if there are new non-CLOCK logs after recap, wl day shows "⚠ N changes after recap, consider rewriting".
+if there are new logs after recap, wl day shows "⚠ N changes after recap, consider rewriting".
 Using wl set <day_id> summary "..." directly does not stamp the timestamp; not recommended.""")
     rc.add_argument("text", nargs="?", help="no arg = read; with text = write")
     rc.add_argument("--date", help="target day (YYYY-MM-DD / today / yesterday / 昨天 ...); default today")
@@ -804,20 +804,20 @@ Common examples:
   wl unlog #L282                      # exact delete by log id
   wl unlog L282                       # same (# optional)
   wl unlog 282                        # same (plain number)
-  wl unlog --node 39                  # delete the latest non-CLOCK log for #39 today
+  wl unlog --node 39                  # delete the latest log for #39 today
   wl unlog --node 39 --date yesterday # latest log that day
-  wl unlog --node 39 --all            # delete all non-CLOCK logs for #39 that day
+  wl unlog --node 39 --all            # delete all logs for #39 that day
 
 Find a log id: wl show <node_id> or wl logs --id <node_id> displays #L<id> in the timeline.
-CLOCK_IN/OUT logs cannot be deleted (would break timing pairs). Edit a mistyped log with wl relog #L<id> instead.""")
+Edit a mistyped log with wl relog #L<id> instead. (Timing lives in the clock table, not logs — fix a clock with wl stop --at.)""")
     ul.add_argument("log_id", type=_log_id_arg, nargs="?",
                     help="log id (e.g. #L282 / L282 / 282; from wl show / wl logs timeline)")
-    ul.add_argument("--node", type=int, help="delete by node id (default: latest non-CLOCK log today)")
+    ul.add_argument("--node", type=int, help="delete by node id (default: latest log today)")
     ul.add_argument("--date", help="with --node: delete logs from that day (default today)")
-    ul.add_argument("--all", action="store_true", help="with --node: delete all non-CLOCK logs for that node that day")
+    ul.add_argument("--all", action="store_true", help="with --node: delete all logs for that node that day")
 
     rl = sub.add_parser("relog",
-        help="rewrite a log: new body / new time / editor (CLOCK not accepted)",
+        help="rewrite a log: new body / new time / editor",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
@@ -827,7 +827,7 @@ Common examples:
   wl relog #L282 --at 2026-05-30     # only change date (keep time)
   wl relog #L282                     # no body/--at -> open $EDITOR
 
-CLOCK_IN/OUT logs cannot be edited (would break timing pairs); use wl stop --at to fix CLOCK times.
+Timing lives in the clock table, not logs — to fix a clock interval use wl stop --at.
 Cannot move a log across nodes (that's unlog + log).""")
     rl.add_argument("log_id", type=_log_id_arg,
                     help="log id (#L282 / L282 / 282; from wl show / wl logs)")
