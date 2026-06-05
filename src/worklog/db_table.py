@@ -73,7 +73,7 @@ def _clause(conds: dict):
 
 def clause(**conds):
     """WHERE-condition fragments + bound params from kwargs (same `col__op` grammar
-    as `find`). For composing into a hand-assembled query that ALSO needs complex
+    as `query`). For composing into a hand-assembled query that ALSO needs complex
     fragments (subqueries, JOINs, expressions): build the simple equality/operator
     conditions here — safe, no manual col / ? / param three-way alignment — then
     AND your own fragments onto the returned list. Returns (list[str], list).
