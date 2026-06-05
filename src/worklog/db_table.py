@@ -13,7 +13,7 @@ selects an operator (`ge`/`le`/`gt`/`lt`/`ne`/`like`/`is`/`in`). `col=None`
 (and `col__ne=None`) become `IS NULL` / `IS NOT NULL` — never the always-false
 `= NULL`.
 
-    find(con, "node", parent_id=5, kind__in=["task", "habit"], order="id")
+    query(con, "node", parent_id=5, kind__in=["task", "habit"], order="id")
     exists(con, "tag", node_id=n, tag=t)
     get(con, "node", 42)
 
@@ -139,7 +139,7 @@ def delete(con, table, **conds) -> int:
     return con.execute(f"DELETE FROM {table}{where}", params).rowcount
 
 
-def find(con, table, *, cols="*", order=None, limit=None, **conds):
+def query(con, table, *, cols="*", order=None, limit=None, **conds):
     """SELECT rows from one table matching the kwargs filter; return list[Row].
     `cols` / `order` are raw SQL expressions (code-controlled, e.g. "COUNT(*) AS n"
     / "priority NULLS LAST, id")."""
@@ -153,22 +153,22 @@ def find(con, table, *, cols="*", order=None, limit=None, **conds):
     return con.execute(sql, params).fetchall()
 
 
-def find_one(con, table, **conds):
+def query_one(con, table, **conds):
     """First matching row (LIMIT 1), or None."""
-    rows = find(con, table, limit=1, **conds)
+    rows = query(con, table, limit=1, **conds)
     return rows[0] if rows else None
 
 
 def get(con, table, row_id):
     """The row with `id = row_id`, or None."""
-    return find_one(con, table, id=row_id)
+    return query_one(con, table, id=row_id)
 
 
 def exists(con, table, **conds) -> bool:
     """True iff any row matches the filter."""
-    return find_one(con, table, cols="1", **conds) is not None
+    return query_one(con, table, cols="1", **conds) is not None
 
 
 def count(con, table, **conds) -> int:
     """COUNT(*) of rows matching the filter."""
-    return find(con, table, cols="COUNT(*) AS n", **conds)[0]["n"]
+    return query(con, table, cols="COUNT(*) AS n", **conds)[0]["n"]

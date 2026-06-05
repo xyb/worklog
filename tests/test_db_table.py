@@ -89,29 +89,29 @@ class TestDelete:
             dt.delete(con, "t")
 
 
-class TestFindFilters:
+class TestQueryFilters:
     def test_eq_and_multiple_anded(self, con):
         _seed(con, [{"name": "a", "kind": "task"}, {"name": "a", "kind": "habit"}])
-        rows = dt.find(con, "t", name="a", kind="task")
+        rows = dt.query(con, "t", name="a", kind="task")
         assert len(rows) == 1 and rows[0]["kind"] == "task"
 
     def test_in(self, con):
         _seed(con, [{"kind": "task"}, {"kind": "habit"}, {"kind": "meetlog"}])
-        rows = dt.find(con, "t", kind__in=["task", "habit"])
+        rows = dt.query(con, "t", kind__in=["task", "habit"])
         assert {r["kind"] for r in rows} == {"task", "habit"}
 
     def test_empty_in_matches_nothing(self, con):
         _seed(con, [{"kind": "task"}])
-        assert dt.find(con, "t", kind__in=[]) == []
+        assert dt.query(con, "t", kind__in=[]) == []
 
     def test_none_eq_becomes_is_null(self, con):
         _seed(con, [{"name": "a", "parent": None}, {"name": "b", "parent": 5}])
-        rows = dt.find(con, "t", parent=None)
+        rows = dt.query(con, "t", parent=None)
         assert len(rows) == 1 and rows[0]["name"] == "a"
 
     def test_none_ne_becomes_is_not_null(self, con):
         _seed(con, [{"name": "a", "parent": None}, {"name": "b", "parent": 5}])
-        rows = dt.find(con, "t", parent__ne=None)
+        rows = dt.query(con, "t", parent__ne=None)
         assert len(rows) == 1 and rows[0]["name"] == "b"
 
     @pytest.mark.parametrize("op,val,expect", [
@@ -119,21 +119,21 @@ class TestFindFilters:
     ])
     def test_numeric_ops(self, con, op, val, expect):
         _seed(con, [{"n": 1}, {"n": 2}, {"n": 3}])
-        rows = dt.find(con, "t", **{f"n__{op}": val})
+        rows = dt.query(con, "t", **{f"n__{op}": val})
         assert {r["n"] for r in rows} == expect
 
     def test_like(self, con):
         _seed(con, [{"name": "alpha"}, {"name": "beta"}])
-        rows = dt.find(con, "t", name__like="al%")
+        rows = dt.query(con, "t", name__like="al%")
         assert len(rows) == 1 and rows[0]["name"] == "alpha"
 
     def test_unknown_op_rejected(self, con):
         with pytest.raises(ValueError):
-            dt.find(con, "t", n__bogus=1)
+            dt.query(con, "t", n__bogus=1)
 
     def test_bad_column_in_filter_rejected(self, con):
         with pytest.raises(ValueError):
-            dt.find(con, "t", **{"n; DROP": 1})
+            dt.query(con, "t", **{"n; DROP": 1})
 
 
 class TestClause:
@@ -161,24 +161,24 @@ class TestClause:
         assert len(rows) == 1 and rows[0]["name"] == "a"
 
 
-class TestFindShape:
+class TestQueryShape:
     def test_order_and_limit(self, con):
         _seed(con, [{"n": 3}, {"n": 1}, {"n": 2}])
-        rows = dt.find(con, "t", order="n", limit=2)
+        rows = dt.query(con, "t", order="n", limit=2)
         assert [r["n"] for r in rows] == [1, 2]
 
     def test_cols_projection(self, con):
         dt.insert(con, "t", {"name": "a", "n": 7})
         con.commit()
-        rows = dt.find(con, "t", cols="n")
+        rows = dt.query(con, "t", cols="n")
         assert rows[0]["n"] == 7 and "name" not in rows[0].keys()
 
 
 class TestConvenience:
-    def test_find_one_and_get(self, con):
+    def test_query_one_and_get(self, con):
         _seed(con, [{"name": "a"}, {"name": "b"}])
-        assert dt.find_one(con, "t", name="a")["name"] == "a"
-        assert dt.find_one(con, "t", name="zzz") is None
+        assert dt.query_one(con, "t", name="a")["name"] == "a"
+        assert dt.query_one(con, "t", name="zzz") is None
         assert dt.get(con, "t", 2)["name"] == "b"
         assert dt.get(con, "t", 999) is None
 
@@ -194,4 +194,4 @@ class TestConvenience:
 
     def test_no_conds_finds_all(self, con):
         _seed(con, [{"name": "a"}, {"name": "b"}])
-        assert len(dt.find(con, "t")) == 2
+        assert len(dt.query(con, "t")) == 2

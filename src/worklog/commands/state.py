@@ -246,7 +246,7 @@ def cmd_log(args, con):
     # backfilling history (--date) does not change status; --keep-status explicitly disables
     auto_progress_hint = ""
     if not getattr(args, "keep_status", False) and not date:
-        row = _db.find_one(con, "node", cols="status", id=args.id)
+        row = _db.query_one(con, "node", cols="status", id=args.id)
         if row and row["status"] == "TODO":
             _db.update(con, "node", args.id, {"status": "DOING"})
             auto_progress_hint = " (status: TODO → DOING)"

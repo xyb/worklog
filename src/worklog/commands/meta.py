@@ -200,7 +200,7 @@ def cmd_dateinfo(args, con):
         lbl = _date_label(con, args.date)
         out(_c(f"{args.date} {_cn_weekday(args.date)}" + (f" · {lbl}" if lbl else " (no label)"), "meta"))
     else:
-        for r in _db.find(con, "date_meta", cols="date, label", order="date"):
+        for r in _db.query(con, "date_meta", cols="date, label", order="date"):
             out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
 
 def cmd_goal(args, con):
@@ -367,7 +367,7 @@ def _ensure_time_ancestors(con, d):
             "parent_id": parent_id, "title": new_title, "kind": kind, "created_at": _tu.utc_now(),
         })
 
-    lt = _db.find_one(con, "node", cols="id", kind="lifetime", order="id")
+    lt = _db.query_one(con, "node", cols="id", kind="lifetime", order="id")
     lt_id = lt["id"] if lt else None
     yr_id = _get_or_make(
         "year", "SELECT id FROM node WHERE kind='year' AND title LIKE ? ORDER BY id LIMIT 1",

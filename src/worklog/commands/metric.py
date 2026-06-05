@@ -303,14 +303,14 @@ def cmd_metric_rm(args, con):
     # print "✓ deleted" for work that a later failure rolls back.
     msgs = []
     for mid in args.metric_ids:
-        row = _db.find_one(con, "metric", cols="log_id", id=mid)
+        row = _db.query_one(con, "metric", cols="log_id", id=mid)
         if not row:
             msgs.append(f"(metric #M{mid} not found)")
             continue
         log_id = row["log_id"]
         _db.delete(con, "metric", id=mid)
         msg = f"✓ deleted metric #M{mid}"
-        log = _db.find_one(con, "log", cols="body, tag", id=log_id)
+        log = _db.query_one(con, "log", cols="body, tag", id=log_id)
         remaining = _db.count(con, "metric", log_id=log_id)
         if log and log["tag"] == _CARRIER_TYPE and not (log["body"] or "").strip() and remaining == 0:
             _db.delete(con, "log", id=log_id)

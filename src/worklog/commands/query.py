@@ -209,17 +209,17 @@ def cmd_find(args, con):
             hits.setdefault(r[0], set()).add(where)
 
     if "title" in fields:
-        mark(_db.find(con, "node", cols="id", title__like=like), "title")
+        mark(_db.query(con, "node", cols="id", title__like=like), "title")
     if "body" in fields:
-        mark(_db.find(con, "node", cols="id", body__like=like), "body")
+        mark(_db.query(con, "node", cols="id", body__like=like), "body")
     if "log" in fields:
-        mark(_db.find(con, "log", cols="DISTINCT node_id", body__like=like), "log")
+        mark(_db.query(con, "log", cols="DISTINCT node_id", body__like=like), "log")
     if "tag" in fields:
-        mark(_db.find(con, "tag", cols="DISTINCT node_id", tag__like=like), "tag")
+        mark(_db.query(con, "tag", cols="DISTINCT node_id", tag__like=like), "tag")
     if "prop" in fields:
         mark(con.execute("SELECT DISTINCT node_id FROM prop WHERE key LIKE ? OR value LIKE ?", (like, like)), "prop")
     if "link" in fields:
-        mark(_db.find(con, "link", cols="DISTINCT node_id", vault_doc__like=like), "link")
+        mark(_db.query(con, "link", cols="DISTINCT node_id", vault_doc__like=like), "link")
 
     inc_cancel = getattr(args, "show_canceled", False)
     rows = []
@@ -253,16 +253,16 @@ def cmd_find(args, con):
         if "body" in where and n["body"]:
             out("    " + _c("body:", "meta") + " " + _snippet(n["body"], q))
         if "log" in where:
-            for r in _db.find(con, "log", cols="body", node_id=nid, body__like=like, order="id"):
+            for r in _db.query(con, "log", cols="body", node_id=nid, body__like=like, order="id"):
                 out("    " + _c("log:", "meta") + " " + _snippet(r["body"], q))
         if "tag" in where:
-            tg = [r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=nid, tag__like=like)]
+            tg = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid, tag__like=like)]
             out("    " + _c("tag:", "meta") + " " + _c(", ".join(tg), "tag"))
         if "prop" in where:
             for r in con.execute("SELECT key,value FROM prop WHERE node_id=? AND (key LIKE ? OR value LIKE ?)", (nid, like, like)):
                 out("    " + _c("prop:", "meta") + " " + _c(f"{r['key']}={r['value']}"))
         if "link" in where:
-            for r in _db.find(con, "link", cols="vault_doc", node_id=nid, vault_doc__like=like):
+            for r in _db.query(con, "link", cols="vault_doc", node_id=nid, vault_doc__like=like):
                 out("    " + _c("link:", "meta") + " " + _c(f"[[{r['vault_doc']}]]"))
 
 def cmd_focus(args, con):
@@ -361,9 +361,9 @@ def cmd_agenda(args, con):
     #   - sched table on_date: concrete one-off days (+ rrule, handled elsewhere)
     #   - node.scheduled_date:    a single fuzzy-granularity pin (@2026-06 / someday / ...)
     entries = []  # (node_id, sched_value)
-    for r in _db.find(con, "sched", cols="node_id, on_date", on_date__ne=None):
+    for r in _db.query(con, "sched", cols="node_id, on_date", on_date__ne=None):
         entries.append((r["node_id"], r["on_date"]))
-    for r in _db.find(con, "node", cols="id, scheduled_date", scheduled_date__ne=None):
+    for r in _db.query(con, "node", cols="id, scheduled_date", scheduled_date__ne=None):
         entries.append((r["id"], r["scheduled_date"]))
 
     hits = []          # (sort_key, node, value) for in-range scheds
@@ -561,7 +561,7 @@ def cmd_summary(args, con):
     doing = [n for n in nodes if n["status"] == "DOING"]
 
     clock_min = 0
-    for r in _db.find(con, "clock", cols="end_at, elapsed_sec", end_at__ne=None):
+    for r in _db.query(con, "clock", cols="end_at, elapsed_sec", end_at__ne=None):
         if inw(r["end_at"]):
             clock_min += int((r["elapsed_sec"] or 0) / 60)
 
@@ -857,12 +857,12 @@ def _show_one(args, con):
     tags = _node_tags(con, args.id)
     if tags:
         out("  " + _c("tags:", "meta") + "     " + _c(f":{':'.join(tags)}:", "tag"))
-    props = _db.find(con, "prop", cols="key, value", node_id=args.id)
+    props = _db.query(con, "prop", cols="key, value", node_id=args.id)
     if props:
         out("  " + _c("props:", "meta"))
         for r in props:
             out("    " + _c(f"{r['key']:12s} = {r['value']}"))
-    links = [r["vault_doc"] for r in _db.find(con, "link", cols="vault_doc", node_id=args.id)]
+    links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=args.id)]
     if links:
         out("  " + _c("links:", "meta") + "    " + _c(", ".join(f"[[{d}]]" for d in links)))
     # schedule (sched table): one-off dates + recurring rules. First-hand info for debugging
@@ -894,7 +894,7 @@ def _show_one(args, con):
     brief = _is_brief(args, "no_timeline")
     if brief:
         return
-    logs = _db.find(con, "log", cols="id, logged_at, body, tag", node_id=args.id, order="id")
+    logs = _db.query(con, "log", cols="id, logged_at, body, tag", node_id=args.id, order="id")
     # event tuple: (ts, kind_label, extra, log_id) -- log_id only for log events, meta events None
     # events: (ts, kind, extra, log_id, metrics) — metrics folded under their log line
     def _mline(m):

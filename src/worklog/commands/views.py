@@ -160,7 +160,7 @@ def cmd_day(args, con):
         t5 = _latest_typed_log(con, day["id"], "top5")
         if t5 and t5["body"]:
             out(_c("  > Top5: " + t5["body"], "meta"))
-        wk = _db.find_one(con, "node", cols="id", id=day["parent_id"], kind="week")
+        wk = _db.query_one(con, "node", cols="id", id=day["parent_id"], kind="week")
         if wk:
             ov = _latest_typed_log(con, wk["id"], "overview")
             if ov and ov["body"]:
@@ -249,7 +249,7 @@ def cmd_day(args, con):
 def _tree_by(con, by):
     """Flat 2-level view, regrouped by dimension (avoids deep time-layered nesting)."""
     if by == "tag":
-        tags = [r["tag"] for r in _db.find(con, "tag", cols="DISTINCT tag", order="tag")]
+        tags = [r["tag"] for r in _db.query(con, "tag", cols="DISTINCT tag", order="tag")]
         sem = [t for t in tags if t not in GENERIC_TAGS]
         if not sem:
             print("(no semantic tags)")
@@ -273,10 +273,10 @@ def _tree_by(con, by):
             return
         claimed = set()
         for proj in projects:
-            proj_tags = {r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=proj["id"])} - GENERIC_TAGS
+            proj_tags = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=proj["id"])} - GENERIC_TAGS
             ids = set()
             # (a) structural children
-            for r in _db.find(con, "node", cols="id", parent_id=proj["id"]):
+            for r in _db.query(con, "node", cols="id", parent_id=proj["id"]):
                 ids.add(r["id"])
             # (b) task/meetlog/habit sharing a semantic tag
             if proj_tags:
@@ -411,7 +411,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
     To drill into an area's projects use --root <area>; for other days use --root <week/month>. CANCELED excluded by default."""
     from datetime import date
 
-    life = _db.find_one(con, "node", kind="lifetime", order="id")
+    life = _db.query_one(con, "node", kind="lifetime", order="id")
     has_day = _db.exists(con, "node", kind="day")
     has_month = _db.exists(con, "node", kind="month")
     if not life and not has_day and not has_month:
@@ -435,7 +435,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
         day_depth = base + len(chain) - 1
         _print_day_activity(con, dayn, day_depth, max_depth=day_depth + 1, log_tail=log_tail, full=full)
     else:
-        mon = _db.find_one(con, "node", kind="month", order="title DESC")
+        mon = _db.query_one(con, "node", kind="month", order="title DESC")
         if mon:
             out(_node_line(con, mon, indent="  " * base, sched=True))
 
@@ -530,7 +530,7 @@ def _habit_month_progress(con, nid, day):
     ≤ day on which the habit's schedule fires. Returns None when the habit has no
     schedule (no meaningful rate)."""
     from datetime import date, timedelta
-    scheds = _db.find(con, "sched", cols="on_date, rrule", node_id=nid)
+    scheds = _db.query(con, "sched", cols="on_date, rrule", node_id=nid)
     if not scheds:
         return None
     y, m, d = (int(x) for x in day.split("-"))
@@ -608,14 +608,14 @@ def _sched_fires(on_date, rrule, target):
 def _scheduled_node_ids(con, target):
     """Set of node_ids hit by a schedule on target (forward planning -> planned bucket)."""
     ids = set()
-    for r in _db.find(con, "sched", cols="node_id, on_date, rrule"):
+    for r in _db.query(con, "sched", cols="node_id, on_date, rrule"):
         if _sched_fires(r["on_date"], r["rrule"], target):
             ids.add(r["node_id"])
     return ids
 
 def _date_label(con, target):
     """Label (holiday/vacation/working-day-swap) for the date from date_meta, or None."""
-    r = _db.find_one(con, "date_meta", cols="label", date=target)
+    r = _db.query_one(con, "date_meta", cols="label", date=target)
     return r["label"] if r else None
 
 

@@ -60,8 +60,8 @@ def _insert_log(con, nid, entry):
 def _project_members(con, proj_id):
     """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""
     ids = set()
-    proj_tags = {r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=proj_id)} - GENERIC_TAGS
-    for r in _db.find(con, "node", cols="id", parent_id=proj_id, kind__in=("task", "meetlog", "habit")):
+    proj_tags = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=proj_id)} - GENERIC_TAGS
+    for r in _db.query(con, "node", cols="id", parent_id=proj_id, kind__in=("task", "meetlog", "habit")):
         ids.add(r["id"])
     if proj_tags:
         qm = ",".join("?" * len(proj_tags))
@@ -89,7 +89,7 @@ def _ancestors_chain(con, node_id):
 
 def _node_bucket(con, nid):
     """Bucket a node into work / personal / other by work/personal tag."""
-    tags = {r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=nid)}
+    tags = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)}
     if "work" in tags:
         return "work"
     if "personal" in tags:
@@ -110,7 +110,7 @@ def _node_plan(con, nid, sched_ids):
     planned/unplanned is derived from sched, anything not scheduled is just unplanned."""
     if nid in sched_ids:
         return "planned"
-    tags = {r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=nid)}
+    tags = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)}
     if "planned" in tags:
         return "planned"
     return "unplanned"
@@ -132,7 +132,7 @@ def _collect_descendants(con, root_id):
     stack = [root_id]
     while stack:
         pid = stack.pop()
-        children = _db.find(con, "node", cols="id", parent_id=pid)
+        children = _db.query(con, "node", cols="id", parent_id=pid)
         for c in children:
             acc.append(c["id"])
             stack.append(c["id"])
@@ -150,7 +150,7 @@ def _latest_typed_log(con, node_id, log_type):
     history-preserving meta field (goal / summary / overview / top5). Returns the Row
     (body, logged_at) or None. Each edit appends a new log, so history is kept and the
     latest one is the current value."""
-    return _db.find_one(con, "log", cols="body, logged_at", node_id=node_id, tag=log_type,
+    return _db.query_one(con, "log", cols="body, logged_at", node_id=node_id, tag=log_type,
                         order="logged_at DESC, id DESC")
 
 
@@ -226,7 +226,7 @@ def _node_exists(con, node_id):
 
 def _node_tags(con, nid):
     """Return the tag list for a node (insertion order)."""
-    return [r["tag"] for r in _db.find(con, "tag", cols="tag", node_id=nid)]
+    return [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)]
 
 
 def _check_ids_exist(con, ids):
