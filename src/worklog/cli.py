@@ -312,7 +312,7 @@ Config (aliases.ini) lives at $XDG_CONFIG_HOME/worklog/aliases.ini (default ~/.c
 
     a = sub.add_parser("add",
         help="create a new node (task/project/area/meetlog/habit/day...); compound flags let you do add + log + done + sched + link in one shot",
-        description="Create a new node (task/project/area/meetlog/habit/day/...). Compound flags support add + log + done + sched + link in one step, replacing several separate commands.",
+        description="Create a new node (task/project/area/meetlog/habit/day/...). Compound flags support add + log + done + sched + link in one step, replacing several separate commands. Canonical form: `wl node add` (this is the shortcut; see `wl node -h`).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
@@ -558,7 +558,7 @@ just create a shadow 'tags' prop. Tags drive bucketing (work/personal) and group
 
     sh = sub.add_parser("show",
         help="full detail + timeline for a node (accepts multiple ids)",
-        description="All info on a node: metadata (status/priority/parents/tags/links/props) + timeline (created/scheduled/closed/log merged by time). Timeline defaults to the last 5; use --all-timelines for full expansion.",
+        description="All info on a node: metadata (status/priority/parents/tags/links/props) + timeline (created/scheduled/closed/log merged by time). Timeline defaults to the last 5; use --all-timelines for full expansion. Canonical form: `wl node show` (this is the shortcut; see `wl node -h`).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
@@ -582,6 +582,12 @@ Differences from related commands:
         description="Node CRUD primitives — the metric-style entity group. `wl add` / `wl ls` / `wl show` are the high-frequency shortcuts onto the same handlers; `node edit` / `node rm` / `node reparent` are the field-edit / soft-delete / move primitives.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
+Shortcuts (the high-frequency verbs also have a top-level shortcut — same handler):
+  add  →  wl add        (= wl node add)
+  ls   →  wl ls         (= wl node ls)
+  show →  wl show       (= wl node show)
+  edit / rm / reparent have no shortcut — call them under `node`.
+
 Common examples:
   wl node add "task" -k task -p B     # = wl add (the top-level shortcut)
   wl node edit 42 --title "new" -p A  # edit a node's own fields (not status/parent/tags)
@@ -594,9 +600,12 @@ Differences from related commands:
   - node rm         soft-delete (reversible); wl apply '- #id' is the diff-format equivalent
   - the metric group (wl metric add/ls/edit/rm) is the template this mirrors""")
     _ndsub = nd.add_subparsers(dest="node_sub")
-    _args_node_add(_ndsub.add_parser("add", help="create a node (= wl add)"))
-    _args_node_ls(_ndsub.add_parser("ls", parents=[filters], help="list nodes (= wl ls)"))
-    _args_node_show(_ndsub.add_parser("show", help="show a node + timeline (= wl show)"))
+    _args_node_add(_ndsub.add_parser("add", help="create a node (= wl add)",
+        description="Create a node — the canonical primitive. Also: the top-level shortcut `wl add` (identical, same handler)."))
+    _args_node_ls(_ndsub.add_parser("ls", parents=[filters], help="list nodes (= wl ls)",
+        description="List nodes. Also: the top-level shortcut `wl ls` (identical, same handler)."))
+    _args_node_show(_ndsub.add_parser("show", help="show a node + timeline (= wl show)",
+        description="Show a node's detail + timeline. Also: the top-level shortcut `wl show` (identical, same handler)."))
     _nde = _ndsub.add_parser("edit", help="edit a node's own fields (title/priority/kind/body/scheduled/deadline)")
     _nde.add_argument("id", type=int)
     _nde.add_argument("--title")
@@ -613,6 +622,7 @@ Differences from related commands:
 
     ls = sub.add_parser("ls", parents=[filters],
                         help="list nodes (default limit 20; see shell ls -t / -S / -r-style dimensions)",
+                        description="List nodes (multi-dimensional, shell-ls style). Canonical form: `wl node ls` (this is the shortcut; see `wl node -h`).",
                         formatter_class=argparse.RawDescriptionHelpFormatter,
                         epilog="""\
 Common examples (precise queries, shell-ls multi-dimensional):

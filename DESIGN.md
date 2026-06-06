@@ -91,6 +91,24 @@ metric + done), and the compound `add --log/--done/--at/--link/--sched/--metric`
 System commands (`migrate` / `config` / `init` / `import` / `apply` / `themes` /
 `print-completion`) sit outside the three buckets.
 
+### 1.2 Help system (battery-included + shortcut ↔ canonical cross-reference)
+
+Every command's `--help` is self-sufficient (§35 "battery-included"): a one-line intro,
+a few scenario examples, and a "Differences from related commands" block. On top of that,
+**wherever a shortcut and its canonical entity-verb both exist, both helps must name the
+relationship — this is mandatory, never omitted**, so a reader landing on either form
+learns the other:
+
+- The **canonical entity-verb** help (e.g. `wl node add -h`) states it's also reachable as
+  the shortcut (`also: wl add`).
+- The **shortcut** help (e.g. `wl add -h`) states it's the shortcut for the canonical form
+  (`canonical: wl node add`).
+- The **entity group** help (e.g. `wl node -h`) carries a dedicated **Shortcuts** section
+  mapping each shortcut-able verb to its top-level name (`add → wl add`, `ls → wl ls`, …).
+
+This applies to every entity as the `<entity> <verb>` + shortcut rollout proceeds, so the
+two ways to invoke the same operation never drift in discoverability, only in keystrokes.
+
 ## 2. Data model (`src/worklog/migrations/`)
 
 A single `node` table carries everything; the `kind` field discriminates type; `parent_id` self-reference builds the tree. The schema is delivered as numbered SQL migrations under `src/worklog/migrations/NNNN_*.sql`; `PRAGMA user_version` tracks the highest applied migration. `ensure_db()` auto-applies pending migrations on every command; `wl migrate` is the explicit form. See `src/worklog/migrations/0001_initial_schema.sql` for the initial layout and `README.md` for the high-level picture.
