@@ -201,9 +201,7 @@ def cmd_day(args, con):
     sched_ids = _scheduled_node_ids(con, target)
     for nid in sched_ids:
         if nid not in items:
-            nr = con.execute(
-                "SELECT id AS node_id, title, status, priority, kind FROM node WHERE id = ? AND deleted_at IS NULL", (nid,)
-            ).fetchone()
+            nr = _db.query_one(con, "node", cols="id AS node_id, title, status, priority, kind", id=nid)
             if nr and nr["kind"] in ("task", "habit", "meetlog"):
                 if not inc_cancel and nr["status"] == "CANCELED":
                     continue

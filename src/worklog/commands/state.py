@@ -196,10 +196,9 @@ def cmd_add(args, con):
         if at_ts:
             # at_ts is already a UTC instant — insert it directly (don't round-trip
             # through _insert_log's dict path, which would re-apply local→UTC)
-            _db.insert(con, "log", {"node_id": node_id, "logged_at": at_ts, "body": log_body.strip()})
+            created_log_id = _db.insert(con, "log", {"node_id": node_id, "logged_at": at_ts, "body": log_body.strip()})
         else:
-            _insert_log(con, node_id, log_body.strip())
-        created_log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+            created_log_id = _insert_log(con, node_id, log_body.strip())
         log_hint = " + log"
 
     # --metric: attach datapoint(s); reuse the --log carrier if present, else make a
@@ -240,10 +239,9 @@ def cmd_log(args, con):
     else:
         entry = args.body
     try:
-        _insert_log(con, args.id, entry)
+        log_id = _insert_log(con, args.id, entry)
     except ValueError as e:
         sys.exit(f"✗ invalid date: {e}")
-    log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
     # auto TODO -> DOING (when no --date, "I logged something" implies "I'm working on it")
     # backfilling history (--date) does not change status; --keep-status explicitly disables
     auto_progress_hint = ""
@@ -288,10 +286,7 @@ def cmd_defer(args, con):
     except ValueError as e:
         sys.exit(f"✗ {e}")
     for nid in ids:
-        con.execute(
-            "UPDATE node SET status = 'LATER', scheduled_date = ? WHERE id = ?",
-            (when, nid),
-        )
+        _db.update(con, "node", nid, {"status": "LATER", "scheduled_date": when})
     con.commit()
     for nid in ids:
         out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " → LATER, scheduled " + _c(_sched_display(when), "planned"))
@@ -370,10 +365,8 @@ def cmd_spent(args, con):
     from datetime import timedelta as _td
     start_dt = end_dt - _td(minutes=mins)
     start_ts = start_dt.strftime("%Y-%m-%d %H:%M:%S")
-    con.execute(
-        "INSERT INTO clock (node_id, start_at, end_at, elapsed_sec) VALUES (?, ?, ?, ?)",
-        (nid, start_ts, end_ts, mins * 60),
-    )
+    _db.insert(con, "clock", {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
+                              "elapsed_sec": mins * 60})
     con.commit()
     print(f"✓ #{nid} spent {mins}min ({_tu.utc_to_local(start_ts)[11:16]} → {_tu.utc_to_local(end_ts)[11:16]})")
 
@@ -507,14 +500,11 @@ def cmd_tick(args, con):
     body = note if note else "✓ done"
     today = _tu.today()
     for nid in ids:
-        _insert_log(con, nid, body)
-        log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+        log_id = _insert_log(con, nid, body)
         # structured "done today" signal (one per node per day) — not "a log exists"
         checkin_metric(con, log_id, nid, today)
         if args.done:
-            con.execute(
-                "UPDATE node SET status = 'DONE', closed_at = ? WHERE id = ?", (_tu.utc_now(), nid)
-            )
+            _db.update(con, "node", nid, {"status": "DONE", "closed_at": _tu.utc_now()})
     con.commit()
     for nid in ids:
         out(_c(f"✓ #{nid} checked in", "meta") + (_c(" + DONE", "done") if args.done else ""))
@@ -530,10 +520,7 @@ def cmd_wait(args, con):
         if row:
             now_s = _tu.utc_now()
             secs = max(60, int((datetime.fromisoformat(now_s) - datetime.fromisoformat(row["start_at"])).total_seconds()))
-            con.execute(
-                "UPDATE clock SET end_at = ?, elapsed_sec = ? WHERE id = ?",
-                (now_s, secs, row["id"]),
-            )
+            _db.update(con, "clock", row["id"], {"end_at": now_s, "elapsed_sec": secs})
         _db.update(con, "node", nid, {"status": "WAIT"})
         if args.note:
             _insert_log(con, nid, f"WAIT: {args.note}")

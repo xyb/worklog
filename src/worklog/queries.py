@@ -16,7 +16,7 @@ from .helpers import _resolve_concrete_date
 
 
 def _insert_log(con, nid, entry):
-    """Insert a log. entry can carry a historical date + time:
+    """Insert a log; return the new log id. entry can carry a historical date + time:
     - dict{date, time, body}: date=YYYY-MM-DD / today / yesterday / day-before-yesterday; time=HH:MM optional
     - string prefixed with 'YYYY-MM-DD content': date only
     - plain body: use NOW (DB DEFAULT)
@@ -45,7 +45,7 @@ def _insert_log(con, nid, entry):
             # date only, no time: a degenerate "logged on this day" — keep the
             # bare local date verbatim (no instant to convert; day-grouping reads it as-is)
             logged_at = date
-        _db.insert(con, "log", {"node_id": nid, "logged_at": logged_at, "body": body})
+        return _db.insert(con, "log", {"node_id": nid, "logged_at": logged_at, "body": body})
     elif time_part:
         # no date but time given -> today + that time (local) -> store UTC
         if not _re.match(r"^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$", time_part):
@@ -53,9 +53,9 @@ def _insert_log(con, nid, entry):
         if time_part.count(":") == 1:
             time_part += ":00"
         logged_at = _tu.local_to_utc(f"{_tu.today()} {time_part}")
-        _db.insert(con, "log", {"node_id": nid, "logged_at": logged_at, "body": body})
+        return _db.insert(con, "log", {"node_id": nid, "logged_at": logged_at, "body": body})
     else:
-        _db.insert(con, "log", {"node_id": nid, "logged_at": _tu.utc_now(), "body": body})
+        return _db.insert(con, "log", {"node_id": nid, "logged_at": _tu.utc_now(), "body": body})
 
 def _project_members(con, proj_id):
     """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""

@@ -264,10 +264,9 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         for d in spec.get("links", []):
             _db.upsert(con, "link", {"node_id": nid, "vault_doc": d}, key=("node_id", "vault_doc"))
         for entry in spec.get("logs", []):
-            _insert_log(con, nid, entry)
+            log_id = _insert_log(con, nid, entry)
             # a log entry may carry structured datapoints: {"body":..., "metrics":[{tag,value,unit}]}
             if isinstance(entry, dict) and entry.get("metrics"):
-                log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
                 log_at = _db.get(con, "log", log_id)["logged_at"]
                 for mspec in entry["metrics"]:
                     import_metric(con, log_id, nid, mspec, default_at=log_at)

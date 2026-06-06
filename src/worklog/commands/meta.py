@@ -336,8 +336,7 @@ def cmd_checkin(args, con):
 
     for i in chosen:
         nid = pending[i]["id"]
-        _insert_log(con, nid, "✓ done")
-        log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+        log_id = _insert_log(con, nid, "✓ done")
         checkin_metric(con, log_id, nid, today)
     con.commit()
     done_now = len(chosen)
@@ -632,9 +631,7 @@ def _checkin_per_item(con, rows):
             out(_c(f"    ⏭ #{nid} skipped", "meta"))
             continue
         body = "✓ done" if ans in ("", "y", "Y", "yes") else ans
-        _insert_log(con, nid, body)
-        from datetime import date as _d
-        log_id = con.execute("SELECT last_insert_rowid()").fetchone()[0]
+        log_id = _insert_log(con, nid, body)
         checkin_metric(con, log_id, nid, _tu.today())
         con.commit()
         done_now += 1
