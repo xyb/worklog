@@ -604,10 +604,11 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                     mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
                 pri = (_c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"])) + " ") if n["priority"] else ""
                 hint = ""
-                if not logs and n["status"] not in ("DONE", "CANCELED"):
+                if not logs and n["status"] not in ("DONE", "CANCELED") and by != "plan":
                     # only "not-done" if the task is still open; a terminal-status task
                     # scheduled on a day with no logs is done, not pending (avoids the
-                    # contradictory "[x] … «planned·not-done»").
+                    # contradictory "[x] … «planned·not-done»"). Suppressed under `--by plan`
+                    # (#500): the `▸ planned` group header + the `[ ]` marker already say it.
                     hint = _c("  «planned·not-done»", "planned")
                 elif logs and log_tail == 0:
                     # compact mode: don't expand body, attach a count hint after the title line

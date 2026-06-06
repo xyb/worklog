@@ -119,3 +119,45 @@ class TestCmdTag:
     def test_tag_node_not_found(self, cli):
         code, _, _ = cli("tag", "999", "+x")
         assert code != 0
+
+
+def _links(con, nid):
+    return [r[0] for r in con.execute(
+        "SELECT vault_doc FROM link WHERE node_id=? AND deleted_at IS NULL ORDER BY vault_doc", (nid,))]
+
+
+class TestLinkWikilinkStrip:
+    """#462: an outer [[ ]] wrapper is stripped on input so [[X]] and X store identically
+    (no [[[[X]]]] double-wrap), dedup via the natural key, and unlink matches either form."""
+
+    def test_wrapper_stripped(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("link", "1", "[[My Doc]]")
+        assert _links(tmp_db.db_connect(), 1) == ["My Doc"]
+
+    def test_double_wrap_stripped(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("link", "1", "[[[[Deep]]]]")
+        assert _links(tmp_db.db_connect(), 1) == ["Deep"]
+
+    def test_plain_and_wrapped_dedup(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("link", "1", "My Doc")
+        cli("link", "1", "[[My Doc]]")           # same after strip → no duplicate
+        assert _links(tmp_db.db_connect(), 1) == ["My Doc"]
+
+    def test_unlink_matches_wrapped(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("link", "1", "My Doc")
+        cli("unlink", "1", "[[My Doc]]")          # wrapped form must match the stored plain
+        assert _links(tmp_db.db_connect(), 1) == []
+
+    def test_link_on_add_strips(self, cli, tmp_db):
+        cli("add", "t", "-k", "task", "--link", "[[On Add]]")
+        assert _links(tmp_db.db_connect(), 1) == ["On Add"]
+
+    def test_apply_add_link_strips(self, cli, tmp_db, tmp_path):
+        cli("add", "t", "-k", "task")
+        f = tmp_path / "d.txt"; f.write_text("~ #1\n  +link [[Via Apply]]\n", encoding="utf-8")
+        cli("apply", str(f))
+        assert _links(tmp_db.db_connect(), 1) == ["Via Apply"]

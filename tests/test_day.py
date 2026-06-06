@@ -166,7 +166,18 @@ class TestDayPlannedNotDoneSuppression:
         cli("add", "todo task", "-k", "task", "-t", "work")
         cli("sched", "1", "2026-06-15")
         _, out, _ = cli("day", "2026-06-15")
-        assert "planned·not-done" in out
+        assert "planned·not-done" in out          # footer stat count is still present
+
+    def test_row_hint_suppressed_under_by_plan(self, cli):
+        # #500: under the default --by plan the `▸ planned` group header + the `[ ]` marker
+        # already convey it, so the per-row «planned·not-done» hint is redundant → hidden.
+        cli("add", "todo task", "-k", "task", "-t", "work")
+        cli("sched", "1", "2026-06-15")
+        _, plan, _ = cli("day", "2026-06-15")                 # default by=plan
+        assert "«planned·not-done»" not in plan               # row hint hidden
+        assert "· planned·not-done" in plan                   # footer stat still shown
+        _, proj, _ = cli("day", "2026-06-15", "--by", "project")
+        assert "«planned·not-done»" in proj                   # kept under --by project
 
 
 class TestDayNature:

@@ -51,6 +51,9 @@ from ..queries import (
     _sec_group,
     _status_filter_sql,
     _upsert_prop,
+    _strip_wikilink,
+    _upsert_link,
+    _delete_link,
     _set_typed_log,
     _META_LOG_TYPES,
 )
@@ -183,9 +186,9 @@ def cmd_add(args, con):
     # --link: attach a vault doc
     link_hint = ""
     if getattr(args, "link", None):
-        link_doc = args.link.strip()
+        link_doc = _strip_wikilink(args.link)
         if link_doc:
-            _db.upsert(con, "link", {"node_id": node_id, "vault_doc": link_doc}, key=("node_id", "vault_doc"))
+            _upsert_link(con, node_id, link_doc)
             link_hint = " → " + _c(f"[[{link_doc}]]", "meta")
 
     # --log: insert a log (using at_ts if given, otherwise NOW)
@@ -371,31 +374,31 @@ def cmd_spent(args, con):
     print(f"✓ #{nid} spent {mins}min ({_tu.utc_to_local(start_ts)[11:16]} → {_tu.utc_to_local(end_ts)[11:16]})")
 
 def cmd_link(args, con):
-    if not args.vault_doc or not args.vault_doc.strip():
+    doc = _strip_wikilink(args.vault_doc)
+    if not doc:
         sys.exit("✗ vault_doc cannot be empty")
-    args.vault_doc = args.vault_doc.strip()
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     for nid in ids:
-        _db.upsert(con, "link", {"node_id": nid, "vault_doc": args.vault_doc}, key=("node_id", "vault_doc"))
+        _upsert_link(con, nid, doc)
     con.commit()
     for nid in ids:
-        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{args.vault_doc}]]"))
+        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{doc}]]"))
 
 def cmd_unlink(args, con):
     """Remove a single vault-doc link from a node (#426). Symmetric with wl link;
     previously a mistaken link could only be cleared wholesale via `wl set links ''`."""
-    if not args.vault_doc or not args.vault_doc.strip():
+    doc = _strip_wikilink(args.vault_doc)
+    if not doc:
         sys.exit("✗ vault_doc cannot be empty")
-    args.vault_doc = args.vault_doc.strip()
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     for nid in ids:
-        n = _db.delete(con, "link", node_id=nid, vault_doc=args.vault_doc)
+        _, n = _delete_link(con, nid, doc)
         if n:
-            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"unlinked [[{args.vault_doc}]]"))
+            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"unlinked [[{doc}]]"))
         else:
-            out(_c(f"#{nid} had no link to [[{args.vault_doc}]]", "meta"))
+            out(_c(f"#{nid} had no link to [[{doc}]]", "meta"))
     con.commit()
 
 def cmd_set(args, con):

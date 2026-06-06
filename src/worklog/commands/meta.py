@@ -568,8 +568,11 @@ def _ensure_time_ancestors(con, d):
     iso = d.isocalendar()
     q = (m - 1) // 3 + 1
 
-    def _get_or_make(kind, lookup_sql, lookup_param, new_title, parent_id):
-        row = con.execute(lookup_sql, lookup_param).fetchone()
+    def _get_or_make(kind, match, new_title, parent_id, *, like=False):
+        # lenient reuse: year matches a `2026%` LIKE probe (any title style); the rest match
+        # the exact ISO title. Single-table read via db_table (tombstone filter automatic).
+        cond = {"title__like": match} if like else {"title": match}
+        row = _db.query_one(con, "node", cols="id", kind=kind, order=("id" if like else None), **cond)
         if row:
             return row["id"]
         return _db.insert(con, "node", {
@@ -578,19 +581,11 @@ def _ensure_time_ancestors(con, d):
 
     lt = _db.query_one(con, "node", cols="id", kind="lifetime", order="id")
     lt_id = lt["id"] if lt else None
-    yr_id = _get_or_make(
-        "year", "SELECT id FROM node WHERE kind='year' AND title LIKE ? AND deleted_at IS NULL ORDER BY id LIMIT 1",
-        (f"{y}%",), str(y), lt_id)
-    qr_id = _get_or_make(
-        "quarter", "SELECT id FROM node WHERE kind='quarter' AND title = ? AND deleted_at IS NULL LIMIT 1",
-        (f"{y}-Q{q}",), f"{y}-Q{q}", yr_id)
-    mo_id = _get_or_make(
-        "month", "SELECT id FROM node WHERE kind='month' AND title = ? AND deleted_at IS NULL LIMIT 1",
-        (f"{y}-{m:02d}",), f"{y}-{m:02d}", qr_id)
+    yr_id = _get_or_make("year", f"{y}%", str(y), lt_id, like=True)
+    qr_id = _get_or_make("quarter", f"{y}-Q{q}", f"{y}-Q{q}", yr_id)
+    mo_id = _get_or_make("month", f"{y}-{m:02d}", f"{y}-{m:02d}", qr_id)
     wk_title = f"{iso[0]}-W{iso[1]:02d}"
-    wk_id = _get_or_make(
-        "week", "SELECT id FROM node WHERE kind='week' AND title = ? AND deleted_at IS NULL LIMIT 1",
-        (wk_title,), wk_title, mo_id)
+    wk_id = _get_or_make("week", wk_title, wk_title, mo_id)
     return wk_id
 
 def _ensure_day(con, d):

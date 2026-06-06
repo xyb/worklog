@@ -49,6 +49,8 @@ from ..queries import (
     _sec_group,
     _status_filter_sql,
     _upsert_prop,
+    _upsert_link,
+    _delete_link,
 )
 from .metric import import_metric, _CARRIER_TYPE
 from ..render import (
@@ -262,7 +264,7 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         for k, v in (spec.get("props") or {}).items():
             _upsert_prop(con, nid, k, str(v))
         for d in spec.get("links", []):
-            _db.upsert(con, "link", {"node_id": nid, "vault_doc": d}, key=("node_id", "vault_doc"))
+            _upsert_link(con, nid, d)
         for entry in spec.get("logs", []):
             log_id = _insert_log(con, nid, entry)
             # a log entry may carry structured datapoints: {"body":..., "metrics":[{tag,value,unit}]}
@@ -326,7 +328,7 @@ def _import_update(con, spec, dry, counters):
     for t in spec.get("remove_tags", []):
         _db.delete(con, "tag", node_id=nid, tag=t)
     for d in spec.get("add_links", []):
-        _db.upsert(con, "link", {"node_id": nid, "vault_doc": d}, key=("node_id", "vault_doc"))
+        _upsert_link(con, nid, d)
     for entry in spec.get("add_logs", []):
         _insert_log(con, nid, entry)
     counters["update"] += 1
@@ -515,9 +517,9 @@ def _exec_update(con, o):
             _insert_log(con, nid, value)
         elif field == "link":
             if action == "add":
-                _db.upsert(con, "link", {"node_id": nid, "vault_doc": value}, key=("node_id", "vault_doc"))
+                _upsert_link(con, nid, value)
             else:
-                _db.delete(con, "link", node_id=nid, vault_doc=value)
+                _delete_link(con, nid, value)
         elif field == "prop":
             if action == "set":
                 k, v = value
@@ -540,7 +542,7 @@ def _apply_sub(con, nid, kind, val):
     if kind == "log":
         _insert_log(con, nid, val)
     elif kind == "link":
-        _db.upsert(con, "link", {"node_id": nid, "vault_doc": val}, key=("node_id", "vault_doc"))
+        _upsert_link(con, nid, val)
     elif kind == "prop":
         if "=" in val:
             k, v = val.split("=", 1)

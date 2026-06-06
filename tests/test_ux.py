@@ -725,3 +725,32 @@ class TestWelcomeBanner:
         parser = tmp_db.build_parser()
         args = parser.parse_args([])
         assert args.cmd is None
+
+
+class TestShortFlags:
+    """#487: single-letter short flags for high-frequency args (-d/--date, -n/--note)."""
+
+    def test_log_dash_d_date(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "backfilled", "-d", "2026-06-01")
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT logged_at FROM log WHERE node_id=1 AND deleted_at IS NULL").fetchone()
+        assert row[0].startswith("2026-06-01")
+
+    def test_logs_dash_d_date(self, cli):
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "x", "-d", "2026-06-01")
+        _, out, _ = cli("logs", "-d", "2026-06-01")
+        assert "backfilled" in out or "x" in out
+
+    def test_tick_dash_n_note(self, cli, tmp_db):
+        cli("add", "h", "-k", "habit")
+        cli("tick", "1", "-n", "6 pullups")
+        con = tmp_db.db_connect()
+        bodies = [r[0] for r in con.execute("SELECT body FROM log WHERE node_id=1 AND deleted_at IS NULL")]
+        assert "6 pullups" in bodies
+
+    def test_recap_dash_d_date(self, cli):
+        cli("recap", "-d", "2026-06-01", "past recap")
+        _, out, _ = cli("recap", "-d", "2026-06-01")
+        assert "past recap" in out

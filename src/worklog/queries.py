@@ -272,9 +272,7 @@ def _node_clock_min(con, nid, day=None):
             (nid, day),
         ).fetchone()["s"]
     else:
-        secs = con.execute(
-            "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND deleted_at IS NULL", (nid,)
-        ).fetchone()["s"]
+        secs = _db.query(con, "clock", cols="COALESCE(SUM(elapsed_sec), 0) AS s", node_id=nid)[0]["s"]
     clock = int((secs or 0) / 60)
 
     # 2. plain-note log timestamp span (rough, max - min); exclude typed logs (metric
@@ -288,10 +286,7 @@ def _node_clock_min(con, nid, day=None):
             (nid, day),
         ))
     else:
-        rows = list(con.execute(
-            "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND tag IS NULL AND deleted_at IS NULL ORDER BY logged_at",
-            (nid,),
-        ))
+        rows = _db.query(con, "log", cols="DISTINCT logged_at", node_id=nid, tag=None, order="logged_at")
     span = 0
     if len(rows) >= 2:
         try:
@@ -324,6 +319,33 @@ def _upsert_prop(con, nid, key, value):
     """Unified prop UPSERT (no commit; caller controls the transaction). Batch-friendly.
     `_set_prop` is the commit version for single daily operations."""
     _db.upsert(con, "prop", {"node_id": nid, "key": key, "value": value}, key=("node_id", "key"))
+
+
+def _strip_wikilink(doc):
+    """Strip an outer ``[[ ... ]]`` wrapper (repeatedly) plus surrounding whitespace from a
+    vault-doc name, so ``[[X]]`` and ``X`` store identically and an already-wrapped value
+    can't become ``[[[[X]]]]`` (#462)."""
+    s = (doc or "").strip()
+    while len(s) >= 4 and s.startswith("[[") and s.endswith("]]"):
+        s = s[2:-2].strip()
+    return s
+
+
+def _upsert_link(con, nid, doc):
+    """Add a vault-doc link to a node (idempotent revive-or-insert), normalizing the doc
+    name via `_strip_wikilink` first. The single chokepoint for link writes (#462). No commit.
+    Returns the stripped doc name (callers echo it)."""
+    name = _strip_wikilink(doc)
+    _db.upsert(con, "link", {"node_id": nid, "vault_doc": name}, key=("node_id", "vault_doc"))
+    return name
+
+
+def _delete_link(con, nid, doc):
+    """Soft-delete a vault-doc link, matching by the normalized (stripped) doc name so a
+    link added as `X` is removable whether the caller passes `X` or `[[X]]` (#462). No
+    commit. Returns (stripped_name, rowcount)."""
+    name = _strip_wikilink(doc)
+    return name, _db.delete(con, "link", node_id=nid, vault_doc=name)
 
 
 # generic ORDER BY fragment: priority A/B/C first, NULL last; same priority by id ascending.

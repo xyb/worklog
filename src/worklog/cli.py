@@ -237,7 +237,7 @@ def _log_id_arg(s):
 def _args_log_add(p):
     p.add_argument("id", type=int)
     p.add_argument("body")
-    p.add_argument("--date", help="log date: YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow (default: today; for backfilling history)")
+    p.add_argument("-d", "--date", help="log date: YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow (default: today; for backfilling history)")
     p.add_argument("--time", help="log time HH:MM or HH:MM:SS (with --date, or alone for today)")
     p.add_argument("--keep-status", action="store_true",
                    help="do not auto-promote TODO to DOING (default: logging implies 'working on it'; DONE etc. unchanged)")
@@ -260,7 +260,7 @@ def _args_unlog(p):
     p.add_argument("log_id", type=_log_id_arg, nargs="?",
                    help="log id (e.g. #L282 / L282 / 282; from wl show / wl logs timeline)")
     p.add_argument("--node", type=int, help="delete by node id (default: latest log today)")
-    p.add_argument("--date", help="with --node: delete logs from that day (default today)")
+    p.add_argument("-d", "--date", help="with --node: delete logs from that day (default today)")
     p.add_argument("--all", action="store_true", help="with --node: delete all logs for that node that day")
     return p
 
@@ -598,7 +598,7 @@ Common examples:
 
 Note: marking WAIT auto-closes any open clock (WAIT = suspended, no longer timing). Use wl reopen to revert to TODO.""")
     wa.add_argument("ids", type=int, nargs="+", help="node id(s)")
-    wa.add_argument("--note", help="add a log explaining what you're waiting on")
+    wa.add_argument("-n", "--note", help="add a log explaining what you're waiting on")
 
     ro = sub.add_parser("reopen",
         help="undo DONE/CANCELED/WAIT/LATER back to TODO + clear closed_at (multiple ids)",
@@ -698,12 +698,13 @@ Shortcuts (same handler):
         description="Remove a UDA prop (soft-delete the row). Also: the top-level shortcut `wl unset`."))
 
     us = sub.add_parser("unset",
-        help="remove a custom prop from a node (= wl prop rm)",
-        description="Remove a custom key=value prop from a node (the delete counterpart of `wl set`). Canonical form: `wl prop rm` (this is the shortcut; see `wl prop -h`).",
+        help="remove a value from a node — key-routed: a prop (= wl prop rm) or a meta field (= wl meta rm)",
+        description="Remove a value from a node — the delete counterpart of `wl set`, key-routed the same way: a meta key (goal/summary/overview/top5) clears that meta field (= `wl meta rm`); any other key removes a UDA prop (= `wl prop rm`).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl unset 42 owner                   # remove the 'owner' prop from #42
+  wl unset 42 owner                   # remove the 'owner' prop (= wl prop rm)
+  wl unset <day_id> goal              # clear the goal meta field (= wl meta rm; see `wl meta -h`)
 
 Differences from related commands:
   - wl unset 42 owner   delete a UDA prop (= wl prop rm)
@@ -1052,7 +1053,7 @@ wl day shows "Recap: ... (written at MM-DD HH:MM)" at the top;
 if there are new logs after recap, wl day shows "⚠ N changes after recap, consider rewriting".
 Using wl set <day_id> summary "..." directly does not stamp the timestamp; not recommended.""")
     rc.add_argument("text", nargs="?", help="no arg = read; with text = write")
-    rc.add_argument("--date", help="target day (YYYY-MM-DD / today / yesterday / 昨天 ...); default today")
+    rc.add_argument("-d", "--date", help="target day (YYYY-MM-DD / today / yesterday / 昨天 ...); default today")
 
     tk = sub.add_parser("tick",
         help="quick check-in: add a log to each node today (batch habit check-in)",
@@ -1067,7 +1068,7 @@ Common examples:
 Difference from wl log: tick defaults to '✓ done' body, great for one-key habit check-in; log needs explicit content.
 For interactive habit batch review, use wl checkin (interactive multi-select).""")
     tk.add_argument("ids", type=int, nargs="+", help="node id(s)")
-    tk.add_argument("--note", help="custom log body (default '✓ done')")
+    tk.add_argument("-n", "--note", help="custom log body (default '✓ done')")
     tk.add_argument("--done", action="store_true", help="also mark DONE")
 
     ul = sub.add_parser("unlog",
@@ -1132,7 +1133,7 @@ A metric must hang off a log; without --on-log a (possibly empty-body) carrier l
     _ma.add_argument("value", nargs="?", help="value (numeric → value_num, else text); omit for a pure marker (=1)")
     _ma.add_argument("--text", action="store_true", help="treat value as text even if it looks numeric")
     _ma.add_argument("--unit", help="unit of a numeric value (mmol/L, kg, reps, …)")
-    _ma.add_argument("--note", help="short inline note for this datapoint")
+    _ma.add_argument("-n", "--note", help="short inline note for this datapoint")
     _ma.add_argument("--at", help="datapoint time: YYYY-MM-DD / 'YYYY-MM-DD HH:MM' / today / yesterday (default: now)")
     _ma.add_argument("--on-log", dest="on_log", type=_log_id_arg,
                      help="attach to an existing log (#L<id>) instead of creating a carrier log")
@@ -1150,7 +1151,7 @@ A metric must hang off a log; without --on-log a (possibly empty-body) carrier l
     _me.add_argument("--num", type=float, help="set numeric value (clears text value)")
     _me.add_argument("--text", help="set text value (clears numeric value)")
     _me.add_argument("--unit", help="set unit ('' clears)")
-    _me.add_argument("--note", help="set note ('' clears)")
+    _me.add_argument("-n", "--note", help="set note ('' clears)")
     _me.add_argument("--tag", help="change tag")
     _me.add_argument("--at", help="change timestamp")
 
@@ -1401,7 +1402,7 @@ Default window of 7 days avoids full-history flooding. Use --since/--until/--wee
                     choices=["today", "yesterday", "week", "recent"],
                     help="quick preset: today/yesterday (= --date short form) / week (since Monday) / recent (--days 1 -q)")
     lg.add_argument("--id", type=int)
-    lg.add_argument("--date", help="YYYY-MM-DD / today / yesterday / day-before-yesterday (only this day)")
+    lg.add_argument("-d", "--date", help="YYYY-MM-DD / today / yesterday / day-before-yesterday (only this day)")
     lg.add_argument("--days", type=int, default=7, help="default window in days when no since/date (default: 7)")
     lg.add_argument("--group", choices=["none", "day"], default="none",
                     help="day = group by date -> bucket -> task -> log (indented)")
