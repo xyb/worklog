@@ -459,6 +459,44 @@ def cmd_tag(args, con):
         parts.append(_c("-" + ",".join(removed), "later"))
     out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + " tags " + " ".join(parts))
 
+
+def cmd_tag_ls(args, con):
+    """List a node's real tags — the read verb of the tag group (= bare `wl tag <id>`)."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+    out(_c(f"#{args.id} tags: " + (":".join(tags) if tags else "(none)"), "meta"))
+
+
+def cmd_tag_rm(args, con):
+    """Remove tag(s) from a node — the delete verb of the tag group (= `wl tag <id> -tag`).
+    Each argument is a plain tag name (a leading + is stripped; to pass a `-tag` use the
+    inline form `wl tag <id> -tag`, since argparse would read a leading - as a flag)."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    removed = []
+    for raw in args.tags:
+        t = raw.lstrip("+-").strip()
+        if t:
+            _db.delete(con, "tag", node_id=args.id, tag=t)
+            removed.append(t)
+    con.commit()
+    if removed:
+        out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + " tags "
+            + _c("-" + ",".join(removed), "later"))
+    else:
+        out(_c(f"#{args.id} no tags removed", "meta"))
+
+
+def cmd_tag_group(args, con):
+    """Dispatch `wl tag <add|ls|rm>` (the metric-style entity group; WL#486).
+    `add` is the default verb (`wl tag <id> +x -y` == `wl tag add <id> +x -y`) and keeps the
+    full +add / -remove / bare-add / empty-list grammar; `ls` / `rm` are single-purpose."""
+    sub = getattr(args, "tag_sub", None)
+    if sub is None:
+        sys.exit("✗ usage: wl tag <id> +x -y  |  wl tag <add|ls|rm> … (see `wl tag --help`)")
+    {"add": cmd_tag, "ls": cmd_tag_ls, "rm": cmd_tag_rm}[sub](args, con)
+
 def cmd_tick(args, con):
     """Quick check-in: add a log for today to one or more nodes (default body='✓ done', overridable with --note).
     --done also marks the node DONE. Bulk habit check-in: `wl tick 39 40 41 --note "..."`."""

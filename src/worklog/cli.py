@@ -233,6 +233,7 @@ def _args_link(p):
 # entity -> (default_verb, {known sub-verbs})
 _DEFAULT_VERB_ENTITIES = {
     "link": ("add", frozenset(("add", "ls", "rm"))),
+    "tag": ("add", frozenset(("add", "ls", "rm"))),
 }
 # global flags that consume the next token as their value (skip it when locating the subcommand)
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format"))
@@ -668,21 +669,41 @@ Create intervals with the composite helpers:
     _ckr = _cksub.add_parser("rm", help="remove clock interval(s)")
     _ckr.add_argument("clock_ids", type=int, nargs="+", metavar="clock_id")
 
+    # tag entity group (WL#486): add / ls / rm. `add` is the default verb so the everyday
+    # `wl tag <id> +x -y` keeps working (full +add / -remove / bare-add / empty-list grammar);
+    # `ls` lists, `rm` removes. Update is atomic (add/remove), so there is no `edit` verb.
     tg = sub.add_parser("tag",
-        help="add/remove real tags on a node: wl tag <id> +work -planned (bare = add; no ops = list)",
+        help="tag CRUD: add / ls / rm — `wl tag 42 +work -planned` adds/removes (default verb add)",
+        description="Real-tag CRUD on a node (the tag table; drives work/personal bucketing & grouping) — the metric-style entity group. `wl tag <id> …` is the add shortcut (the default verb) and keeps the full +add / -remove / bare-add / empty-list grammar. Distinct from `wl set <id> tags …`, which would create a shadow 'tags' prop.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Edits the real tag field (the tag table), unlike `wl set <id> tags ...` which would
-just create a shadow 'tags' prop. Tags drive bucketing (work/personal) and grouping.
+Shortcuts / default verb (same handler):
+  wl tag 42 +work -planned   add & remove in one call (the default verb — = wl tag add 42 +work -planned)
+  wl tag 42                  list current tags (= wl tag ls 42)
+  wl tag ls 42               list a node's tags
+  wl tag rm 42 planned       remove (= wl tag 42 -planned)
 
-  wl tag 42 +work +P0       # add tags
-  wl tag 42 -planned        # remove a tag
-  wl tag 42 +work -other    # add and remove in one call
-  wl tag 42 work            # bare word = add (same as +work)
-  wl tag 42                 # no ops = list current tags""")
-    tg.add_argument("id", type=int)
-    tg.add_argument("ops", nargs=argparse.REMAINDER,
-                    help="+tag adds, -tag removes, bare word adds; empty = list current tags")
+Common examples:
+  wl tag 42 +work +P0        # add tags (default verb)
+  wl tag 42 work             # bare word = add (same as +work)
+  wl tag 42 +work -other     # add and remove in one call
+  wl tag ls 42               # list current tags
+  wl tag rm 42 other         # remove
+
+Edits the real tag field (the tag table), unlike `wl set <id> tags ...` which would
+just create a shadow 'tags' prop.""")
+    _tgsub = tg.add_subparsers(dest="tag_sub")
+    _tga = _tgsub.add_parser("add",
+        help="add (and, with -tag, remove) tags (= the default `wl tag 42 +work`)",
+        description="Add tags to a node. Power form: +tag adds, -tag removes, a bare word adds, no ops lists. Also reachable as the default `wl tag <id> …` (omit `add`; see `wl tag -h`).")
+    _tga.add_argument("id", type=int)
+    _tga.add_argument("ops", nargs=argparse.REMAINDER,
+                      help="+tag adds, -tag removes, bare word adds; empty = list current tags")
+    _tgsub.add_parser("ls", help="list a node's real tags (= bare `wl tag <id>`)").add_argument("id", type=int)
+    _tgr = _tgsub.add_parser("rm", help="remove tag(s) from a node (= `wl tag <id> -tag`)")
+    _tgr.add_argument("id", type=int)
+    _tgr.add_argument("tags", nargs="+", metavar="tag",
+                      help="tag name(s) to remove (plain name; to use a - prefix use `wl tag <id> -tag`)")
 
     sh = sub.add_parser("show",
         help="full detail + timeline for a node (accepts multiple ids)",
@@ -1298,6 +1319,7 @@ from .commands import (
     cmd_unlink,
     cmd_set,
     cmd_tag,
+    cmd_tag_group,
     cmd_node_edit,
     cmd_node_rm,
     cmd_node_reparent,
@@ -1395,7 +1417,7 @@ HANDLERS = {
     "unlink": cmd_unlink,
     "set": cmd_set,
     "unset": cmd_prop_rm,
-    "tag": cmd_tag,
+    "tag": cmd_tag_group,
     "node": cmd_node,
     "prop": cmd_prop,
     "clock": cmd_clock,

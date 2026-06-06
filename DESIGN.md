@@ -60,24 +60,27 @@ naming/behaviour stays uniform across entities. Current state:
 | **link** | `link add` (= `link`) | `link ls` / `show` | — (atomic) | `link rm` (= `unlink`) |
 | log | `log` | `logs` / `show` | `relog` | `unlog` |
 | sched | `sched` | `sched` / `show` | `sched` / `defer` | `sched --clear` |
-| tag | `tag +x` | `tag` / `show` | — (atomic) | `tag -x` |
+| **tag** | `tag add` (= `tag +x`) | `tag ls` / `show` | — (atomic) | `tag rm` (= `tag -x`) |
 | date_meta | `dateinfo` | `dateinfo` | `dateinfo` | `dateinfo --clear` |
 
 Entities already reshaped into full metric-style `<entity> <verb>` groups: **metric**
-(template), **node**, **prop**, **clock**, **link**. High-frequency verbs keep a top-level
+(template), **node**, **prop**, **clock**, **link**, **tag**. High-frequency verbs keep a top-level
 shortcut onto the same handler (`wl add` == `wl node add`, `wl set` == `wl prop set`,
 `wl unset` == `wl prop rm`, `wl unlink` == `wl link rm`), args defined once via a shared
 adder so the two forms can't drift. `clock` intervals are CREATED by the composite helpers
 (`start`/`stop`/`spent`). Removal is soft-delete (reversible tombstone, § soft-delete).
 
 **Default-verb dispatch (collision entities).** When the group name equals the old leaf
-command (`link`, and the still-to-do `log` / `tag` / `sched`), a custom parser
+command (`link` / `tag`, and the still-to-do `log` / `sched`), a custom parser
 (`_WlParser` / `_expand_default_verb`) inserts the group's *default verb* when the token
 after the entity isn't a known verb — so the legacy leaf keeps working: `wl link 42 doc`
-→ `wl link add 42 doc`, while `wl link ls 42` / `wl link -h` are left alone. The leaf's
-first positional is always an int id, never a verb word, so the test is unambiguous.
+→ `wl link add 42 doc` and `wl tag 42 +work` → `wl tag add 42 +work`, while `wl tag ls 42`
+/ `wl tag -h` are left alone. The leaf's first positional is always an int id, never a
+verb word, so the test is unambiguous. For `tag` the `add` default verb keeps the full
+`+add` / `-remove` / bare-add / empty-list grammar (`cmd_tag`); `tag ls` / `tag rm` are
+single-purpose convenience verbs.
 
-Still to reshape: **`log` / `tag` / `sched`** (default-verb, like `link`) and **`date_meta`**
+Still to reshape: **`log` / `sched`** (default-verb, like `link` / `tag`) and **`date_meta`**
 (a clean `date` group — `dateinfo` doesn't collide with `date`).
 
 **B. Composite helper** — a one-step shortcut that wraps one or more primitives for

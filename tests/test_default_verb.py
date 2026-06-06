@@ -35,6 +35,123 @@ class TestExpandDefaultVerb:
         # node is a clean group (no default verb); a bogus form is left for argparse to reject
         assert _expand_default_verb(["node", "42"]) == ["node", "42"]
 
+    def test_tag_leaf_form_gets_default_verb(self):
+        assert _expand_default_verb(["tag", "42", "+work"]) == ["tag", "add", "42", "+work"]
+        # a removal op after the id still triggers expansion (id is the trigger, not the op)
+        assert _expand_default_verb(["tag", "42", "-planned"]) == ["tag", "add", "42", "-planned"]
+        # bare list form
+        assert _expand_default_verb(["tag", "42"]) == ["tag", "add", "42"]
+
+    def test_tag_explicit_verb_untouched(self):
+        for v in ("add", "ls", "rm"):
+            assert _expand_default_verb(["tag", v, "42"]) == ["tag", v, "42"]
+
+    def test_tag_help_and_bare_untouched(self):
+        assert _expand_default_verb(["tag", "-h"]) == ["tag", "-h"]
+        assert _expand_default_verb(["tag"]) == ["tag"]
+
+
+def _tags(con, nid):
+    return [r[0] for r in con.execute(
+        "SELECT tag FROM tag WHERE node_id=? AND deleted_at IS NULL ORDER BY tag", (nid,))]
+
+
+class TestTagGroup:
+    def test_legacy_leaf_still_adds(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("tag", "1", "+work", "+P0")          # legacy leaf = default verb add
+        assert _tags(tmp_db.db_connect(), 1) == ["P0", "work"]
+
+    def test_leaf_mixed_add_remove(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("tag", "1", "+work", "+P0")
+        cli("tag", "1", "+urgent", "-P0")        # add & remove in one call (default verb)
+        assert _tags(tmp_db.db_connect(), 1) == ["urgent", "work"]
+
+    def test_leaf_bare_word_adds(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("tag", "1", "work")                   # bare word = add
+        assert _tags(tmp_db.db_connect(), 1) == ["work"]
+
+    def test_tag_ls(self, cli):
+        cli("add", "t", "-k", "task")
+        cli("tag", "1", "+work")
+        _, out, _ = cli("tag", "ls", "1")
+        assert "work" in out
+        # bare `wl tag <id>` lists the same way (default verb, empty ops)
+        _, out2, _ = cli("tag", "1")
+        assert "work" in out2
+
+    def test_tag_rm_explicit(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("tag", "1", "+work", "+P0")
+        cli("tag", "rm", "1", "P0")               # group rm (plain name)
+        assert _tags(tmp_db.db_connect(), 1) == ["work"]
+
+    def test_tag_rm_strips_plus_prefix(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("tag", "1", "+work")
+        cli("tag", "rm", "1", "+work")            # leading + tolerated
+        assert _tags(tmp_db.db_connect(), 1) == []
+
+    def test_tag_add_explicit(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("tag", "add", "1", "+work")
+        assert _tags(tmp_db.db_connect(), 1) == ["work"]
+
+    def test_readd_revives_tombstone(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("tag", "1", "+work")
+        cli("tag", "rm", "1", "work")
+        cli("tag", "1", "+work")                  # re-add must revive, not duplicate
+        con = tmp_db.db_connect()
+        assert _tags(con, 1) == ["work"]
+        assert con.execute("SELECT COUNT(*) FROM tag WHERE node_id=1 AND tag='work'").fetchone()[0] == 1
+
+    def test_leaf_pure_removal_only_op(self, cli, tmp_db):
+        # `wl tag 1 -drop` → expand → `wl tag add 1 -drop`; REMAINDER must capture a
+        # first op that starts with '-' so the removal still lands.
+        cli("add", "t", "-k", "task")
+        cli("tag", "1", "+keep", "+drop")
+        cli("tag", "1", "-drop")
+        assert _tags(tmp_db.db_connect(), 1) == ["keep"]
+
+    def test_id_first_token_is_data_not_verb(self, cli, tmp_db):
+        # `wl tag 1 ls` — first token after tag is an int id → default add → 'ls' is a
+        # bare tag name (data), NOT the ls verb. (mirrors the link id-first rule)
+        cli("add", "t", "-k", "task")
+        cli("tag", "1", "ls")
+        assert _tags(tmp_db.db_connect(), 1) == ["ls"]
+        # whereas verb-first `wl tag ls 1` lists and adds nothing
+        _, out, _ = cli("tag", "ls", "1")
+        assert "ls" in out
+        assert _tags(tmp_db.db_connect(), 1) == ["ls"]
+
+    def test_group_verbs_reject_missing_node(self, cli):
+        for argv in (("tag", "ls", "999"), ("tag", "rm", "999", "x"), ("tag", "999", "+y")):
+            _, _, err = cli(*argv)
+            assert "not found" in err
+
+    def test_bare_tag_usage(self, cli):
+        _, _, err = cli("tag")
+        assert "usage: wl tag" in err
+
+    def test_tag_help_lists_shortcuts(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        h = sa.choices["tag"].format_help()
+        assert "default verb" in h and "wl tag ls" in h
+
+    def test_tag_add_help_names_shortcut(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        tag = sa.choices["tag"]
+        tsa = next(a for a in tag._actions if isinstance(a, argparse._SubParsersAction))
+        h = tsa.choices["add"].format_help()
+        assert "omit" in h or "wl tag" in h
+
 
 class TestLinkGroup:
     def test_legacy_leaf_still_adds(self, cli, tmp_db):
