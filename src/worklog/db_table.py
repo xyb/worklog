@@ -120,6 +120,27 @@ def insert(con, table, row: dict, *, or_=None) -> int:
     ).lastrowid
 
 
+def upsert(con, table, row, *, key) -> bool:
+    """Tombstone-safe insert-or-revive by a natural key — the replacement for
+    `INSERT OR IGNORE` / `INSERT OR REPLACE` under soft-delete (WL#501). Updates the row
+    matching `key` (a tuple of the natural-key columns), reviving it if it was tombstoned
+    and writing the non-key columns, or INSERTs a fresh row if none exists. So re-adding a
+    removed tag / re-setting a prop revives its tombstone instead of being swallowed by it
+    (the OR IGNORE bug) or hard-replacing it (OR REPLACE drops the tombstone). No commit.
+    Returns True if an existing row was revived/updated, False if a new row was inserted."""
+    _ident(table)
+    keyconds = {k: row[k] for k in key}
+    sets = {c: v for c, v in row.items() if c not in key and c != "id"}  # never UPDATE the rowid
+    sets["deleted_at"] = None  # clear any tombstone on the matched row
+    where, params = _where(keyconds, alive=False)  # match the key regardless of tombstone state
+    set_sql = ", ".join(f"{_ident(c)} = ?" for c in sets)
+    rc = con.execute(f"UPDATE {table} SET {set_sql}{where}", [*sets.values(), *params]).rowcount
+    if rc:
+        return True
+    insert(con, table, row)
+    return False
+
+
 def update(con, table, row_id, changes: dict) -> int:
     """UPDATE the row with `id = row_id` from a dict of changes; return rowcount.
     No-op (returns 0) on an empty change set. No commit."""

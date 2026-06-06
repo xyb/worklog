@@ -98,3 +98,55 @@ class TestTombstoneHiddenEverywhere:
         # sanity: the filter isn't nuking everything — the kept sibling still shows
         _, out, _ = cli("ls")
         assert "keepme" in out
+
+
+class TestTombstoneReAdd:
+    """Cross-model review (GPT-5.5) findings: a removed natural-key row (tag/link/prop/
+    date_meta) must be re-addable — the tombstone is revived, not swallowed by OR IGNORE
+    or hard-replaced by OR REPLACE."""
+
+    def test_readd_removed_tag(self, cli, tmp_db):
+        cli("add", "t", "-k", "task", "-t", "work")
+        cli("tag", "1", "-work")          # soft-delete the tag
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM tag WHERE node_id=1 AND deleted_at IS NULL").fetchone()[0] == 0
+        cli("tag", "1", "+work")          # re-add — must come back (revive the tombstone)
+        _, out, _ = cli("show", "1")
+        assert "work" in out
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM tag WHERE node_id=1 AND tag='work' AND deleted_at IS NULL").fetchone()[0] == 1
+
+    def test_readd_removed_link(self, cli, tmp_db):
+        cli("add", "t")
+        cli("link", "1", "Doc A")
+        cli("unlink", "1", "Doc A")        # soft-delete the link
+        cli("link", "1", "Doc A")          # re-add
+        con = tmp_db.db_connect()
+        assert con.execute(
+            "SELECT COUNT(*) FROM link WHERE node_id=1 AND vault_doc='Doc A' AND deleted_at IS NULL").fetchone()[0] == 1
+
+    def test_reset_dateinfo_after_clear_revives(self, cli, tmp_db):
+        cli("dateinfo", "2026-06-01", "holiday")
+        con = tmp_db.db_connect()
+        # tombstone it directly (simulating a removal)
+        con.execute("UPDATE date_meta SET deleted_at = '2026-06-01 00:00:00' WHERE date='2026-06-01'")
+        con.commit()
+        cli("dateinfo", "2026-06-01", "vacation")  # re-set → revive + new label, not hard-replace
+        con = tmp_db.db_connect()
+        rows = con.execute("SELECT label, deleted_at FROM date_meta WHERE date='2026-06-01'").fetchall()
+        assert len(rows) == 1 and rows[0]["label"] == "vacation" and rows[0]["deleted_at"] is None
+
+    def test_find_tolerates_orphan_spoke(self, cli, tmp_db):
+        # a live log whose node is tombstoned must not crash find (n is None) nor be returned
+        cli("add", "doomed", "-k", "task")
+        cli("log", "1", "uniqueneedle")
+        con = tmp_db.db_connect()
+        con.execute("UPDATE node SET deleted_at='2026-06-06 00:00:00' WHERE id=1")  # tombstone node, leave log live
+        con.commit()
+        code, out, _ = cli("find", "uniqueneedle")
+        assert code == 0 and "no matches" in out  # tolerated, not surfaced
+
+    def test_completion_sql_filters_tombstones(self, cli):
+        _, out, _ = cli("print-completion", "fish")
+        # the generated node + tag completion SQL must filter tombstones
+        assert "deleted_at IS NULL" in out

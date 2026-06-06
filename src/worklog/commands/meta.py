@@ -180,13 +180,13 @@ def cmd_dateinfo(args, con):
         data = json.loads(raw)  # {"2026-05-01": "Labor Day", ...}
         n = 0
         for d, label in data.items():
-            _db.insert(con, "date_meta", {"date": d, "label": label}, or_="replace")
+            _db.upsert(con, "date_meta", {"date": d, "label": label}, key=("date",))
             n += 1
         con.commit()
         out(_c(f"✓ imported {n} date metadata entries", "meta"))
         return
     if args.date and args.label:
-        _db.insert(con, "date_meta", {"date": args.date, "label": args.label}, or_="replace")
+        _db.upsert(con, "date_meta", {"date": args.date, "label": args.label}, key=("date",))
         con.commit()
         out(_c(f"✓ {args.date} {_cn_weekday(args.date)} · {args.label}", "meta"))
         return

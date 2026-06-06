@@ -166,9 +166,9 @@ def cmd_add(args, con):
         row["closed_at"] = closed_at
     node_id = _db.insert(con, "node", row)
     for t in tags:
-        _db.insert(con, "tag", {"node_id": node_id, "tag": t}, or_="ignore")
+        _db.upsert(con, "tag", {"node_id": node_id, "tag": t}, key=("node_id", "tag"))
     if args.proj:
-        _db.insert(con, "prop", {"node_id": node_id, "key": "project", "value": args.proj}, or_="ignore")
+        _db.upsert(con, "prop", {"node_id": node_id, "key": "project", "value": args.proj}, key=("node_id", "key"))
     # --sched: write directly to sched table (one command = "create task + schedule it as planned for a day")
     sched_hint = ""
     if getattr(args, "sched", None):
@@ -184,7 +184,7 @@ def cmd_add(args, con):
     if getattr(args, "link", None):
         link_doc = args.link.strip()
         if link_doc:
-            _db.insert(con, "link", {"node_id": node_id, "vault_doc": link_doc}, or_="ignore")
+            _db.upsert(con, "link", {"node_id": node_id, "vault_doc": link_doc}, key=("node_id", "vault_doc"))
             link_hint = " → " + _c(f"[[{link_doc}]]", "meta")
 
     # --log: insert a log (using at_ts if given, otherwise NOW)
@@ -383,7 +383,7 @@ def cmd_link(args, con):
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     for nid in ids:
-        _db.insert(con, "link", {"node_id": nid, "vault_doc": args.vault_doc}, or_="ignore")
+        _db.upsert(con, "link", {"node_id": nid, "vault_doc": args.vault_doc}, key=("node_id", "vault_doc"))
     con.commit()
     for nid in ids:
         out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{args.vault_doc}]]"))
@@ -448,7 +448,7 @@ def cmd_tag(args, con):
         else:
             t = op[1:].strip() if op.startswith("+") else op
             if t:
-                _db.insert(con, "tag", {"node_id": args.id, "tag": t}, or_="ignore")
+                _db.upsert(con, "tag", {"node_id": args.id, "tag": t}, key=("node_id", "tag"))
                 added.append(t)
     con.commit()
     parts = []

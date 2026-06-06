@@ -59,13 +59,13 @@ function __wl_list_nodes
     set -l db (__wl_db_path)
     test -f $db; or return
     # SQLite char(9) = tab (fish completion uses \t to separate token + desc)
-    sqlite3 $db "SELECT id || char(9) || title FROM node WHERE status IS NULL OR status NOT IN ('DONE', 'CANCELED') ORDER BY id DESC LIMIT 80" 2>/dev/null
+    sqlite3 $db "SELECT id || char(9) || title FROM node WHERE (status IS NULL OR status NOT IN ('DONE', 'CANCELED')) AND deleted_at IS NULL ORDER BY id DESC LIMIT 80" 2>/dev/null
 end
 
 function __wl_list_tags
     set -l db (__wl_db_path)
     test -f $db; or return
-    sqlite3 $db "SELECT DISTINCT tag FROM tag ORDER BY tag" 2>/dev/null
+    sqlite3 $db "SELECT DISTINCT tag FROM tag WHERE deleted_at IS NULL ORDER BY tag" 2>/dev/null
 end
 
 function __wl_date_suggestions
@@ -250,13 +250,13 @@ __wl_db_path_bash() {
 __wl_list_nodes_bash() {
     local db=$(__wl_db_path_bash)
     [ -f "$db" ] || return
-    sqlite3 "$db" "SELECT id FROM node WHERE status IS NULL OR status NOT IN ('DONE', 'CANCELED') ORDER BY id DESC LIMIT 80" 2>/dev/null
+    sqlite3 "$db" "SELECT id FROM node WHERE (status IS NULL OR status NOT IN ('DONE', 'CANCELED')) AND deleted_at IS NULL ORDER BY id DESC LIMIT 80" 2>/dev/null
 }
 
 __wl_list_tags_bash() {
     local db=$(__wl_db_path_bash)
     [ -f "$db" ] || return
-    sqlite3 "$db" "SELECT DISTINCT tag FROM tag ORDER BY tag" 2>/dev/null
+    sqlite3 "$db" "SELECT DISTINCT tag FROM tag WHERE deleted_at IS NULL ORDER BY tag" 2>/dev/null
 }
 
 __wl_date_suggestions_bash() {
@@ -442,7 +442,7 @@ __wl_list_nodes_zsh() {
     local db=$(__wl_db_path_zsh)
     [ -f "$db" ] || return
     local -a nodes
-    nodes=( "${(@f)$(sqlite3 "$db" "SELECT id || ':' || replace(title, ':', '\\:') FROM node WHERE status IS NULL OR status NOT IN ('DONE', 'CANCELED') ORDER BY id DESC LIMIT 80" 2>/dev/null)}" )
+    nodes=( "${(@f)$(sqlite3 "$db" "SELECT id || ':' || replace(title, ':', '\\:') FROM node WHERE (status IS NULL OR status NOT IN ('DONE', 'CANCELED')) AND deleted_at IS NULL ORDER BY id DESC LIMIT 80" 2>/dev/null)}" )
     _describe 'node' nodes
 }
 
@@ -450,7 +450,7 @@ __wl_list_tags_zsh() {
     local db=$(__wl_db_path_zsh)
     [ -f "$db" ] || return
     local -a tags
-    tags=( "${(@f)$(sqlite3 "$db" "SELECT DISTINCT tag FROM tag ORDER BY tag" 2>/dev/null)}" )
+    tags=( "${(@f)$(sqlite3 "$db" "SELECT DISTINCT tag FROM tag WHERE deleted_at IS NULL ORDER BY tag" 2>/dev/null)}" )
     _values 'tag' $tags
 }
 

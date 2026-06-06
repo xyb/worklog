@@ -223,6 +223,8 @@ def cmd_find(args, con):
     rows = []
     for nid in hits:
         n = _db.get(con, "node", nid)
+        if not n:
+            continue  # a hit on a live spoke row whose node is soft-deleted (or missing) — skip
         if args.kind and n["kind"] != args.kind:
             continue
         if not inc_cancel and n["status"] == "CANCELED":

@@ -202,7 +202,7 @@ def cmd_apply(args, con):
                 node_row["closed_at"] = now
             nid = _db.insert(con, "node", node_row)
             for t in f.get("tags", []):
-                _db.insert(con, "tag", {"node_id": nid, "tag": t}, or_="ignore")
+                _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
             for kind_, val in o["subs"]:
                 _apply_sub(con, nid, kind_, val)
             counts["add"] += 1
@@ -246,11 +246,11 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         nid = _db.insert(con, "node", node_row)
         counters["add"] += 1
         for t in spec.get("tags", []):
-            _db.insert(con, "tag", {"node_id": nid, "tag": t}, or_="ignore")
+            _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
         for k, v in (spec.get("props") or {}).items():
             _upsert_prop(con, nid, k, str(v))
         for d in spec.get("links", []):
-            _db.insert(con, "link", {"node_id": nid, "vault_doc": d}, or_="ignore")
+            _db.upsert(con, "link", {"node_id": nid, "vault_doc": d}, key=("node_id", "vault_doc"))
         for entry in spec.get("logs", []):
             _insert_log(con, nid, entry)
             # a log entry may carry structured datapoints: {"body":..., "metrics":[{tag,value,unit}]}
@@ -301,11 +301,11 @@ def _import_update(con, spec, dry, counters):
     if changes:
         _db.update(con, "node", nid, changes)
     for t in spec.get("add_tags", []):
-        _db.insert(con, "tag", {"node_id": nid, "tag": t}, or_="ignore")
+        _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
     for t in spec.get("remove_tags", []):
         _db.delete(con, "tag", node_id=nid, tag=t)
     for d in spec.get("add_links", []):
-        _db.insert(con, "link", {"node_id": nid, "vault_doc": d}, or_="ignore")
+        _db.upsert(con, "link", {"node_id": nid, "vault_doc": d}, key=("node_id", "vault_doc"))
     for entry in spec.get("add_logs", []):
         _insert_log(con, nid, entry)
     counters["update"] += 1
@@ -487,14 +487,14 @@ def _exec_update(con, o):
                     con.execute("UPDATE node SET closed_at = ? WHERE id = ? AND closed_at IS NULL", (_tu.utc_now(), nid))
         elif field == "tag":
             if action == "add":
-                _db.insert(con, "tag", {"node_id": nid, "tag": value}, or_="ignore")
+                _db.upsert(con, "tag", {"node_id": nid, "tag": value}, key=("node_id", "tag"))
             else:
                 _db.delete(con, "tag", node_id=nid, tag=value)
         elif field == "log":
             _insert_log(con, nid, value)
         elif field == "link":
             if action == "add":
-                _db.insert(con, "link", {"node_id": nid, "vault_doc": value}, or_="ignore")
+                _db.upsert(con, "link", {"node_id": nid, "vault_doc": value}, key=("node_id", "vault_doc"))
             else:
                 _db.delete(con, "link", node_id=nid, vault_doc=value)
         elif field == "prop":
@@ -519,7 +519,7 @@ def _apply_sub(con, nid, kind, val):
     if kind == "log":
         _insert_log(con, nid, val)
     elif kind == "link":
-        _db.insert(con, "link", {"node_id": nid, "vault_doc": val}, or_="ignore")
+        _db.upsert(con, "link", {"node_id": nid, "vault_doc": val}, key=("node_id", "vault_doc"))
     elif kind == "prop":
         if "=" in val:
             k, v = val.split("=", 1)
