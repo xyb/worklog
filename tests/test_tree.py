@@ -265,3 +265,51 @@ class TestTreeByProjectSharedTag:
         # both project header and the task ID should appear
         assert "proj-x" in out
         assert "shared-task" in out
+
+
+class TestTreeTimePins:
+    """#436: a task fuzzy-pinned at a time node (scheduled_date == its title, e.g.
+    @2026-06) hangs under its project, not under the month node — tree/focus on the
+    time node must still surface it, else a 'what's scheduled this month' check misses
+    it and a duplicate gets created."""
+
+    def _seed(self, cli):
+        cli("add", "Lifetime", "-k", "lifetime")                       # 1
+        cli("add", "2026", "-k", "year", "--parent", "1")              # 2
+        cli("add", "2026-06", "-k", "month", "--parent", "2")          # 3
+        cli("add", "proj", "-k", "project", "--parent", "1")           # 4
+        cli("add", "month task", "-k", "task", "--parent", "4", "--scheduled", "2026-06")  # 5
+        cli("add", "week task", "-k", "task", "--parent", "4", "--scheduled", "2026-W23")  # 6
+
+    def test_tree_root_month_shows_pinned(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("tree", "--root", "3", "--depth", "9")
+        assert "month task" in out      # the @2026-06 pin shows under the month node
+        assert "week task" not in out   # the @2026-W23 pin is not this month's
+
+    def test_focus_month_shows_pinned(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("focus", "3")
+        assert "month task" in out
+        assert "(no children)" not in out
+
+    def test_pinned_canceled_hidden_by_default(self, cli):
+        self._seed(cli)
+        cli("cancel", "5")
+        _, out, _ = cli("tree", "--root", "3", "--depth", "9")
+        assert "month task" not in out
+        _, out2, _ = cli("--show-canceled", "tree", "--root", "3", "--depth", "9")  # global flag
+        assert "month task" in out2
+
+    def test_filtered_tree_root_month_shows_matching_pins(self, cli):
+        # #436 × #518: a filtered drill-down on a month must still surface its @-pins
+        # that match the filter (they hang under their project, not the month subtree)
+        cli("add", "Lifetime", "-k", "lifetime")                       # 1
+        cli("add", "2026", "-k", "year", "--parent", "1")              # 2
+        cli("add", "2026-06", "-k", "month", "--parent", "2")          # 3
+        cli("add", "proj", "-k", "project", "--parent", "1")           # 4
+        cli("add", "work pin", "-k", "task", "--parent", "4", "-t", "work", "--scheduled", "2026-06")      # 5
+        cli("add", "personal pin", "-k", "task", "--parent", "4", "-t", "personal", "--scheduled", "2026-06")  # 6
+        _, out, _ = cli("tree", "--root", "3", "-t", "work")
+        assert "work pin" in out
+        assert "personal pin" not in out

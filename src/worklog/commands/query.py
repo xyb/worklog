@@ -77,7 +77,7 @@ from .. import cli as _cli  # noqa: E402
 
 from .bulk import _VALID_FIND_FIELDS, _VALID_KINDS
 from .state import _ids_list
-from .views import _print_tree, _print_day_activity, _render_day_group, _scheduled_node_ids
+from .views import _print_tree, _print_day_activity, _render_day_group, _scheduled_node_ids, _pinned_at
 
 def cmd_show(args, con):
     # multiple ids: show each in turn, blank-line separated; same rendering
@@ -290,10 +290,17 @@ def cmd_focus(args, con):
         out(_c("downstream (day activity):", "meta"))
         _print_day_activity(con, n, depth=0, max_depth=args.depth)
         children = []  # for the related-section exclude set below
+        pinned = []
     else:
         children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
-        if children:
+        # a time node's @-pinned tasks (scheduled_date == its title) hang under their
+        # project, not here — surface them too so focus on a month/week shows them (#436)
+        inc_cancel = getattr(args, "show_canceled", False)
+        pinned = [p for p in _pinned_at(con, n) if inc_cancel or p["status"] != "CANCELED"]
+        if children or pinned:
             out(_c("downstream:", "meta"))
+            for p in pinned:
+                out(_node_line(con, p, indent="  ", sched=True))
             for c in children:
                 _print_tree(con, c, depth=1, max_depth=args.depth)
         else:
@@ -306,7 +313,7 @@ def cmd_focus(args, con):
         if not sem_tags:
             out(_c("related: (only generic-dimension tags; no project/topic tag to link by)", "meta"))
         else:
-            exclude = set(c["id"] for c in children) | {p["id"] for p in chain}
+            exclude = set(c["id"] for c in children) | {p["id"] for p in pinned} | {p["id"] for p in chain}
             rel = nodes_with_tag(con, sem_tags, order="id")
             rel = [r for r in rel if r["id"] not in exclude]
             if rel:

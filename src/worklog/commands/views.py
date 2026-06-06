@@ -376,6 +376,22 @@ def _tree_children(con, node, include_canceled=False):
 
     return sorted(rows, key=key)
 
+# fuzzy time nodes a task can be pinned at via scheduled_date (day is handled separately
+# by _print_day_activity, which also folds in that day's logged activity).
+_FUZZY_TIME_KINDS = ("year", "quarter", "month", "week")
+
+
+def _pinned_at(con, node):
+    """Tasks fuzzy-pinned at a time node (scheduled_date == its title, e.g. '2026-06'
+    month / '2026-W23' week / '2026' year). They hang under their project in the
+    parent_id tree, not under the time node, so tree / focus on the time node would
+    otherwise miss them — which led to creating duplicates when checking 'is anything
+    already scheduled this month' (#436). Returns [] for non-time / day nodes."""
+    if node["kind"] not in _FUZZY_TIME_KINDS:
+        return []
+    return _db.query(con, "node", scheduled_date=node["title"], order="priority NULLS LAST, id")
+
+
 def _print_tree(con, node, depth, max_depth, *, include_canceled=False, log_tail=3, full=False):
     out(_node_line(con, node, indent="  " * depth, sched=True))
     if max_depth is not None and depth >= max_depth:
@@ -384,7 +400,14 @@ def _print_tree(con, node, depth, max_depth, *, include_canceled=False, log_tail
         _print_day_activity(con, node, depth, max_depth,
                             include_canceled=include_canceled, log_tail=log_tail, full=full)
         return
-    for c in _tree_children(con, node, include_canceled=include_canceled):
+    # fuzzy time pins (#436): a month/week/year node's @-pinned tasks live under their
+    # project, not here — surface them so a "what's scheduled this month" view sees them.
+    children = _tree_children(con, node, include_canceled=include_canceled)
+    child_ids = {c["id"] for c in children}
+    for p in _pinned_at(con, node):
+        if p["id"] not in child_ids and (include_canceled or p["status"] != "CANCELED"):
+            out(_node_line(con, p, indent="  " * (depth + 1), sched=True))
+    for c in children:
         _print_tree(con, c, depth + 1, max_depth,
                     include_canceled=include_canceled, log_tail=log_tail, full=full)
 
@@ -408,6 +431,24 @@ def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log
                 keep.add(a["id"])
     if subtree is not None:
         keep &= subtree  # drop ancestors above the requested root
+    # #436 × #518: a time node in the subtree can have @-pins — tasks pinned at it via
+    # scheduled_date, which hang under their project (NOT in this subtree) — that match
+    # the filter. They aren't found by the universe scan, so collect them per time node
+    # and force-keep that node so it renders as their container. Only on a --root
+    # drill-down: in a full filtered tree the pin already shows under its own project.
+    pin_parent = {}  # time_node_id -> [matching pin rows]
+    if root_node is not None:
+        for tnid in universe:
+            tn = _db.get(con, "node", tnid)
+            if not tn or tn["kind"] not in _FUZZY_TIME_KINDS:
+                continue
+            matched = [p for p in _pinned_at(con, tn)
+                       if (include_canceled or p["status"] != "CANCELED") and nf(p["id"])]
+            if matched:
+                pin_parent[tnid] = matched
+                for a in _ancestors_chain(con, tn["id"]):
+                    if a["id"] in subtree:
+                        keep.add(a["id"])
     if not keep:
         where = "" if root_node is None else f" under #{root_node['id']}"
         print(f"(nothing{where} matches the filter)")
@@ -417,17 +458,22 @@ def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log
     else:
         roots = [r for r in _db.query(con, "node", parent_id=None) if r["id"] in keep]
     for root in roots:
-        _print_kept_subtree(con, root, 0, keep, include_canceled=include_canceled,
-                            log_tail=log_tail, full=full)
+        _print_kept_subtree(con, root, 0, keep, pin_parent=pin_parent,
+                            include_canceled=include_canceled, log_tail=log_tail, full=full)
 
 
-def _print_kept_subtree(con, node, depth, keep, *, include_canceled=False, log_tail=3, full=False):
+def _print_kept_subtree(con, node, depth, keep, *, pin_parent=None,
+                        include_canceled=False, log_tail=3, full=False):
     """Print `node` and recurse only into children in the `keep` set (the filtered-tree
-    companion to _print_tree; no depth cap — `keep` is already the pruned node set)."""
+    companion to _print_tree; no depth cap — `keep` is already the pruned node set).
+    `pin_parent[node_id]` (if given) is the precomputed list of filter-matching @-pins to
+    list under a time node (#436 under a filter)."""
     out(_node_line(con, node, indent="  " * depth, sched=True))
+    for p in (pin_parent or {}).get(node["id"], []):
+        out(_node_line(con, p, indent="  " * (depth + 1), sched=True))
     for c in _tree_children(con, node, include_canceled=include_canceled):
         if c["id"] in keep:
-            _print_kept_subtree(con, c, depth + 1, keep,
+            _print_kept_subtree(con, c, depth + 1, keep, pin_parent=pin_parent,
                                 include_canceled=include_canceled, log_tail=log_tail, full=full)
 
 
