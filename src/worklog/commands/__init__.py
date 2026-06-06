@@ -35,6 +35,8 @@ from .state import (
     cmd_clock_ls,
     cmd_clock_edit,
     cmd_clock_rm,
+    cmd_link_ls,
+    cmd_link_group,
     _ids_list,
     _bulk_status_change,
     _edit_in_editor,

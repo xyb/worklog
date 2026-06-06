@@ -220,13 +220,66 @@ def _args_prop_rm(p):
     return p
 
 
+def _args_link(p):
+    p.add_argument("ids", type=int, nargs="+", metavar="id", help="node id(s)")
+    p.add_argument("vault_doc")
+    return p
+
+
+# --- default-verb dispatch (WL#486) ---
+# Some entity groups share a name with the old leaf command (link / sched / log / tag).
+# To keep the legacy leaf form working (`wl link 42 doc`) while adding `wl link add/ls/rm`,
+# we insert the group's *default verb* when the token after the entity isn't a known verb.
+# entity -> (default_verb, {known sub-verbs})
+_DEFAULT_VERB_ENTITIES = {
+    "link": ("add", frozenset(("add", "ls", "rm"))),
+}
+# global flags that consume the next token as their value (skip it when locating the subcommand)
+_GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format"))
+
+
+def _expand_default_verb(argv):
+    """Insert an entity group's default verb so the legacy leaf form keeps working:
+    `wl link 42 doc` → `wl link add 42 doc`, while `wl link ls 42` / `wl link -h` are left
+    alone (the next token is a known verb / a flag). Scans past leading global flags to
+    find the subcommand. The leaf's first positional is always an int id, never a verb
+    word, so the verb-vs-leaf test is unambiguous."""
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok in _GLOBAL_VALUE_FLAGS:
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        # tok is at the subcommand position
+        if tok in _DEFAULT_VERB_ENTITIES:
+            default, verbs = _DEFAULT_VERB_ENTITIES[tok]
+            nxt = argv[i + 1] if i + 1 < len(argv) else None
+            if nxt is not None and not nxt.startswith("-") and nxt not in verbs:
+                argv.insert(i + 1, default)
+        return argv
+    return argv
+
+
+class _WlParser(argparse.ArgumentParser):
+    """ArgumentParser that applies the default-verb expansion before parsing, so both
+    `main()` (sys.argv) and the tests (which call parse_args directly) get it."""
+
+    def parse_known_args(self, args=None, namespace=None):
+        if args is None:
+            args = sys.argv[1:]
+        return super().parse_known_args(_expand_default_verb(list(args)), namespace)
+
+
 def build_parser():
     global _USER_ALIASES
     if _USER_ALIASES is None:
         _USER_ALIASES = _load_user_aliases()
     user_aliases = _USER_ALIASES
 
-    p = argparse.ArgumentParser(prog="wl", description="worklog: SQLite-backed worklog tool")
+    p = _WlParser(prog="wl", description="worklog: SQLite-backed worklog tool")
     p.add_argument("--version", action="version", version=f"wl {__version__}")
     p.add_argument("--db", metavar="PATH",
                    help="override the DB path for this invocation (handy for testing / multiple worklogs); takes precedence over $WORKLOG_DB and the XDG default")
@@ -510,22 +563,33 @@ Difference from wl wait: wait = paused (still planning to do); cancel = not doin
     cx.add_argument("--log", "-m", help="add a log explaining why you're canceling")
     cx.add_argument("--at", help="use this timestamp for closed_at + log")
 
+    # link entity group (WL#486): add / ls / rm with a default verb of `add`, so the
+    # legacy `wl link 42 doc` still works (the parser expands it to `wl link add 42 doc`).
     ln = sub.add_parser("link",
-        help="link a node to a vault doc name (no .md suffix; multiple ids)",
+        help="link CRUD: add / ls / rm — `wl link 42 doc` adds (default verb), `wl unlink` = rm",
+        description="Vault-doc link CRUD — the metric-style entity group. `wl link <id…> <doc>` is the add shortcut (the default verb); `wl unlink` is the rm shortcut.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Common examples:
-  wl link 42 "Project hub doc"          # link
-  wl link 42 43 "shared topic"          # link multiple ids at once
-  # vault doc name matches the [[wikilink]] title (no .md suffix)
+Shortcuts / default verb (same handler):
+  wl link 42 "doc"      add (the default verb — = wl link add 42 "doc")
+  wl unlink 42 "doc"    remove (= wl link rm 42 "doc")
+  wl link ls 42         list a node's links (no shortcut)
 
-After linking, wl show <id> displays links: [[doc name]] at the top.
+Common examples:
+  wl link 42 "Project hub doc"          # link (add — the default verb)
+  wl link 42 43 "shared topic"          # link multiple ids at once
+  wl link ls 42                         # list #42's links
+  wl link rm 42 "old doc"               # remove (= wl unlink)
+
 Design: the knowledge layer (vault) and execution layer (wl) stay decoupled; wl only knows the linked doc name and does not sync content back.""")
-    ln.add_argument("ids", type=int, nargs="+", metavar="id", help="node id(s)")
-    ln.add_argument("vault_doc")
+    _lnsub = ln.add_subparsers(dest="link_sub")
+    _args_link(_lnsub.add_parser("add", help="link a node to a vault doc (= the default `wl link 42 doc`)"))
+    _lnsub.add_parser("ls", help="list a node's vault-doc links").add_argument("id", type=int)
+    _args_link(_lnsub.add_parser("rm", help="remove a vault-doc link (= wl unlink)"))
 
     ul = sub.add_parser("unlink",
-        help="remove one vault-doc link from a node (symmetric with link; multiple ids)",
+        help="remove one vault-doc link from a node (= wl link rm)",
+        description="Remove one vault-doc link from a node (symmetric with link add). Canonical form: `wl link rm` (this is the shortcut; see `wl link -h`).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
   wl unlink 42 "Project hub doc"        # remove that one link from #42
@@ -533,8 +597,7 @@ Design: the knowledge layer (vault) and execution layer (wl) stay decoupled; wl 
 
 Removes a single link; the rest of the node's links are untouched (unlike clearing
 them all). No-op with a notice if that link wasn't present.""")
-    ul.add_argument("ids", type=int, nargs="+", metavar="id", help="node id(s)")
-    ul.add_argument("vault_doc")
+    _args_link(ul)
 
     se = sub.add_parser("set",
         help="set/update a custom key=value prop (UDA-style)",
@@ -1241,6 +1304,7 @@ from .commands import (
     cmd_prop,
     cmd_prop_rm,
     cmd_clock,
+    cmd_link_group,
     cmd_metric,
     _metric_id_arg,
     cmd_active,
@@ -1327,7 +1391,7 @@ HANDLERS = {
     "wait": cmd_wait,
     "reopen": cmd_reopen,
     "cancel": cmd_cancel,
-    "link": cmd_link,
+    "link": cmd_link_group,
     "unlink": cmd_unlink,
     "set": cmd_set,
     "unset": cmd_prop_rm,

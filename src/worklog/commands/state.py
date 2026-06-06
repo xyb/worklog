@@ -968,3 +968,26 @@ def cmd_clock(args, con):
     if sub is None:
         sys.exit("✗ usage: wl clock <ls|edit|rm> … (create with start/stop/spent; see `wl clock --help`)")
     {"ls": cmd_clock_ls, "edit": cmd_clock_edit, "rm": cmd_clock_rm}[sub](args, con)
+
+
+# --- link entity group (WL#486): add / ls / rm, default verb `add` ---
+def cmd_link_ls(args, con):
+    """List a node's vault-doc links. Read primitive for link (also shown by `wl show`)."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    rows = _db.query(con, "link", cols="vault_doc", node_id=args.id, order="vault_doc")
+    if not rows:
+        out(_c(f"(#{args.id} has no links)", "meta"))
+        return
+    for r in rows:
+        out(_c(f"#{args.id} ", "id") + _c(f"→ [[{r['vault_doc']}]]", "meta"))
+
+
+def cmd_link_group(args, con):
+    """Dispatch `wl link <add|ls|rm>` (WL#486). `add` is the default verb, so the legacy
+    `wl link 42 doc` still works (the parser expands it to `wl link add 42 doc`). `rm` also
+    has the top-level shortcut `wl unlink`."""
+    sub = getattr(args, "link_sub", None)
+    if sub is None:
+        sys.exit("✗ usage: wl link <id…> <doc>  |  wl link <add|ls|rm> … (see `wl link --help`)")
+    {"add": cmd_link, "ls": cmd_link_ls, "rm": cmd_unlink}[sub](args, con)
