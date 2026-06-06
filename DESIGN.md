@@ -41,6 +41,47 @@ worklog deliberately stays **dependency-light and low-abstraction**: runtime is 
 - Long flags `--xxx`; short flags only for the highest-frequency ones (`-k` kind / `-p` priority / `-t` tag)
 - Missing node: always `sys.exit(f"✗ ... #{id} not found")` with non-zero exit code
 
+### 1.1 Command taxonomy (primitive CRUD / composite helper / view)
+
+Every command falls into exactly one of three buckets. Knowing which keeps the
+surface coherent and tells you where a new command belongs.
+
+**A. Primitive entity CRUD** — directly create/read/update/delete one underlying
+table row. The **`metric` subsystem is the template**: `metric add / ls / edit / rm`,
+a complete, consistently-named CRUD set. Every entity should reach that completeness;
+naming/behaviour stays uniform across entities. Current state:
+
+| entity | create | read | update | delete |
+|---|---|---|---|---|
+| **metric** | `metric add` | `metric ls` | `metric edit` | `metric rm` |
+| log | `log` | `logs` / `show` | `relog` | `unlog` |
+| sched | `sched` | `sched` / `show` | `sched` / `defer` | `sched --clear` |
+| tag | `tag +x` | `tag` / `show` | — (atomic) | `tag -x` |
+| link | `link` | `show` | — (atomic) | `unlink` |
+| date_meta | `dateinfo` | `dateinfo` | `dateinfo` | `dateinfo --clear` |
+| node | `add` | `ls` / `show` / `tree` / `find` | status verbs / `set` / `tag` | `apply - #id` |
+| prop | `set` | `show` / `find` | `set` | **— (gap: no `unset`)** |
+| clock | `start` / `spent` | `active` / `show` | **— (gap)** | **— (gap)** |
+
+Known CRUD gaps to close to the metric bar: **node reparent/move** (change a node's
+real `parent_id`, not a UDA prop), **`prop` delete** (`unset <id> <key>`), **`clock`
+edit/rm** (fix/remove an interval).
+
+**B. Composite helper** — a one-step shortcut that wraps one or more primitives for
+the common path; never the *only* way to do something (the primitive stays). Status
+verbs `done` / `cancel` / `reopen` / `wait` (set `node.status` + side effects),
+`defer` (sched + LATER), `start` / `stop` (clock + DOING), `tick` (habit check-in
+metric + done), and the compound `add --log/--done/--at/--link/--sched/--metric`
+(add + several primitives in one transaction).
+
+**C. View** — read-only cross-entity rendering, no single-row CRUD: `ls` / `tree` /
+`day` / `agenda` / `projects` / `changes` / `summary` / `focus` / `ancestors` /
+`descendants` / `find` / `logs` / `show`. These share the unified filter (§ shared
+`--tag/--kind/--status`), time-window (§8) and `--by` (§9) conventions.
+
+System commands (`migrate` / `config` / `init` / `import` / `apply` / `themes` /
+`print-completion`) sit outside the three buckets.
+
 ## 2. Data model (`src/worklog/migrations/`)
 
 A single `node` table carries everything; the `kind` field discriminates type; `parent_id` self-reference builds the tree. The schema is delivered as numbered SQL migrations under `src/worklog/migrations/NNNN_*.sql`; `PRAGMA user_version` tracks the highest applied migration. `ensure_db()` auto-applies pending migrations on every command; `wl migrate` is the explicit form. See `src/worklog/migrations/0001_initial_schema.sql` for the initial layout and `README.md` for the high-level picture.
