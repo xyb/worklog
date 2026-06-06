@@ -58,29 +58,32 @@ naming/behaviour stays uniform across entities. Current state:
 | **prop** | `prop set` (= `set`) | `prop ls` / `show` | `prop set` | `prop rm` (= `unset`) |
 | **clock** | `start` / `spent` | `clock ls` / `active` | `clock edit` | `clock rm` |
 | **link** | `link add` (= `link`) | `link ls` / `show` | — (atomic) | `link rm` (= `unlink`) |
-| log | `log` | `logs` / `show` | `relog` | `unlog` |
+| **log** | `log add` (= `log`) | `log ls` / `logs` / `show` | `log edit` (= `relog`) | `log rm` (= `unlog`) |
 | sched | `sched` | `sched` / `show` | `sched` / `defer` | `sched --clear` |
 | **tag** | `tag add` (= `tag +x`) | `tag ls` / `show` | — (atomic) | `tag rm` (= `tag -x`) |
 | date_meta | `dateinfo` | `dateinfo` | `dateinfo` | `dateinfo --clear` |
 
 Entities already reshaped into full metric-style `<entity> <verb>` groups: **metric**
-(template), **node**, **prop**, **clock**, **link**, **tag**. High-frequency verbs keep a top-level
+(template), **node**, **prop**, **clock**, **link**, **tag**, **log**. High-frequency verbs keep a top-level
 shortcut onto the same handler (`wl add` == `wl node add`, `wl set` == `wl prop set`,
-`wl unset` == `wl prop rm`, `wl unlink` == `wl link rm`), args defined once via a shared
-adder so the two forms can't drift. `clock` intervals are CREATED by the composite helpers
-(`start`/`stop`/`spent`). Removal is soft-delete (reversible tombstone, § soft-delete).
+`wl unset` == `wl prop rm`, `wl unlink` == `wl link rm`, `wl relog` == `wl log edit`,
+`wl unlog` == `wl log rm`), args defined once via a shared adder so the two forms can't
+drift. `clock` intervals are CREATED by the composite helpers (`start`/`stop`/`spent`).
+Removal is soft-delete (reversible tombstone, § soft-delete).
 
 **Default-verb dispatch (collision entities).** When the group name equals the old leaf
-command (`link` / `tag`, and the still-to-do `log` / `sched`), a custom parser
+command (`link` / `tag` / `log`, and the still-to-do `sched`), a custom parser
 (`_WlParser` / `_expand_default_verb`) inserts the group's *default verb* when the token
 after the entity isn't a known verb — so the legacy leaf keeps working: `wl link 42 doc`
-→ `wl link add 42 doc` and `wl tag 42 +work` → `wl tag add 42 +work`, while `wl tag ls 42`
-/ `wl tag -h` are left alone. The leaf's first positional is always an int id, never a
-verb word, so the test is unambiguous. For `tag` the `add` default verb keeps the full
-`+add` / `-remove` / bare-add / empty-list grammar (`cmd_tag`); `tag ls` / `tag rm` are
-single-purpose convenience verbs.
+→ `wl link add 42 doc`, `wl tag 42 +work` → `wl tag add 42 +work`, `wl log 42 "body"` →
+`wl log add 42 "body"`, while `wl log ls 42` / `wl log -h` are left alone. The leaf's first
+positional is always an int id, never a verb word, so the test is unambiguous. For `tag`
+the `add` default verb keeps the full `+add` / `-remove` / bare-add / empty-list grammar
+(`cmd_tag`); `tag ls` / `tag rm` are single-purpose convenience verbs. For `log`, `log
+edit` / `log rm` reuse the `relog` / `unlog` handlers (which keep their shortcuts), and
+`log ls` is a node-scoped lister (the full filterable stream view stays at `wl logs`).
 
-Still to reshape: **`log` / `sched`** (default-verb, like `link` / `tag`) and **`date_meta`**
+Still to reshape: **`sched`** (default-verb, like `link` / `tag` / `log`) and **`date_meta`**
 (a clean `date` group — `dateinfo` doesn't collide with `date`).
 
 **B. Composite helper** — a one-step shortcut that wraps one or more primitives for

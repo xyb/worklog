@@ -226,6 +226,43 @@ def _args_link(p):
     return p
 
 
+def _log_id_arg(s):
+    # accepts '#L282' / 'L282' / '282' (wl show / wl logs displays as #L<id>)
+    t = s.lstrip("#")
+    return int(t[1:] if t.lower().startswith("l") else t)
+
+
+def _args_log_add(p):
+    p.add_argument("id", type=int)
+    p.add_argument("body")
+    p.add_argument("--date", help="log date: YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow (default: today; for backfilling history)")
+    p.add_argument("--time", help="log time HH:MM or HH:MM:SS (with --date, or alone for today)")
+    p.add_argument("--keep-status", action="store_true",
+                   help="do not auto-promote TODO to DOING (default: logging implies 'working on it'; DONE etc. unchanged)")
+    p.add_argument("--metric", action="append", metavar="'tag [value] [unit]'",
+                   help="attach a structured datapoint to this log (repeatable): "
+                        "--metric 'glucose 5.4 mmol/L' / --metric 'pullups 8' / --metric checkin")
+    return p
+
+
+def _args_relog(p):
+    p.add_argument("log_id", type=_log_id_arg,
+                   help="log id (#L282 / L282 / 282; from wl show / wl logs)")
+    p.add_argument("body", nargs="*", help="new body (positional; no arg -> -m / --at / EDITOR)")
+    p.add_argument("-m", "--message", help="new body (mutually exclusive with positional body; explicit)")
+    p.add_argument("--at", help="change time: HH:MM (keep date) / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
+    return p
+
+
+def _args_unlog(p):
+    p.add_argument("log_id", type=_log_id_arg, nargs="?",
+                   help="log id (e.g. #L282 / L282 / 282; from wl show / wl logs timeline)")
+    p.add_argument("--node", type=int, help="delete by node id (default: latest log today)")
+    p.add_argument("--date", help="with --node: delete logs from that day (default today)")
+    p.add_argument("--all", action="store_true", help="with --node: delete all logs for that node that day")
+    return p
+
+
 # --- default-verb dispatch (WL#486) ---
 # Some entity groups share a name with the old leaf command (link / sched / log / tag).
 # To keep the legacy leaf form working (`wl link 42 doc`) while adding `wl link add/ls/rm`,
@@ -234,6 +271,7 @@ def _args_link(p):
 _DEFAULT_VERB_ENTITIES = {
     "link": ("add", frozenset(("add", "ls", "rm"))),
     "tag": ("add", frozenset(("add", "ls", "rm"))),
+    "log": ("add", frozenset(("add", "ls", "edit", "rm"))),
 }
 # global flags that consume the next token as their value (skip it when locating the subcommand)
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format"))
@@ -402,31 +440,52 @@ Differences from related commands:
   - wl log <id>                     add a log to an existing task, does not create a new one""")
     _args_node_add(a)
 
+    # log entity group (WL#486): add / ls / edit / rm. `add` is the default verb so the
+    # everyday `wl log <id> "body"` keeps working; `edit` = wl relog, `rm` = wl unlog
+    # (both keep their top-level shortcuts). The rich cross-cutting view stays at `wl logs`.
     g = sub.add_parser("log",
-        help="add a log entry to a node (auto TODO -> DOING)",
-        description="Add a log entry to a node (progress / event stream). By default auto-progresses TODO to DOING ('logging means working'); suppress with --keep-status. Backfill historical data with --date/--time.",
+        help="log CRUD: add / ls / edit / rm — `wl log 42 \"body\"` adds (default verb); edit=relog, rm=unlog",
+        description="Log-entry CRUD on a node (progress / event stream) — the metric-style entity group. `wl log <id> \"body\"` is the add shortcut (the default verb; auto-progresses TODO->DOING unless --keep-status). `wl relog` = `log edit`, `wl unlog` = `log rm`. The full filterable stream view is `wl logs`.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
+Shortcuts / default verb (same handler):
+  wl log 42 "body"      add a log (the default verb — = wl log add 42 "body")
+  wl relog #L282 "..."  rewrite a log (= wl log edit #L282 "...")
+  wl unlog #L282        delete a log (= wl log rm #L282)
+  wl log ls 42          list a node's logs (full view: wl logs --id 42)
+
 Common examples:
-  wl log 42 "result: PR#13 merged"               # current progress
-  wl log 42 "..." --date 2026-05-20              # backfill to that day
-  wl log 42 "..." --date yesterday --time 14:30  # precise timestamp
-  wl log 42 "..." --keep-status                  # don't change status (e.g. log while WAIT)
+  wl log 42 "result: PR#13 merged"               # current progress (add, default verb)
+  wl log 42 "..." --date yesterday --time 14:30  # backfill a precise timestamp
+  wl log ls 42                                   # node-scoped log list
+  wl log edit #L282 "fixed"                      # rewrite (= wl relog)
+  wl log rm #L282                                # delete (= wl unlog)
 
 Differences from related commands:
   - wl tick <id> --note "..."   habit check-in, default body = "✓ done"
   - wl add ... --log "..."      create a new task + insert a log in one step
-  - wl relog #L<id> "new body"  rewrite an existing log body / time
-  - wl unlog #L<id>             delete a log""")
-    g.add_argument("id", type=int)
-    g.add_argument("body")
-    g.add_argument("--date", help="log date: YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow (default: today; for backfilling history)")
-    g.add_argument("--time", help="log time HH:MM or HH:MM:SS (with --date, or alone for today)")
-    g.add_argument("--keep-status", action="store_true",
-                   help="do not auto-promote TODO to DOING (default: logging implies 'working on it'; DONE etc. unchanged)")
-    g.add_argument("--metric", action="append", metavar="'tag [value] [unit]'",
-                   help="attach a structured datapoint to this log (repeatable): "
-                        "--metric 'glucose 5.4 mmol/L' / --metric 'pullups 8' / --metric checkin")
+  - wl logs --id 42             full filterable / windowed log view (presets, --since, --by-task)""")
+    _lgsub = g.add_subparsers(dest="log_sub")
+    _args_log_add(_lgsub.add_parser("add",
+        help="add a log entry (= the default `wl log 42 \"body\"`)",
+        description="Add a log entry to a node (auto TODO->DOING unless --keep-status; --date/--time backfill history). Also reachable as the default `wl log <id> \"body\"` (omit `add`; see `wl log -h`)."))
+    _lgsub.add_parser("ls", help="list a node's logs (full view: wl logs --id <id>)").add_argument("id", type=int)
+    _args_relog(_lgsub.add_parser("edit",
+        help="rewrite a log's body / time (= wl relog)",
+        description="Rewrite an existing log's body or timestamp. Also: the top-level shortcut `wl relog`.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+  wl log edit #L282 "fixed content"   # change body
+  wl log edit #L282 --at 14:30        # only change time
+  wl log edit #L282                   # no body/--at -> open $EDITOR"""))
+    _args_unlog(_lgsub.add_parser("rm",
+        help="delete a log entry (= wl unlog)",
+        description="Delete a log entry (soft-delete). Also: the top-level shortcut `wl unlog`.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+  wl log rm #L282                     # exact delete by log id
+  wl log rm --node 39                 # delete the latest log for #39 today
+  wl log rm --node 39 --all           # delete all of #39's logs that day"""))
 
     d = sub.add_parser("done",
         help="mark node DONE + closed_at (multiple ids; --log/--at for one-shot log+done)",
@@ -1006,13 +1065,9 @@ For interactive habit batch review, use wl checkin (interactive multi-select).""
     tk.add_argument("--note", help="custom log body (default '✓ done')")
     tk.add_argument("--done", action="store_true", help="also mark DONE")
 
-    def _log_id_arg(s):
-        # accepts '#L282' / 'L282' / '282' (wl show / wl logs displays as #L<id>)
-        t = s.lstrip("#")
-        return int(t[1:] if t.lower().startswith("l") else t)
-
     ul = sub.add_parser("unlog",
         help="delete a log entry: #L<id> exact / --node delete latest that day (undo tick)",
+        description="Delete a log entry (soft-delete). Canonical form: `wl log rm` (this is the shortcut; see `wl log -h`).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
@@ -1025,14 +1080,11 @@ Common examples:
 
 Find a log id: wl show <node_id> or wl logs --id <node_id> displays #L<id> in the timeline.
 Edit a mistyped log with wl relog #L<id> instead. (Timing lives in the clock table, not logs — fix a clock with wl stop --at.)""")
-    ul.add_argument("log_id", type=_log_id_arg, nargs="?",
-                    help="log id (e.g. #L282 / L282 / 282; from wl show / wl logs timeline)")
-    ul.add_argument("--node", type=int, help="delete by node id (default: latest log today)")
-    ul.add_argument("--date", help="with --node: delete logs from that day (default today)")
-    ul.add_argument("--all", action="store_true", help="with --node: delete all logs for that node that day")
+    _args_unlog(ul)
 
     rl = sub.add_parser("relog",
         help="rewrite a log: new body / new time / editor",
+        description="Rewrite an existing log's body or timestamp. Canonical form: `wl log edit` (this is the shortcut; see `wl log -h`).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
@@ -1044,11 +1096,7 @@ Common examples:
 
 Timing lives in the clock table, not logs — to fix a clock interval use wl stop --at.
 Cannot move a log across nodes (that's unlog + log).""")
-    rl.add_argument("log_id", type=_log_id_arg,
-                    help="log id (#L282 / L282 / 282; from wl show / wl logs)")
-    rl.add_argument("body", nargs="*", help="new body (positional; no arg -> -m / --at / EDITOR)")
-    rl.add_argument("-m", "--message", help="new body (mutually exclusive with positional body; explicit)")
-    rl.add_argument("--at", help="change time: HH:MM (keep date) / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
+    _args_relog(rl)
 
     # ── metric: structured datapoints on a log (node → log → metric) ──
     mt = sub.add_parser("metric",
@@ -1320,6 +1368,7 @@ from .commands import (
     cmd_set,
     cmd_tag,
     cmd_tag_group,
+    cmd_log_group,
     cmd_node_edit,
     cmd_node_rm,
     cmd_node_reparent,
@@ -1403,7 +1452,7 @@ HANDLERS = {
     "migrate": cmd_migrate,
     "init": cmd_init,
     "add": cmd_add,
-    "log": cmd_log,
+    "log": cmd_log_group,
     "done": cmd_done,
     "defer": cmd_defer,
     "start": cmd_start,

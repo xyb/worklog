@@ -686,6 +686,35 @@ def cmd_relog(args, con):
     body_preview = new_row["body"][:60] + ("…" if len(new_row["body"]) > 60 else "")
     out(_c(f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}", "meta"))
 
+
+def cmd_log_ls(args, con):
+    """List a node's log entries — the read verb of the log group. A simple node-scoped
+    stream (`#L<id> [time] body`); for the full filterable / windowed view use `wl logs
+    --id <id>` (presets, --since/--until, --by-task, --group, …)."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    rows = _db.query(con, "log", cols="id, logged_at, body", node_id=args.id, order="logged_at")
+    if not rows:
+        out(_c(f"#{args.id} has no logs", "meta"))
+        return
+    full = _log_full(args)
+    for r in rows:
+        prefix = f"#L{r['id']} [{_tu.utc_to_local(r['logged_at'])}] "
+        body = _truncate_log_body(r["body"], len(prefix), full=full)
+        out(_c(f"#L{r['id']}", "id") + " "
+            + _c(f"[{_tu.utc_to_local(r['logged_at'])}]", "meta") + " " + body)
+
+
+def cmd_log_group(args, con):
+    """Dispatch `wl log <add|ls|edit|rm>` (the metric-style entity group; WL#486).
+    `add` is the default verb (`wl log <id> "body"` == `wl log add <id> "body"`); `edit`
+    is `wl relog` and `rm` is `wl unlog` (both keep their top-level shortcuts)."""
+    sub = getattr(args, "log_sub", None)
+    if sub is None:
+        sys.exit("✗ usage: wl log <id> \"body\"  |  wl log <add|ls|edit|rm> … (see `wl log --help`)")
+    {"add": cmd_log, "ls": cmd_log_ls, "edit": cmd_relog, "rm": cmd_unlog}[sub](args, con)
+
+
 def cmd_active(args, con):
     """List tasks running right now: tasks with an open clock interval (actually timing).
     Each task shows: id / title / current-session elapsed + today's total + latest log (context).

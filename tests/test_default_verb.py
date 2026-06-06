@@ -50,6 +50,17 @@ class TestExpandDefaultVerb:
         assert _expand_default_verb(["tag", "-h"]) == ["tag", "-h"]
         assert _expand_default_verb(["tag"]) == ["tag"]
 
+    def test_log_leaf_form_gets_default_verb(self):
+        assert _expand_default_verb(["log", "42", "body"]) == ["log", "add", "42", "body"]
+
+    def test_log_explicit_verbs_untouched(self):
+        for v in ("add", "ls", "edit", "rm"):
+            assert _expand_default_verb(["log", v, "1"]) == ["log", v, "1"]
+
+    def test_log_help_and_bare_untouched(self):
+        assert _expand_default_verb(["log", "-h"]) == ["log", "-h"]
+        assert _expand_default_verb(["log"]) == ["log"]
+
 
 def _tags(con, nid):
     return [r[0] for r in con.execute(
@@ -198,3 +209,80 @@ class TestLinkGroup:
         sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
         h = sa.choices["link"].format_help()
         assert "default verb" in h and "wl unlink" in h
+
+
+def _logs(con, nid):
+    return [(r[0], r[1]) for r in con.execute(
+        "SELECT id, body FROM log WHERE node_id=? AND deleted_at IS NULL ORDER BY id", (nid,))]
+
+
+class TestLogGroup:
+    def test_legacy_leaf_still_adds(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "first progress")          # legacy leaf = default verb add
+        assert [b for _, b in _logs(tmp_db.db_connect(), 1)] == ["first progress"]
+
+    def test_log_add_explicit(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("log", "add", "1", "explicit")
+        assert [b for _, b in _logs(tmp_db.db_connect(), 1)] == ["explicit"]
+
+    def test_log_ls(self, cli):
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "alpha")
+        _, out, _ = cli("log", "ls", "1")
+        assert "alpha" in out and "#L" in out
+
+    def test_log_ls_empty(self, cli):
+        cli("add", "t", "-k", "task")
+        _, out, _ = cli("log", "ls", "1")
+        assert "no logs" in out
+
+    def test_log_edit_equals_relog(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "typo")
+        cli("log", "edit", "L1", "fixed")          # group edit == relog
+        assert [b for _, b in _logs(tmp_db.db_connect(), 1)] == ["fixed"]
+        # the relog shortcut is equivalent
+        cli("log", "1", "typo2")
+        cli("relog", "L2", "fixed2")
+        assert ("fixed2" in [b for _, b in _logs(tmp_db.db_connect(), 1)])
+
+    def test_log_rm_equals_unlog(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "a")
+        cli("log", "1", "b")
+        cli("log", "rm", "L1")                      # group rm
+        cli("unlog", "L2")                          # shortcut
+        assert _logs(tmp_db.db_connect(), 1) == []
+
+    def test_id_first_token_is_body_not_verb(self, cli, tmp_db):
+        # `wl log 1 ls` — int id first → default add → body is the literal word 'ls'
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "ls")
+        assert [b for _, b in _logs(tmp_db.db_connect(), 1)] == ["ls"]
+        # `wl log 1 edit` likewise adds a log bodied 'edit', NOT an edit verb
+        cli("log", "1", "edit")
+        assert "edit" in [b for _, b in _logs(tmp_db.db_connect(), 1)]
+
+    def test_log_ls_missing_node(self, cli):
+        _, _, err = cli("log", "ls", "999")
+        assert "not found" in err
+
+    def test_bare_log_usage(self, cli):
+        _, _, err = cli("log")
+        assert "usage: wl log" in err
+
+    def test_log_help_lists_shortcuts(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        h = sa.choices["log"].format_help()
+        assert "default verb" in h and "wl relog" in h and "wl unlog" in h
+
+    def test_relog_unlog_help_name_canonical(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        assert "wl log edit" in sa.choices["relog"].format_help()
+        assert "wl log rm" in sa.choices["unlog"].format_help()

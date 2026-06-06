@@ -40,6 +40,8 @@ from .state import (
     cmd_tag_ls,
     cmd_tag_rm,
     cmd_tag_group,
+    cmd_log_ls,
+    cmd_log_group,
     _ids_list,
     _bulk_status_change,
     _edit_in_editor,
