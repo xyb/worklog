@@ -14,7 +14,7 @@ from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
 from .metric import checkin_metric
-from ..queries import _has_checkin, _latest_typed_log, _set_typed_log
+from ..queries import _has_checkin, _latest_typed_log, _set_typed_log, _META_LOG_TYPES
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -303,6 +303,129 @@ def cmd_summary_prop(args, con):
     con.commit()
     at = _db.get(con, "log", log_id)["logged_at"]
     out(_c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta"))
+
+
+# --- meta entity group (WL#486): set / ls / rm for the history-preserving typed-log meta
+# fields (goal/summary/overview/top5). These are NOT props (single-value, overwrite) — each
+# is a `log.tag` log, latest = current, history kept. `wl set <node> <field>` routes here as
+# a documented shortcut (parallel to `wl set` → `wl prop set`); `wl goal`/`wl recap` are the
+# today-auto shortcuts for goal/summary. ---
+def cmd_meta_set(args, con):
+    """Set/append a meta field on a node — the create/update verb of the meta group.
+    Each write appends a typed log (history kept; latest is current). Also reachable as the
+    `wl set <node> <field>` shortcut, and `wl goal` / `wl recap` for today's goal/summary."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    log_id = _set_typed_log(con, args.id, args.field, args.value)
+    con.commit()
+    at = _db.get(con, "log", log_id)["logged_at"]
+    out(_c(f"✓ #{args.id} {args.field} (logged at {at}): {args.value}", "meta"))
+
+
+def cmd_meta_ls(args, con):
+    """List a node's meta fields (current value of each present field) — the read verb of
+    the meta group. Each field shows its latest typed log (the current value)."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    shown = False
+    for field in _META_LOG_TYPES:
+        row = _latest_typed_log(con, args.id, field)
+        if row and row["body"]:
+            shown = True
+            out(_c(f"  #{args.id} {field}", "id") + _c(": ", "meta") + row["body"])
+    if not shown:
+        out(_c(f"#{args.id} has no meta fields", "meta"))
+
+
+def cmd_meta_rm(args, con):
+    """Clear a meta field on a node — the delete verb of the meta group. Soft-deletes the
+    field's typed logs (reversible). Also reachable as the `wl unset <node> <field>` shortcut."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    n = _db.delete(con, "log", node_id=args.id, tag=args.field)
+    con.commit()
+    out(_c(f"✓ #{args.id} {args.field} cleared ({n} log(s))" if n
+           else f"(#{args.id} has no {args.field})", "meta"))
+
+
+def cmd_meta(args, con):
+    """Dispatch `wl meta <set|ls|rm>` (the metric-style entity group; WL#486). Meta fields
+    (goal/summary/overview/top5) are history-preserving typed logs, distinct from props."""
+    sub = getattr(args, "meta_sub", None)
+    if sub is None:
+        sys.exit("✗ usage: wl meta <set|ls|rm> … (see `wl meta --help`)")
+    {"set": cmd_meta_set, "ls": cmd_meta_ls, "rm": cmd_meta_rm}[sub](args, con)
+
+
+# --- alias command (manages ~/.config/worklog/aliases.ini; loaded into argparse subparser
+# aliases at startup, so edits take effect on the NEXT wl invocation). ---
+def _read_aliases_cfg():
+    """(ConfigParser, Path) for the aliases file; case-preserving (optionxform=str) so an
+    alias name keeps its exact spelling. Ensures an [aliases] section exists."""
+    import configparser
+    cfg = configparser.ConfigParser()
+    cfg.optionxform = str
+    p = _resolve_aliases_path()
+    if p.exists():
+        cfg.read(p, encoding="utf-8")
+    if "aliases" not in cfg:
+        cfg["aliases"] = {}
+    return cfg, p
+
+
+def _write_aliases_cfg(cfg, p):
+    p.parent.mkdir(parents=True, exist_ok=True)
+    with open(p, "w", encoding="utf-8") as f:
+        cfg.write(f)
+
+
+def cmd_alias_ls(args, con):
+    """List configured command aliases (name → target)."""
+    cfg, p = _read_aliases_cfg()
+    items = sorted(cfg["aliases"].items())
+    if not items:
+        out(_c(f"(no aliases configured — file: {p})", "meta"))
+        return
+    for name, target in items:
+        out("  " + _c(name, "id") + _c(" → ", "meta") + _c(target))
+
+
+def cmd_alias_add(args, con):
+    """Add/update a command alias (`wl alias add d day` → `wl d` == `wl day`). The target
+    must be a real wl command, and an alias can't shadow an existing command. Takes effect
+    on the next wl invocation (aliases are wired into the parser at startup)."""
+    name, target = args.name.strip(), args.target.strip()
+    if not name or not target:
+        sys.exit("✗ alias name and target are both required")
+    valid = set(_cli.HANDLERS)
+    if target not in valid:
+        sys.exit(f"✗ unknown command '{target}' — an alias target must be a wl command")
+    if name in valid:
+        sys.exit(f"✗ '{name}' is already a wl command — an alias can't shadow it")
+    cfg, p = _read_aliases_cfg()
+    cfg["aliases"][name] = target
+    _write_aliases_cfg(cfg, p)
+    out(_c(f"✓ alias '{name}' → '{target}' (takes effect on the next wl run)", "meta"))
+
+
+def cmd_alias_rm(args, con):
+    """Remove a command alias."""
+    name = args.name.strip()
+    cfg, p = _read_aliases_cfg()
+    if name not in cfg["aliases"]:
+        out(_c(f"(no alias '{name}')", "meta"))
+        return
+    del cfg["aliases"][name]
+    _write_aliases_cfg(cfg, p)
+    out(_c(f"✓ alias '{name}' removed (takes effect on the next wl run)", "meta"))
+
+
+def cmd_alias(args, con):
+    """Dispatch `wl alias <add|ls|rm>` — manage command aliases in aliases.ini."""
+    sub = getattr(args, "alias_sub", None)
+    if sub is None:
+        sys.exit("✗ usage: wl alias <add|ls|rm> … (see `wl alias --help`)")
+    {"add": cmd_alias_add, "ls": cmd_alias_ls, "rm": cmd_alias_rm}[sub](args, con)
 
 def cmd_checkin(args, con):
     """Interactive check-in for today's habits.

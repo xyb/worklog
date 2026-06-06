@@ -55,7 +55,8 @@ naming/behaviour stays uniform across entities. Current state:
 |---|---|---|---|---|
 | **metric** | `metric add` | `metric ls` | `metric edit` | `metric rm` |
 | **node** | `node add` | `node ls` / `node show` | `node edit` / `reparent` | `node rm` |
-| **prop** | `prop set` (= `set`) | `prop ls` / `show` | `prop set` | `prop rm` (= `unset`) |
+| **prop** | `prop set` (= `set` w/ a non-meta key) | `prop ls` / `show` | `prop set` | `prop rm` (= `unset`) |
+| **meta** (typed-log fields) | `meta set` (= `set` w/ a meta key; `goal`/`recap` for today) | `meta ls` / `show` | `meta set` (appends; latest = current) | `meta rm` (= `unset` w/ a meta key) |
 | **clock** | `start` / `spent` | `clock ls` / `active` | `clock edit` | `clock rm` |
 | **link** | `link add` (= `link`) | `link ls` / `show` | — (atomic) | `link rm` (= `unlink`) |
 | **log** | `log add` (= `log`) | `log ls` / `logs` / `show` | `log edit` (= `relog`) | `log rm` (= `unlog`) |
@@ -64,13 +65,31 @@ naming/behaviour stays uniform across entities. Current state:
 | **date_meta** | `date set` (= `dateinfo`) | `date ls` / `dateinfo` | `date set` | `date rm` (= `dateinfo --clear`); `date import` |
 
 Every entity now has a full metric-style `<entity> <verb>` group. Entities reshaped: **metric**
-(template), **node**, **prop**, **clock**, **link**, **tag**, **log**, **sched**, **date** (the `date_meta` table). High-frequency verbs keep a top-level
-shortcut onto the same handler (`wl add` == `wl node add`, `wl set` == `wl prop set`,
-`wl unset` == `wl prop rm`, `wl unlink` == `wl link rm`, `wl relog` == `wl log edit`,
-`wl unlog` == `wl log rm`, `wl dateinfo` == polymorphic over `wl date set/ls/rm/import`),
-args defined once via a shared adder so the two forms can't drift. `clock` intervals are
-CREATED by the composite helpers (`start`/`stop`/`spent`). Removal is soft-delete
-(reversible tombstone, § soft-delete).
+(template), **node**, **prop**, **meta**, **clock**, **link**, **tag**, **log**, **sched**, **date** (the `date_meta` table). High-frequency verbs keep a top-level
+shortcut onto the same handler (`wl add` == `wl node add`, `wl unlink` == `wl link rm`,
+`wl relog` == `wl log edit`, `wl unlog` == `wl log rm`, `wl dateinfo` == polymorphic over
+`wl date set/ls/rm/import`), args defined once via a shared adder so the two forms can't
+drift. `clock` intervals are CREATED by the composite helpers (`start`/`stop`/`spent`).
+Removal is soft-delete (reversible tombstone, § soft-delete).
+
+**`wl set` / `wl unset` are *key-routed* shortcuts** (the same way `wl add` is `node add`):
+a meta key (`goal`/`summary`/`overview`/`top5`) routes to `wl meta set` / `wl meta rm`
+(history-preserving typed log); any other key routes to `wl prop set` / `wl prop rm`
+(static single-value UDA prop). So one `set`/`unset` surface fronts two group-set verbs by
+key — `prop` and `meta` are distinct stores (prop = overwrite single-value; meta = append
+typed log, latest = current), but share the everyday `set`/`unset` entry. `wl goal` / `wl
+recap` additionally auto-target today's day node for the goal / summary fields.
+
+> Known limitation: the four meta keys are reserved, so a *prop* literally named
+> `goal`/`summary`/`overview`/`top5` can't be set through `wl set` (the key routes to meta).
+> Acceptable for now (nobody needs a prop with those names); a future fix would be a
+> `--prop`/`--meta` disambiguator flag on `set`, or `wl prop set` (which is unambiguous) as
+> the escape hatch.
+
+**`wl alias add/ls/rm`** manages `~/.config/worklog/aliases.ini` (maps a short name to a
+command, e.g. `wl d` == `wl day`); aliases are wired into the parser at startup, so a change
+takes effect on the next invocation. The target must be a real command and an alias may not
+shadow one.
 
 **Default-verb dispatch (collision entities).** When the group name equals the old leaf
 command (`link` / `tag` / `log` / `sched`), a custom parser (`_WlParser` /
@@ -143,7 +162,7 @@ A single `node` table carries everything; the `kind` field discriminates type; `
 - **status only applies to task / habit / meetlog**; time-hierarchy kinds (year/month/...) and project kind leave status NULL
 - Tables: `node / tag / log / metric / clock / prop / link / sched / date_meta` + derived view `v_node_path`
 - **`node → log → metric` spine** (the log-centric core): a `node` has many `log`s; a `log` (carrying a `tag` — `note`/`goal`/`summary`/`overview`/`top5`/`clock`(carrier)/… , NULL = plain note) has 0..N `metric`s. A `metric` is a structured datapoint (`tag` = what it is e.g. `glucose`/`pullups`/`checkin`; `value_num`/`value_text`/`unit`/`note`/`at`). **`tag` is the uniform classification field across all three** — node (a multi-value label set), log (its role, single-value), metric (its kind, single-value); same word, different scopes, SQL-unambiguous. A metric **must hang off a log** (`metric.log_id` NOT NULL) — so every datapoint has a log carrier; a `CHECK` requires a value (pure markers store `value_num=1`). `metric.node_id` is denormalized for join-free per-node queries (no FK; triggers keep it equal to the carrier log's node). CRUD surface: `wl metric add/ls/edit/rm` (`add` without `--on-log` creates a carrier log; a value-less marker is stored as `value_num=1`); `--metric` on `wl log`/`wl add` and `metrics` in `wl import` attach datapoints inline. Habit "done today" = a `tag=checkin` metric that day (written by `wl tick`/`wl checkin`), not "any log exists".
-- **Meta fields are history-preserving typed logs**: day `goal`/`summary`, week `overview`, month `top5` are `log.tag` logs (latest = current; each edit appends), written by `wl goal`/`wl recap`/`wl set <node> <key>`. (`prop` is back to truly-static single-value attributes.)
+- **Meta fields are history-preserving typed logs**: day `goal`/`summary`, week `overview`, month `top5` are `log.tag` logs (latest = current; each edit appends), with their own `wl meta set/ls/rm` CRUD group; also written by `wl goal`/`wl recap` (today-auto) and the key-routed `wl set <node> <key>` shortcut. (`prop` is back to truly-static single-value attributes — a separate store.)
 - **`clock` is structured time tracking**: `clock(node_id, start_at, end_at, elapsed_sec)`, written by `wl start`/`stop`/`spent`/`wait` — replaces the old `CLOCK_IN`/`CLOCK_OUT` log-body convention. Durations are summed from `elapsed_sec`, not parsed from text.
 - **Two parallel trees, both hung under lifetime**:
   - **Responsibility line**: `lifetime → area → project → task` (PARA model: area is a cross-time responsibility domain, projects belong to areas, tasks belong to projects)

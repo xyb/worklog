@@ -125,9 +125,15 @@ class TestPropClockReviewFixes:
         con = tmp_db.db_connect()
         assert con.execute("SELECT elapsed_sec FROM clock WHERE id=1").fetchone()[0] is None  # still running
 
-    def test_unset_meta_field_hints(self, cli):
-        # goal/summary/overview/top5 are typed logs, not props — unset can't touch them,
-        # and says so rather than a bare "no prop"
+    def test_unset_meta_field_routes_to_meta_rm(self, cli, tmp_db):
+        # WL#486: goal/summary/overview/top5 are typed logs, not props — `wl unset <metakey>`
+        # is now the key-routed shortcut for `wl meta rm` (clears the typed log), symmetric
+        # with `wl set <metakey>` → `wl meta set`.
         cli("add", "t", "-k", "task")
+        cli("set", "1", "goal", "deliver X")
         _, out, _ = cli("unset", "1", "goal")
-        assert "meta field" in out
+        assert "goal cleared" in out
+        con = tmp_db.db_connect()
+        assert con.execute(
+            "SELECT COUNT(*) FROM log WHERE node_id=1 AND tag='goal' AND deleted_at IS NULL"
+        ).fetchone()[0] == 0

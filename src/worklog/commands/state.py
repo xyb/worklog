@@ -412,9 +412,11 @@ def cmd_set(args, con):
     if args.key in _META_LOG_TYPES:
         # goal/summary/overview/top5 are history-preserving meta fields, stored as typed
         # logs (not single-value props): each write appends a log, the latest is current.
-        _set_typed_log(con, args.id, args.key, args.value)
+        # This is the key-routed shortcut for `wl meta set` — keep the output identical.
+        log_id = _set_typed_log(con, args.id, args.key, args.value)
         con.commit()
-        print(f"✓ #{args.id} {args.key} (logged): {args.value}")
+        at = _db.get(con, "log", log_id)["logged_at"]
+        out(_c(f"✓ #{args.id} {args.key} (logged at {at}): {args.value}", "meta"))
         return
     _upsert_prop(con, args.id, args.key, args.value)
     con.commit()
@@ -929,14 +931,17 @@ def cmd_prop_rm(args, con):
     key = (args.key or "").strip()
     if not key:
         sys.exit("✗ prop key cannot be empty")
+    if key in _META_LOG_TYPES:
+        # key-routed shortcut, symmetric with `wl set`: a meta field lives in the log table
+        # as a typed log, not a prop — clear it there (= wl meta rm).
+        n = _db.delete(con, "log", node_id=args.id, tag=key)
+        con.commit()
+        out(_c(f"✓ #{args.id} {key} cleared ({n} log(s))" if n
+               else f"(#{args.id} has no {key})", "meta"))
+        return
     n = _db.delete(con, "prop", node_id=args.id, key=key)
     con.commit()
-    if n:
-        out(_c(f"✓ #{args.id} prop '{key}' removed", "meta"))
-    elif key in _META_LOG_TYPES:
-        out(_c(f"(#{args.id} has no prop '{key}' — {key} is a meta field stored as a typed log, not a prop; it can't be removed via wl unset)", "meta"))
-    else:
-        out(_c(f"(#{args.id} has no prop '{key}')", "meta"))
+    out(_c(f"✓ #{args.id} prop '{key}' removed" if n else f"(#{args.id} has no prop '{key}')", "meta"))
 
 
 def cmd_prop(args, con):

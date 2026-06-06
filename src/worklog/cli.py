@@ -49,6 +49,7 @@ from .completion import (
     _generate_zsh_completion,
 )
 from .queries import (
+    _META_LOG_TYPES,
     _insert_log,
     _node_tags,
     _check_ids_exist,
@@ -136,6 +137,7 @@ def _load_user_aliases():
     if not os.path.exists(path):
         return {}
     cfg = configparser.ConfigParser()
+    cfg.optionxform = str  # preserve alias-name case (match `wl alias` writer)
     try:
         cfg.read(path, encoding="utf-8")
     except (configparser.Error, OSError):
@@ -661,19 +663,21 @@ them all). No-op with a notice if that link wasn't present.""")
     _args_link(ul)
 
     se = sub.add_parser("set",
-        help="set/update a custom key=value prop (UDA-style)",
-        description="Set/update a custom key=value prop (UDA-style). Canonical form: `wl prop set` (this is the shortcut; see `wl prop -h`).",
+        help="set a value on a node — key-routed shortcut: a prop (= wl prop set) or a meta field (= wl meta set)",
+        description="Set a value on a node — a key-routed shortcut. A meta key (goal/summary/overview/top5) routes to `wl meta set` (history-preserving typed log); any other key routes to `wl prop set` (static single-value UDA prop). So `wl set` is to `prop set` / `meta set` what `wl add` is to `node add`.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Common examples:
-  wl set 42 owner xyb                # add owner to a task
+Props (static single-value — = wl prop set):
+  wl set 42 owner xyb                  # add owner to a task
   wl set 42 linear ABC-449             # backfill Linear ID
-  wl set <day_id> summary "..."        # meta prop (but prefer wl recap for end-of-day)
-  wl set <day_id> goal "deliver X"     # (prefer wl goal: stamps a timestamp)
+
+Meta fields (history-preserving typed log — = wl meta set; see `wl meta -h`):
+  wl set <day_id> goal "deliver X"     # (or wl goal — auto-targets today + stamps time)
+  wl set <day_id> summary "..."        # (or wl recap — auto-targets today)
   wl set <week_id> overview "..."      # week overview
   wl set <month_id> top5 "..."         # monthly Top5
 
-Difference from wl recap/goal: those target the day node and stamp a timestamp; they are convenience aliases for wl set summary/goal.""")
+`wl recap`/`wl goal` target today's day node automatically; `wl set` needs the explicit node id.""")
     _args_prop_set(se)
 
     # prop entity group (WL#486 / #527): set / ls / rm. `set` → wl set shortcut; `rm` → wl unset.
@@ -1258,6 +1262,52 @@ Common examples:
     _dtsub.add_parser("rm", help="clear a date's label (= wl dateinfo <date> --clear)").add_argument("date", help="YYYY-MM-DD")
     _dtsub.add_parser("import", help='batch import {"YYYY-MM-DD":"label"} JSON (= wl dateinfo --import)').add_argument("file", help="JSON file path, or - for stdin")
 
+    # meta entity group (WL#486): set / ls / rm for the history-preserving typed-log meta
+    # fields (goal/summary/overview/top5). Distinct from props (prop = static single-value).
+    me = sub.add_parser("meta",
+        help="meta-field CRUD: set / ls / rm — history-preserving typed logs (goal/summary/overview/top5)",
+        description="Meta-field CRUD — the metric-style entity group for the four history-preserving typed-log fields (goal/summary/overview/top5; each edit appends, latest = current). Distinct from props (prop = static single-value, overwrite). Shortcuts onto this group: `wl set <node> <field>` (= meta set), `wl goal` / `wl recap` (today's goal/summary).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Shortcuts (same typed-log store):
+  wl set <node> goal "..."     = wl meta set <node> goal "..."  (key-routed; props go to prop set)
+  wl unset <node> goal         = wl meta rm <node> goal
+  wl goal "..."  / wl recap "..."   today's day-node goal / summary (auto-target today)
+
+Common examples:
+  wl meta set 9 overview "this week: ship X"   # week node's overview
+  wl meta set 12 top5 "1. … 2. …"              # month node's Top5
+  wl meta ls 3                                  # show #3's current meta fields
+  wl meta rm 3 goal                             # clear a meta field (reversible)""")
+    _mesub = me.add_subparsers(dest="meta_sub")
+    _mset = _mesub.add_parser("set", help="set/append a meta field (= the `wl set <node> <field>` shortcut)")
+    _mset.add_argument("id", type=int)
+    _mset.add_argument("field", choices=list(_META_LOG_TYPES))
+    _mset.add_argument("value")
+    _mesub.add_parser("ls", help="list a node's current meta fields").add_argument("id", type=int)
+    _mrm = _mesub.add_parser("rm", help="clear a meta field (= wl unset <node> <field>)")
+    _mrm.add_argument("id", type=int)
+    _mrm.add_argument("field", choices=list(_META_LOG_TYPES))
+
+    # alias command: manage ~/.config/worklog/aliases.ini (wired into the parser at startup)
+    al = sub.add_parser("alias",
+        help="manage command aliases: add / ls / rm (e.g. `wl alias add d day` → `wl d`)",
+        description="Manage command aliases stored in ~/.config/worklog/aliases.ini. An alias maps a short name to a wl command (`wl alias add d day` makes `wl d` == `wl day`). Aliases are wired into the parser at startup, so a change takes effect on the NEXT wl invocation.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+  wl alias add d day        # wl d == wl day (next run)
+  wl alias add c checkin    # wl c == wl checkin
+  wl alias ls               # list configured aliases
+  wl alias rm d             # remove an alias
+
+The target must be a real wl command, and an alias can't shadow an existing command.""")
+    _alsub = al.add_subparsers(dest="alias_sub")
+    _aadd = _alsub.add_parser("add", help="add/update an alias (name → command)")
+    _aadd.add_argument("name", help="the short alias to type")
+    _aadd.add_argument("target", help="the wl command it expands to")
+    _alsub.add_parser("ls", help="list configured aliases")
+    _alsub.add_parser("rm", help="remove an alias").add_argument("name", help="alias name to remove")
+
     im = sub.add_parser("import",
         help="bulk load from JSON ({add:[...],update:[...]}; main AI integration path)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1465,6 +1515,8 @@ from .commands import (
     cmd_sched_group,
     cmd_dateinfo,
     cmd_date_group,
+    cmd_meta,
+    cmd_alias,
     cmd_changes,
     _bulk_status_change,
     cmd_summary,
@@ -1538,6 +1590,8 @@ HANDLERS = {
     "sched": cmd_sched_group,
     "dateinfo": cmd_dateinfo,
     "date": cmd_date_group,
+    "meta": cmd_meta,
+    "alias": cmd_alias,
     "import": cmd_import,
     "apply": cmd_apply,
     "find": cmd_find,
