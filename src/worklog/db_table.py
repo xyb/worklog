@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import re
 
+from . import timeutil as _tu
+
 # a bare identifier, optionally qualified as `table.col`
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
 
@@ -85,11 +87,14 @@ def clause(**conds):
     return _clause(conds)
 
 
-def _where(conds: dict):
-    """Build a `WHERE …` fragment + bound params from a kwargs dict. ("", []) when
-    empty. Key `col` → `col = ?`; `col__op` → operator; `col__in=[…]`; `col=None`
-    / `col__ne=None` → `IS NULL` / `IS NOT NULL`."""
+def _where(conds: dict, *, alive: bool = True):
+    """Build a `WHERE …` fragment + bound params from a kwargs dict. Key `col` →
+    `col = ?`; `col__op` → operator; `col__in=[…]`; `col=None` / `col__ne=None` →
+    `IS NULL` / `IS NOT NULL`. When `alive` (the default), a `deleted_at IS NULL`
+    tombstone filter is ANDed on so reads skip soft-deleted rows (WL#501)."""
     frags, params = _clause(conds)
+    if alive:
+        frags = frags + ["deleted_at IS NULL"]
     if not frags:
         return "", []
     return " WHERE " + " AND ".join(frags), params
@@ -128,23 +133,36 @@ def update(con, table, row_id, changes: dict) -> int:
 
 
 def delete(con, table, **conds) -> int:
-    """DELETE rows matching the kwargs filter; return rowcount. No commit. Refuses
-    an unconditional whole-table delete. (worklog prefers soft-delete / status
-    over DELETE for nodes — WL#501 — but removing a tag / link / prop row is a
-    legitimate delete.)"""
+    """Soft-delete (WL#501): stamp `deleted_at` on the live rows matching the kwargs
+    filter, instead of removing them; return the number tombstoned. Idempotent — a
+    row already tombstoned isn't re-stamped. Reads (query/get/exists/count) skip
+    tombstoned rows, so this looks like a delete but is reversible (clear `deleted_at`
+    via `update`). No commit. Refuses an unconditional whole-table soft-delete.
+    For a genuine, irreversible removal use `purge()`."""
     _ident(table)
-    where, params = _where(conds)
-    if not where:
-        raise ValueError("delete: refusing to delete a whole table (give conditions)")
+    if not conds:
+        raise ValueError("delete: refusing to soft-delete a whole table (give conditions)")
+    where, params = _where(conds, alive=True)  # only live rows; never re-stamp a tombstone
+    return con.execute(f"UPDATE {table} SET deleted_at = ?{where}", [_tu.utc_now(), *params]).rowcount
+
+
+def purge(con, table, **conds) -> int:
+    """Hard `DELETE` that bypasses the tombstone — for migrations / tests / a genuine
+    irreversible purge. Normal removal goes through `delete()` (soft). Return rowcount;
+    refuses an unconditional whole-table delete. No commit."""
+    _ident(table)
+    if not conds:
+        raise ValueError("purge: refusing to delete a whole table (give conditions)")
+    where, params = _where(conds, alive=False)
     return con.execute(f"DELETE FROM {table}{where}", params).rowcount
 
 
-def query(con, table, *, cols="*", order=None, limit=None, **conds):
+def query(con, table, *, cols="*", order=None, limit=None, include_deleted=False, **conds):
     """SELECT rows from one table matching the kwargs filter; return list[Row].
-    `cols` / `order` are raw SQL expressions (code-controlled, e.g. "COUNT(*) AS n"
-    / "priority NULLS LAST, id")."""
+    Skips soft-deleted rows unless `include_deleted=True` (WL#501). `cols` / `order`
+    are raw SQL expressions (code-controlled, e.g. "COUNT(*) AS n" / "priority NULLS LAST, id")."""
     _ident(table)
-    where, params = _where(conds)
+    where, params = _where(conds, alive=not include_deleted)
     sql = f"SELECT {cols} FROM {table}{where}"
     if order:
         sql += f" ORDER BY {order}"
@@ -153,22 +171,23 @@ def query(con, table, *, cols="*", order=None, limit=None, **conds):
     return con.execute(sql, params).fetchall()
 
 
-def query_one(con, table, **conds):
+def query_one(con, table, *, include_deleted=False, **conds):
     """First matching row (LIMIT 1), or None."""
-    rows = query(con, table, limit=1, **conds)
+    rows = query(con, table, limit=1, include_deleted=include_deleted, **conds)
     return rows[0] if rows else None
 
 
-def get(con, table, row_id):
-    """The row with `id = row_id`, or None."""
-    return query_one(con, table, id=row_id)
+def get(con, table, row_id, *, include_deleted=False):
+    """The row with `id = row_id`, or None (None too if it's soft-deleted, unless
+    `include_deleted`)."""
+    return query_one(con, table, id=row_id, include_deleted=include_deleted)
 
 
-def exists(con, table, **conds) -> bool:
-    """True iff any row matches the filter."""
-    return query_one(con, table, cols="1", **conds) is not None
+def exists(con, table, *, include_deleted=False, **conds) -> bool:
+    """True iff any (live, unless include_deleted) row matches the filter."""
+    return query_one(con, table, cols="1", include_deleted=include_deleted, **conds) is not None
 
 
-def count(con, table, **conds) -> int:
-    """COUNT(*) of rows matching the filter."""
-    return query(con, table, cols="COUNT(*) AS n", **conds)[0]["n"]
+def count(con, table, *, include_deleted=False, **conds) -> int:
+    """COUNT(*) of (live, unless include_deleted) rows matching the filter."""
+    return query(con, table, cols="COUNT(*) AS n", include_deleted=include_deleted, **conds)[0]["n"]

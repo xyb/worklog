@@ -154,6 +154,30 @@ def nodes_with_tag(con, tags, *, kinds=None, cols="*", order=None):
     return _db.query(con, "node", cols=cols, order=order, **conds)
 
 
+# every spoke table references node_id; soft-deleting a node tombstones these too —
+# the app-level stand-in for the old FK ON DELETE CASCADE (foreign_keys is now OFF, WL#501).
+_NODE_SPOKES = ("log", "tag", "link", "prop", "sched", "clock", "metric")
+
+
+def soft_delete_node(con, nid):
+    """Soft-delete a node and everything hanging off it (log / tag / link / prop /
+    sched / clock / metric, all keyed by node_id) — the app-level replacement for the
+    old `ON DELETE CASCADE` now that FK enforcement is off. Tombstones, never removes;
+    reversible by clearing `deleted_at`. No commit. Returns the node rowcount."""
+    n = _db.delete(con, "node", id=nid)
+    for spoke in _NODE_SPOKES:
+        _db.delete(con, spoke, node_id=nid)
+    return n
+
+
+def soft_delete_log(con, log_id):
+    """Soft-delete a log and its metrics (the old `metric.log_id` CASCADE, now
+    app-level). Tombstones, never removes. No commit. Returns the log rowcount."""
+    n = _db.delete(con, "log", id=log_id)
+    _db.delete(con, "metric", log_id=log_id)
+    return n
+
+
 def make_node_filter(con, args):
     """Shared --tag / --kind / --status filter, used by ls/tree/day/logs/agenda so every
     list/view command filters the same way (one definition, DESIGN §12 single entry point).
@@ -215,7 +239,7 @@ def _has_checkin(con, node_id, day):
     This is the structured 'done today' signal (G1) — replaces the old, too-loose
     'did any log exist that day' heuristic, so a stray note no longer counts as done."""
     return con.execute(
-        f"SELECT 1 FROM metric WHERE node_id = ? AND tag = 'checkin' AND {_tu.local_day_sql('at')} = ? LIMIT 1",
+        f"SELECT 1 FROM metric WHERE node_id = ? AND tag = 'checkin' AND {_tu.local_day_sql('at')} = ? AND deleted_at IS NULL LIMIT 1",
         (node_id, day),
     ).fetchone() is not None
 
@@ -232,12 +256,12 @@ def _node_clock_min(con, nid, day=None):
     # 1. structured clock intervals (precise, from wl start/stop/spent)
     if day:
         secs = con.execute(
-            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ?",
+            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ? AND deleted_at IS NULL",
             (nid, day),
         ).fetchone()["s"]
     else:
         secs = con.execute(
-            "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ?", (nid,)
+            "SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND deleted_at IS NULL", (nid,)
         ).fetchone()["s"]
     clock = int((secs or 0) / 60)
 
@@ -248,12 +272,12 @@ def _node_clock_min(con, nid, day=None):
     if day:
         rows = list(con.execute(
             f"SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND tag IS NULL "
-            f"AND {_tu.local_day_sql('logged_at')} = ? ORDER BY logged_at",
+            f"AND {_tu.local_day_sql('logged_at')} = ? AND deleted_at IS NULL ORDER BY logged_at",
             (nid, day),
         ))
     else:
         rows = list(con.execute(
-            "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND tag IS NULL ORDER BY logged_at",
+            "SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND tag IS NULL AND deleted_at IS NULL ORDER BY logged_at",
             (nid,),
         ))
     span = 0

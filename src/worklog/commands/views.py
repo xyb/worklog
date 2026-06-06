@@ -109,7 +109,7 @@ def cmd_tree(args, con):
             sys.exit(f"✗ node #{args.root} not found")
         roots = [root]
     else:
-        root_sql = "SELECT * FROM node WHERE parent_id IS NULL"
+        root_sql = "SELECT * FROM node WHERE parent_id IS NULL AND deleted_at IS NULL"
         params_root = []
         if not inc_cancel:
             frag, p = _status_filter_sql(include_canceled=False)
@@ -163,7 +163,7 @@ def cmd_day(args, con):
             if at:
                 newer = con.execute(
                     f"SELECT COUNT(*) FROM log WHERE logged_at > ? "
-                    f"AND {_tu.local_day_sql('logged_at')} = ? AND tag IS NULL",
+                    f"AND {_tu.local_day_sql('logged_at')} = ? AND tag IS NULL AND deleted_at IS NULL",
                     (at, target),
                 ).fetchone()[0]
                 if newer:
@@ -188,6 +188,7 @@ def cmd_day(args, con):
             FROM log JOIN node ON log.node_id = node.id
             WHERE {_tu.local_day_sql('log.logged_at')} = ?
               AND node.kind IN ('task', 'habit', 'meetlog')
+              AND log.deleted_at IS NULL AND node.deleted_at IS NULL
               {cancel_sql}
             ORDER BY log.logged_at, log.node_id""",
         [target] + cparams,
@@ -201,7 +202,7 @@ def cmd_day(args, con):
     for nid in sched_ids:
         if nid not in items:
             nr = con.execute(
-                "SELECT id AS node_id, title, status, priority, kind FROM node WHERE id = ?", (nid,)
+                "SELECT id AS node_id, title, status, priority, kind FROM node WHERE id = ? AND deleted_at IS NULL", (nid,)
             ).fetchone()
             if nr and nr["kind"] in ("task", "habit", "meetlog"):
                 if not inc_cancel and nr["status"] == "CANCELED":
@@ -220,7 +221,7 @@ def cmd_day(args, con):
     if not items:
         # clock-only day: time was tracked (wl spent / start-stop) but nothing logged/planned
         clock_sec = con.execute(
-            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE {_tu.local_day_sql('end_at')} = ?",
+            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE {_tu.local_day_sql('end_at')} = ? AND deleted_at IS NULL",
             (target,),
         ).fetchone()["s"]
         if clock_sec:
@@ -263,14 +264,14 @@ def cmd_day(args, con):
             qm = ",".join("?" * len(ids))
             total_sec = con.execute(
                 f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock "
-                f"WHERE {_tu.local_day_sql('end_at')} = ? AND node_id IN ({qm})",
+                f"WHERE {_tu.local_day_sql('end_at')} = ? AND node_id IN ({qm}) AND deleted_at IS NULL",
                 [target] + ids,
             ).fetchone()["s"]
         else:
             total_sec = 0
     else:
         total_sec = con.execute(
-            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE {_tu.local_day_sql('end_at')} = ?",
+            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE {_tu.local_day_sql('end_at')} = ? AND deleted_at IS NULL",
             (target,),
         ).fetchone()["s"]
     total_min = int((total_sec or 0) / 60)
@@ -305,9 +306,7 @@ def _tree_by(con, by, nf=None):
                 out(_node_line(con, n))
 
     elif by == "project":
-        projects = con.execute(
-            f"SELECT * FROM node WHERE kind = 'project' {_ORDER_BY_PRI_ID}"
-        ).fetchall()
+        projects = _db.query(con, "node", kind="project", order="priority NULLS LAST, id")
         if not projects:
             print("(no project nodes)")
             return
@@ -338,9 +337,7 @@ def _tree_by(con, by, nf=None):
             if not ids:
                 out("    " + _c("(no linked tasks)", "meta"))
         # orphans: task/meetlog/habit not attached to any project
-        orphans = con.execute(
-            f"SELECT * FROM node WHERE kind IN ('task','meetlog','habit') {_ORDER_BY_PRI_ID}"
-        ).fetchall()
+        orphans = _db.query(con, "node", kind__in=("task", "meetlog", "habit"), order="priority NULLS LAST, id")
         orphans = [n for n in orphans if n["id"] not in claimed]
         if nf:
             orphans = [n for n in orphans if nf(n["id"])]
@@ -363,7 +360,7 @@ def _tree_by(con, by, nf=None):
 
 def _tree_children(con, node, include_canceled=False):
     """Children ordering: time-kinds ascending by title (date); others by priority -> id. CANCELED excluded by default."""
-    sql = "SELECT * FROM node WHERE parent_id = ?"
+    sql = "SELECT * FROM node WHERE parent_id = ? AND deleted_at IS NULL"
     sql_params = [node["id"]]
     frag, p = _status_filter_sql(include_canceled=include_canceled)
     if frag:
@@ -402,7 +399,7 @@ def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log
         universe = [root_node["id"]] + _collect_descendants(con, root_node["id"])
         subtree = set(universe)
     else:
-        universe = [r["id"] for r in con.execute("SELECT id FROM node")]
+        universe = [r["id"] for r in _db.query(con, "node", cols="id")]
         subtree = None
     keep = set()
     for nid in universe:
@@ -418,8 +415,7 @@ def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log
     if root_node is not None:
         roots = [root_node]
     else:
-        roots = [r for r in con.execute("SELECT * FROM node WHERE parent_id IS NULL")
-                 if r["id"] in keep]
+        roots = [r for r in _db.query(con, "node", parent_id=None) if r["id"] in keep]
     for root in roots:
         _print_kept_subtree(con, root, 0, keep, include_canceled=include_canceled,
                             log_tail=log_tail, full=full)
@@ -451,6 +447,7 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
             FROM log JOIN node ON log.node_id = node.id
             WHERE {_tu.local_day_sql('log.logged_at')} = ?
               AND node.kind IN ('task', 'habit', 'meetlog')
+              AND log.deleted_at IS NULL AND node.deleted_at IS NULL
               {cancel_sql}
             ORDER BY log.node_id""",
         [target] + cparams,
@@ -486,7 +483,7 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
             # fold that day's datapoints (skip checkin marker — reflected by [x]); elide >5
             indent = "  " * (depth + 2)
             mrows = [m for m in con.execute(
-                "SELECT tag, value_num, value_text, unit FROM metric WHERE node_id = ? "
+                "SELECT tag, value_num, value_text, unit FROM metric WHERE node_id = ? AND deleted_at IS NULL "
                 f"AND {_tu.local_day_sql('at')} = ? ORDER BY id", (nid, target)) if m["tag"] != "checkin"]
             for m in mrows[:5]:
                 out(indent + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta"))
@@ -595,7 +592,7 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 # it's already reflected by the [x]); over-count elided
                 if day:
                     mrows = [m for m in con.execute(
-                        f"SELECT tag, value_num, value_text, unit FROM metric WHERE node_id = ? "
+                        f"SELECT tag, value_num, value_text, unit FROM metric WHERE node_id = ? AND deleted_at IS NULL "
                         f"AND {_tu.local_day_sql('at')} = ? ORDER BY id", (nid, day)) if m["tag"] != "checkin"]
                     for m in mrows[:5]:
                         out("        " + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta"))
@@ -621,7 +618,7 @@ def _habit_month_progress(con, nid, day):
     y, m, d = (int(x) for x in day.split("-"))
     month = day[:7]
     done = con.execute(
-        f"SELECT COUNT(DISTINCT {_tu.local_day_sql('at')}) FROM metric WHERE node_id = ? AND tag = 'checkin' "
+        f"SELECT COUNT(DISTINCT {_tu.local_day_sql('at')}) FROM metric WHERE node_id = ? AND tag = 'checkin' AND deleted_at IS NULL "
         f"AND {_tu.local_month_sql('at')} = ? AND {_tu.local_day_sql('at')} <= ?", (nid, month, day),
     ).fetchone()[0]
     expected = 0

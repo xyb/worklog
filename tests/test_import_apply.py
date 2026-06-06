@@ -152,7 +152,7 @@ class TestApply:
         assert n["status"] == "DONE"
         assert n["title"] == "original title"      # untouched
         assert n["priority"] == "A"        # untouched
-        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1")}
+        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1 AND deleted_at IS NULL")}
         assert tags == {"keep1", "keep2"}  # not wiped
         assert con.execute("SELECT value FROM prop WHERE node_id=1 AND key='owner'").fetchone()["value"] == "xyb"
         assert con.execute("SELECT 1 FROM link WHERE node_id=1 AND vault_doc='some doc'").fetchone()  # not wiped
@@ -167,7 +167,7 @@ class TestApply:
         cli("add", "t", "-k", "task", "-t", "old1,old2")
         self._apply(cli, "~ #1\n  +tag new\n  -tag old1\n")
         con = tmp_db.db_connect()
-        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1")}
+        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1 AND deleted_at IS NULL")}
         assert tags == {"old2", "new"}
 
     def test_apply_set_remove_prop(self, cli, tmp_db):
@@ -175,7 +175,7 @@ class TestApply:
         cli("set", "1", "a", "1")
         self._apply(cli, "~ #1\n  prop b=2\n  -prop a\n")
         con = tmp_db.db_connect()
-        props = {r["key"]: r["value"] for r in con.execute("SELECT key,value FROM prop WHERE node_id=1")}
+        props = {r["key"]: r["value"] for r in con.execute("SELECT key,value FROM prop WHERE node_id=1 AND deleted_at IS NULL")}
         assert props == {"b": "2"}
 
     def test_apply_move_parent(self, cli, tmp_db):
@@ -235,7 +235,7 @@ class TestApply:
         code, out, _ = self._apply(cli, "- #1 delete me\n")
         assert "deleted 1" in out
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM node WHERE id=1").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM node WHERE id=1 AND deleted_at IS NULL").fetchone()[0] == 0
 
     def test_apply_subfields(self, cli, tmp_db):
         code, out, _ = self._apply(cli,
@@ -314,7 +314,7 @@ class TestApply:
         con = tmp_db.db_connect()
         n = con.execute("SELECT status FROM node WHERE id=1").fetchone()
         assert n["status"] == "DONE"
-        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1")}
+        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1 AND deleted_at IS NULL")}
         assert tags == {"urgent"}
 
     def test_apply_inline_bad_priority_rejected(self, cli, tmp_db):
@@ -448,7 +448,7 @@ class TestApplyExtended:
         # should actually be deleted
         from worklog import cli as wl
         con = wl.db_connect()
-        assert not con.execute("SELECT 1 FROM node WHERE id = 1").fetchone()
+        assert not con.execute("SELECT 1 FROM node WHERE id = 1 AND deleted_at IS NULL").fetchone()
 
     def test_apply_add_with_log_sub(self, cli, tmp_path):
         p = tmp_path / "add.txt"
@@ -483,7 +483,7 @@ class TestApplyExtra:
         from worklog import cli as wl
         con = wl.db_connect()
         # both parent and child are gone
-        assert not con.execute("SELECT 1 FROM node WHERE id IN (1, 2)").fetchone()
+        assert not con.execute("SELECT 1 FROM node WHERE id IN (1, 2) AND deleted_at IS NULL").fetchone()
 
     def test_apply_update_with_log_sub_via_fieldop(self, cli, tmp_path):
         """~ #id followed by '+log msg' field op → _exec_update log branch"""

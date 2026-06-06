@@ -70,10 +70,10 @@ class TestMetricAdd:
         self._node(cli)
         cli("log", "1", "morning reading")  # log #1
         con = tmp_db.db_connect()
-        before = con.execute("SELECT COUNT(*) FROM log").fetchone()[0]
+        before = con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0]
         cli("metric", "add", "1", "glucose", "6.1", "--on-log", "1")
         con = tmp_db.db_connect()
-        after = con.execute("SELECT COUNT(*) FROM log").fetchone()[0]
+        after = con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0]
         assert after == before  # no carrier log created
         assert con.execute("SELECT log_id FROM metric").fetchone()["log_id"] == 1
 
@@ -243,13 +243,13 @@ class TestMetricRm:
         code, out, _ = cli("metric", "rm", "1")
         assert code == 0 and "deleted metric #M1" in out
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM metric").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM metric WHERE deleted_at IS NULL").fetchone()[0] == 1
 
     def test_rm_multiple(self, cli, tmp_db):
         self._two(cli)
         cli("metric", "rm", "1", "2")
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM metric").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM metric WHERE deleted_at IS NULL").fetchone()[0] == 0
 
     def test_rm_nonexistent_is_not_an_error(self, cli):
         self._two(cli)
@@ -274,11 +274,11 @@ class TestMetricReviewFixes:
         self._node(cli)
         cli("metric", "add", "1", "checkin")  # auto carrier, empty body
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM log").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0] == 1
         code, out, _ = cli("metric", "rm", "1")
         assert "carrier log" in out
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM log").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0] == 0
 
     def test_rm_keeps_user_log_when_on_log(self, cli, tmp_db):
         self._node(cli)
@@ -286,14 +286,14 @@ class TestMetricReviewFixes:
         cli("metric", "add", "1", "glucose", "5.4", "--on-log", "1")
         cli("metric", "rm", "1")
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM log").fetchone()[0] == 1  # user log survives
+        assert con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0] == 1  # user log survives
 
     def test_rm_keeps_carrier_with_body(self, cli, tmp_db):
         self._node(cli)
         cli("metric", "add", "1", "glucose", "5.4", "--body", "after lunch")
         cli("metric", "rm", "1")
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM log").fetchone()[0] == 1  # non-empty carrier kept
+        assert con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0] == 1  # non-empty carrier kept
 
     def test_on_log_inherits_log_time(self, cli, tmp_db):
         self._node(cli)
@@ -381,7 +381,7 @@ class TestMetricHelperParams:
         assert rows[1]["tag"] == "mood" and rows[1]["value_text"] == "good"
         # both hang off the same (single) log
         assert rows[0]["log_id"] == rows[1]["log_id"]
-        assert con.execute("SELECT COUNT(*) FROM log").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0] == 1
 
     def test_log_metric_inherits_log_timestamp(self, cli, tmp_db):
         cli("add", "h", "-k", "habit")
@@ -407,7 +407,7 @@ class TestMetricHelperParams:
         cli("add", "run", "-k", "task", "--log", "5k done", "--metric", "distance 5 km", "--metric", "checkin")
         con = tmp_db.db_connect()
         # only one log (the --log one), both metrics on it
-        assert con.execute("SELECT COUNT(*) FROM log").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0] == 1
         rows = con.execute("SELECT * FROM metric ORDER BY id").fetchall()
         assert len(rows) == 2 and rows[0]["log_id"] == rows[1]["log_id"]
         assert rows[1]["tag"] == "checkin" and rows[1]["value_num"] == 1
@@ -502,7 +502,7 @@ class TestMetricImport:
             ]}
         ]})
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM metric").fetchone()[0] == 3
+        assert con.execute("SELECT COUNT(*) FROM metric WHERE deleted_at IS NULL").fetchone()[0] == 3
         # one carrier log for the batch
         assert con.execute("SELECT COUNT(DISTINCT log_id) FROM metric").fetchone()[0] == 1
         assert con.execute("SELECT COUNT(*) FROM log WHERE node_id = 1").fetchone()[0] == 1

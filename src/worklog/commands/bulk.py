@@ -36,6 +36,7 @@ from ..queries import (
     _ancestors_chain,
     _check_ids_exist,
     _collect_descendants,
+    soft_delete_node,
     _has_tag,
     _insert_log,
     _node_bucket,
@@ -180,10 +181,12 @@ def cmd_apply(args, con):
                 stack[depth] = f["id"]
                 continue
             if pfx == "-":
-                # recursive subtree delete: node self-ref is ON DELETE SET NULL, only deleting the parent would orphan children, so we must explicitly collect descendants
+                # recursive subtree soft-delete (WL#501): tombstone the node + each
+                # descendant (and, via soft_delete_node, their spoke rows) — reversible,
+                # no cascade needed (FK is off). _collect_descendants returns live nodes.
                 ids = [f["id"]] + _collect_descendants(con, f["id"])
                 for did in ids:
-                    _db.delete(con, "node", id=did)
+                    soft_delete_node(con, did)
                 counts["delete"] += len(ids)
                 continue
             # pfx == "+": add new node

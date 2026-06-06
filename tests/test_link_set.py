@@ -9,7 +9,7 @@ class TestLinkAndSet:
         cli("link", "1", "Dev tooling")
         cli("link", "1", "Q2 metric rollup")
         con = tmp_db.db_connect()
-        docs = {r[0] for r in con.execute("SELECT vault_doc FROM link WHERE node_id=1")}
+        docs = {r[0] for r in con.execute("SELECT vault_doc FROM link WHERE node_id=1 AND deleted_at IS NULL")}
         assert docs == {"Dev tooling", "Q2 metric rollup"}
 
     def test_link_idempotent(self, cli, tmp_db):
@@ -26,7 +26,7 @@ class TestLinkAndSet:
         cli("link", "1", "Doc B")
         cli("unlink", "1", "Doc A")
         con = tmp_db.db_connect()
-        docs = {r[0] for r in con.execute("SELECT vault_doc FROM link WHERE node_id=1")}
+        docs = {r[0] for r in con.execute("SELECT vault_doc FROM link WHERE node_id=1 AND deleted_at IS NULL")}
         assert docs == {"Doc B"}  # only Doc A removed
 
     def test_unlink_absent_link_is_noop_notice(self, cli):
@@ -42,7 +42,7 @@ class TestLinkAndSet:
         cli("link", "2", "shared")
         cli("unlink", "1", "2", "shared")
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM link WHERE vault_doc='shared'").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM link WHERE vault_doc='shared' AND deleted_at IS NULL").fetchone()[0] == 0
 
     def test_set_property(self, cli, tmp_db):
         cli("add", "task")
@@ -94,14 +94,14 @@ class TestCmdTag:
         cli("add", "t1", "-k", "task", "-t", "work,planned")
         cli("tag", "1", "+urgent", "-planned")
         con = tmp_db.db_connect()
-        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1")}
+        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1 AND deleted_at IS NULL")}
         assert tags == {"work", "urgent"}  # planned removed, urgent added, work kept
 
     def test_tag_bare_word_adds(self, cli, tmp_db):
         cli("add", "t1", "-k", "task")
         cli("tag", "1", "personal")  # bare = add
         con = tmp_db.db_connect()
-        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1")}
+        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1 AND deleted_at IS NULL")}
         assert "personal" in tags
 
     def test_tag_no_ops_lists(self, cli):

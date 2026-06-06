@@ -16,11 +16,14 @@ from pathlib import Path
 
 def db_connect(db_path: Path) -> sqlite3.Connection:
     """Open a connection (creating parent dirs if missing). Row factory =
-    sqlite3.Row, foreign-key enforcement enabled."""
+    sqlite3.Row. Foreign-key enforcement is intentionally left OFF (WL#501): the
+    tables are decoupled and removal is soft (a `deleted_at` tombstone), so there's
+    no cascade to enforce — the app keeps consistency (queries.soft_delete_*). The
+    schema keeps its REFERENCES / ON DELETE clauses as documentation; they're inert."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
-    con.execute("PRAGMA foreign_keys = ON")
+    con.execute("PRAGMA foreign_keys = OFF")
     return con
 
 

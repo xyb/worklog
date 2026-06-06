@@ -122,6 +122,7 @@ def cmd_ls(args, con):
     if args.parent is not None:
         simple["parent_id"] = args.parent
     where, params = _db.clause(**simple)
+    where.append("deleted_at IS NULL")  # hide soft-deleted nodes (WL#501)
     if not args.status and not args.all:
         # default: list non-DONE only (DONE hidden); --show-canceled decides CANCELED visibility separately
         frag, p = _status_filter_sql(inc_cancel, hide_done=True)
@@ -129,18 +130,18 @@ def cmd_ls(args, con):
             where.append(frag)
             params.extend(p)
     if getattr(args, "unscheduled", False):
-        where.append("id NOT IN (SELECT node_id FROM sched)")
+        where.append("id NOT IN (SELECT node_id FROM sched WHERE deleted_at IS NULL)")
     if getattr(args, "recent", None):
         from datetime import date, timedelta
         cutoff = (_tu.today_date() - timedelta(days=args.recent)).isoformat()
         where.append(f"({_tu.local_day_sql('created_at')} >= ? OR {_tu.local_day_sql('closed_at')} >= ? "
-                     f"OR id IN (SELECT node_id FROM log WHERE {_tu.local_day_sql('logged_at')} >= ?))")
+                     f"OR id IN (SELECT node_id FROM log WHERE {_tu.local_day_sql('logged_at')} >= ? AND deleted_at IS NULL))")
         params.extend([cutoff, cutoff, cutoff])
 
     sort_key = getattr(args, "sort", "pri") or "pri"
     if sort_key == "updated":
         # subquery: each node's latest log time; nodes with no log fall back to created_at
-        sql = ("SELECT n.*, COALESCE((SELECT MAX(logged_at) FROM log WHERE node_id = n.id), n.created_at) "
+        sql = ("SELECT n.*, COALESCE((SELECT MAX(logged_at) FROM log WHERE node_id = n.id AND deleted_at IS NULL), n.created_at) "
                "AS _last FROM node n")
         order_by = "_last DESC, id DESC"
     else:
@@ -256,7 +257,7 @@ def cmd_find(args, con):
             tg = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid, tag__like=like)]
             out("    " + _c("tag:", "meta") + " " + _c(", ".join(tg), "tag"))
         if "prop" in where:
-            for r in con.execute("SELECT key,value FROM prop WHERE node_id=? AND (key LIKE ? OR value LIKE ?)", (nid, like, like)):
+            for r in con.execute("SELECT key,value FROM prop WHERE node_id=? AND (key LIKE ? OR value LIKE ?) AND deleted_at IS NULL", (nid, like, like)):
                 out("    " + _c("prop:", "meta") + " " + _c(f"{r['key']}={r['value']}"))
         if "link" in where:
             for r in _db.query(con, "link", cols="vault_doc", node_id=nid, vault_doc__like=like):
@@ -288,9 +289,7 @@ def cmd_focus(args, con):
         _print_day_activity(con, n, depth=0, max_depth=args.depth)
         children = []  # for the related-section exclude set below
     else:
-        children = con.execute(
-            f"SELECT * FROM node WHERE parent_id = ? {_ORDER_BY_PRI_ID}", (args.id,)
-        ).fetchall()
+        children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
         if children:
             out(_c("downstream:", "meta"))
             for c in children:
@@ -411,7 +410,7 @@ def cmd_projects(args, con):
         since = resolved_since
     else:
         since = None
-    where = "WHERE kind = 'project'"
+    where = "WHERE kind = 'project' AND deleted_at IS NULL"
     proj_params = []
     if not args.all:
         frag, p = _status_filter_sql(inc_cancel, hide_done=True)
@@ -435,7 +434,7 @@ def cmd_projects(args, con):
         if ids:
             qm = ",".join("?" * len(ids))
             for r in con.execute(
-                f"SELECT status, COUNT(*) c FROM node WHERE id IN ({qm}) GROUP BY status",
+                f"SELECT status, COUNT(*) c FROM node WHERE id IN ({qm}) AND deleted_at IS NULL GROUP BY status",
                 list(ids),
             ):
                 c = r["c"]
@@ -487,9 +486,7 @@ def cmd_changes(args, con):
         return bool(ts) and since <= _tu.local_day_of(ts) <= until
 
     out(_c(f"📅 {since} ~ {until} change summary", "header"))
-    projects = con.execute(
-        f"SELECT * FROM node WHERE kind = 'project' {_ORDER_BY_PRI_ID}"
-    ).fetchall()
+    projects = _db.query(con, "node", kind="project", order="priority NULLS LAST, id")
 
     any_output = False
     for proj in projects:
@@ -503,7 +500,7 @@ def cmd_changes(args, con):
             elif in_win(n["created_at"]):
                 added_open.append(n)
             has_log = con.execute(
-                f"SELECT 1 FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} BETWEEN ? AND ? LIMIT 1",
+                f"SELECT 1 FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} BETWEEN ? AND ? AND deleted_at IS NULL LIMIT 1",
                 (mid, since, until),
             ).fetchone()
             if has_log:
@@ -545,7 +542,7 @@ def cmd_summary(args, con):
         # ts is a UTC *_at instant -> compare on its local calendar day
         return bool(ts) and since <= _tu.local_day_of(ts) <= until
 
-    sql = "SELECT * FROM node WHERE kind IN ('task','meetlog','habit')"
+    sql = "SELECT * FROM node WHERE kind IN ('task','meetlog','habit') AND deleted_at IS NULL"
     sm_params = []
     frag, p = _status_filter_sql(include_canceled=inc_cancel)
     if frag:
@@ -625,9 +622,7 @@ def cmd_summary(args, con):
                 _print_block(pd, pp)
     elif done_map or pend_map:
         out(_c("\n=== by project ===", "header"))
-        projects = con.execute(
-            f"SELECT * FROM node WHERE kind = 'project' {_ORDER_BY_PRI_ID}"
-        ).fetchall()
+        projects = _db.query(con, "node", kind="project", order="priority NULLS LAST, id")
         # by default dedup by task id: a task appearing in multiple projects is listed only in the first match;
         # --no-dedup restores the old behavior (task repeated in each project bucket).
         dedup = not getattr(args, "no_dedup", False)
@@ -703,6 +698,8 @@ def cmd_logs(args, con):
     if getattr(args, "until", None):
         where.append(f"{_tu.local_day_sql('logged_at')} <= ?")
         params.append(args.until)
+    where.append("log.deleted_at IS NULL")
+    where.append("node.deleted_at IS NULL")
     grouped = getattr(args, "group", "none") == "day"
     cols = "log.id, log.node_id, log.logged_at, log.body, node.title"
     if grouped:
@@ -867,10 +864,7 @@ def _show_one(args, con):
         out("  " + _c("links:", "meta") + "    " + _c(", ".join(f"[[{d}]]" for d in links)))
     # schedule (sched table): one-off dates + recurring rules. First-hand info for debugging
     # recurring tasks (e.g. why a task shows on multiple days); previously only visible via raw SQL.
-    sched_rows = con.execute(
-        "SELECT on_date, rrule FROM sched WHERE node_id = ? ORDER BY on_date NULLS LAST, rrule",
-        (args.id,),
-    ).fetchall()
+    sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id, order="on_date NULLS LAST, rrule")
     if sched_rows:
         dates = [r["on_date"] for r in sched_rows if r["on_date"]]
         rules = [r["rrule"] for r in sched_rows if r["rrule"]]
@@ -881,9 +875,7 @@ def _show_one(args, con):
             parts.append("on " + ", ".join(dates))
         out("  " + _c("schedule:", "meta") + " " + _c("; ".join(parts), "planned"))
     # children (direct only)
-    children = con.execute(
-        f"SELECT * FROM node WHERE parent_id = ? {_ORDER_BY_PRI_ID}", (args.id,)
-    ).fetchall()
+    children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
     if children:
         out("  " + _c(f"children ({len(children)}):", "header"))
         for c in children:
@@ -908,8 +900,7 @@ def _show_one(args, con):
     if n["closed_at"]:
         events.append((n["closed_at"], f"✓ {n['status'] or 'closed'}", "", None, ()))
     for r in logs:
-        mrows = tuple(con.execute(
-            "SELECT tag, value_num, value_text, unit FROM metric WHERE log_id = ? ORDER BY id", (r["id"],)))
+        mrows = tuple(_db.query(con, "metric", cols="tag, value_num, value_text, unit", log_id=r["id"], order="id"))
         # an empty type='metric' carrier log shows its datapoints directly (no blank ✎ log line)
         if r["tag"] == "metric" and not (r["body"] or "").strip() and mrows:
             events.append((r["logged_at"], "📊 metric", _mline(mrows[0]), None, mrows[1:]))
@@ -918,9 +909,7 @@ def _show_one(args, con):
             head = _truncate_log_body(r["body"], indent_cols=32, full=_log_full(args))
             events.append((r["logged_at"], "✎ log", head, r["id"], mrows))
     # structured clock intervals (start→end, from the clock table)
-    for c in con.execute(
-        "SELECT start_at, end_at, elapsed_sec FROM clock WHERE node_id = ? ORDER BY id", (args.id,)
-    ):
+    for c in _db.query(con, "clock", cols="start_at, end_at, elapsed_sec", node_id=args.id, order="id"):
         if c["end_at"]:
             extra = f"{_tu.utc_to_local(c['start_at'])[11:16]}→{_tu.utc_to_local(c['end_at'])[11:16]} ({(c['elapsed_sec'] or 0) // 60}min)"
         else:

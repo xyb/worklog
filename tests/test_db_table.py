@@ -11,7 +11,7 @@ def con():
     c = sqlite3.connect(":memory:")
     c.row_factory = sqlite3.Row
     c.execute("CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, "
-              "name TEXT, kind TEXT, n INTEGER, parent INTEGER)")
+              "name TEXT, kind TEXT, n INTEGER, parent INTEGER, deleted_at TEXT)")
     return c
 
 
@@ -82,11 +82,44 @@ class TestDelete:
         _seed(con, [{"name": "a", "kind": "x"}, {"name": "b", "kind": "x"}, {"name": "c", "kind": "y"}])
         rc = dt.delete(con, "t", kind="x")
         assert rc == 2
-        assert dt.count(con, "t") == 1
+        assert dt.count(con, "t") == 1  # the two kind=x rows are tombstoned (hidden from reads)
 
     def test_delete_without_conds_refused(self, con):
         with pytest.raises(ValueError):
             dt.delete(con, "t")
+
+    def test_delete_is_soft_and_reversible(self, con):
+        dt.insert(con, "t", {"name": "a", "kind": "x"})
+        dt.delete(con, "t", id=1)
+        # row still physically present, just tombstoned — invisible to reads…
+        assert dt.get(con, "t", 1) is None
+        assert dt.get(con, "t", 1, include_deleted=True)["name"] == "a"
+        assert con.execute("SELECT deleted_at FROM t WHERE id=1").fetchone()["deleted_at"] is not None
+        # …and reversible by clearing the tombstone
+        dt.update(con, "t", 1, {"deleted_at": None})
+        assert dt.get(con, "t", 1)["name"] == "a"
+
+    def test_delete_idempotent_only_stamps_live(self, con):
+        dt.insert(con, "t", {"name": "a"})
+        assert dt.delete(con, "t", id=1) == 1
+        assert dt.delete(con, "t", id=1) == 0  # already tombstoned → not re-stamped
+
+    def test_purge_hard_deletes(self, con):
+        dt.insert(con, "t", {"name": "a"})
+        dt.delete(con, "t", id=1)             # soft
+        assert dt.purge(con, "t", id=1) == 1  # purge removes the tombstoned row for real
+        assert con.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 0
+
+    def test_purge_without_conds_refused(self, con):
+        with pytest.raises(ValueError):
+            dt.purge(con, "t")
+
+    def test_include_deleted_in_count_and_query(self, con):
+        _seed(con, [{"name": "a"}, {"name": "b"}])
+        dt.delete(con, "t", id=1)
+        assert dt.count(con, "t") == 1
+        assert dt.count(con, "t", include_deleted=True) == 2
+        assert len(dt.query(con, "t", include_deleted=True)) == 2
 
 
 class TestQueryFilters:

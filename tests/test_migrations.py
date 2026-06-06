@@ -135,6 +135,7 @@ class TestMetricSchema:
         assert cols == {
             "id", "log_id", "node_id", "tag",
             "value_num", "value_text", "unit", "note", "at",
+            "deleted_at",  # soft-delete tombstone (migration 0008, WL#501)
         }
 
     def test_log_has_tag_column(self, cli, tmp_db):
@@ -239,9 +240,10 @@ class TestMetricSchema:
         con.commit()
         assert con.execute("SELECT node_id FROM metric").fetchone()["node_id"] == 2
 
-    def test_metric_cascades_when_node_deleted(self, cli, tmp_db):
-        """No direct node FK, but deleting a node still cleans up its metrics
-        via the log_id → log → node cascade chain."""
+    def test_soft_delete_node_tombstones_its_metrics(self, cli, tmp_db):
+        """FK enforcement is off (WL#501); soft-deleting a node tombstones its metrics
+        via the app-level cascade (queries.soft_delete_node), not an FK CASCADE."""
+        from worklog import queries as q
         cli("add", "t", "-k", "task")
         cli("log", "1", "carrier")
         con = tmp_db.db_connect()
@@ -251,12 +253,16 @@ class TestMetricSchema:
             (log_id,),
         )
         con.commit()
-        con.execute("DELETE FROM node WHERE id = 1")
+        # a raw node DELETE no longer cascades (FK off) — the app does it as a soft-delete
+        q.soft_delete_node(con, 1)
         con.commit()
-        assert con.execute("SELECT COUNT(*) FROM metric").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM metric WHERE deleted_at IS NULL").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM metric").fetchone()[0] == 1  # tombstoned, not removed
 
-    def test_metric_cascades_when_log_deleted(self, cli, tmp_db):
-        """Deleting the carrier log removes its metrics (ON DELETE CASCADE)."""
+    def test_soft_delete_log_tombstones_its_metrics(self, cli, tmp_db):
+        """Soft-deleting a carrier log tombstones its metrics (the old metric.log_id
+        CASCADE, now app-level via queries.soft_delete_log)."""
+        from worklog import queries as q
         cli("add", "t", "-k", "task")
         cli("log", "1", "carrier")
         con = tmp_db.db_connect()
@@ -266,10 +272,10 @@ class TestMetricSchema:
             (log_id,),
         )
         con.commit()
-        assert con.execute("SELECT COUNT(*) FROM metric").fetchone()[0] == 1
-        con.execute("DELETE FROM log WHERE id = ?", (log_id,))
+        assert con.execute("SELECT COUNT(*) FROM metric WHERE deleted_at IS NULL").fetchone()[0] == 1
+        q.soft_delete_log(con, log_id)
         con.commit()
-        assert con.execute("SELECT COUNT(*) FROM metric").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM metric WHERE deleted_at IS NULL").fetchone()[0] == 0
 
     def test_metric_allows_multiple_per_day(self, cli, tmp_db):
         """No UNIQUE constraint: a node can carry many metrics (e.g. CGM ~288/day)."""

@@ -303,9 +303,7 @@ def cmd_sched(args, con):
     if not args.when and not args.recur:
         # if multiple ids, show schedule for each (caters to single-id scenario)
         for nid in ids:
-            rows = con.execute(
-                "SELECT on_date, rrule FROM sched WHERE node_id = ? ORDER BY on_date NULLS LAST, rrule", (nid,)
-            ).fetchall()
+            rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
             if not rows:
                 out(_c(f"#{nid} has no schedule", "meta"))
             for r in rows:
@@ -318,9 +316,7 @@ def cmd_sched(args, con):
             sys.exit(f"✗ {e}")
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, rrule) row
-            exists = con.execute(
-                "SELECT 1 FROM sched WHERE node_id = ? AND rrule = ?", (nid, rule)
-            ).fetchone()
+            exists = _db.exists(con, "sched", node_id=nid, rrule=rule)
             if exists:
                 out(_c(f"= #{nid} already on recurring schedule: {rule}", "meta"))
             else:
@@ -334,9 +330,7 @@ def cmd_sched(args, con):
             sys.exit(f"✗ invalid date '{args.when}' (use YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow)")
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, on_date) row
-            exists = con.execute(
-                "SELECT 1 FROM sched WHERE node_id = ? AND on_date = ?", (nid, d)
-            ).fetchone()
+            exists = _db.exists(con, "sched", node_id=nid, on_date=d)
             if exists:
                 out(_c(f"= #{nid} already scheduled to {d}", "meta"))
             else:
@@ -370,17 +364,17 @@ def _ensure_time_ancestors(con, d):
     lt = _db.query_one(con, "node", cols="id", kind="lifetime", order="id")
     lt_id = lt["id"] if lt else None
     yr_id = _get_or_make(
-        "year", "SELECT id FROM node WHERE kind='year' AND title LIKE ? ORDER BY id LIMIT 1",
+        "year", "SELECT id FROM node WHERE kind='year' AND title LIKE ? AND deleted_at IS NULL ORDER BY id LIMIT 1",
         (f"{y}%",), str(y), lt_id)
     qr_id = _get_or_make(
-        "quarter", "SELECT id FROM node WHERE kind='quarter' AND title = ? LIMIT 1",
+        "quarter", "SELECT id FROM node WHERE kind='quarter' AND title = ? AND deleted_at IS NULL LIMIT 1",
         (f"{y}-Q{q}",), f"{y}-Q{q}", yr_id)
     mo_id = _get_or_make(
-        "month", "SELECT id FROM node WHERE kind='month' AND title = ? LIMIT 1",
+        "month", "SELECT id FROM node WHERE kind='month' AND title = ? AND deleted_at IS NULL LIMIT 1",
         (f"{y}-{m:02d}",), f"{y}-{m:02d}", qr_id)
     wk_title = f"{iso[0]}-W{iso[1]:02d}"
     wk_id = _get_or_make(
-        "week", "SELECT id FROM node WHERE kind='week' AND title = ? LIMIT 1",
+        "week", "SELECT id FROM node WHERE kind='week' AND title = ? AND deleted_at IS NULL LIMIT 1",
         (wk_title,), wk_title, mo_id)
     return wk_id
 

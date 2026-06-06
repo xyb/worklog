@@ -37,6 +37,7 @@ from ..queries import (
     _ancestors_chain,
     _check_ids_exist,
     _collect_descendants,
+    soft_delete_log,
     _has_tag,
     _insert_log,
     _node_bucket,
@@ -93,7 +94,7 @@ def _find_similar_open(con, title, kind):
         "SELECT * FROM node WHERE kind IN ('task','project') "
         # project status is NULL (DESIGN §40); NULL NOT IN (...) is NULL, not TRUE, so
         # guard explicitly or projects would never match.
-        "AND (status IS NULL OR status NOT IN ('DONE','CANCELED')) ORDER BY id"
+        "AND (status IS NULL OR status NOT IN ('DONE','CANCELED')) AND deleted_at IS NULL ORDER BY id"
     ).fetchall()
     hits = []
     for r in rows:
@@ -271,9 +272,7 @@ def _warn_recurring_done(con, ids):
     whole recurring task" semantic. To mark just today's occurrence, `wl tick` is the right
     tool (adds a log, keeps status open). Warn so the two don't get confused."""
     for nid in ids:
-        rule = con.execute(
-            "SELECT rrule FROM sched WHERE node_id = ? AND rrule IS NOT NULL LIMIT 1", (nid,)
-        ).fetchone()
+        rule = _db.query_one(con, "sched", cols="rrule", node_id=nid, rrule__ne=None)
         if rule:
             out(_c(
                 f"! #{nid} is recurring ({rule['rrule']}): `wl done` retires the whole task "
@@ -328,10 +327,7 @@ def cmd_stop(args, con):
     except ValueError as e:
         sys.exit(f"✗ {e}")
     for nid in ids:
-        row = con.execute(
-            "SELECT id, start_at FROM clock WHERE node_id = ? AND end_at IS NULL ORDER BY id DESC LIMIT 1",
-            (nid,),
-        ).fetchone()
+        row = _db.query_one(con, "clock", cols="id, start_at", node_id=nid, end_at=None, order="id DESC")
         if not row:
             sys.exit(f"✗ no open clock for #{nid}")
         started = datetime.fromisoformat(row["start_at"])
@@ -439,8 +435,7 @@ def cmd_tag(args, con):
         sys.exit(f"✗ node #{args.id} not found")
     ops = [o.strip() for o in (args.ops or []) if o.strip()]
     if not ops:
-        tags = [r["tag"] for r in con.execute(
-            "SELECT tag FROM tag WHERE node_id = ? ORDER BY tag", (args.id,))]
+        tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
         out(_c(f"#{args.id} tags: " + (":".join(tags) if tags else "(none)"), "meta"))
         return
     added, removed = [], []
@@ -492,10 +487,7 @@ def cmd_wait(args, con):
     _check_ids_exist(con, ids)
     for nid in ids:
         # if there's an open clock, close it (WAIT = suspended, no longer timing)
-        row = con.execute(
-            "SELECT id, start_at FROM clock WHERE node_id = ? AND end_at IS NULL ORDER BY id DESC LIMIT 1",
-            (nid,),
-        ).fetchone()
+        row = _db.query_one(con, "clock", cols="id, start_at", node_id=nid, end_at=None, order="id DESC")
         if row:
             now_s = _tu.utc_now()
             secs = max(60, int((datetime.fromisoformat(now_s) - datetime.fromisoformat(row["start_at"])).total_seconds()))
@@ -541,7 +533,7 @@ def cmd_unlog(args, con):
         if not row:
             sys.exit(f"✗ log #{log_id} not found")
         nmetric = _db.count(con, "metric", log_id=log_id)
-        _db.delete(con, "log", id=log_id)
+        soft_delete_log(con, log_id)
         con.commit()
         body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
@@ -561,7 +553,7 @@ def cmd_unlog(args, con):
         date = _tu.today()
 
     sql = (f"SELECT id, logged_at, body FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} = ? "
-           "ORDER BY id DESC")
+           "AND deleted_at IS NULL ORDER BY id DESC")
     if not args.all:
         sql += " LIMIT 1"
     rows = list(con.execute(sql, (nid, date)))
@@ -570,7 +562,7 @@ def cmd_unlog(args, con):
         return
     for r in rows:
         nmetric = _db.count(con, "metric", log_id=r["id"])
-        _db.delete(con, "log", id=r["id"])
+        soft_delete_log(con, r["id"])
         body_preview = r["body"][:60] + ("…" if len(r["body"]) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
         out(_c(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}", "meta"))
@@ -672,7 +664,7 @@ def cmd_active(args, con):
     rows = con.execute("""
         SELECT c.node_id, c.start_at, n.title, n.status, n.priority
         FROM clock c JOIN node n ON c.node_id = n.id
-        WHERE c.end_at IS NULL
+        WHERE c.end_at IS NULL AND c.deleted_at IS NULL AND n.deleted_at IS NULL
         ORDER BY c.start_at DESC
     """).fetchall()
 
@@ -695,15 +687,13 @@ def cmd_active(args, con):
             continue
         # today's completed clock total + the current open session (helps decide "continue or stop")
         done_sec = con.execute(
-            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ?",
+            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ? AND deleted_at IS NULL",
             (r["node_id"], today),
         ).fetchone()["s"]
         total_min = mins + int((done_sec or 0) / 60)  # includes current open session
         out("    " + _c(f"today's total {total_min}min ({total_min // 60}h{total_min % 60}m), includes current session", "meta"))
         # latest plain-note log (oneline truncated)
-        last = con.execute(
-            "SELECT body FROM log WHERE node_id = ? AND tag IS NULL ORDER BY id DESC LIMIT 1", (r["node_id"],),
-        ).fetchone()
+        last = _db.query_one(con, "log", cols="body", node_id=r["node_id"], tag=None, order="id DESC")
         if last:
             body_one = _truncate_log_body(last["body"], indent_cols=_display_width("    latest log: "), full=full)
             out("    " + _c(f"latest log: {body_one}", "meta"))
