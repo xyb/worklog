@@ -851,3 +851,120 @@ def cmd_node_edit(args, con):
     _db.update(con, "node", nid, changes)
     con.commit()
     out(_c(f"✓ #{nid} updated: " + ", ".join(changes), "meta"))
+
+
+# --- prop entity group (WL#486 / #527): set / ls / rm ---
+def cmd_prop_ls(args, con):
+    """List a node's UDA props (key=value). The read primitive for prop (props are also
+    shown inline by `wl show`)."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    rows = _db.query(con, "prop", cols="key, value", node_id=args.id, order="key")
+    if not rows:
+        out(_c(f"(#{args.id} has no props)", "meta"))
+        return
+    for r in rows:
+        out(_c(f"#{args.id} ", "id") + _c(f"{r['key']}={r['value']}"))
+
+
+def cmd_prop_rm(args, con):
+    """Remove a UDA prop from a node (soft-delete the row; WL#527). Also the `wl unset`
+    shortcut. The delete counterpart of `wl set`."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    key = (args.key or "").strip()
+    if not key:
+        sys.exit("✗ prop key cannot be empty")
+    n = _db.delete(con, "prop", node_id=args.id, key=key)
+    con.commit()
+    if n:
+        out(_c(f"✓ #{args.id} prop '{key}' removed", "meta"))
+    elif key in _META_LOG_TYPES:
+        out(_c(f"(#{args.id} has no prop '{key}' — {key} is a meta field stored as a typed log, not a prop; it can't be removed via wl unset)", "meta"))
+    else:
+        out(_c(f"(#{args.id} has no prop '{key}')", "meta"))
+
+
+def cmd_prop(args, con):
+    """Dispatch `wl prop <set|ls|rm>` (the metric-style entity group; WL#486)."""
+    sub = getattr(args, "prop_sub", None)
+    if sub is None:
+        sys.exit("✗ usage: wl prop <set|ls|rm> … (see `wl prop --help`)")
+    {"set": cmd_set, "ls": cmd_prop_ls, "rm": cmd_prop_rm}[sub](args, con)
+
+
+# --- clock entity group (WL#486 / #528): ls / edit / rm (create = start/stop/spent) ---
+def cmd_clock_ls(args, con):
+    """List a node's clock intervals (start → end, duration). Read primitive for clock."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    rows = _db.query(con, "clock", cols="id, start_at, end_at, elapsed_sec", node_id=args.id, order="id")
+    if not rows:
+        out(_c(f"(#{args.id} has no clock intervals)", "meta"))
+        return
+    for r in rows:
+        st = _tu.utc_to_local(r["start_at"])
+        en = _tu.utc_to_local(r["end_at"]) if r["end_at"] else "(running)"
+        dur = _fmt_dur(int((r["elapsed_sec"] or 0) / 60)) if r["elapsed_sec"] else ""
+        out(_c(f"#C{r['id']}", "id") + " " + _c(f"{st} → {en}", "meta") + (" " + _c(dur, "clock") if dur else ""))
+
+
+def cmd_clock_edit(args, con):
+    """Edit a clock interval's start / end (recomputes elapsed_sec). Fix a mistimed
+    `wl start/stop/spent` entry (WL#528)."""
+    row = _db.get(con, "clock", args.clock_id)
+    if not row:
+        sys.exit(f"✗ clock interval #C{args.clock_id} not found")
+    changes = {}
+    start_at = row["start_at"]
+    end_at = row["end_at"]
+    if args.start is not None:
+        try:
+            start_at = _resolve_at_ts(args.start)
+        except ValueError as e:
+            sys.exit(f"✗ --start: {e}")
+        changes["start_at"] = start_at
+    if args.end is not None:
+        try:
+            end_at = _resolve_at_ts(args.end) if args.end else None
+        except ValueError as e:
+            sys.exit(f"✗ --end: {e}")
+        changes["end_at"] = end_at
+    if not changes:
+        sys.exit("✗ nothing to edit (give --start / --end)")
+    # recompute elapsed from the resulting start/end when both are present
+    if start_at and end_at:
+        from datetime import datetime
+        try:
+            secs = int((datetime.fromisoformat(end_at) - datetime.fromisoformat(start_at)).total_seconds())
+        except (ValueError, TypeError):
+            secs = None
+        if secs is not None and secs < 0:
+            sys.exit(f"✗ end {end_at} is before start {start_at}")
+        if secs is not None:
+            changes["elapsed_sec"] = secs
+    elif "end_at" in changes and end_at is None:
+        changes["elapsed_sec"] = None  # --end '' cleared the end → back to running
+    _db.update(con, "clock", args.clock_id, changes)
+    con.commit()
+    out(_c(f"✓ clock #C{args.clock_id} updated: " + ", ".join(changes), "meta"))
+
+
+def cmd_clock_rm(args, con):
+    """Soft-delete a clock interval (WL#528) — remove a wrong `wl spent`/start-stop entry."""
+    for cid in args.clock_ids:
+        if not _db.exists(con, "clock", id=cid):
+            sys.exit(f"✗ clock interval #C{cid} not found")
+    for cid in args.clock_ids:
+        _db.delete(con, "clock", id=cid)
+    con.commit()
+    out(_c(f"✓ removed {len(args.clock_ids)} clock interval(s)", "meta"))
+
+
+def cmd_clock(args, con):
+    """Dispatch `wl clock <ls|edit|rm>` (the metric-style entity group; WL#486).
+    Creating intervals stays with the `start` / `stop` / `spent` composite helpers."""
+    sub = getattr(args, "clock_sub", None)
+    if sub is None:
+        sys.exit("✗ usage: wl clock <ls|edit|rm> … (create with start/stop/spent; see `wl clock --help`)")
+    {"ls": cmd_clock_ls, "edit": cmd_clock_edit, "rm": cmd_clock_rm}[sub](args, con)

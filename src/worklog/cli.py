@@ -207,6 +207,19 @@ def _args_node_show(p):
     return p
 
 
+def _args_prop_set(p):
+    p.add_argument("id", type=int)
+    p.add_argument("key")
+    p.add_argument("value")
+    return p
+
+
+def _args_prop_rm(p):
+    p.add_argument("id", type=int)
+    p.add_argument("key")
+    return p
+
+
 def build_parser():
     global _USER_ALIASES
     if _USER_ALIASES is None:
@@ -525,6 +538,7 @@ them all). No-op with a notice if that link wasn't present.""")
 
     se = sub.add_parser("set",
         help="set/update a custom key=value prop (UDA-style)",
+        description="Set/update a custom key=value prop (UDA-style). Canonical form: `wl prop set` (this is the shortcut; see `wl prop -h`).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
@@ -536,9 +550,60 @@ Common examples:
   wl set <month_id> top5 "..."         # monthly Top5
 
 Difference from wl recap/goal: those target the day node and stamp a timestamp; they are convenience aliases for wl set summary/goal.""")
-    se.add_argument("id", type=int)
-    se.add_argument("key")
-    se.add_argument("value")
+    _args_prop_set(se)
+
+    # prop entity group (WL#486 / #527): set / ls / rm. `set` → wl set shortcut; `rm` → wl unset.
+    pr = sub.add_parser("prop",
+        help="prop (UDA) CRUD: set / ls / rm (set has the top-level shortcut `wl set`; rm = `wl unset`)",
+        description="Custom key=value prop (UDA) CRUD — the metric-style entity group. Meta fields (goal/summary/overview/top5) and real tags are NOT props (use wl goal/recap and wl tag).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Shortcuts (same handler):
+  set →  wl set         (= wl prop set)
+  rm  →  wl unset       (= wl prop rm)
+  ls has no shortcut — call it under `prop` (props also show inline in `wl show`).""")
+    _prsub = pr.add_subparsers(dest="prop_sub")
+    _args_prop_set(_prsub.add_parser("set", help="set/update a prop (= wl set)",
+        description="Set/update a UDA prop. Also: the top-level shortcut `wl set` (identical, same handler)."))
+    _prsub.add_parser("ls", help="list a node's props").add_argument("id", type=int)
+    _args_prop_rm(_prsub.add_parser("rm", help="remove a prop (= wl unset)",
+        description="Remove a UDA prop (soft-delete the row). Also: the top-level shortcut `wl unset`."))
+
+    us = sub.add_parser("unset",
+        help="remove a custom prop from a node (= wl prop rm)",
+        description="Remove a custom key=value prop from a node (the delete counterpart of `wl set`). Canonical form: `wl prop rm` (this is the shortcut; see `wl prop -h`).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Common examples:
+  wl unset 42 owner                   # remove the 'owner' prop from #42
+
+Differences from related commands:
+  - wl unset 42 owner   delete a UDA prop (= wl prop rm)
+  - wl set 42 owner x   set/overwrite it (= wl prop set)""")
+    _args_prop_rm(us)
+
+    # clock entity group (WL#486 / #528): ls / edit / rm. Create stays start/stop/spent.
+    ck = sub.add_parser("clock",
+        help="clock-interval CRUD: ls / edit / rm (create with start / stop / spent)",
+        description="Time-tracking interval CRUD — the metric-style entity group. Intervals are CREATED by the composite helpers `wl start` / `wl stop` / `wl spent`; this group lists, edits and removes them.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Common examples:
+  wl clock ls 42                      # list #42's time intervals
+  wl clock edit 7 --start 09:00 --end 10:30   # fix a mistimed interval (recomputes duration)
+  wl clock rm 7                       # remove a wrong interval
+
+Create intervals with the composite helpers:
+  - wl start 42 / wl stop 42          live timing
+  - wl spent 42 90m                   record a past duration""")
+    _cksub = ck.add_subparsers(dest="clock_sub")
+    _cksub.add_parser("ls", help="list a node's clock intervals").add_argument("id", type=int)
+    _cke = _cksub.add_parser("edit", help="edit an interval's start/end (recomputes duration)")
+    _cke.add_argument("clock_id", type=int, metavar="clock_id")
+    _cke.add_argument("--start", help="new start (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
+    _cke.add_argument("--end", help="new end (same formats); '' sets it back to running")
+    _ckr = _cksub.add_parser("rm", help="remove clock interval(s)")
+    _ckr.add_argument("clock_ids", type=int, nargs="+", metavar="clock_id")
 
     tg = sub.add_parser("tag",
         help="add/remove real tags on a node: wl tag <id> +work -planned (bare = add; no ops = list)",
@@ -1173,6 +1238,9 @@ from .commands import (
     cmd_node_edit,
     cmd_node_rm,
     cmd_node_reparent,
+    cmd_prop,
+    cmd_prop_rm,
+    cmd_clock,
     cmd_metric,
     _metric_id_arg,
     cmd_active,
@@ -1262,8 +1330,11 @@ HANDLERS = {
     "link": cmd_link,
     "unlink": cmd_unlink,
     "set": cmd_set,
+    "unset": cmd_prop_rm,
     "tag": cmd_tag,
     "node": cmd_node,
+    "prop": cmd_prop,
+    "clock": cmd_clock,
     "metric": cmd_metric,
     "show": cmd_show,
     "ls": cmd_ls,
