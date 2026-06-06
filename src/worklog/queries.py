@@ -121,13 +121,16 @@ def _sec_group(con, nid, n, by, sched_ids):
     pid, ptitle = _node_project(con, nid)
     return (pid if pid is not None else ptitle), ptitle
 
-def _collect_descendants(con, root_id):
-    """Recursively collect all descendant ids of a node (excluding self)."""
+def _collect_descendants(con, root_id, *, include_deleted=False):
+    """Recursively collect all descendant ids of a node (excluding self). By default only
+    live nodes; `include_deleted=True` walks through tombstoned nodes too, so a structural
+    cascade (soft-delete subtree / cycle check) reaches live nodes hanging under an already-
+    tombstoned intermediate (WL#501 / #486)."""
     acc = []
     stack = [root_id]
     while stack:
         pid = stack.pop()
-        children = _db.query(con, "node", cols="id", parent_id=pid)
+        children = _db.query(con, "node", cols="id", parent_id=pid, include_deleted=include_deleted)
         for c in children:
             acc.append(c["id"])
             stack.append(c["id"])

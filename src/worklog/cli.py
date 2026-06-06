@@ -154,6 +154,59 @@ def _load_user_aliases():
 _USER_ALIASES = None  # lazy cache, populated on first build_parser call
 
 
+# --- shared argument sets (WL#486): a node operation is reachable both as a top-level
+# shortcut (`wl add`) and under the entity group (`wl node add`); both call the same
+# arg-adder so the two forms stay identical and there's one definition to maintain.
+def _args_node_add(p):
+    p.add_argument("title")
+    p.add_argument("-k", "--kind", default="task", help="node kind (default: task)")
+    p.add_argument("-p", "--priority", choices=["A", "B", "C"])
+    p.add_argument("-t", "--tag", help="comma-separated tags")
+    p.add_argument("--proj", help="project (stored as prop)")
+    p.add_argument("--parent", type=int, help="parent node id")
+    p.add_argument("--status")
+    p.add_argument("--scheduled", help="(rough hint, writes node.scheduled_date) scheduled time: YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
+    p.add_argument("--sched", help="(precise, writes the sched table = visible as planned in `wl day` for that date) date: YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow")
+    p.add_argument("--deadline", help="deadline date YYYY-MM-DD")
+    p.add_argument("--body", help="optional body text")
+    p.add_argument("--log", "-m", help="insert a log entry right after creation (result / output / numbers)")
+    p.add_argument("--done", action="store_true", help="mark DONE + write closed_at immediately after creation (retrospective task in one shot)")
+    p.add_argument("--at", help="timestamp for --log + (if --done) closed_at (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
+    p.add_argument("--link", help="also attach a vault doc (no .md suffix, same semantics as `wl link`)")
+    p.add_argument("--metric", action="append", metavar="'tag [value] [unit]'",
+                   help="attach a structured datapoint (repeatable); reuses the --log carrier or makes one: "
+                        "--metric 'glucose 5.4 mmol/L' / --metric checkin")
+    return p
+
+
+def _args_node_ls(p):
+    p.add_argument("--parent", type=int, help="only direct children of this node")
+    p.add_argument("--all", action="store_true", help="include DONE/CANCELED + remove the limit cap")
+    p.add_argument("--limit", type=int, metavar="N", help="show only the first N (default 20; 0 = no cap)")
+    p.add_argument("--top", type=int, metavar="N", help="take the top N under the current sort (often paired with --sort)")
+    p.add_argument("--sort", choices=["pri", "created", "updated", "closed", "scheduled", "title", "id"],
+                   default="pri", help="sort dimension (default pri = priority+id; updated = last log time, like shell ls -t)")
+    p.add_argument("--reverse", "-r", action="store_true",
+                   help="reverse sort (like shell ls -r); pairs with --sort; default pri reversed = lowest priority first")
+    p.add_argument("--recent", type=int, metavar="N", default=None,
+                   help="only items changed in the last N days (created / logged / closed)")
+    p.add_argument("--unscheduled", action="store_true",
+                   help="only items not in sched (use this for 'unscheduled', not --status)")
+    p.add_argument("--ids", type=int, nargs="+", metavar="id",
+                   help="list specific ids directly, skipping filters (like shell `ls file1 file2`)")
+    return p
+
+
+def _args_node_show(p):
+    p.add_argument("ids", type=int, nargs="+", metavar="id", help="node id(s)")
+    p.add_argument("--no-timeline", action="store_true",
+                   help="skip the timeline; only show meta+tags+links (same as --brief)")
+    p.add_argument("--timeline-tail", type=int, metavar="N",
+                   help="only show the latest N timeline entries (default 5, with middle elided)")
+    p.add_argument("--all-timelines", action="store_true", help="full timeline, no elision")
+    return p
+
+
 def build_parser():
     global _USER_ALIASES
     if _USER_ALIASES is None:
@@ -280,25 +333,7 @@ Differences from related commands:
   - wl add ... --log + --done       one-shot create + log + close. Same as add -> log -> done in three steps.
   - wl tick <id>                    add a check-in log to an existing habit/task, does not create a new one
   - wl log <id>                     add a log to an existing task, does not create a new one""")
-    a.add_argument("title")
-    a.add_argument("-k", "--kind", default="task", help="node kind (default: task)")
-    a.add_argument("-p", "--priority", choices=["A", "B", "C"])
-    a.add_argument("-t", "--tag", help="comma-separated tags")
-    a.add_argument("--proj", help="project (stored as prop)")
-    a.add_argument("--parent", type=int, help="parent node id")
-    a.add_argument("--status")
-    a.add_argument("--scheduled", help="(rough hint, writes node.scheduled_date) scheduled time: YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
-    a.add_argument("--sched", help="(precise, writes the sched table = visible as planned in `wl day` for that date) date: YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow")
-    a.add_argument("--deadline", help="deadline date YYYY-MM-DD")
-    a.add_argument("--body", help="optional body text")
-    # compound flags: create + log + status + association
-    a.add_argument("--log", "-m", help="insert a log entry right after creation (result / output / numbers)")
-    a.add_argument("--done", action="store_true", help="mark DONE + write closed_at immediately after creation (retrospective task in one shot)")
-    a.add_argument("--at", help="timestamp for --log + (if --done) closed_at (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
-    a.add_argument("--link", help="also attach a vault doc (no .md suffix, same semantics as `wl link`)")
-    a.add_argument("--metric", action="append", metavar="'tag [value] [unit]'",
-                   help="attach a structured datapoint (repeatable); reuses the --log carrier or makes one: "
-                        "--metric 'glucose 5.4 mmol/L' / --metric checkin")
+    _args_node_add(a)
 
     g = sub.add_parser("log",
         help="add a log entry to a node (auto TODO -> DOING)",
@@ -537,13 +572,44 @@ Differences from related commands:
   - wl show <id>      single-node detail + timeline (deep dive on one node)
   - wl focus <id>     single node + upstream path + downstream subtree (context view)
   - wl logs --id <id> only log stream for that node (no metadata)""")
-    sh.add_argument("ids", type=int, nargs="+", metavar="id", help="node id(s)")
-    sh.add_argument("--no-timeline", action="store_true",
-                    help="skip the timeline; only show meta+tags+links (same as --brief)")
-    sh.add_argument("--timeline-tail", type=int, metavar="N",
-                    help="only show the latest N timeline entries (default 5, with middle elided)")
-    sh.add_argument("--all-timelines", action="store_true",
-                    help="full timeline, no elision")
+    _args_node_show(sh)
+
+    # node entity group (WL#486): the metric-style `wl node <verb>` primitive CRUD.
+    # The top-level add/ls/show are the high-frequency shortcuts onto the same handlers;
+    # edit/rm/reparent are the field-edit / soft-delete / move primitives.
+    nd = sub.add_parser("node",
+        help="node primitive CRUD: add / ls / show / edit / rm / reparent (add/ls/show also have top-level shortcuts)",
+        description="Node CRUD primitives — the metric-style entity group. `wl add` / `wl ls` / `wl show` are the high-frequency shortcuts onto the same handlers; `node edit` / `node rm` / `node reparent` are the field-edit / soft-delete / move primitives.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Common examples:
+  wl node add "task" -k task -p B     # = wl add (the top-level shortcut)
+  wl node edit 42 --title "new" -p A  # edit a node's own fields (not status/parent/tags)
+  wl node reparent 42 103             # move #42 under #103 (real parent_id); 'none' detaches
+  wl node rm 42                       # soft-delete #42 + subtree (reversible tombstone)
+
+Differences from related commands:
+  - node edit       title/priority/kind/body/scheduled/deadline; status → done/cancel/…,
+                    parent → node reparent, tags → wl tag
+  - node rm         soft-delete (reversible); wl apply '- #id' is the diff-format equivalent
+  - the metric group (wl metric add/ls/edit/rm) is the template this mirrors""")
+    _ndsub = nd.add_subparsers(dest="node_sub")
+    _args_node_add(_ndsub.add_parser("add", help="create a node (= wl add)"))
+    _args_node_ls(_ndsub.add_parser("ls", parents=[filters], help="list nodes (= wl ls)"))
+    _args_node_show(_ndsub.add_parser("show", help="show a node + timeline (= wl show)"))
+    _nde = _ndsub.add_parser("edit", help="edit a node's own fields (title/priority/kind/body/scheduled/deadline)")
+    _nde.add_argument("id", type=int)
+    _nde.add_argument("--title")
+    _nde.add_argument("-p", "--priority", choices=["A", "B", "C"])
+    _nde.add_argument("-k", "--kind")
+    _nde.add_argument("--body")
+    _nde.add_argument("--scheduled", help="scheduled_date pin (YYYY-MM-DD / YYYY-MM / someday / …); pass '' to clear")
+    _nde.add_argument("--deadline", help="deadline date YYYY-MM-DD; pass '' to clear")
+    _ndr = _ndsub.add_parser("rm", help="soft-delete node(s) + their spoke rows (reversible tombstone, WL#501)")
+    _ndr.add_argument("ids", type=int, nargs="+", metavar="id")
+    _ndrp = _ndsub.add_parser("reparent", help="move a node under a new parent (changes the real parent_id, not a prop)")
+    _ndrp.add_argument("id", type=int)
+    _ndrp.add_argument("parent", help="new parent node id, or 'none'/'root' to detach to the top level")
 
     ls = sub.add_parser("ls", parents=[filters],
                         help="list nodes (default limit 20; see shell ls -t / -S / -r-style dimensions)",
@@ -562,23 +628,7 @@ Common examples (precise queries, shell-ls multi-dimensional):
   wl ls --all                           remove the 20-row limit + include DONE/CANCELED
 
 See also: wl find <q> / wl day / wl active / wl projects (each has a dedicated entry point sharper than ls)""")
-    ls.add_argument("--parent", type=int, help="only direct children of this node")
-    ls.add_argument("--all", action="store_true", help="include DONE/CANCELED + remove the limit cap")
-    ls.add_argument("--limit", type=int, metavar="N",
-                    help="show only the first N (default 20; 0 = no cap)")
-    ls.add_argument("--top", type=int, metavar="N",
-                    help="take the top N under the current sort (often paired with --sort)")
-    ls.add_argument("--sort", choices=["pri", "created", "updated", "closed", "scheduled", "title", "id"],
-                    default="pri",
-                    help="sort dimension (default pri = priority+id; updated = last log time, like shell ls -t)")
-    ls.add_argument("--reverse", "-r", action="store_true",
-                    help="reverse sort (like shell ls -r); pairs with --sort; default pri reversed = lowest priority first")
-    ls.add_argument("--recent", type=int, metavar="N", default=None,
-                    help="only items changed in the last N days (created / logged / closed)")
-    ls.add_argument("--unscheduled", action="store_true",
-                    help="only items not in sched (use this for 'unscheduled', not --status)")
-    ls.add_argument("--ids", type=int, nargs="+", metavar="id",
-                    help="list specific ids directly, skipping filters (like shell `ls file1 file2`)")
+    _args_node_ls(ls)
 
     tr = sub.add_parser("tree", parents=[filters],
         help="tree view of nodes (default: timeline up to today + areas one level, ~30 rows)",
@@ -1110,6 +1160,9 @@ from .commands import (
     cmd_unlink,
     cmd_set,
     cmd_tag,
+    cmd_node_edit,
+    cmd_node_rm,
+    cmd_node_reparent,
     cmd_metric,
     _metric_id_arg,
     cmd_active,
@@ -1171,6 +1224,16 @@ from .commands import (
     cmd_themes,
 )
 
+def cmd_node(args, con):
+    """Dispatch `wl node <add|ls|show|edit|rm|reparent>` (the metric-style entity group;
+    WL#486). The top-level add/ls/show route to the same handlers."""
+    sub = getattr(args, "node_sub", None)
+    if sub is None:
+        sys.exit("✗ usage: wl node <add|ls|show|edit|rm|reparent> … (see `wl node --help`)")
+    {"add": cmd_add, "ls": cmd_ls, "show": cmd_show,
+     "edit": cmd_node_edit, "rm": cmd_node_rm, "reparent": cmd_node_reparent}[sub](args, con)
+
+
 HANDLERS = {
     "config": cmd_config,
     "migrate": cmd_migrate,
@@ -1190,6 +1253,7 @@ HANDLERS = {
     "unlink": cmd_unlink,
     "set": cmd_set,
     "tag": cmd_tag,
+    "node": cmd_node,
     "metric": cmd_metric,
     "show": cmd_show,
     "ls": cmd_ls,

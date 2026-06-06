@@ -54,18 +54,27 @@ naming/behaviour stays uniform across entities. Current state:
 | entity | create | read | update | delete |
 |---|---|---|---|---|
 | **metric** | `metric add` | `metric ls` | `metric edit` | `metric rm` |
+| **node** | `node add` | `node ls` / `node show` | `node edit` / `reparent` | `node rm` |
 | log | `log` | `logs` / `show` | `relog` | `unlog` |
 | sched | `sched` | `sched` / `show` | `sched` / `defer` | `sched --clear` |
 | tag | `tag +x` | `tag` / `show` | — (atomic) | `tag -x` |
 | link | `link` | `show` | — (atomic) | `unlink` |
 | date_meta | `dateinfo` | `dateinfo` | `dateinfo` | `dateinfo --clear` |
-| node | `add` | `ls` / `show` / `tree` / `find` | status verbs / `set` / `tag` | `apply - #id` |
 | prop | `set` | `show` / `find` | `set` | **— (gap: no `unset`)** |
 | clock | `start` / `spent` | `active` / `show` | **— (gap)** | **— (gap)** |
 
-Known CRUD gaps to close to the metric bar: **node reparent/move** (change a node's
-real `parent_id`, not a UDA prop), **`prop` delete** (`unset <id> <key>`), **`clock`
-edit/rm** (fix/remove an interval).
+`node` is now a full metric-style group: `node add / ls / show / edit / rm / reparent`,
+with `add` / `ls` / `show` reachable both as the group verb and the high-frequency
+top-level shortcut (`wl add` == `wl node add`, same handler via a shared arg-adder).
+`node edit` covers a node's own fields (title/priority/kind/body/scheduled/deadline);
+status keeps its verbs (`done`/`cancel`/…), parent moves with `node reparent`, tags with
+`wl tag`. `node rm` is the soft-delete primitive (reversible tombstone, § soft-delete).
+
+Remaining CRUD gaps to close to the metric bar: **`prop` delete** (`unset <id> <key>`),
+**`clock` edit/rm** (fix/remove an interval). The same `<entity> <verb>` + top-level
+shortcut rollout is planned for the other entities (`log` / `tag` / `sched` / …), where
+the entity name collides with an existing leaf command and a default-verb disambiguation
+(`wl log "body"` = `log add`, `wl log ls` = the verb) is needed.
 
 **B. Composite helper** — a one-step shortcut that wraps one or more primitives for
 the common path; never the *only* way to do something (the primitive stays). Status

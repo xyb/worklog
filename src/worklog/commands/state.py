@@ -38,6 +38,7 @@ from ..queries import (
     _check_ids_exist,
     _collect_descendants,
     soft_delete_log,
+    soft_delete_node,
     _has_tag,
     _insert_log,
     _node_bucket,
@@ -774,3 +775,79 @@ def _edit_in_editor(initial_text, suffix=".txt"):
         except OSError:
             pass
 
+
+
+def cmd_node_reparent(args, con):
+    """Move a node under a new parent — changes the real `parent_id` (WL#485 / #486),
+    not a UDA prop. 'none'/'root'/0 detaches to the top level. Refuses a cycle (the new
+    parent must not be the node itself or one of its descendants)."""
+    nid = args.id
+    if not _node_exists(con, nid):
+        sys.exit(f"✗ node #{nid} not found")
+    p = (args.parent or "").strip().lower()
+    if p in ("none", "root", "0", ""):
+        new_parent = None
+    else:
+        try:
+            new_parent = int(args.parent)
+        except ValueError:
+            sys.exit(f"✗ parent must be a node id or 'none'/'root'/'0' (detach), got {args.parent!r}")
+        if not _node_exists(con, new_parent):
+            sys.exit(f"✗ parent node #{new_parent} not found")
+        if new_parent == nid:
+            sys.exit("✗ a node cannot be its own parent")
+        # include_deleted: catch a live descendant reachable through a tombstoned intermediate
+        if new_parent in _collect_descendants(con, nid, include_deleted=True):
+            sys.exit(f"✗ #{new_parent} is a descendant of #{nid} — reparenting there would make a cycle")
+    _db.update(con, "node", nid, {"parent_id": new_parent})
+    con.commit()
+    where = "the top level" if new_parent is None else f"#{new_parent}"
+    out(_c(f"✓ #{nid} moved under {where}", "meta"))
+
+
+def cmd_node_rm(args, con):
+    """Soft-delete node(s) and their subtree (reversible tombstone, WL#501) — the
+    primitive single-node form of `wl apply - #id`. Clearing `deleted_at` restores."""
+    for nid in args.ids:
+        if not _node_exists(con, nid):
+            sys.exit(f"✗ node #{nid} not found")
+    total = 0
+    for nid in args.ids:
+        # include_deleted: tombstone the FULL structural subtree, so a live node hanging
+        # under an already-tombstoned intermediate doesn't get orphaned.
+        for did in [nid] + _collect_descendants(con, nid, include_deleted=True):
+            soft_delete_node(con, did)
+        total += 1
+    con.commit()
+    out(_c(f"✓ soft-deleted {len(args.ids)} node(s) + subtree (reversible; clear deleted_at to restore)", "meta"))
+
+
+def cmd_node_edit(args, con):
+    """Edit a node's own fields: title / priority / kind / body / scheduled / deadline.
+    (Status has its own verbs done/cancel/…; parent → `node reparent`; tags → `wl tag`.)"""
+    nid = args.id
+    if not _node_exists(con, nid):
+        sys.exit(f"✗ node #{nid} not found")
+    changes = {}
+    if args.title is not None:
+        if not args.title.strip():
+            sys.exit("✗ title cannot be empty")
+        changes["title"] = args.title.strip()
+    if args.priority is not None:
+        changes["priority"] = args.priority
+    if args.kind is not None:
+        changes["kind"] = args.kind
+    if args.body is not None:
+        changes["body"] = args.body
+    if args.scheduled is not None:
+        try:
+            changes["scheduled_date"] = _norm_sched(args.scheduled) if args.scheduled else None
+        except ValueError as e:
+            sys.exit(f"✗ {e}")
+    if args.deadline is not None:
+        changes["deadline_date"] = args.deadline or None
+    if not changes:
+        sys.exit("✗ nothing to edit (give --title / --priority / --kind / --body / --scheduled / --deadline)")
+    _db.update(con, "node", nid, changes)
+    con.commit()
+    out(_c(f"✓ #{nid} updated: " + ", ".join(changes), "meta"))

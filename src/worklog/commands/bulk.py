@@ -184,7 +184,7 @@ def cmd_apply(args, con):
                 # recursive subtree soft-delete (WL#501): tombstone the node + each
                 # descendant (and, via soft_delete_node, their spoke rows) — reversible,
                 # no cascade needed (FK is off). _collect_descendants returns live nodes.
-                ids = [f["id"]] + _collect_descendants(con, f["id"])
+                ids = [f["id"]] + _collect_descendants(con, f["id"], include_deleted=True)
                 for did in ids:
                     soft_delete_node(con, did)
                 counts["delete"] += len(ids)
