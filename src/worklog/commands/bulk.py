@@ -132,6 +132,18 @@ def cmd_apply(args, con):
                 errors.append(f"line {ln}: ~ #{o['id']} has no field operations")
             for floln, (action, field, value) in o["fieldops"]:
                 _validate_fieldop(con, floln, action, field, value, errors)
+                # cycle guard: a parent set must not point at the node itself or a
+                # descendant (FK is off → not DB-rejected; parity with cmd_node_reparent)
+                if (field == "parent" and action == "set" and value.isdigit()
+                        and _node_exists(con, o["id"])):
+                    p = int(value)
+                    if p == o["id"]:
+                        errors.append(f"line {floln}: #{o['id']} cannot be its own parent")
+                    elif _node_exists(con, p) and p in _collect_descendants(
+                            con, o["id"], include_deleted=True):
+                        errors.append(
+                            f"line {floln}: parent #{p} is a descendant of #{o['id']} "
+                            "— would make a cycle")
         else:
             f = o["fields"]
             has_id = "id" in f
@@ -290,8 +302,18 @@ def _import_update(con, spec, dry, counters):
     if dry:
         counters["update"] += 1
         return
-    if "parent" in spec and spec["parent"] is not None and not _node_exists(con, spec["parent"]):
-        raise ValueError(f"update #{nid}: parent #{spec['parent']} does not exist")
+    if "parent" in spec and spec["parent"] is not None:
+        if not _node_exists(con, spec["parent"]):
+            raise ValueError(f"update #{nid}: parent #{spec['parent']} does not exist")
+        # cycle guard (parity with cmd_node_reparent): FK is off (WL#501), so a bad
+        # parent_id isn't DB-rejected — refuse making a node its own ancestor, which would
+        # otherwise leave a cycle that hangs the ancestor/descendant walks.
+        if spec["parent"] == nid:
+            raise ValueError(f"update #{nid}: a node cannot be its own parent")
+        if spec["parent"] in _collect_descendants(con, nid, include_deleted=True):
+            raise ValueError(
+                f"update #{nid}: parent #{spec['parent']} is a descendant of #{nid} "
+                "— reparenting there would make a cycle")
     changes = {col: spec[col] for col in
                ("status", "priority", "title", "scheduled_date", "deadline_date", "body") if col in spec}
     if "parent" in spec:  # move; spec key 'parent' maps to the parent_id column

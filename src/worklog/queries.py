@@ -69,13 +69,18 @@ def _project_members(con, proj_id):
     return ids
 
 def _ancestors_chain(con, node_id):
-    """Return the path list[Row] from the top-level root to node (inclusive)."""
+    """Return the path list[Row] from the top-level root to node (inclusive). Cycle-safe:
+    FK enforcement is off (WL#501) so `parent_id` integrity isn't DB-guaranteed and a
+    bad/legacy graph could contain a cycle — a visited set stops the walk re-entering it
+    rather than looping forever."""
     chain = []
     cur = _db.get(con, "node", node_id)
     if not cur:
         return chain
     chain.append(cur)
-    while cur["parent_id"]:
+    seen = {node_id}
+    while cur["parent_id"] and cur["parent_id"] not in seen:
+        seen.add(cur["parent_id"])
         cur = _db.get(con, "node", cur["parent_id"])
         if not cur:
             break
@@ -128,10 +133,14 @@ def _collect_descendants(con, root_id, *, include_deleted=False):
     tombstoned intermediate (WL#501 / #486)."""
     acc = []
     stack = [root_id]
+    seen = {root_id}  # cycle-safe: FK is off (WL#501), so a bad parent_id graph could loop
     while stack:
         pid = stack.pop()
         children = _db.query(con, "node", cols="id", parent_id=pid, include_deleted=include_deleted)
         for c in children:
+            if c["id"] in seen:
+                continue
+            seen.add(c["id"])
             acc.append(c["id"])
             stack.append(c["id"])
     return acc
