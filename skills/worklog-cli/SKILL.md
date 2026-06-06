@@ -30,7 +30,8 @@ Likewise, before adding a dev todo under a project, check that project's existin
 | Record a number / measurement / check-in | `wl metric add <id> glucose 5.4 --unit mmol/L` / `wl metric ls <id>` / `wl metric edit #M7` / `wl metric rm #M7`; inline: `wl log <id> "..." --metric 'pullups 8'`. Habit done-today = a `checkin` metric (`wl tick`/`wl checkin`) |
 | Mark done / defer (fuzzy time ok) / start clock | `wl done <id>` / `wl defer <id> next-month` (also accepts `2026-Q3` / `someday` / precise date) / `wl start <id>` `wl stop <id>` |
 | Schedule task to a date / repeat (drives "planned") | `wl sched <id> 2026-06-15` (also accepts `tomorrow` / `day-after-tomorrow`) / `--clear`. `--recur` supports period start / end: `daily` / `weekly:Mon,Fri` (also 1-7 / -1..-7) / `monthly:1` (month start) · `monthly:-1` (month end) / `quarterly:1-1` (quarter start) · `quarterly:-1` (quarter end) / `yearly:01-01` (year start) · `yearly:-1` (year end); `-1` always means period end. A task scheduled to a day shows up in `wl day` as "planned · not yet logged" even with no log |
-| Meta info (end-of-day summary / Top5 / today's goal) | History-preserving typed logs (`log.tag`), not props: `wl goal "..."` (day) / `wl recap "..."` (day summary) / `wl set <month> top5 "..."` / `wl set <week> overview "..."`. Each write appends; the latest is current. `wl day` shows them at the top as a blockquote. Prefer `wl recap`/`wl goal` over `wl set` for day fields (read-back + stale-warning) |
+| Meta info (end-of-day summary / Top5 / today's goal) | History-preserving typed logs (`log.tag`), **a distinct store from props** — own group `wl meta set/ls/rm <node> <field>` (`field` ∈ goal/summary/overview/top5; each write appends, latest = current). Shortcuts onto it: `wl goal "..."` / `wl recap "..."` (auto-target today's day; preferred — read-back + stale-warning), and the key-routed `wl set <node> <field>` (= `wl meta set`; `wl unset <node> <field>` = `wl meta rm`). e.g. `wl meta set <week> overview "..."` / `wl meta set <month> top5 "..."`. `wl day` shows them at the top as a blockquote |
+| Command aliases | `wl alias add d day` (→ `wl d` == `wl day`) / `wl alias ls` / `wl alias rm d`. Stored in `~/.config/worklog/aliases.ini`; target must be a real command, can't shadow one; takes effect next run |
 | Date context (holidays / vacation / makeup days) | `wl dateinfo 2026-05-01 Labor-Day-holiday` / `wl dateinfo --import holidays.json` (`{"YYYY-MM-DD":"label"}`) / `wl dateinfo <date> --clear`. Weekday auto-computed; `wl day` header shows "date weekday · label" |
 | Reproduce a day's progress (like markdown worklog) | `wl day [YYYY-MM-DD]` (log-date based: work/personal split → secondary group → task → indented logs + stats). **Default `--by plan`** (planned / unplanned). **Planned = has a `sched`/recur entry firing that day (source of truth, set via `wl sched`); everything else = unplanned.** The legacy `:planned:` tag is honored only as a transitional fallback — do NOT add it to new tasks, use `wl sched`. Switch dimensions with `--by project` / `--by priority` (P0/P1/P2) |
 | List all active projects | `wl projects` |
@@ -154,9 +155,12 @@ wl checkin --all-kinds                # not limited to habit kind
 
 ### Meta fields keep history (typed logs, not props)
 
-`wl goal` / `wl recap` (day), `wl set <week> overview` / `wl set <month> top5` are
-stored as `log.tag` logs — each write appends, the latest is current, so edit
-history is kept (`prop` is only for truly-static single-value attributes).
+The four meta fields (goal/summary/overview/top5) have their own group `wl meta
+set/ls/rm <node> <field>`, stored as `log.tag` logs — each write appends, the latest is
+current, so edit history is kept (`prop` is a separate store, only for truly-static
+single-value attributes). `wl goal` / `wl recap` are today-auto shortcuts; `wl set <node>
+<field>` / `wl unset <node> <field>` are key-routed shortcuts onto `wl meta set` / `wl meta
+rm` (so `wl set` fronts both `prop set` and `meta set` by key, like `wl add` is `node add`).
 
 ### Recurrence rules (`--recur`), every variant supports `-1` for "last day of period"
 
