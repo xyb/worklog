@@ -272,6 +272,7 @@ _DEFAULT_VERB_ENTITIES = {
     "link": ("add", frozenset(("add", "ls", "rm"))),
     "tag": ("add", frozenset(("add", "ls", "rm"))),
     "log": ("add", frozenset(("add", "ls", "edit", "rm"))),
+    "sched": ("add", frozenset(("add", "ls", "rm"))),
 }
 # global flags that consume the next token as their value (skip it when locating the subcommand)
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format"))
@@ -1169,12 +1170,22 @@ For single habit check-in, use wl tick <id>.""")
     ci.add_argument("--per-item", action="store_true",
                     help="fallback mode: prompt y/n/note/q per item (allows per-item note; auto-used when not on a TTY)")
 
+    # sched entity group (WL#486): add / ls / rm. `add` is the default verb so the everyday
+    # `wl sched <id> <when>` / `wl sched <id> --clear` keep working (full when / --recur /
+    # --clear / list-when-empty grammar via cmd_sched); `ls` lists, `rm` clears. `wl defer`
+    # (status=LATER + rough hint) stays its own composite command.
     sc = sub.add_parser("sched",
-        help="forward planning: schedule a task to a day / recurring rule (drives wl day 'planned')",
+        help="sched CRUD: add / ls / rm — `wl sched 42 2026-06-15` schedules (default verb add); drives wl day 'planned'",
+        description="Forward-planning CRUD — schedule a task to a day / recurring rule (drives wl day 'planned') — the metric-style entity group. `wl sched <id> <when>` is the add shortcut (the default verb) and keeps the full when / --recur / --clear / list-when-empty grammar. Distinct from `wl defer` (status=LATER + rough hint).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
+Shortcuts / default verb (same handler):
+  wl sched 42 2026-06-15     schedule to a day (the default verb — = wl sched add 42 2026-06-15)
+  wl sched 42                list this task's schedule (= wl sched ls 42)
+  wl sched 42 --clear        clear all entries (= wl sched rm 42)
+
 Schedule to a specific day:
-  wl sched 42 2026-06-15              # exact date
+  wl sched 42 2026-06-15              # exact date (add, the default verb)
   wl sched 42 tomorrow                # short form (today / yesterday / tomorrow / day-after-tomorrow)
 
 Recurring rules (--recur); each supports -1 = last day of the cycle:
@@ -1186,16 +1197,22 @@ Recurring rules (--recur); each supports -1 = last day of the cycle:
   wl sched 42 --recur yearly:03-21                # March 21 every year
   wl sched 42 --recur yearly:-1                   # last day of year (12-31)
 
-Clear:
-  wl sched 42 --clear                 # clear all schedule entries for this task
+  wl sched ls 42             # list this task's schedule
+  wl sched rm 42             # clear all entries (= wl sched 42 --clear)
 
 Difference from wl defer: sched writes to the sched table (precise; appears as "planned" in wl day); defer = status=LATER + rough hint.
 Create + schedule in one line: wl add "..." --sched today""")
-    sc.add_argument("id", type=int)
-    sc.add_argument("when", nargs="?", help="YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow (one-off date)")
-    sc.add_argument("--recur",
-                    help="recurring rule (all support -1 = last day): daily / weekly:Mon|1-7|-1 / monthly:5|-1 / quarterly:M-D|-1 / yearly:MM-DD|-1")
-    sc.add_argument("--clear", action="store_true", help="clear all schedule entries for this task")
+    _scsub = sc.add_subparsers(dest="sched_sub")
+    _sca = _scsub.add_parser("add",
+        help="schedule to a day / recurring rule (= the default `wl sched 42 <when>`)",
+        description="Schedule a task to a one-off day or a recurring rule (--recur); no when/--recur lists; --clear clears. Also reachable as the default `wl sched <id> <when>` (omit `add`; see `wl sched -h`).")
+    _sca.add_argument("id", type=int)
+    _sca.add_argument("when", nargs="?", help="YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow (one-off date)")
+    _sca.add_argument("--recur",
+                      help="recurring rule (all support -1 = last day): daily / weekly:Mon|1-7|-1 / monthly:5|-1 / quarterly:M-D|-1 / yearly:MM-DD|-1")
+    _sca.add_argument("--clear", action="store_true", help="clear all schedule entries for this task")
+    _scsub.add_parser("ls", help="list a node's schedule entries (= bare `wl sched <id>`)").add_argument("id", type=int)
+    _scsub.add_parser("rm", help="clear a node's schedule entries (= `wl sched <id> --clear`)").add_argument("id", type=int)
 
     di = sub.add_parser("dateinfo",
         help="date metadata (holiday/vacation/working-day swap; shown in wl day header)",
@@ -1417,6 +1434,7 @@ from .commands import (
     cmd_tick,
     _norm_rrule,
     cmd_sched,
+    cmd_sched_group,
     cmd_dateinfo,
     cmd_changes,
     _bulk_status_change,
@@ -1488,7 +1506,7 @@ HANDLERS = {
     "unlog": cmd_unlog,
     "relog": cmd_relog,
     "checkin": cmd_checkin,
-    "sched": cmd_sched,
+    "sched": cmd_sched_group,
     "dateinfo": cmd_dateinfo,
     "import": cmd_import,
     "apply": cmd_apply,

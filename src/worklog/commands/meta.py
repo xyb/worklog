@@ -338,6 +338,40 @@ def cmd_sched(args, con):
                 out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
         con.commit()
 
+
+def cmd_sched_ls(args, con):
+    """List a node's schedule entries — the read verb of the sched group (= bare `wl sched
+    <id>`). Each row is a one-off `on_date` or a recurring `rrule`."""
+    _check_ids_exist(con, [args.id])
+    rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id,
+                     order="on_date NULLS LAST, rrule")
+    if not rows:
+        out(_c(f"#{args.id} has no schedule", "meta"))
+        return
+    for r in rows:
+        out("  " + _c(f"#{args.id} @" + (r["on_date"] or r["rrule"]), "planned"))
+
+
+def cmd_sched_rm(args, con):
+    """Clear a node's schedule entries — the delete verb of the sched group (= `wl sched
+    <id> --clear`). Removes every one-off and recurring entry for the node."""
+    _check_ids_exist(con, [args.id])
+    n = _db.delete(con, "sched", node_id=args.id)
+    con.commit()
+    out(_c(f"✓ #{args.id} cleared {n} schedule entries", "meta"))
+
+
+def cmd_sched_group(args, con):
+    """Dispatch `wl sched <add|ls|rm>` (the metric-style entity group; WL#486).
+    `add` is the default verb (`wl sched <id> <when>` == `wl sched add <id> <when>`) and
+    keeps the full when / --recur / --clear / list-when-empty grammar (`cmd_sched`); `ls`
+    lists, `rm` clears. `wl defer` (status=LATER + rough hint) stays its own command."""
+    sub = getattr(args, "sched_sub", None)
+    if sub is None:
+        sys.exit("✗ usage: wl sched <id> <when>  |  wl sched <add|ls|rm> … (see `wl sched --help`)")
+    {"add": cmd_sched, "ls": cmd_sched_ls, "rm": cmd_sched_rm}[sub](args, con)
+
+
 def _ensure_time_ancestors(con, d):
     """Ensure the time skeleton year→quarter→month→week exists for date `d`, creating
     any missing level, and return the week node id (the day node's parent).

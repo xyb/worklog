@@ -105,6 +105,21 @@ def _completion_iter_actions(parser):
             continue
         yield a
 
+
+def _default_verb_leaf(name, sub):
+    """For a default-verb collision group (link / tag / log / sched), return its
+    default-verb leaf parser (the one reachable by omitting the verb, e.g. `sched add`).
+    The group name is itself the everyday command (`wl sched <id> --recur`), so the leaf's
+    args must complete under the bare group condition — but the leaf lives under a nested
+    `_SubParsersAction` that the per-subcommand walk skips. Returns None for plain groups
+    (node / prop / clock), whose common args are reached via their top-level shortcuts."""
+    from .cli import _DEFAULT_VERB_ENTITIES  # deferred: cli imports completion
+    spec = _DEFAULT_VERB_ENTITIES.get(name)
+    if not spec:
+        return None
+    spa = next((x for x in sub._actions if isinstance(x, argparse._SubParsersAction)), None)
+    return spa.choices.get(spec[0]) if spa else None
+
 def _fish_escape(s):
     """fish string escape: wrap in single quotes; inner single quote becomes \\'"""
     if s is None:
@@ -232,6 +247,13 @@ def _generate_fish_completion(parser):
         for a in _completion_iter_actions(sub):
             section += _fish_one_complete(prefix, a, sub_cmd=name)
         section += _fish_positional_complete(sub, name)
+        # default-verb groups (sched/log/tag/link): surface the default leaf's args under
+        # the bare group name, since `wl sched <id> --recur` omits the `add` verb
+        leaf = _default_verb_leaf(name, sub)
+        if leaf is not None:
+            for a in _completion_iter_actions(leaf):
+                section += _fish_one_complete(prefix, a, sub_cmd=name)
+            section += _fish_positional_complete(leaf, name)
         if len(section) > 1:
             lines += section
 
@@ -378,14 +400,18 @@ def _generate_bash_completion(parser):
     ]
 
     for name, _, sub, aliases in sub_metas:
-        opts = _sub_options(sub)
+        # default-verb groups (sched/log/tag/link): fold the default leaf's args in, since
+        # `wl sched <id> --recur` omits the `add` verb (the leaf lives under nested subparsers)
+        leaf = _default_verb_leaf(name, sub)
+        arg_parsers = [sub] + ([leaf] if leaf is not None else [])
+        opts = [o for p in arg_parsers for o in _sub_options(p)]
         opts_str = " ".join(opts)
         # bash case pattern: name|alias1|alias2)
         case_pattern = "|".join([name] + aliases)
         case_lines = [f'        {case_pattern})']
         # when prev is a long option, look up its helper / choices
         prev_cases = []
-        for a in _completion_iter_actions(sub):
+        for a in (act for p in arg_parsers for act in _completion_iter_actions(p)):
             if not a.option_strings:
                 continue
             long_opts = [o for o in a.option_strings if o.startswith("--")]
@@ -586,8 +612,11 @@ def _generate_zsh_completion(parser):
         case_pattern = "|".join([name] + aliases)
         lines.append(f'                {case_pattern})')
         lines.append('                    _arguments \\')
+        # default-verb groups (sched/log/tag/link): fold the default leaf's args in
+        leaf = _default_verb_leaf(name, sub)
+        arg_parsers = [sub] + ([leaf] if leaf is not None else [])
         sub_specs = []
-        for a in _completion_iter_actions(sub):
+        for a in (act for p in arg_parsers for act in _completion_iter_actions(p)):
             spec = _zsh_arg_spec(a, sub_cmd=name)
             if spec:
                 sub_specs.append(spec)

@@ -61,6 +61,20 @@ class TestExpandDefaultVerb:
         assert _expand_default_verb(["log", "-h"]) == ["log", "-h"]
         assert _expand_default_verb(["log"]) == ["log"]
 
+    def test_sched_leaf_form_gets_default_verb(self):
+        assert _expand_default_verb(["sched", "42", "2026-06-15"]) == ["sched", "add", "42", "2026-06-15"]
+        # --clear after the id still triggers expansion (id is the trigger)
+        assert _expand_default_verb(["sched", "42", "--clear"]) == ["sched", "add", "42", "--clear"]
+        assert _expand_default_verb(["sched", "42"]) == ["sched", "add", "42"]
+
+    def test_sched_explicit_verbs_untouched(self):
+        for v in ("add", "ls", "rm"):
+            assert _expand_default_verb(["sched", v, "1"]) == ["sched", v, "1"]
+
+    def test_sched_help_and_bare_untouched(self):
+        assert _expand_default_verb(["sched", "-h"]) == ["sched", "-h"]
+        assert _expand_default_verb(["sched"]) == ["sched"]
+
 
 def _tags(con, nid):
     return [r[0] for r in con.execute(
@@ -286,3 +300,87 @@ class TestLogGroup:
         sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
         assert "wl log edit" in sa.choices["relog"].format_help()
         assert "wl log rm" in sa.choices["unlog"].format_help()
+
+
+def _sched(con, nid):
+    return [(r[0], r[1]) for r in con.execute(
+        "SELECT on_date, rrule FROM sched WHERE node_id=? AND deleted_at IS NULL ORDER BY on_date NULLS LAST, rrule", (nid,))]
+
+
+class TestSchedGroup:
+    def test_legacy_leaf_still_schedules(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("sched", "1", "2026-06-15")              # legacy leaf = default verb add
+        assert _sched(tmp_db.db_connect(), 1) == [("2026-06-15", None)]
+
+    def test_recur_via_default_verb(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("sched", "1", "--recur", "daily")
+        assert ("daily" in [rr for _, rr in _sched(tmp_db.db_connect(), 1)])
+
+    def test_sched_ls(self, cli):
+        cli("add", "t", "-k", "task")
+        cli("sched", "1", "2026-06-15")
+        _, out, _ = cli("sched", "ls", "1")
+        assert "2026-06-15" in out
+        _, out2, _ = cli("sched", "1")               # bare = list (default verb, empty)
+        assert "2026-06-15" in out2
+
+    def test_clear_via_default_verb_and_rm_equivalent(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("sched", "1", "2026-06-15")
+        cli("sched", "1", "--clear")                 # default-verb form clears
+        assert _sched(tmp_db.db_connect(), 1) == []
+        cli("sched", "1", "tomorrow")
+        cli("sched", "rm", "1")                       # group rm clears
+        assert _sched(tmp_db.db_connect(), 1) == []
+
+    def test_sched_add_explicit(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("sched", "add", "1", "2026-07-01")
+        assert _sched(tmp_db.db_connect(), 1) == [("2026-07-01", None)]
+
+    def test_defer_still_separate(self, cli, tmp_db):
+        # defer is NOT a sched verb — it stays its own composite command
+        cli("add", "t", "-k", "task")
+        _, out, _ = cli("defer", "1", "tomorrow")
+        assert "LATER" in out
+
+    def test_sched_ls_missing_node(self, cli):
+        _, _, err = cli("sched", "ls", "999")
+        assert "not found" in err
+
+    def test_bare_sched_usage(self, cli):
+        _, _, err = cli("sched")
+        assert "usage: wl sched" in err
+
+    def test_sched_help_lists_shortcuts(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        h = sa.choices["sched"].format_help()
+        assert "default verb" in h and "wl defer" in h
+
+
+class TestGroupLeafCompletions:
+    """Regression: when a top-level command becomes a default-verb group, its leaf args
+    (e.g. sched's --recur / when, log's --date) live under the `add` subparser; the
+    completion generators must still surface them under the bare group condition."""
+
+    def test_fish_sched_recur_and_when(self, cli):
+        _, out, _ = cli("print-completion", "fish")
+        assert "(__wl_recur_suggestions)" in out
+        assert 'subcommand_from sched" -f -a "(__wl_sched_suggestions)"' in out
+
+    def test_fish_log_date_present(self, cli):
+        _, out, _ = cli("print-completion", "fish")
+        # log --date completion (silently lost when log became a group) restored
+        assert 'seen_subcommand_from log' in out and "(__wl_date_suggestions)" in out
+
+    def test_bash_sched_recur(self, cli):
+        _, out, _ = cli("print-completion", "bash")
+        assert "__wl_recur_suggestions_bash" in out
+
+    def test_zsh_generates(self, cli):
+        _, out, _ = cli("print-completion", "zsh")
+        assert "compdef _wl wl" in out
