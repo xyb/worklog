@@ -61,15 +61,16 @@ naming/behaviour stays uniform across entities. Current state:
 | **log** | `log add` (= `log`) | `log ls` / `logs` / `show` | `log edit` (= `relog`) | `log rm` (= `unlog`) |
 | **sched** | `sched add` (= `sched`) | `sched ls` / `show` | `sched add` / `defer` | `sched rm` (= `sched --clear`) |
 | **tag** | `tag add` (= `tag +x`) | `tag ls` / `show` | — (atomic) | `tag rm` (= `tag -x`) |
-| date_meta | `dateinfo` | `dateinfo` | `dateinfo` | `dateinfo --clear` |
+| **date_meta** | `date set` (= `dateinfo`) | `date ls` / `dateinfo` | `date set` | `date rm` (= `dateinfo --clear`); `date import` |
 
-Entities already reshaped into full metric-style `<entity> <verb>` groups: **metric**
-(template), **node**, **prop**, **clock**, **link**, **tag**, **log**, **sched**. High-frequency verbs keep a top-level
+Every entity now has a full metric-style `<entity> <verb>` group. Entities reshaped: **metric**
+(template), **node**, **prop**, **clock**, **link**, **tag**, **log**, **sched**, **date** (the `date_meta` table). High-frequency verbs keep a top-level
 shortcut onto the same handler (`wl add` == `wl node add`, `wl set` == `wl prop set`,
 `wl unset` == `wl prop rm`, `wl unlink` == `wl link rm`, `wl relog` == `wl log edit`,
-`wl unlog` == `wl log rm`), args defined once via a shared adder so the two forms can't
-drift. `clock` intervals are CREATED by the composite helpers (`start`/`stop`/`spent`).
-Removal is soft-delete (reversible tombstone, § soft-delete).
+`wl unlog` == `wl log rm`, `wl dateinfo` == polymorphic over `wl date set/ls/rm/import`),
+args defined once via a shared adder so the two forms can't drift. `clock` intervals are
+CREATED by the composite helpers (`start`/`stop`/`spent`). Removal is soft-delete
+(reversible tombstone, § soft-delete).
 
 **Default-verb dispatch (collision entities).** When the group name equals the old leaf
 command (`link` / `tag` / `log` / `sched`), a custom parser (`_WlParser` /
@@ -93,8 +94,11 @@ per-subcommand walk (which skips `_SubParsersAction`) must also descend into the
 default-verb leaf (`_default_verb_leaf`) and emit those completions under the bare group
 condition — otherwise `wl sched <id> --recur<TAB>` silently loses its suggestions.
 
-Still to reshape: **`date_meta`** (a clean `date` group — `dateinfo` doesn't collide with
-`date`).
+The one **clean group** (no collision, so no default verb) is **`date`** (the `date_meta`
+table): `date set / ls / rm / import`, with `wl dateinfo` as the polymorphic everyday
+shortcut (sets when given a label, lists when not, `--clear` / `--import` variants).
+
+The `<entity> <verb>` reshape (WL#486) is now **complete** for every entity.
 
 **B. Composite helper** — a one-step shortcut that wraps one or more primitives for
 the common path; never the *only* way to do something (the primitive stays). Status

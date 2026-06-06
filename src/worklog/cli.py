@@ -1216,19 +1216,47 @@ Create + schedule in one line: wl add "..." --sched today""")
 
     di = sub.add_parser("dateinfo",
         help="date metadata (holiday/vacation/working-day swap; shown in wl day header)",
+        description="Date metadata (holiday / vacation / working-day-swap label; shown in the wl day header) — the polymorphic everyday shortcut over the date_meta table. The explicit metric-style form is the `wl date set / ls / rm / import` group (see `wl date -h`).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl dateinfo 2026-05-01 "Labor Day"        # single entry
+  wl dateinfo 2026-05-01 "Labor Day"        # single entry  (= wl date set)
   wl dateinfo 2026-05-03 "swap working day" # working day swap
-  wl dateinfo --import holidays.json        # batch {"YYYY-MM-DD":"label"}
-  wl dateinfo 2026-05-01 --clear            # clear
+  wl dateinfo --import holidays.json        # batch {"YYYY-MM-DD":"label"}  (= wl date import)
+  wl dateinfo 2026-05-01 --clear            # clear  (= wl date rm)
+  wl dateinfo                               # list all  (= wl date ls)
 
-wl day shows "<date> <weekday> · <label>" at the top. Weekday comes from the date; dateinfo only stores the extra label.""")
+wl day shows "<date> <weekday> · <label>" at the top. Weekday comes from the date; dateinfo only stores the extra label.
+Explicit verbs: wl date set/ls/rm/import (same date_meta table; see `wl date -h`).""")
     di.add_argument("date", nargs="?", help="YYYY-MM-DD")
     di.add_argument("label", nargs="?", help="label, e.g. Labor Day / swap working day / vacation")
     di.add_argument("--import", dest="import_file", metavar="FILE", help='batch import {"YYYY-MM-DD":"label"} JSON, - reads stdin')
     di.add_argument("--clear", action="store_true", help="clear the label for this date")
+
+    # date entity group (WL#486): set / ls / rm / import. A clean group — `date` doesn't
+    # collide with any leaf, so no default verb. `wl dateinfo` is the polymorphic shortcut.
+    dt = sub.add_parser("date",
+        help="date-metadata CRUD: set / ls / rm / import (polymorphic shortcut: `wl dateinfo`)",
+        description="Date-metadata CRUD (holiday / vacation / working-day-swap label, shown in the wl day header) — the metric-style entity group. The everyday polymorphic shortcut is `wl dateinfo` (set when a label is given, list when not, --clear / --import variants).",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Shortcut (same date_meta table):
+  wl dateinfo …            polymorphic everyday form (= these verbs auto-dispatched)
+
+Common examples:
+  wl date set 2026-05-01 "Labor Day"     # set/update a label (= wl dateinfo 2026-05-01 "...")
+  wl date ls                             # list all (= bare wl dateinfo)
+  wl date ls 2026-05-01                  # show one date
+  wl date rm 2026-05-01                  # clear (= wl dateinfo 2026-05-01 --clear)
+  wl date import holidays.json           # batch {"YYYY-MM-DD":"label"} (= wl dateinfo --import)""")
+    _dtsub = dt.add_subparsers(dest="date_sub")
+    _dtset = _dtsub.add_parser("set", help="set/update a date's label (= wl dateinfo <date> <label>)")
+    _dtset.add_argument("date", help="YYYY-MM-DD")
+    _dtset.add_argument("label", help="label, e.g. Labor Day / swap working day / vacation")
+    _dtls = _dtsub.add_parser("ls", help="list date metadata, or show one date (= bare wl dateinfo)")
+    _dtls.add_argument("date", nargs="?", help="YYYY-MM-DD (omit to list all)")
+    _dtsub.add_parser("rm", help="clear a date's label (= wl dateinfo <date> --clear)").add_argument("date", help="YYYY-MM-DD")
+    _dtsub.add_parser("import", help='batch import {"YYYY-MM-DD":"label"} JSON (= wl dateinfo --import)').add_argument("file", help="JSON file path, or - for stdin")
 
     im = sub.add_parser("import",
         help="bulk load from JSON ({add:[...],update:[...]}; main AI integration path)",
@@ -1436,6 +1464,7 @@ from .commands import (
     cmd_sched,
     cmd_sched_group,
     cmd_dateinfo,
+    cmd_date_group,
     cmd_changes,
     _bulk_status_change,
     cmd_summary,
@@ -1508,6 +1537,7 @@ HANDLERS = {
     "checkin": cmd_checkin,
     "sched": cmd_sched_group,
     "dateinfo": cmd_dateinfo,
+    "date": cmd_date_group,
     "import": cmd_import,
     "apply": cmd_apply,
     "find": cmd_find,
