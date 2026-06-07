@@ -586,6 +586,26 @@ for a full explanation, and makes the help content **i18n-able and reviewable as
 - The top-level `wl -h` Concepts glossary stays a one-line teaser per concept, pointing to
   `wl help <concept>` for the full entry.
 
+### `--help` rendering: color, Markdown, wrapping (shared with `wl help`)
+- **Color is post-processed, not native.** argparse has no color before Py 3.14 (and 3.14's uses
+  its own palette), so `colorize_help` injects ANSI into argparse's *already-formatted* output.
+  The ANSI is zero-width, so argparse's column math is untouched. Color/theme are re-resolved from
+  `--color`/`--theme`/env at format time, because `--help` fires inside `parse_args`, before
+  `main()` builds the console. It's the same 3-tier scheme as `wl help` (dim body / bright-cyan
+  references / bold-white headings).
+- **`--help` may use the topic Markdown subset — but only in `epilog`/`description`.** Markers
+  render with color on and are stripped with color off. `help=` one-line summaries stay **plain
+  text**: argparse line-wraps them, which would split a Markdown span across lines. The point of
+  Markdown here is explicit styling where a heuristic can't help — a command name like `set` /
+  `log` / `show` collides with the English word, so it's backticked to mark it as code.
+- **Wrapping lives in the formatter, not the post-processor.** A `RawDescriptionHelpFormatter`
+  subclass overrides `_fill_text` (the hook argparse calls *only* for epilog/description) to wrap
+  the raw epilog with a hanging indent; option/choice help is still wrapped by argparse's own
+  `_split_lines`. Re-wrapping argparse's whole formatted output as a post-process was the wrong
+  layer — it re-wraps already-wrapped rows and misaligns them. The formatter caps the width on
+  wide terminals (`HELP_MAX_WIDTH`) and shares one `render.help_width()` with the `wl help`
+  topic-body wrapper, so every help surface lines up to a single width.
+
 ### Rollout (incremental)
 Land the loader + `wl help` command + a handful of seed topics first; then author one topic per
 command / concept / param and trim each `--help` to summary + pointer. Topics land piecemeal —
