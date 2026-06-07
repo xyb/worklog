@@ -175,6 +175,16 @@ def _fish_one_complete(prefix, action, sub_cmd=None):
     return lines
 
 
+def _help_topics():
+    """Help topic ids, baked into the generated completion so `wl help <topic>` tab-completes.
+    (Static at generation time — regenerate completion after adding topics.)"""
+    try:
+        from .commands.help import topic_names
+        return topic_names()
+    except Exception:
+        return []
+
+
 def _fish_positional_complete(parser, sub_cmd):
     """Positional argument completion for a subcommand (mostly node id / date)."""
     lines = []
@@ -193,6 +203,10 @@ def _fish_positional_complete(parser, sub_cmd):
         # default: subcommand in node-id operation set -> __wl_list_nodes
         if val_src is None and sub_cmd in _FISH_POSITIONAL_NODE:
             val_src = "(__wl_list_nodes)"
+        if val_src is None and sub_cmd == "help" and a.dest == "topic":
+            tops = _help_topics()
+            if tops:
+                val_src = " ".join(tops)
         if val_src is None and a.choices:
             val_src = " ".join(str(c) for c in a.choices)
         if val_src:
@@ -443,6 +457,8 @@ def _generate_bash_completion(parser):
         # positional: when the subcommand operates on node ids -> __wl_list_nodes_bash
         if name in _FISH_POSITIONAL_NODE:
             case_lines.append(f'                COMPREPLY=( $(compgen -W "$(__wl_list_nodes_bash)" -- "$cur") )')
+        elif name == "help":
+            case_lines.append(f'                COMPREPLY=( $(compgen -W "{" ".join(_help_topics())}" -- "$cur") )')
         else:
             case_lines.append('                :')
         case_lines.append('            fi')
@@ -620,10 +636,12 @@ def _generate_zsh_completion(parser):
             spec = _zsh_arg_spec(a, sub_cmd=name)
             if spec:
                 sub_specs.append(spec)
-        # positional (single positional taking a node id)
+        # positional (single positional taking a node id, or help's topic list)
         positional_helper = None
         if name in _FISH_POSITIONAL_NODE:
             positional_helper = "__wl_list_nodes_zsh"
+        elif name == "help":
+            positional_helper = "(" + " ".join(_help_topics()) + ")"
         for i, spec in enumerate(sub_specs):
             suffix = " \\" if (i < len(sub_specs) - 1 or positional_helper) else ""
             lines.append(f"                        {spec}{suffix}")

@@ -62,3 +62,33 @@ class TestHelpCommand:
         p = tmp_db.build_parser()
         args = p.parse_args(["help", "para"])
         cmd_help(args, None)   # must not raise
+
+
+class TestHelpIntegration:
+    """--help ↔ wl help wiring: a command with a topic auto-gains a 'More: wl help <cmd>'
+    pointer; `wl help <topic>` is tab-completable; the splash points to wl help."""
+
+    def _sub(self, tmp_db, name):
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        return sa.choices[name]
+
+    def test_command_with_topic_gets_auto_pointer(self, tmp_db):
+        # log / tag / sched have topic docs → their --help points into wl help
+        for cmd in ("log", "tag", "sched", "tree", "find"):
+            h = self._sub(tmp_db, cmd).format_help()
+            assert f"wl help {cmd}" in h, f"{cmd} -h missing wl help pointer"
+
+    def test_command_without_topic_has_no_pointer(self, tmp_db):
+        # `projects` has no topic doc → no auto-pointer
+        assert "wl help projects" not in self._sub(tmp_db, "projects").format_help()
+
+    def test_no_duplicate_pointer_when_handwritten(self, tmp_db):
+        # add.md exists + add's epilog hand-references wl help add → exactly one mention
+        assert self._sub(tmp_db, "add").format_help().count("wl help add") == 1
+
+    def test_completion_offers_help_topics(self, cli):
+        _, out, _ = cli("print-completion", "fish")
+        # the help positional completes to topic ids
+        assert "subcommand_from help" in out
+        assert "para" in out and "planning" in out

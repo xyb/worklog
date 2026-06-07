@@ -36,6 +36,17 @@ def _resolve_lang(args):
     return FALLBACK_LANG
 
 
+def topic_exists(name, lang=FALLBACK_LANG):
+    """True if a help topic doc exists for `name` (in `lang` or the en fallback). Used by the
+    parser to auto-link a command's --help to `wl help <name>` only when the topic is there."""
+    return _topic_path(name, lang) is not None
+
+
+def topic_names(lang=FALLBACK_LANG):
+    """All topic ids (for shell completion of `wl help <topic>`)."""
+    return list(_list_topics(lang))
+
+
 def _topic_path(topic, lang):
     """Path to a topic doc in `lang`, falling back to `en`; None if neither exists."""
     for lg in (lang, FALLBACK_LANG):

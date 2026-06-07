@@ -424,6 +424,11 @@ Good to know:
             # clobber a value already set on the global parser.
             pp.add_argument("-q", "--brief", action="store_true", default=argparse.SUPPRESS,
                             help="brief output (same as the global -q; accepted after the subcommand too)")
+            # auto-link --help to the wl help topic when one exists (DESIGN §25 slimming
+            # policy): write a topic doc and the command's --help gains the pointer for free.
+            # Skipped if the epilog already names `wl help <name>` (a hand-written richer one).
+            if topic_exists(name) and f"wl help {name}" not in (pp.epilog or ""):
+                pp.epilog = ((pp.epilog + "\n\n") if pp.epilog else "") + f"More: `wl help {name}`"
             return pp
         def __getattr__(self, k):
             return getattr(self._sub, k)
@@ -1633,6 +1638,8 @@ from .commands import (
     cmd_logs,
     cmd_themes,
     cmd_help,
+    topic_exists,
+    topic_names,
 )
 
 def cmd_node(args, con):
@@ -1716,7 +1723,10 @@ def _print_welcome():
     print('  wl tree                          full tree view')
     print('  wl day                           today\'s planned + activity')
     print()
-    print("See `wl --help` for the full command list, or `wl <command> --help` for details.")
+    print("Learn more:")
+    print("  wl --help                        full command list + concepts overview")
+    print("  wl <command> --help              one command's options + examples")
+    print("  wl help                          guided topics (concepts / workflows); e.g. wl help para")
 
 
 def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] directly to bypass
