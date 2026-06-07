@@ -91,3 +91,15 @@ class TestShowSchedule:
         cli("sched", "1", "--recur", "daily")
         _, out, _ = cli("show", "1")
         assert "recur daily (next " in out   # next-occurrence annotation present on the recur rule
+
+    def test_show_dedups_duplicate_oneoff_rows(self, cli):
+        # pre-idempotency-fix data can hold two identical (node_id, on_date) rows; show lists once
+        import os, sqlite3
+        cli("add", "patrol", "-k", "habit")
+        cli("sched", "1", "2026-06-02")
+        con = sqlite3.connect(os.environ["WORKLOG_DB"])   # inject a dirty duplicate row directly
+        con.execute("INSERT INTO sched (node_id, on_date, created_at) VALUES (1, '2026-06-02', '2026-06-02 00:00:00')")
+        con.commit(); con.close()
+        _, out, _ = cli("show", "1")
+        sched_line = next(l for l in out.splitlines() if "schedule:" in l)
+        assert sched_line.count("2026-06-02") == 1   # deduped at display, not shown twice

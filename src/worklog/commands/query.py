@@ -890,8 +890,10 @@ def _show_one(args, con):
     # recurring tasks (e.g. why a task shows on multiple days); previously only visible via raw SQL.
     sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id, order="on_date NULLS LAST, rrule")
     if sched_rows:
-        dates = [r["on_date"] for r in sched_rows if r["on_date"]]
-        rules = [r["rrule"] for r in sched_rows if r["rrule"]]
+        # dedup at display (order-preserving): pre-idempotency-fix data can hold duplicate
+        # (node_id, on_date) / (node_id, rrule) rows; show each once, don't mutate the source.
+        dates = list(dict.fromkeys(r["on_date"] for r in sched_rows if r["on_date"]))
+        rules = list(dict.fromkeys(r["rrule"] for r in sched_rows if r["rrule"]))
         parts = []
         if rules:
             seg = "recur " + ", ".join(rules)
