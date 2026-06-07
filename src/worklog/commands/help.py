@@ -198,8 +198,9 @@ def _render_body(body):
 
 def _render_topic(topic, meta, body, lang):
     title = meta.get("title", topic)
-    out(_c(title, "header"))
-    out(_c("─" * min(len(title), 60), "meta"))
+    # underline the title instead of spending a whole row on a ─── rule (plain mode: just the
+    # title line, no separator — the blank line below sets it off).
+    out(_c(title, "title"))
     out("")
     _render_body(body)
     see = meta.get("see_also") or []
@@ -222,6 +223,9 @@ def _render_index(lang):
     by_cat = {}
     for topic, (title, cat) in topics.items():
         by_cat.setdefault(cat, []).append((topic, title))
+    # pad the name column to the longest name + 2, so even the longest topic id
+    # (e.g. print-completion) keeps a gap before its description instead of running into it.
+    width = max((len(t) for t in topics), default=12) + 2
     ordered = _CATEGORY_ORDER + [c for c in by_cat if c not in _CATEGORY_ORDER]
     for cat in ordered:
         items = by_cat.get(cat)
@@ -234,7 +238,7 @@ def _render_index(lang):
             # title if there's no dash), so the list isn't "node   node".
             desc = title.split("—", 1)[1].strip() if "—" in title else title
             # the topic id is a `wl help <topic>` entry → same bright-cyan as See-also links
-            out("    " + _c(f"{topic:<12}", "kind") + _c(desc, "meta"))
+            out("    " + _c(f"{topic:<{width}}", "kind") + _c(desc, "meta"))
 
 
 # --- colorizing argparse --help output to match the wl help 3-tier scheme (DESIGN §25) ---

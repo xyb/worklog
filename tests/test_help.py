@@ -48,6 +48,21 @@ class TestHelpCommand:
         assert "everything is a node" in out
         assert "See also:" in out and "status" in out
 
+    def test_topic_title_has_no_rule_line(self, cli):
+        # the title is underlined (style "title") instead of a wasted ─── separator row
+        _, out, _ = cli("help", "status")
+        assert not any(set(line.strip()) == {"─"} for line in out.splitlines() if line.strip())
+
+    def test_index_columns_keep_a_gap(self, cli):
+        # the longest topic id must not run into its description (print-completion regression)
+        import re
+        _, out, _ = cli("help")
+        assert "print-completionshell" not in out
+        # each topic row is `    <name><≥2 spaces><desc>` — the name column is padded to the
+        # longest name + 2, so even print-completion keeps a gap before its description.
+        for name in ("para", "node", "print-completion"):
+            assert re.search(rf"^    {re.escape(name)} {{2,}}\S", out, re.M), f"{name} row missing gap"
+
     def test_unknown_topic_suggests(self, cli):
         _, _, err = cli("help", "nodez")
         assert "no help topic" in err and "node" in err
