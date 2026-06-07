@@ -23,6 +23,16 @@ class TestShow:
         assert "5/19 breakdown" in out
         assert "timeline / changes" in out  # logs upgraded to timeline
 
+    def test_show_timeline_log_line_fits_width(self, cli, monkeypatch):
+        # a long log body in the timeline must truncate to the terminal width (budget against the
+        # real prefix `    <ts>  #L<id>  ✎ log  `, not a fixed guess), not overflow to a 2nd line.
+        monkeypatch.setenv("COLUMNS", "80")
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "x" * 200)
+        _, out, _ = cli("show", "1")
+        assert any("✎ log" in l for l in out.splitlines())          # the log row is present
+        assert all(len(l) <= 80 for l in out.splitlines())          # …and no line overflows
+
     def test_show_nonexistent_fails(self, cli):
         code, _, err = cli("show", "99")
         assert code != 0

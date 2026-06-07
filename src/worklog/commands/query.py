@@ -936,8 +936,11 @@ def _show_one(args, con):
         if r["tag"] == "metric" and not (r["body"] or "").strip() and mrows:
             events.append((r["logged_at"], "📊 metric", _mline(mrows[0]), None, mrows[1:]))
         else:
-            # timeline log row: "    YYYY-MM-DD HH:MM:SS  #L<id>  ✎ log  <body>" indented ~ 32 cols
-            head = _truncate_log_body(r["body"], indent_cols=32, full=_log_full(args))
+            # timeline log row: "    YYYY-MM-DD HH:MM:SS  #L<id>  ✎ log  <body>". Budget against
+            # the *actual* prefix width (the same string printed below), not a fixed guess — a
+            # too-small guess (was 32; real ~39) left the body overflowing onto a second line.
+            prefix = f"    {_tu.utc_to_local(r['logged_at'])}  #L{r['id']}  ✎ log  "
+            head = _truncate_log_body(r["body"], indent_cols=_display_width(prefix), full=_log_full(args))
             events.append((r["logged_at"], "✎ log", head, r["id"], mrows))
     # structured clock intervals (start→end, from the clock table)
     for c in _db.query(con, "clock", cols="start_at, end_at, elapsed_sec", node_id=args.id, order="id"):
