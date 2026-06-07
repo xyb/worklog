@@ -320,10 +320,10 @@ def _expand_default_verb(argv):
 
 
 class _WlHelpFormatter(argparse.RawDescriptionHelpFormatter):
-    """Keep epilog/description raw (preserve our hand-aligned two-column layout), but cap the
-    wrap width on wide terminals so `--help` stays readable. Uses the same `render.help_width()`
-    the epilog wrapper in colorize_help uses, so argparse's option wrapping and our epilog
-    wrapping line up to the same column."""
+    """Cap the wrap width on wide terminals so `--help` stays readable, and wrap the raw
+    epilog/description with a hanging indent (preserving its hand-aligned two-column layout).
+    Option/choice help is still wrapped by argparse itself (via `_split_lines`) — we never
+    touch that. The width cap (render.help_width) is shared so everything lines up."""
 
     def __init__(self, prog):
         super().__init__(prog)
@@ -332,6 +332,16 @@ class _WlHelpFormatter(argparse.RawDescriptionHelpFormatter):
         # recompute the help column against the (possibly capped) width, mirroring argparse
         self._max_help_position = min(self._max_help_position,
                                       max(self._width - 20, self._indent_increment * 2))
+
+    def _fill_text(self, text, width, indent):
+        # argparse calls this ONLY for the description + epilog (option/choice help goes through
+        # _split_lines, left to argparse). RawDescription keeps our layout but never wraps;
+        # instead wrap here with a hanging indent (DESIGN §25 / commands.help.wrap_help_text).
+        from .commands.help import wrap_help_text
+        wrapped = wrap_help_text(text, width)
+        if indent:
+            wrapped = "\n".join(indent + line for line in wrapped.split("\n"))
+        return wrapped
 
 
 class _WlParser(argparse.ArgumentParser):
