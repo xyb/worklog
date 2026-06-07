@@ -9,6 +9,7 @@ then work / personal / other buckets → planned/unplanned → task → its logs
   wl day                     today
   wl day 2026-05-30          a past day (works for history)
   wl day yesterday           today / yesterday / tomorrow / day-after-tomorrow
+  wl day -2                  signed delta from today: +1 / -2 / -2d / +3w / +1m (default unit = days)
   wl day -t work             only the work bucket (-t/--tag, AND)
   wl day --by project        regroup (default --by plan = planned/unplanned; --by priority too)
   wl day --log-tail 1        logs default to the last 3 per task; --all-logs / --no-logs / --log-format full also adjust

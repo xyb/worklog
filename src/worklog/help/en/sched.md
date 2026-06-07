@@ -9,6 +9,7 @@ unplanned is derived from the schedule, not from a tag).
 
   wl sched 42 2026-06-15            # a specific day
   wl sched 42 tomorrow              # today / yesterday / tomorrow / day-after-tomorrow
+  wl sched 42 +3w                   # signed delta from today: +1 / -2d / +3w / +1m / -1y (default unit = days)
   wl sched 42                       # list this task's schedule
   wl sched 42 --clear               # clear it (= wl sched rm 42)
 

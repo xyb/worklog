@@ -68,8 +68,32 @@ def _resolve_concrete_date(s):
         return (_tu.today_date() + timedelta(days=rel[s])).isoformat()
     if lower in rel:
         return (_tu.today_date() + timedelta(days=rel[lower])).isoformat()
+    # signed relative delta from today: +1 / -2 / +1d / -2day / +3w / -2week / +1m / -1y.
+    # signed number, optional unit (d/day[s] default · w/week[s] · m/month[s] · y/year[s]).
+    import re as _re
+    m = _re.fullmatch(r"([+-]\d+)\s*(d|day|days|w|week|weeks|m|month|months|y|year|years)?", lower)
+    if m:
+        n, unit = int(m.group(1)), (m.group(2) or "d")[0]
+        base = _tu.today_date()
+        if unit == "w":
+            return (base + timedelta(weeks=n)).isoformat()
+        if unit == "m":
+            return _add_months(base, n).isoformat()
+        if unit == "y":
+            return _add_months(base, n * 12).isoformat()
+        return (base + timedelta(days=n)).isoformat()
     date.fromisoformat(s)  # validate; raises ValueError on bad input
     return s
+
+
+def _add_months(d, months):
+    """Add `months` (may be negative) to a date, clamping the day to the target month's length
+    (e.g. Jan 31 +1m → Feb 28). Stdlib only — no dateutil (DESIGN G3: few deps)."""
+    from calendar import monthrange
+    total = d.month - 1 + months
+    y = d.year + total // 12
+    mo = total % 12 + 1
+    return d.replace(year=y, month=mo, day=min(d.day, monthrange(y, mo)[1]))
 
 def _resolve_at_ts(at, default_now=True):
     """Parse --at into a UTC storage string. The user always enters *local* time;
@@ -220,8 +244,15 @@ def _norm_sched(s):
         return s
     if _re.fullmatch(r"\d{4}", s):
         return s
+    # fall through to the concrete-date resolver: signed deltas (+1 / -2d / +3w / -1y) and the
+    # full yesterday / day-before-yesterday / day-after-tomorrow word set resolve to a precise
+    # day hint, which defer stores as a YYYY-MM-DD scheduled_date.
+    try:
+        return _resolve_concrete_date(s)
+    except ValueError:
+        pass
     raise ValueError(
-        f"unrecognized scheduled time '{s}' (use YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter)")
+        f"unrecognized scheduled time '{s}' (use YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / +N / -2w / next-week / next-month / next-quarter)")
 
 def _sched_kind(s):
     """Normalized value -> granularity: day/week/month/quarter/year/someday/fuzzy"""

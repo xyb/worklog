@@ -170,7 +170,7 @@ def _args_node_add(p):
     p.add_argument("--parent", type=int, help="parent node id (nest under a project/area), e.g. --parent 103")
     p.add_argument("--status", help="initial status (default TODO); rarely needed at creation")
     p.add_argument("--scheduled", help="(rough hint, writes node.scheduled_date) scheduled time: YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
-    p.add_argument("--sched", help="(precise, writes the sched table = visible as planned in wl day for that date) date: YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow")
+    p.add_argument("--sched", help="(precise, writes the sched table = visible as planned in wl day for that date) date: YYYY-MM-DD / today / yesterday / tomorrow / a signed delta +1 / -2d / +3w / -1y")
     p.add_argument("--deadline", help="deadline date YYYY-MM-DD")
     p.add_argument("--body", help="optional body text")
     p.add_argument("--log", "-m", help="insert a log entry right after creation (result / output / numbers)")
@@ -239,7 +239,7 @@ def _log_id_arg(s):
 def _args_log_add(p):
     p.add_argument("id", type=int)
     p.add_argument("body")
-    p.add_argument("-d", "--date", help="log date: YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow (default: today; for backfilling history)")
+    p.add_argument("-d", "--date", help="log date: YYYY-MM-DD / today / yesterday / tomorrow / a signed delta +1 / -2d / +3w (default: today; for backfilling history)")
     p.add_argument("--time", help="log time HH:MM or HH:MM:SS (with --date, or alone for today)")
     p.add_argument("--keep-status", action="store_true",
                    help="do not auto-promote TODO to DOING (default: logging implies 'working on it'; DONE etc. unchanged)")
@@ -403,7 +403,8 @@ Good to know:
     a finish line) ▸ tasks — create with `-k area/project/task` and nest with `--parent <id>`.
   • Ids: a node is 42 or #42 (most write-commands take several at once); a log is #L42 and a
     metric is #M7 (as shown by `wl show` / `wl logs`) — use those forms with relog/unlog/metric.
-  • Dates accept today / yesterday / tomorrow / YYYY-MM-DD (and fuzzy next-week / 2026-Q3 for defer/sched).
+  • Dates accept today / yesterday / tomorrow / YYYY-MM-DD, signed deltas +1 / -2d / +3w / -1y
+    (number + d/w/m/y, default days), and fuzzy next-week / 2026-Q3 (defer/sched).
   • A task you `wl sched` to a day shows up "planned" in `wl day`; logging auto-moves TODO → DOING.
   • Tab-completion: `wl print-completion fish|bash|zsh` (the command prints setup instructions).
   • Shortcuts: `wl add` = `wl node add`, `wl set` = prop/meta by key; make your own with `wl alias add d day`.
@@ -1215,7 +1216,7 @@ More: `wl help sched` (the full recurring-rule grammar).""")
         help="schedule to a day / recurring rule (= the default wl sched 42 <when>)",
         description="Schedule a task to a one-off day or a recurring rule (--recur); no when/--recur lists; --clear clears. Also reachable as the default `wl sched <id> <when>` (omit `add`; see `wl sched -h`).")
     _sca.add_argument("id", type=int)
-    _sca.add_argument("when", nargs="?", help="YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow (one-off date)")
+    _sca.add_argument("when", nargs="?", help="YYYY-MM-DD / today / yesterday / tomorrow / a signed delta +1 / -2d / +3w / -1y (one-off date)")
     _sca.add_argument("--recur",
                       help="recurring rule (all support -1 = last day): daily / weekly:Mon|1-7|-1 / monthly:5|-1 / quarterly:M-D|-1 / yearly:MM-DD|-1")
     _sca.add_argument("--clear", action="store_true", help="clear all schedule entries for this task")

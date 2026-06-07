@@ -3,6 +3,48 @@ import sqlite3
 import pytest
 
 
+class TestRelativeDelta:
+    """signed day/week/month/year deltas for quick entry: +1 / -2 / +1d / -2day / +3w / -2week /
+    +1m / -1y — signed number + optional unit (default day). Resolved by _resolve_concrete_date,
+    so all date-accepting commands (sched / day / log --date / defer / …) get them."""
+
+    def _today(self, monkeypatch, y=2026, m=6, d=8):
+        import worklog.timeutil as tu
+        from datetime import date
+        monkeypatch.setattr(tu, "today_date", lambda: date(y, m, d))
+
+    def test_resolve_delta_forms(self, monkeypatch):
+        self._today(monkeypatch)
+        from worklog.helpers import _resolve_concrete_date as r
+        assert r("+1") == "2026-06-09" and r("-2") == "2026-06-06"      # bare signed = days
+        assert r("+1d") == "2026-06-09" and r("-2day") == "2026-06-06"
+        assert r("+3w") == "2026-06-29" and r("-2week") == "2026-05-25"
+        assert r("+1m") == "2026-07-08" and r("-1y") == "2025-06-08"
+        assert r("2026-06-20") == "2026-06-20" and r("today") == "2026-06-08"  # old forms intact
+
+    def test_add_months_clamps_day(self):
+        from worklog.helpers import _add_months
+        from datetime import date
+        assert _add_months(date(2026, 1, 31), 1) == date(2026, 2, 28)    # clamp to Feb
+        assert _add_months(date(2026, 12, 15), 1) == date(2027, 1, 15)   # year rollover
+        assert _add_months(date(2026, 3, 15), -4) == date(2025, 11, 15)  # negative back over year
+
+    def test_norm_sched_falls_through_to_delta(self, monkeypatch):
+        # defer's fuzzy parser also accepts deltas (precise day hint), keeping fuzzy forms working
+        self._today(monkeypatch)
+        from worklog.helpers import _norm_sched
+        assert _norm_sched("+1") == "2026-06-09"
+        assert _norm_sched("-2week") == "2026-05-25"
+        assert _norm_sched("someday") == "someday" and _norm_sched("next-week") == "2026-W25"
+
+    def test_cli_delta_across_commands(self, cli):
+        cli("add", "t", "-k", "task")
+        assert cli("sched", "1", "+3w")[0] == 0      # positional, +unit
+        assert cli("sched", "1", "-2week")[0] == 0   # positional, -unit (not eaten as an option)
+        assert cli("defer", "1", "+1m")[0] == 0      # defer fuzzy parser
+        assert cli("day", "-2")[0] == 0              # day positional, bare negative
+
+
 class TestFuzzySchedule:
     def test_norm_exact_formats(self, tmp_db):
         wl = tmp_db
