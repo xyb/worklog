@@ -325,32 +325,88 @@ def _color_help_line(line, pal):
     return prefix + "".join(parts)
 
 
+def _vis(s):
+    """Visible width of a marked-up fragment — markdown markers stripped, as the reader sees it
+    (so wrapping and hanging indents are measured on display width, not on `` ` ``/`**` chars)."""
+    return len(_strip_md(s))
+
+
+# a "word" for wrapping: a whole markdown span (which may contain spaces, e.g. `wl day`,
+# **two words**, [a link](url)) stays atomic, else a run of non-space chars. This keeps a span
+# from being split across a wrap boundary (which would leak its markers + break the colorizer).
+_WRAP_WORD = re.compile(
+    r"`[^`\n]+`|\*\*[^*\n]+\*\*|\*[^*\n]+\*|\[[^\]\n]+\]\([^)\n]+\)|\S+"
+)
+
+
+def _greedy_wrap(text, width, first, cont):
+    """Greedy word-wrap `text` to `width` (measured on visible width), prefixing the first line
+    with `first` and each continuation with `cont`. A markdown span stays one word; a word that
+    alone overflows is kept whole (no hard break — like argparse)."""
+    out, cur, prefix = [], "", first
+    for w in _WRAP_WORD.findall(text):
+        trial = w if not cur else cur + " " + w
+        if cur and _vis(prefix) + _vis(trial) > width:
+            out.append(prefix + cur)
+            prefix, cur = cont, w
+        else:
+            cur = trial
+    out.append(prefix + cur)
+    return out
+
+
+def _wrap_help_line(line, width):
+    """Wrap one formatted help line to `width` with an argparse-style hanging indent: a
+    two-column `label   description` row hangs continuations under the description column; a
+    `• ` bullet hangs under its text; plain prose hangs under its indent. Lines already within
+    width are returned unchanged, so argparse's own (already-wrapped) option rows are untouched."""
+    if _vis(line) <= width:
+        return [line]
+    stripped = line.lstrip(" ")
+    indent = line[:len(line) - len(stripped)]
+    bm = re.match(r"[•\-]\s+", stripped)
+    if bm:                                       # bullet: hang under the text after the marker
+        first = indent + bm.group(0)
+        return _greedy_wrap(stripped[bm.end():], width, first, " " * _vis(first))
+    m = re.match(r"^(\S.*?\s{2,})(\S.*)$", stripped)
+    if m:                                        # two-column row: hang under the description col
+        head = indent + m.group(1)
+        return _greedy_wrap(m.group(2), width, head, " " * _vis(head))
+    return _greedy_wrap(stripped, width, indent, indent)   # plain prose: hang under the indent
+
+
 def colorize_help(text):
     """Colorize argparse `--help` text to match the `wl help` 3-tier scheme — dim-grey body prose,
     bright-cyan references (inline code, `wl <command>` invocations, option flags, subcommand
     names), and bold bright-white section headings. Epilogs/descriptions may use the same
     restricted Markdown as wl help topics (`code` / **bold** / *italic* / [text](url)) for explicit
     styling. When color is off (non-TTY, --color never, $NO_COLOR), the Markdown markers are
-    *stripped* so plain `-h` stays clean (no literal ** or backticks). See DESIGN §25."""
+    *stripped* so plain `-h` stays clean (no literal ** or backticks).
+
+    Long lines in the raw epilog/description are wrapped to `render.help_width()` with a hanging
+    indent — the same width argparse's _WlHelpFormatter caps its own wrapping to, so the two
+    line up. See DESIGN §25."""
+    width = _render.help_width()
     pal = _render.help_palette(*_argv_color_theme())
-    if pal is None:
-        return "\n".join(_strip_md(line) for line in text.split("\n"))
-    lines = []
+    out = []
     for line in text.split("\n"):
-        if line.startswith("usage:") or (line and not line[0].isspace() and not _HELP_HEADING.match(line)):
-            lines.append(_color_help_line(line, pal))   # usage line + description prose
-        elif _HELP_HEADING.match(line):
-            # whole line is a header (bold); strip any markdown markers so a heading like
-            # "Commands by purpose (run `wl ...`):" doesn't show literal backticks.
-            lines.append(_render.style_ansi(_strip_md(line), pal["header"]))   # section / group header
-        else:
-            cm = _HELP_CHOICE.match(line)
-            if cm:   # a subcommand-choice row: name in cyan, the rest inline-colorized
-                rest = _color_help_line(cm.group(3), pal) if cm.group(3) else ""
-                lines.append(cm.group(1) + _render.style_ansi(cm.group(2), pal["kind"]) + rest)
+        # classify on the original line so a wrapped heading's continuations stay headed
+        is_heading = bool(_HELP_HEADING.match(line)) and not line.startswith("usage:")
+        for sub in _wrap_help_line(line, width):
+            if pal is None:
+                out.append(_strip_md(sub))
+            elif is_heading:
+                # strip markdown so a heading like "Commands by purpose (run `wl ...`):" has no
+                # literal backticks; style the whole (sub-)line bold.
+                out.append(_render.style_ansi(_strip_md(sub), pal["header"]))
             else:
-                lines.append(_color_help_line(line, pal))   # option rows + indented prose
-    return "\n".join(lines)
+                cm = _HELP_CHOICE.match(sub)
+                if cm:   # a subcommand-choice row: name in cyan, the rest inline-colorized
+                    rest = _color_help_line(cm.group(3), pal) if cm.group(3) else ""
+                    out.append(cm.group(1) + _render.style_ansi(cm.group(2), pal["kind"]) + rest)
+                else:
+                    out.append(_color_help_line(sub, pal))   # usage / prose / option rows
+    return "\n".join(out)
 
 
 def cmd_help(args, con=None):

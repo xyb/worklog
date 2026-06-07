@@ -271,6 +271,34 @@ class TestArgparseHelpColor:
         assert "**" not in out and "`" not in out                # markers consumed, not literal
         assert "docs" in out and "http://x" in out               # link text + url preserved
 
+    def test_epilog_wraps_with_hanging_indent(self):
+        # a long two-column epilog row wraps to the width with continuations hanging under the
+        # description column; a markdown span (`wl day`) is never split across the wrap boundary.
+        from worklog.commands.help import _wrap_help_line, _strip_md
+        line = "  tag      labels on a node; work / personal drive the `wl day` buckets and more"
+        subs = _wrap_help_line(line, 40)
+        assert len(subs) >= 2                                  # actually wrapped
+        assert all(s.startswith(" " * 11) for s in subs[1:])   # hangs under the description col
+        assert any("`wl day`" in s for s in subs)              # span kept intact, not split
+        assert all(_strip_md(s) and len(_strip_md(s)) <= 40 for s in subs)   # visible width honored
+
+    def test_help_width_caps_on_wide_and_floors_on_narrow(self, monkeypatch):
+        import worklog.render as render
+        monkeypatch.setenv("COLUMNS", "300")
+        assert render.help_width() == render.HELP_MAX_WIDTH    # capped on a wide terminal
+        monkeypatch.setenv("COLUMNS", "40")
+        assert render.help_width() == 38                       # terminal - 2 when below the cap
+
+    def test_wide_help_does_not_exceed_cap(self, monkeypatch, tmp_db):
+        # the whole `wl -h` honors the cap on a wide terminal (argparse formatter + epilog wrap
+        # share render.help_width()), so no line runs past HELP_MAX_WIDTH visible chars.
+        import argparse, worklog.render as render
+        monkeypatch.setenv("COLUMNS", "240")
+        monkeypatch.setattr("sys.argv", ["wl", "-h"])
+        monkeypatch.setenv("NO_COLOR", "1")                    # plain, so len() == visible width
+        h = tmp_db.build_parser().format_help()
+        assert max(len(line) for line in h.splitlines()) <= render.HELP_MAX_WIDTH
+
     def test_style_ansi_and_palette_helpers(self, monkeypatch):
         import worklog.render as render
         assert render.style_ansi("hi", "default") == "hi"   # mono/default → no codes

@@ -121,6 +121,19 @@ def _init_console(color_mode, theme_name):
     # terminal without color support (TERM=dumb etc.) -> effectively mono, rich won't emit ANSI
 
 
+# `--help` wrap width: the terminal width (minus argparse's 2-col margin), but capped so help
+# stays readable on very wide terminals. Both the argparse HelpFormatter (via _WlHelpFormatter)
+# and the epilog wrapper in colorize_help use this single value, so their wraps line up.
+HELP_MAX_WIDTH = 100
+
+
+def help_width():
+    """The width `--help` wraps to: min(terminal - 2, HELP_MAX_WIDTH), floored at 11 (argparse's
+    own floor). Matches argparse.HelpFormatter's `_width` derivation, then caps it."""
+    import shutil
+    return max(11, min(shutil.get_terminal_size().columns - 2, HELP_MAX_WIDTH))
+
+
 def help_palette(color_mode=None, theme_name=None):
     """The theme dict to colorize `--help` output with, or None when color should be off.
 
