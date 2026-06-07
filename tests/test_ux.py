@@ -806,6 +806,31 @@ class TestNewcomerHelp:
                     bare.append(f"{name}.{a.dest}")
         assert bare == [], f"args missing help: {bare}"
 
+    def test_day_help_explains_time_levels_as_optional(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        h = sa.choices["day"].format_help()
+        assert "Time levels" in h
+        assert "year" in h and "quarter" in h and "month" in h and "week" in h
+        # must be framed as a suggestion, not a requirement
+        assert "optional" in h.lower() or "suggested" in h.lower()
+        assert "enforced" in h.lower()
+
+    def test_goal_recap_help_show_planning_rhythm_and_no_stale_terms(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        goal_h = sa.choices["goal"].format_help()
+        recap_h = sa.choices["recap"].format_help()
+        assert "Planning rhythm" in goal_h
+        for level in ("morning", "evening", "weekly", "monthly"):
+            assert level in goal_h
+        # stale pre-meta-reshape terms must be gone (goal is a typed log, not a prop)
+        assert "prop 'goal'" not in goal_h
+        assert "summary_at" not in recap_h
+        assert "history-preserving" in goal_h and "history-preserving" in recap_h
+
     def test_add_help_has_arg_help_and_relatable_example(self, tmp_db):
         import argparse
         p = tmp_db.build_parser()

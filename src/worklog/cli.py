@@ -1061,6 +1061,17 @@ Common examples:
   wl day --no-logs                    # don't expand logs, just tasks
   wl day --log-format full            # don't truncate body
 
+Time levels — a *suggested* rhythm (entirely optional; nothing here is enforced):
+  The skeleton lifetime ▸ year ▸ quarter ▸ month ▸ week ▸ day builds itself as you log / sched,
+  so you never create those nodes by hand. If you want a planning cadence, a common one is:
+    day      `wl goal "..."` today's target · `wl recap "..."` end-of-day summary · tasks via `wl sched <id> today`
+    week     `wl meta set <week_id> overview "..."`   this week's focus / P0-P1
+    month    `wl meta set <month_id> top5 "..."`      the month's Top 5
+    quarter  `wl meta set <quarter_id> goal "..."`    the quarter's objective (if you plan that far)
+    year     same idea — a yearly direction, optional
+  Find a level's node id with `wl tree` (the timeline is shown by default). Tasks/projects can
+  hang at any level; use whichever levels fit how you actually plan — skip the rest.
+
 Differences from related commands:
   - wl day        single-day overview (plan + actual + status mix, including not-done items)
   - wl active     tasks running right now (live focus, no history)
@@ -1080,30 +1091,38 @@ End-of-day workflow: wl day -> review the day -> wl recap "..." to write the sum
                     help="full log expansion, no elision (overrides default tail=3)")
 
     g = sub.add_parser("goal",
-        help="read/write today's goal (auto-creates day node + prop 'goal')",
+        help="read/write today's goal — what you aim to deliver today (history-preserving)",
+        description="Read or write today's goal — a short statement of what you aim to deliver today. Stored as the day node's `goal` meta field (a history-preserving typed log: each write appends, the latest is current); auto-creates today's day node. `wl day` shows it at the top.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl goal "deliver X today"     # write
-  wl goal                       # read (no text)
+  wl goal "ship the Q3 report draft"     # write today's goal
+  wl goal                                # read (no text)
 
-wl day shows a top blockquote with the goal. Use at the end of morning planning. Pair with wl recap for end-of-day summary.""")
-    g.add_argument("text", nargs="?", help="no arg = read today's goal; with text = write")
+Planning rhythm (all optional, all history-preserving meta fields):
+  morning   `wl goal "..."`                       today's intended deliverable
+  evening   `wl recap "..."`                       what actually happened (the counterpart)
+  weekly    `wl meta set <week_id> overview "..."` this week's focus / P0-P1
+  monthly   `wl meta set <month_id> top5 "..."`    the month's Top 5
+  Plan the *work* itself with `wl sched <id> <day>` (a task shows "planned" in `wl day`)
+  or `wl defer <id> someday` (a loose backlog item). See `wl day -h` for the level cadence.""")
+    g.add_argument("text", nargs="?", help="no arg = read today's goal; with text = write it")
 
     rc = sub.add_parser("recap",
-        help="read/write today's end-of-day summary (auto-stamps summary_at)",
+        help="read/write a day's end-of-day summary — what actually happened (history-preserving)",
+        description="Read or write a day's end-of-day summary — a short reflection on what actually happened. Stored as the day node's `summary` meta field (a history-preserving typed log); the write time is recorded so `wl day` can warn if you log more after recapping. The evening counterpart to `wl goal`.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl recap "three things today: ..."  # write + auto-stamp summary_at
-  wl recap                             # read
-  wl recap --date 2026-06-01 "..."    # write a past day's recap (back-fill)
-  wl recap --date yesterday            # read yesterday's recap
+  wl recap "shipped the draft; blocked on review"   # write today's summary
+  wl recap                                           # read
+  wl recap --date 2026-06-01 "..."                  # write a past day's recap (back-fill)
+  wl recap --date yesterday                          # read yesterday's recap
 
-wl day shows "Recap: ... (written at MM-DD HH:MM)" at the top;
-if there are new logs after recap, wl day shows "⚠ N changes after recap, consider rewriting".
-Using wl set <day_id> summary "..." directly does not stamp the timestamp; not recommended.""")
-    rc.add_argument("text", nargs="?", help="no arg = read; with text = write")
+`wl day` shows "Recap: ... (written at MM-DD HH:MM)" at the top; if you log more after
+recapping it warns "⚠ N changes after recap, consider rewriting". (`wl goal` is the morning
+counterpart; weekly/monthly summaries are `wl meta set <week> overview` / `<month> top5`.)""")
+    rc.add_argument("text", nargs="?", help="no arg = read; with text = write the summary")
     rc.add_argument("-d", "--date", help="target day (YYYY-MM-DD / today / yesterday / 昨天 ...); default today")
 
     tk = sub.add_parser("tick",
