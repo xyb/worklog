@@ -777,6 +777,35 @@ class TestNewcomerHelp:
         for group in ("track work", "see it", "organize", "plan/reflect", "bulk & setup"):
             assert group in h
 
+    def test_epilog_has_concepts_glossary(self, tmp_db):
+        h = self._top_help(tmp_db)
+        assert "Concepts" in h
+        for concept in ("node", "log", "tag", "prop", "meta", "metric", "link", "sched", "clock"):
+            assert concept in h
+
+    def test_help_mentions_para(self, tmp_db):
+        assert "PARA" in self._top_help(tmp_db)
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        add_h = sa.choices["add"].format_help()
+        assert "PARA" in add_h and "ongoing responsibility" in add_h
+
+    def test_no_user_facing_arg_lacks_help(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        bare = []
+        for name, sub in sa.choices.items():
+            for a in sub._actions:
+                if isinstance(a, (argparse._HelpAction, argparse._SubParsersAction)):
+                    continue
+                if a.dest in ("help", "brief"):
+                    continue
+                if not a.help:
+                    bare.append(f"{name}.{a.dest}")
+        assert bare == [], f"args missing help: {bare}"
+
     def test_add_help_has_arg_help_and_relatable_example(self, tmp_db):
         import argparse
         p = tmp_db.build_parser()

@@ -212,21 +212,21 @@ def _args_node_show(p):
 
 
 def _args_prop_set(p):
-    p.add_argument("id", type=int)
-    p.add_argument("key")
-    p.add_argument("value")
+    p.add_argument("id", type=int, help="node id")
+    p.add_argument("key", help="prop key (or a meta field: goal/summary/overview/top5 → routes to meta)")
+    p.add_argument("value", help="the value to store")
     return p
 
 
 def _args_prop_rm(p):
-    p.add_argument("id", type=int)
-    p.add_argument("key")
+    p.add_argument("id", type=int, help="node id")
+    p.add_argument("key", help="prop key to remove (or a meta field → clears it)")
     return p
 
 
 def _args_link(p):
     p.add_argument("ids", type=int, nargs="+", metavar="id", help="node id(s)")
-    p.add_argument("vault_doc")
+    p.add_argument("vault_doc", help="vault doc name (no .md; an outer [[ ]] is stripped)")
     return p
 
 
@@ -334,6 +334,17 @@ def build_parser():
             "Commands are grouped by purpose at the bottom of this help."
         ),
         epilog="""\
+Concepts (the data model):
+  node      everything is a node in one tree — task / project / area / habit / meetlog / day
+  log       a timestamped progress entry on a node (each append is kept = history)
+  tag       labels on a node; work / personal drive the `wl day` buckets
+  prop      a static key=value attribute (owner, linear-id, …) — single value, overwritten
+  meta      history-preserving fields: goal / summary / overview / top5 (a separate store)
+  metric    a structured datapoint (a number or a check-in) attached to a log
+  link      a pointer to an Obsidian vault doc
+  sched     schedules a node to a day → it shows up "planned" in `wl day`
+  clock     a time interval (`wl start`/`stop`/`spent`); `wl day` / `active` total it
+
 Commands by purpose (run `wl <command> -h` for options + examples):
   track work    add · log · done · defer · cancel · reopen · wait · tick
   time          start · stop · spent · active · clock
@@ -343,6 +354,8 @@ Commands by purpose (run `wl <command> -h` for options + examples):
   bulk & setup  import · apply · init · config · alias · themes · print-completion
 
 Good to know:
+  • Organize PARA-style: areas (ongoing responsibilities, no end) ▸ projects (outcomes with
+    a finish line) ▸ tasks — create with `-k area/project/task` and nest with `--parent <id>`.
   • Node ids work as 42 or #42; most write-commands accept several ids at once.
   • Dates accept today / yesterday / tomorrow / YYYY-MM-DD (and fuzzy next-week / 2026-Q3 for defer/sched).
   • A task you `wl sched` to a day shows up "planned" in `wl day`; logging auto-moves TODO → DOING.
@@ -469,6 +482,12 @@ Common examples:
   # A meeting note for today
   wl add "[meetlog] 09:30 tech sync" -k meetlog -p A -t work,meeting --parent <day_id>
 
+Organizing (PARA): nest with --parent to build area ▸ project ▸ task —
+  - area     an ongoing responsibility with no end (e.g. "Health", "Infra"); top-level
+  - project  an outcome with a finish line (e.g. "Website revamp"); lives under an area
+  - task     a concrete action; lives under a project (or area)
+  (habit / meetlog / day are other kinds; the year→…→day time skeleton is auto-built.)
+
 Differences from related commands:
   - wl add ... --log + --done       one-shot create + log + close. Same as add -> log -> done in three steps.
   - wl tick <id>                    add a check-in log to an existing habit/task, does not create a new one
@@ -554,7 +573,7 @@ Differences from wl sched:
   - wl defer  -> status=LATER + scheduled_date field (rough hint, does NOT appear as "planned" in wl day on that day)
   - wl sched  -> writes to sched table (precise, appears as "planned" in wl day on that day)
 To schedule it as planned for a specific day, use wl sched. defer is for "set aside, vaguely revisit later".""")
-    df.add_argument("id", type=int)
+    df.add_argument("id", type=int, help="node id to defer")
     df.add_argument("date", help="scheduled time (precise or fuzzy): YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
 
     s = sub.add_parser("start",
@@ -905,7 +924,7 @@ Differences from related commands:
   - wl day             log-date-driven view of a single day (not tied to tree)
   - wl projects        list projects as cards (subtask counts, no tree expansion)
   - wl ls --parent <N> flat list of direct children, no recursion""")
-    tr.add_argument("--proj")
+    tr.add_argument("--proj", help="filter to a project by name (prop match)")
     tr.add_argument("--root", type=int, help="start tree from this node id")
     tr.add_argument("--by", choices=["project", "tag", "direction"], help="regroup by dimension (flat 2-level)")
     tr.add_argument("--depth", type=int, help="max depth")
@@ -926,7 +945,7 @@ Common examples:
   wl focus 42 --related          # also include tag-related nodes
 
 Related: wl show is self + timeline only; wl ancestors/descendants only go one direction; wl focus combines them.""")
-    fo.add_argument("id", type=int)
+    fo.add_argument("id", type=int, help="node id to focus on")
     fo.add_argument("--depth", type=int, help="max downstream depth")
     fo.add_argument("--related", action="store_true", help="also show tag-related nodes")
 
@@ -934,13 +953,13 @@ Related: wl show is self + timeline only; wl ancestors/descendants only go one d
         help="upstream path: ancestor chain from root to the node",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Example: wl ancestors 42 -> Lifetime / Area / Project / Task. Inverse: wl descendants for the downstream subtree.")
-    an.add_argument("id", type=int)
+    an.add_argument("id", type=int, help="node id")
 
     de = sub.add_parser("descendants",
         help="downstream subtree: all descendants of a node",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Example: wl descendants 7 --depth 2 -> two levels of children under #7. wl tree --root 7 is equivalent but rendered as a tree.")
-    de.add_argument("id", type=int)
+    de.add_argument("id", type=int, help="node id")
     de.add_argument("--depth", type=int, help="max depth")
 
     ag = sub.add_parser("agenda", parents=[filters],
@@ -1403,7 +1422,7 @@ Differences from related commands:
   - wl ls --recent N      by time (recently active)
 
 Before writing a new task / log, run wl find to check if there's an existing node to merge into, to avoid duplicates.""")
-    fd.add_argument("query")
+    fd.add_argument("query", help="text to search for (matches title/body/log/tag/prop/link)")
     fd.add_argument("--in", dest="in_", help="comma-separated fields to search (default: all)")
     fd.add_argument("--kind", help="filter by kind")
     fd.add_argument("--limit", type=int, metavar="N", help="show only the first N (default 20; use 0 or --all for no cap)")
@@ -1433,7 +1452,7 @@ Default window of 7 days avoids full-history flooding. Use --since/--until/--wee
     lg.add_argument("preset", nargs="?",
                     choices=["today", "yesterday", "week", "recent"],
                     help="quick preset: today/yesterday (= --date short form) / week (since Monday) / recent (--days 1 -q)")
-    lg.add_argument("--id", type=int)
+    lg.add_argument("--id", type=int, help="only this node's logs")
     lg.add_argument("-d", "--date", help="YYYY-MM-DD / today / yesterday / day-before-yesterday (only this day)")
     lg.add_argument("--days", type=int, default=7, help="default window in days when no since/date (default: 7)")
     lg.add_argument("--group", choices=["none", "day"], default="none",
