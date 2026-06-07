@@ -139,6 +139,20 @@ class TestHelpRendering:
 
     @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
                         reason="rich not installed")
+    def test_status_markers_and_commands_colored(self, monkeypatch):
+        import worklog.render as render
+        from worklog.commands import help as H
+        monkeypatch.setattr(render, "_CONSOLE", object())
+        # a `code` span that is a status marker → its real status style (not generic cyan)
+        assert "[done]" in H._md_inline("finish with `[x]`")
+        assert "[doing]" in H._md_inline("in progress `[/]`")
+        # a bare `wl <subcommand>` → command color when it's a real command…
+        assert "[kind]wl day[/kind]" in H._md_inline("run wl day now")
+        # …but prose like "wl maps" (not a command) stays body, not mis-colored
+        assert "[kind]wl maps" not in H._md_inline("wl maps the tree")
+
+    @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
+                        reason="rich not installed")
     def test_help_status_renders_with_color_no_crash(self, cli):
         # regression: bodies with [ ] / [/] / [x] used to crash rich markup parsing
         code, _, _ = cli("--color", "always", "help", "status")

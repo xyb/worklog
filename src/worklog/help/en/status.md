@@ -5,12 +5,12 @@ see_also: node, priority, day
 ---
 Every node has a status, shown as a one-character marker in `wl ls` / `tree` / `day`:
 
-  [ ]  TODO       not started
-  [/]  DOING      in progress (logging on a TODO auto-moves it here)
-  [x]  DONE       finished (sets closed_at)
-  [>]  LATER      deferred / set aside (also DEFERRED)
-  [?]  WAIT       blocked on someone or something external
-  [-]  CANCELED   dropped / no longer doing
+  `[ ]`  TODO       not started
+  `[/]`  DOING      in progress (logging on a TODO auto-moves it here)
+  `[x]`  DONE       finished (sets closed_at)
+  `[>]`  LATER      deferred / set aside (also DEFERRED)
+  `[?]`  WAIT       blocked on someone or something external
+  `[-]`  CANCELED   dropped / no longer doing
 
 How status changes:
   • `wl log <id> "..."`     TODO → DOING ("logging means working"); suppress with --keep-status

@@ -103,11 +103,33 @@ _MD_INLINE = re.compile(
     r"|\*\*[^*\n]+\*\*"                 # **bold**
     r"|\*[^*\n]+\*"                     # *italic*
     r"|\[[^\]\n]+\]\([^)\n]+\)"         # [text](url)
-    r"|https?://[^\s)]+)"               # bare URL
+    r"|https?://[^\s)]+"                # bare URL
+    r"|\bwl\s+[a-z][a-z-]*)"            # a `wl <subcommand>` invocation (verb only)
 )
+
+
+_COMMANDS = None
+
+
+def _commands():
+    """The set of real subcommand names, so a bare `wl <word>` is colored as a command only
+    when <word> actually is one (prose like 'wl maps the tree' stays plain). Lazy + cached."""
+    global _COMMANDS
+    if _COMMANDS is None:
+        try:
+            from ..cli import HANDLERS
+            _COMMANDS = frozenset(HANDLERS)
+        except Exception:  # pragma: no cover - cli always importable at runtime
+            _COMMANDS = frozenset()
+    return _COMMANDS
 # `code` → "kind" (bright cyan, theme-aware) so it's brighter than the dim body; **bold** →
 # the strong "header" style (plain [bold]=ESC[1m is too faint); *italic* → italic.
 _MD_STYLE = {"`": "kind", "**": "header", "*": "italic"}
+# a `code` span that is exactly a status marker renders in that status's real color (the same
+# styles `wl ls` / `wl day` print), so the status legend matches the rest of wl; anything else
+# in backticks is "kind" (bright cyan). Mirrors render._STATUS_STYLE.
+_MARKER_STYLE = {"[ ]": "todo", "[/]": "doing", "[x]": "done",
+                 "[>]": "later", "[?]": "wait", "[-]": "canceled"}
 
 
 def _color_on():
@@ -136,12 +158,18 @@ def _md_inline(text):
     for m in _MD_INLINE.finditer(text):
         out_parts.append(_c(text[pos:m.start()], "body"))
         tok = m.group(0)
-        if tok.startswith(("`", "*")):
-            mark = "**" if tok.startswith("**") else tok[0]
+        if tok.startswith("`"):
+            inner = tok[1:-1]
+            out_parts.append(_c(inner, _MARKER_STYLE.get(inner, _MD_STYLE["`"])))
+        elif tok.startswith("*"):
+            mark = "**" if tok.startswith("**") else "*"
             out_parts.append(_c(tok[len(mark):-len(mark)], _MD_STYLE[mark]))
         elif tok.startswith("["):
             lm = re.match(r"\[([^\]]+)\]\(([^)]+)\)", tok)
             out_parts.append(_c(lm.group(1), "underline") + " " + _c(lm.group(2), "kind"))
+        elif tok.startswith("wl"):   # `wl <subcommand>` — color as a command only if real
+            sub = tok.split()[1] if len(tok.split()) > 1 else ""
+            out_parts.append(_c(tok, "kind" if sub in _commands() else "body"))
         else:  # bare URL
             out_parts.append(_c(tok, "underline"))
         pos = m.end()
@@ -205,7 +233,8 @@ def _render_index(lang):
             # titles read "<name> — <description>"; show the description (or the whole
             # title if there's no dash), so the list isn't "node   node".
             desc = title.split("—", 1)[1].strip() if "—" in title else title
-            out("    " + _c(f"{topic:<12}", "id") + _c(desc, "meta"))
+            # the topic id is a `wl help <topic>` entry → same bright-cyan as See-also links
+            out("    " + _c(f"{topic:<12}", "kind") + _c(desc, "meta"))
 
 
 def cmd_help(args, con=None):
