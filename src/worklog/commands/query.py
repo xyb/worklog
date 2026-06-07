@@ -842,7 +842,7 @@ def cmd_logs(args, con):
 # --- zsh backend ---
 
 def _next_sched_fire(rules, start):
-    """Earliest date in [start, start+366d] that any of these rrules fires, as YYYY-MM-DD,
+    """Earliest date in [start, start+365d] (366 days incl. today) that any rrule fires, as YYYY-MM-DD,
     or None. Reuses `_sched_fires` — the same predicate `wl day` / `agenda` use — so the
     shown "next" is exactly when the task will reappear, not a re-derived guess."""
     from datetime import timedelta

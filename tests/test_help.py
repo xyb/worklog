@@ -309,6 +309,40 @@ class TestArgparseHelpColor:
         h = tmp_db.build_parser().format_help()
         assert max(len(line) for line in h.splitlines()) <= render.HELP_MAX_WIDTH
 
+    def test_vis_measures_display_width_not_char_count(self):
+        # CJK = 2 cols; narrow punctuation (·) = 1 (east_asian_width, not a crude non-ASCII→2 rule
+        # that would over-count the · / → separators and wrap the status legend early)
+        from worklog.commands.help import _vis
+        assert _vis("中文") == 4
+        assert _vis("a · b · c") == 9          # 7 ascii + 2 spaces around each · counted as 1
+        assert _vis("`中`") == 2               # markdown stripped, then width
+
+    def test_wrap_help_line_narrow_no_overflow(self):
+        # regression (cross-model review): when the hanging prefix (description column) would be
+        # wider than a very narrow width, fall back to a base-indent wrap so nothing overflows.
+        from worklog.commands.help import _wrap_help_line, _vis
+        for w in (11, 16, 24):
+            subs = _wrap_help_line("  priority [#A] = P0 (highest) · [#B] = P1 longer text here", w)
+            assert all(_vis(s) <= w for s in subs), f"overflow at width {w}: {subs}"
+
+    def test_cjk_line_hard_breaks_to_width(self):
+        # a spaceless CJK run has no word boundary; it must still wrap by character to fit width
+        from worklog.commands.help import _wrap_help_line, _vis
+        subs = _wrap_help_line("  项目      很长的中文说明需要折行超过四十列宽度继续加长内容啊", 40)
+        assert len(subs) >= 2 and all(_vis(s) <= 40 for s in subs)
+        assert all(s.startswith(" " * 12) for s in subs[1:])   # hangs under the description col
+
+    @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
+                        reason="rich not installed")
+    def test_mono_theme_emits_no_italic_ansi(self, monkeypatch):
+        # mono = plain: *italic* must not leak \x1b[3m (the palette routes italic→default in mono)
+        monkeypatch.setattr("sys.argv", ["wl", "-h"])
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("WORKLOG_COLOR", "always")
+        monkeypatch.setenv("WORKLOG_THEME", "mono")
+        from worklog.commands.help import colorize_help
+        assert "\x1b" not in colorize_help("run *maybe* now and read [docs](http://x)")
+
     def test_style_ansi_and_palette_helpers(self, monkeypatch):
         import worklog.render as render
         assert render.style_ansi("hi", "default") == "hi"   # mono/default → no codes

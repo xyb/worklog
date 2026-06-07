@@ -33,6 +33,16 @@ class TestShow:
         assert any("✎ log" in l for l in out.splitlines())          # the log row is present
         assert all(len(l) <= 80 for l in out.splitlines())          # …and no line overflows
 
+    def test_show_timeline_fits_narrow_terminal(self, cli, monkeypatch):
+        # regression (cross-model review): _truncate_log_body's old max(20,…) floor forced the
+        # timeline log line to overflow on any terminal < ~61 cols (prefix ~39 + 20). Now floored
+        # at 1, so it fits even narrow widths (body degrades to … when there's no room).
+        monkeypatch.setenv("COLUMNS", "55")
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "x" * 200)
+        _, out, _ = cli("show", "1")
+        assert all(len(l) <= 55 for l in out.splitlines())
+
     def test_show_nonexistent_fails(self, cli):
         code, _, err = cli("show", "99")
         assert code != 0

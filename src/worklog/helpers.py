@@ -109,11 +109,18 @@ def _term_width():
     except OSError:
         return 80
 
+def _cw(ch):
+    """Display columns for one char: East-Asian Wide/Fullwidth = 2, else 1. Uses
+    `unicodedata.east_asian_width`, which keeps CJK at 2 but the narrow punctuation we use
+    (· → … — ▸, all Ambiguous/Narrow) at 1 — a crude non-ASCII→2 rule would wrongly double those."""
+    import unicodedata
+    return 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
+
+
 def _display_width(s):
-    """Approximate terminal column width of a string: non-ASCII (CJK etc.) count as 2
-    columns, others as 1 — same approximation _truncate_log_body uses internally. Use
-    it to size indent_cols from a real prefix string instead of hard-coding a guess."""
-    return sum(2 if ord(ch) > 0x7F else 1 for ch in s)
+    """Terminal column width of a string (sum of per-char `_cw`). The single width measure used
+    across the codebase — log truncation budgets, help wrapping, and hanging indents all share it."""
+    return sum(_cw(ch) for ch in s)
 
 def _truncate_log_body(body, indent_cols, full=False):
     """Truncate log body to one line (terminal width - indent - safety margin), append … at end. full=True keeps body untouched.
@@ -123,13 +130,16 @@ def _truncate_log_body(body, indent_cols, full=False):
     if full:
         return body
     width = _term_width()
-    # available columns = width - indent_cols - small safety margin (2 cols to avoid edge wrap)
-    avail = max(20, width - indent_cols - 2)
+    # available columns = width - indent_cols - small safety margin (2 cols to avoid edge wrap).
+    # Floor at 1, not 20: a 20-col floor *forces* overflow when indent_cols is large (e.g. the
+    # ~39-col `wl show` timeline prefix made any terminal < ~61 cols overflow). With a tall prefix
+    # and a narrow terminal the body degrades to just "…" — correct, vs. spilling onto a 2nd line.
+    avail = max(1, width - indent_cols - 2)
     # CJK chars take 2 cols; estimate effective usage
     used = 0
     out_chars = []
     for ch in body:
-        w = 2 if ord(ch) > 0x7F else 1
+        w = _cw(ch)
         if used + w > avail - 1:  # reserve 1 col for …
             out_chars.append("…")
             return "".join(out_chars)

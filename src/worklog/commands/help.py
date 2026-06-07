@@ -18,6 +18,7 @@ from pathlib import Path
 
 from .. import render as _render
 from ..render import _c, out
+from ..helpers import _cw
 
 HELP_DIR = Path(__file__).resolve().parent.parent / "help"
 FALLBACK_LANG = "en"
@@ -313,13 +314,13 @@ def _help_token_ansi(tok, pal):
         return _render.style_ansi(inner, pal[_MARKER_STYLE.get(inner, "kind")])
     if tok.startswith("**"):                         # **bold** → strong header style
         return _render.style_ansi(tok[2:-2], pal["header"])
-    if tok.startswith("*"):                          # *italic*
-        return _render.style_ansi(tok[1:-1], "italic")
+    if tok.startswith("*"):                          # *italic* (pal-routed: mono → no styling)
+        return _render.style_ansi(tok[1:-1], pal["italic"])
     if tok.startswith("[") and "](" in tok:          # [text](url)
         lm = re.match(r"\[([^\]]+)\]\(([^)]+)\)", tok)
-        return _render.style_ansi(lm.group(1), "underline") + " " + _render.style_ansi(lm.group(2), pal["kind"])
+        return _render.style_ansi(lm.group(1), pal["underline"]) + " " + _render.style_ansi(lm.group(2), pal["kind"])
     if tok.startswith("http"):                       # bare URL
-        return _render.style_ansi(tok, "underline")
+        return _render.style_ansi(tok, pal["underline"])
     if tok.startswith("wl"):                         # `wl <subcommand>` — cyan only if it's real
         parts = tok.split()
         sub = parts[1] if len(parts) > 1 else ""
@@ -348,9 +349,10 @@ def _color_help_line(line, pal):
 
 
 def _vis(s):
-    """Visible width of a marked-up fragment — markdown markers stripped, as the reader sees it
-    (so wrapping and hanging indents are measured on display width, not on `` ` ``/`**` chars)."""
-    return len(_strip_md(s))
+    """Visible display width of a marked-up fragment — markdown markers stripped, then measured in
+    terminal columns (CJK = 2), so wrapping + hanging indents are right for CJK help text without
+    over-counting the ·/→/… separators (which a non-ASCII→2 rule would wrongly double)."""
+    return sum(_cw(ch) for ch in _strip_md(s))
 
 
 # a "word" for wrapping: a whole markdown span (which may contain spaces, e.g. `wl day`,
@@ -361,18 +363,41 @@ _WRAP_WORD = re.compile(
 )
 
 
+def _hard_break(word, width):
+    """Split a plain over-long word into chunks of display width ≤ `width` — the fallback for a
+    token with no internal break points (a spaceless CJK run, a long URL). Breaks on character
+    boundaries by display width; markdown spans are never passed here (their markers must not split)."""
+    chunks, cur, w = [], "", 0
+    for ch in word:
+        cw = _cw(ch)
+        if cur and w + cw > width:
+            chunks.append(cur)
+            cur, w = "", 0
+        cur += ch
+        w += cw
+    if cur:
+        chunks.append(cur)
+    return chunks or [word]
+
+
 def _greedy_wrap(text, width, first, cont):
-    """Greedy word-wrap `text` to `width` (measured on visible width), prefixing the first line
-    with `first` and each continuation with `cont`. A markdown span stays one word; a word that
-    alone overflows is kept whole (no hard break — like argparse)."""
+    """Greedy word-wrap `text` to `width` (measured on visible display width), prefixing the first
+    line with `first` and each continuation with `cont`. A markdown span stays one word. A plain
+    word that alone overflows the line is hard-broken by character (CJK / long URL); a markdown
+    span that overflows is kept whole (splitting it would leak its markers)."""
     out, cur, prefix = [], "", first
     for w in _WRAP_WORD.findall(text):
-        trial = w if not cur else cur + " " + w
-        if cur and _vis(prefix) + _vis(trial) > width:
+        if cur and _vis(prefix) + _vis(cur + " " + w) > width:
             out.append(prefix + cur)
-            prefix, cur = cont, w
+            prefix, cur = cont, ""
+        if not cur and w[:1] not in "`*[" and _vis(prefix) + _vis(w) > width:
+            pieces = _hard_break(w, max(1, width - _vis(prefix)))
+            for p in pieces[:-1]:
+                out.append(prefix + p)
+                prefix = cont
+            cur = pieces[-1]
         else:
-            cur = trial
+            cur = w if not cur else cur + " " + w
     out.append(prefix + cur)
     return out
 
@@ -386,15 +411,21 @@ def _wrap_help_line(line, width):
         return [line]
     stripped = line.lstrip(" ")
     indent = line[:len(line) - len(stripped)]
+    # if a fancy hang (bullet text / description column) would leave < ~10 cols for content
+    # (very narrow terminal vs a wide label), it can't help — fall back to a plain wrap at the
+    # base indent so content still fits instead of overflowing under an over-wide prefix.
+    def _too_wide(prefix):
+        return _vis(prefix) >= width - 10
     bm = re.match(r"[•\-]\s+", stripped)
-    if bm:                                       # bullet: hang under the text after the marker
+    if bm and not _too_wide(indent + bm.group(0)):  # bullet: hang under the text after the marker
         first = indent + bm.group(0)
         return _greedy_wrap(stripped[bm.end():], width, first, " " * _vis(first))
     m = re.match(r"^(\S.*?\s{2,})(\S.*)$", stripped)
-    if m:                                        # two-column row: hang under the description col
+    if m and not _too_wide(indent + m.group(1)):    # two-column row: hang under the description col
         head = indent + m.group(1)
         return _greedy_wrap(m.group(2), width, head, " " * _vis(head))
-    return _greedy_wrap(stripped, width, indent, indent)   # plain prose: hang under the indent
+    base = indent if _vis(indent) < width - 1 else ""   # base indent, unless even that's too wide
+    return _greedy_wrap(stripped, width, base, base)   # plain prose: hang under the (base) indent
 
 
 def wrap_help_text(text, width):
