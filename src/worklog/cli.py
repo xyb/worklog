@@ -567,15 +567,13 @@ Inverse of wl reopen (undo DONE back to TODO).""")
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl defer 42 2026-06-15     # defer to a precise date
-  wl defer 42 next-month     # fuzzy
-  wl defer 42 2026-Q3        # quarter
-  wl defer 42 someday        # no scheduled time
+  wl defer 42 someday        # no committed time, just "later"
+  wl defer 42 next-month     # fuzzy (also 2026-Q3 / a precise date)
+  wl defer 42 2026-06-15     # still LATER, a soft hint — not "planned"
 
-Differences from wl sched:
-  - wl defer  -> status=LATER + scheduled_date field (rough hint, does NOT appear as "planned" in wl day on that day)
-  - wl sched  -> writes to sched table (precise, appears as "planned" in wl day on that day)
-To schedule it as planned for a specific day, use wl sched. defer is for "set aside, vaguely revisit later".""")
+Distinct from `wl sched` (firm day, shows "planned"); defer is the someday/backlog pile.
+
+More: `wl help defer`.""")
     df.add_argument("id", type=int, help="node id to defer")
     df.add_argument("date", help="scheduled time (precise or fuzzy): YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
 
@@ -712,17 +710,14 @@ them all). No-op with a notice if that link wasn't present.""")
         description="Set a value on a node — a key-routed shortcut. A meta key (goal/summary/overview/top5) routes to `wl meta set` (history-preserving typed log); any other key routes to `wl prop set` (static single-value UDA prop). So `wl set` is to `prop set` / `meta set` what `wl add` is to `node add`.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Props (static single-value — = wl prop set):
-  wl set 42 owner xyb                  # add owner to a task
-  wl set 42 linear ABC-449             # backfill Linear ID
+Common examples:
+  wl set 42 owner xyb                  # a prop (static single-value; = wl prop set)
+  wl set 42 linear ABC-449             # backfill a Linear id
+  wl set <day_id> goal "deliver X"     # a meta field (= wl meta set; or `wl goal` for today)
 
-Meta fields (history-preserving typed log — = wl meta set; see `wl meta -h`):
-  wl set <day_id> goal "deliver X"     # (or wl goal — auto-targets today + stamps time)
-  wl set <day_id> summary "..."        # (or wl recap — auto-targets today)
-  wl set <week_id> overview "..."      # week overview
-  wl set <month_id> top5 "..."         # monthly Top5
+Key-routed: goal/summary/overview/top5 → meta (history-preserving); any other key → a prop.
 
-`wl recap`/`wl goal` target today's day node automatically; `wl set` needs the explicit node id.""")
+More: `wl help set`.""")
     _args_prop_set(se)
 
     # prop entity group (WL#486 / #527): set / ls / rm. `set` → wl set shortcut; `rm` → wl unset.
@@ -731,10 +726,10 @@ Meta fields (history-preserving typed log — = wl meta set; see `wl meta -h`):
         description="Custom key=value prop (UDA) CRUD — the metric-style entity group. Meta fields (goal/summary/overview/top5) and real tags are NOT props (use wl goal/recap and wl tag).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Shortcuts (same handler):
-  set →  wl set         (= wl prop set)
-  rm  →  wl unset       (= wl prop rm)
-  ls has no shortcut — call it under `prop` (props also show inline in `wl show`).""")
+Shortcuts: set → `wl set`, rm → `wl unset` (same handlers); `ls` has none (props also show
+inline in `wl show`).
+
+More: `wl help prop`.""")
     _prsub = pr.add_subparsers(dest="prop_sub")
     _args_prop_set(_prsub.add_parser("set", help="set/update a prop (= wl set)",
         description="Set/update a UDA prop. Also: the top-level shortcut `wl set` (identical, same handler)."))
@@ -1298,21 +1293,14 @@ The target must be a real wl command, and an alias can't shadow an existing comm
         help="bulk load from JSON ({add:[...],update:[...]}; main AI integration path)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-JSON format (single document):
-  {
-    "add": [
-      {"ref":"p","title":"project name","kind":"project","priority":"A","tags":["work"],
-       "children":[{"title":"subtask","kind":"task","priority":"A","status":"DONE","logs":["..."]}]},
-      {"title":"another task","kind":"task","parent_ref":"p"}
-    ],
-    "update": [{"id":42,"status":"DONE","add_tags":["urgent"]}]
-  }
-
-Common:
-  wl import data.json             # load
+Common examples:
+  wl import data.json             # load a {"add":[...],"update":[...]} document
   wl import data.json --dry-run   # preview without writing
+  wl import - < data.json         # from stdin
 
-For AI to load a day's worklog / multiple nodes, use this rather than many wl add calls. wl apply is the other option (lightweight wl-diff format).""")
+The main AI/scripted path for loading many nodes at once (vs `wl apply`'s lightweight diff).
+
+More: `wl help import` (the full JSON shape).""")
     im.add_argument("file", help="JSON file path, or - for stdin")
     im.add_argument("--dry-run", action="store_true", help="preview without writing")
 
@@ -1320,21 +1308,14 @@ For AI to load a day's worklog / multiple nodes, use this rather than many wl ad
         help="apply wl-diff lightweight bulk changes (+add/~update/-delete/ anchor; same format as wl output)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-wl-diff format:
-    #6 [day] 2026-05-29            <- anchor: identifies an existing node as parent, not modified
-  +   [x] [#A] morning check :planned:  <- add (indent = child), [x]=DONE
-  +     @log monitoring note            <- log child
-  ~ [x] #14                         <- change status of #14 (single-line shorthand)
-  ~ #20                             <- complex update: lock + field operations
-      +tag urgent                    <- sub-op: add tag
-      -log unwanted log              <- sub-op: remove
-  - #99                             <- delete (with subtree)
+Common examples:
+  wl apply diff.txt              # apply a wl-diff (+add / ~update / -delete; mirrors wl output)
+  wl apply diff.txt --dry-run    # validate + preview without writing
+  wl apply - < diff.txt          # from stdin
 
-Common:
-  wl apply diff.txt              # apply
-  wl apply diff.txt --dry-run    # preview
+Lightweight hand/AI edits (vs `wl import`'s rich JSON document).
 
-Difference from wl import: import = JSON rich format (good for scripted generation); apply = wl-diff text format (good for small hand-written edits / AI deltas).""")
+More: `wl help apply` (the full wl-diff format).""")
     ap.add_argument("file", help="wl-diff file path, or - for stdin")
     ap.add_argument("--dry-run", action="store_true", help="validate + preview without writing")
 
