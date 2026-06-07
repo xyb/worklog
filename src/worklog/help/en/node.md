@@ -17,6 +17,12 @@ Around a node hang the other entities (each its own topic):
   log (progress entries) · tag (labels) · prop (static fields) · meta (goal/summary/…)
   metric (datapoints) · link (vault docs) · sched (planned days) · clock (time intervals)
 
-Create one with `wl add "title" -k <kind>`; move it with `wl node reparent`; soft-delete
-with `wl node rm` (reversible). Nest with `--parent` to build area ▸ project ▸ task —
-see `wl help para`.
+CRUD (the metric-style `wl node <verb>` group; add/ls/show also have top-level shortcuts):
+  wl node add "title" -k task    # = wl add
+  wl node edit 42 --title "…" -p A   # own fields: title / priority / kind / body / scheduled / deadline
+  wl node reparent 42 103        # change the real parent (103, or none/root to detach)
+  wl node rm 42                  # soft-delete #42 + subtree (reversible tombstone)
+
+`node edit` touches only a node's *own* fields — not status, parent, or tags: use
+`wl done`/`wl cancel`/… for status, `wl node reparent` for the parent, and `wl tag` for tags.
+Nest with `--parent` to build area ▸ project ▸ task — see `wl help para`.

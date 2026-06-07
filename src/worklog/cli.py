@@ -515,23 +515,13 @@ More: `wl help add` (fuller intro + key options) · `wl help para` (areas / proj
         description="Log-entry CRUD on a node (progress / event stream) — the metric-style entity group. `wl log <id> \"body\"` is the add shortcut (the default verb; auto-progresses TODO->DOING unless --keep-status). `wl relog` = `log edit`, `wl unlog` = `log rm`. The full filterable stream view is `wl logs`.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Shortcuts / default verb (same handler):
-  wl log 42 "body"      add a log (the default verb — = wl log add 42 "body")
-  wl relog #L282 "..."  rewrite a log (= wl log edit #L282 "...")
-  wl unlog #L282        delete a log (= wl log rm #L282)
-  wl log ls 42          list a node's logs (full view: wl logs --id 42)
-
 Common examples:
-  wl log 42 "result: PR#13 merged"               # current progress (add, default verb)
+  wl log 42 "result: PR#13 merged"               # progress now (add, the default verb)
   wl log 42 "..." --date yesterday --time 14:30  # backfill a precise timestamp
-  wl log ls 42                                   # node-scoped log list
-  wl log edit #L282 "fixed"                      # rewrite (= wl relog)
-  wl log rm #L282                                # delete (= wl unlog)
+  wl log ls 42                                   # this node's logs (= wl logs --id 42)
+  wl log edit #L282 "fixed"                      # rewrite (= wl relog); wl log rm = wl unlog
 
-Differences from related commands:
-  - wl tick <id> --note "..."   habit check-in, default body = "✓ done"
-  - wl add ... --log "..."      create a new task + insert a log in one step
-  - wl logs --id 42             full filterable / windowed log view (presets, --since, --by-task)""")
+More: `wl help log` (vs `wl tick` habit check-in / `wl logs` filterable stream).""")
     _lgsub = g.add_subparsers(dest="log_sub")
     _args_log_add(_lgsub.add_parser("add",
         help="add a log entry (= the default wl log 42 \"body\")",
@@ -806,21 +796,15 @@ Create intervals with the composite helpers:
         description="Real-tag CRUD on a node (the tag table; drives work/personal bucketing & grouping) — the metric-style entity group. `wl tag <id> …` is the add shortcut (the default verb) and keeps the full +add / -remove / bare-add / empty-list grammar. Distinct from `wl set <id> tags …`, which would create a shadow 'tags' prop.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Shortcuts / default verb (same handler):
-  wl tag 42 +work -planned   add & remove in one call (the default verb — = wl tag add 42 +work -planned)
-  wl tag 42                  list current tags (= wl tag ls 42)
-  wl tag ls 42               list a node's tags
-  wl tag rm 42 planned       remove (= wl tag 42 -planned)
-
 Common examples:
-  wl tag 42 +work +P0        # add tags (default verb)
-  wl tag 42 work             # bare word = add (same as +work)
+  wl tag 42 +work +P0        # add tags (default verb; bare word also adds)
   wl tag 42 +work -other     # add and remove in one call
-  wl tag ls 42               # list current tags
+  wl tag 42                  # list current tags (= wl tag ls 42)
   wl tag rm 42 other         # remove
 
-Edits the real tag field (the tag table), unlike `wl set <id> tags ...` which would
-just create a shadow 'tags' prop.""")
+Edits the real tag field, unlike `wl set <id> tags ...` (which would make a shadow prop).
+
+More: `wl help tag`.""")
     _tgsub = tg.add_subparsers(dest="tag_sub")
     _tga = _tgsub.add_parser("add",
         help="add (and, with -tag, remove) tags (= the default wl tag 42 +work)",
@@ -840,16 +824,11 @@ just create a shadow 'tags' prop.""")
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl show 42                          # full detail + last 5 timeline entries
-  wl show 42 -q                       # brief: skip timeline
-  wl show 42 --timeline-tail 20       # show a longer timeline
-  wl show 42 --all-timelines          # full expansion
-  wl show 42 --log-format full        # do not truncate log body in timeline
+  wl show 42                   # full detail + last 5 timeline entries
+  wl show 42 -q                # brief: skip timeline
+  wl show 42 --all-timelines   # full timeline (--timeline-tail N for a set length)
 
-Differences from related commands:
-  - wl show <id>      single-node detail + timeline (deep dive on one node)
-  - wl focus <id>     single node + upstream path + downstream subtree (context view)
-  - wl logs --id <id> only log stream for that node (no metadata)""")
+More: `wl help show` (vs `wl focus` up/down context / `wl logs --id` log stream only).""")
     _args_node_show(sh)
 
     # node entity group (WL#486): the metric-style `wl node <verb>` primitive CRUD.
@@ -860,23 +839,15 @@ Differences from related commands:
         description="Node CRUD primitives — the metric-style entity group. `wl add` / `wl ls` / `wl show` are the high-frequency shortcuts onto the same handlers; `node edit` / `node rm` / `node reparent` are the field-edit / soft-delete / move primitives.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Shortcuts (the high-frequency verbs also have a top-level shortcut — same handler):
-  add  →  wl add        (= wl node add)
-  ls   →  wl ls         (= wl node ls)
-  show →  wl show       (= wl node show)
-  edit / rm / reparent have no shortcut — call them under `node`.
+Shortcuts: add → `wl add`, ls → `wl ls`, show → `wl show` (same handlers); edit / rm /
+reparent have no top-level shortcut — call them under `node`.
 
 Common examples:
-  wl node add "task" -k task -p B     # = wl add (the top-level shortcut)
-  wl node edit 42 --title "new" -p A  # edit a node's own fields (not status/parent/tags)
-  wl node reparent 42 103             # move #42 under #103 (real parent_id); 'none' detaches
-  wl node rm 42                       # soft-delete #42 + subtree (reversible tombstone)
+  wl node edit 42 --title "new" -p A  # edit own fields (not status/parent/tags)
+  wl node reparent 42 103             # move #42 under #103 ('none' detaches)
+  wl node rm 42                       # soft-delete #42 + subtree (reversible)
 
-Differences from related commands:
-  - node edit       title/priority/kind/body/scheduled/deadline; status → done/cancel/…,
-                    parent → node reparent, tags → wl tag
-  - node rm         soft-delete (reversible); wl apply '- #id' is the diff-format equivalent
-  - the metric group (wl metric add/ls/edit/rm) is the template this mirrors""")
+More: `wl help node`.""")
     _ndsub = nd.add_subparsers(dest="node_sub")
     _args_node_add(_ndsub.add_parser("add", help="create a node (= wl add)",
         description="Create a node — the canonical primitive. Also: the top-level shortcut `wl add` (identical, same handler)."))
@@ -920,19 +891,13 @@ More: `wl help ls` · sharper entry points: wl find <q> / wl day / wl active / w
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl tree                             # default overview (today + areas one level)
-  wl tree --root <area_id>            # area -> projects + tasks (default depth 3)
-  wl tree --root <project_id>         # project subtree (tasks)
-  wl tree --root <day_id> --depth 9   # full per-log expansion for a day
-  wl tree --depth 9                   # full tree (from lifetime; can be large)
-  wl tree --by project                # flat 2-level: project -> task
-  wl tree --by tag                    # flat 2-level: semantic tag -> node
+  wl tree                      # default overview (timeline to today + areas)
+  wl tree --root <id>          # the subtree under one node (area / project / day)
+  wl tree --root <day> --depth 9   # full per-log expansion for a day
+  wl tree --by project         # flat 2-level regroup (also --by tag / direction)
+  wl tree -t work              # prune to matching nodes + their ancestors
 
-Differences from related commands:
-  - wl tree            hierarchical browse (default overview; --root to drill)
-  - wl day             log-date-driven view of a single day (not tied to tree)
-  - wl projects        list projects as cards (subtask counts, no tree expansion)
-  - wl ls --parent <N> flat list of direct children, no recursion""")
+More: `wl help tree` (vs `wl ls` flat list / `wl day` single day / `wl projects` cards).""")
     tr.add_argument("--proj", help="filter to a project by name (prop match)")
     tr.add_argument("--root", type=int, help="start tree from this node id")
     tr.add_argument("--by", choices=["project", "tag", "direction"], help="regroup by dimension (flat 2-level)")
@@ -1032,19 +997,12 @@ Weekly / Linear-update workflow: wl changes --week -> look at changes -> draft t
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl summary --week 2026-W22                 # this week (by project)
-  wl summary --month 2026-05                 # full month
-  wl summary --since 2026-05-01 --by day     # group by day
-  wl summary --week 2026-W22 --top 5         # only the 5 most-progressed projects
-  wl summary --week 2026-W22 --projects-only # project rows only, no task expansion
-  wl summary --week ... -q                   # AI context-grab default brief (large token savings)
+  wl summary --week 2026-W22             # this week (by project)
+  wl summary --since 2026-05-01 --by day # group by day
+  wl summary --week 2026-W22 --top 5     # top 5 most-progressed projects (--projects-only too)
+  wl summary --week ... -q               # brief (AI context-grab, large token savings)
 
-Differences from related commands:
-  - wl summary    state snapshot (counts of done / doing / todo)
-  - wl changes    change view (added / closed / log count)
-  - wl day        full single-day view (with log body)
-
-Dedup: by default a task appearing in multiple projects (via parent + shared tag) is listed only once. --no-dedup restores the old behavior.""")
+More: `wl help summary` (vs `wl changes` deltas / `wl day` single day).""")
     sm.add_argument("--by", choices=["project", "day"], default="project", help="aggregate dimension (default: project)")
     sm.add_argument("--projects-only", action="store_true",
                     help="project rows only, no task expansion (same as --brief but explicit)")
@@ -1243,29 +1201,15 @@ For single habit check-in, use wl tick <id>.""")
         description="Forward-planning CRUD — schedule a task to a day / recurring rule (drives wl day 'planned') — the metric-style entity group. `wl sched <id> <when>` is the add shortcut (the default verb) and keeps the full when / --recur / --clear / list-when-empty grammar. Distinct from `wl defer` (status=LATER + rough hint).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Shortcuts / default verb (same handler):
-  wl sched 42 2026-06-15     schedule to a day (the default verb — = wl sched add 42 2026-06-15)
-  wl sched 42                list this task's schedule (= wl sched ls 42)
-  wl sched 42 --clear        clear all entries (= wl sched rm 42)
+Common examples:
+  wl sched 42 2026-06-15       # a specific day (today / tomorrow short forms too)
+  wl sched 42 --recur weekly:Mon,Fri   # recurring (daily / monthly:-1 / quarterly:1-15 / yearly:-1)
+  wl sched 42                  # list this task's schedule
+  wl sched 42 --clear          # clear all entries (= wl sched rm 42)
 
-Schedule to a specific day:
-  wl sched 42 2026-06-15              # exact date (add, the default verb)
-  wl sched 42 tomorrow                # short form (today / yesterday / tomorrow / day-after-tomorrow)
+Distinct from `wl defer` (status LATER + rough hint). Create + schedule: wl add "..." --sched today.
 
-Recurring rules (--recur); each supports -1 = last day of the cycle:
-  wl sched 42 --recur daily                       # every day
-  wl sched 42 --recur weekly:Mon,Wed,Fri          # also numeric weekly:1,3,5 / -1=Sun
-  wl sched 42 --recur monthly:5,15,-1             # day 5/15/last each month
-  wl sched 42 --recur quarterly:1-15              # 15th of the first month in each quarter
-  wl sched 42 --recur quarterly:-1                # last day of each quarter (3/31, 6/30, ...)
-  wl sched 42 --recur yearly:03-21                # March 21 every year
-  wl sched 42 --recur yearly:-1                   # last day of year (12-31)
-
-  wl sched ls 42             # list this task's schedule
-  wl sched rm 42             # clear all entries (= wl sched 42 --clear)
-
-Difference from wl defer: sched writes to the sched table (precise; appears as "planned" in wl day); defer = status=LATER + rough hint.
-Create + schedule in one line: wl add "..." --sched today""")
+More: `wl help sched` (the full recurring-rule grammar).""")
     _scsub = sc.add_subparsers(dest="sched_sub")
     _sca = _scsub.add_parser("add",
         help="schedule to a day / recurring rule (= the default wl sched 42 <when>)",

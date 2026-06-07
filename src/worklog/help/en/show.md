@@ -11,4 +11,5 @@ links / props) plus a merged timeline (created / scheduled / closed / logs). Acc
   wl show 42 --timeline-tail 20  # longer timeline (--all-timelines for full)
 
 This is where you read a log's `#L<id>` or a metric's `#M<id>` to edit them. For the up/down
-tree context use `wl focus`; for a whole day across nodes use `wl day`.
+tree context use `wl focus`; for a whole day across nodes use `wl day`; for just one node's
+log stream use `wl logs --id <id>`.
