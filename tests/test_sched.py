@@ -37,6 +37,20 @@ class TestRelativeDelta:
         assert _norm_sched("-2week") == "2026-05-25"
         assert _norm_sched("someday") == "someday" and _norm_sched("next-week") == "2026-W25"
 
+    def test_delta_rejects_invalid(self):
+        # fullmatch is strict: a unit typo / no sign / float / lone sign must NOT be read as a
+        # delta — it falls through to ISO validation and raises (GPT review suggestion).
+        from worklog.helpers import _resolve_concrete_date as r
+        for bad in ("+1x", "+1.5d", "+", "-", "1d", "++1", "+1 2", "w3"):
+            with pytest.raises(ValueError):
+                r(bad)
+
+    def test_add_months_off_leap_day(self):
+        from worklog.helpers import _add_months
+        from datetime import date
+        assert _add_months(date(2024, 2, 29), 12) == date(2025, 2, 28)   # +1y off Feb 29 clamps
+        assert _add_months(date(2026, 8, 31), -6) == date(2026, 2, 28)   # back over a short month
+
     def test_cli_delta_across_commands(self, cli):
         cli("add", "t", "-k", "task")
         assert cli("sched", "1", "+3w")[0] == 0      # positional, +unit
