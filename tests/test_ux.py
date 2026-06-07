@@ -780,8 +780,14 @@ class TestNewcomerHelp:
     def test_epilog_has_concepts_glossary(self, tmp_db):
         h = self._top_help(tmp_db)
         assert "Concepts" in h
-        for concept in ("node", "log", "tag", "prop", "meta", "metric", "link", "sched", "clock"):
+        for concept in ("node", "log", "tag", "prop", "meta", "metric", "link", "sched",
+                        "clock", "status", "priority"):
             assert concept in h
+        # the output markers a newcomer actually sees must be explained
+        for marker in ("[ ] todo", "[/] doing", "[x] done", "[-] canceled"):
+            assert marker in h
+        assert "[#A] = P0" in h            # priority rendering
+        assert "#L42" in h and "#M7" in h  # log / metric id forms (in the tips)
 
     def test_help_mentions_para(self, tmp_db):
         assert "PARA" in self._top_help(tmp_db)
