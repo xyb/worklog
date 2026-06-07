@@ -80,8 +80,8 @@ class TestHelpIntegration:
             assert f"wl help {cmd}" in h, f"{cmd} -h missing wl help pointer"
 
     def test_command_without_topic_has_no_pointer(self, tmp_db):
-        # `projects` has no topic doc → no auto-pointer
-        assert "wl help projects" not in self._sub(tmp_db, "projects").format_help()
+        # `themes` has no topic doc → no auto-pointer
+        assert "wl help themes" not in self._sub(tmp_db, "themes").format_help()
 
     def test_no_duplicate_pointer_when_handwritten(self, tmp_db):
         # add.md exists + add's epilog hand-references wl help add → exactly one mention
