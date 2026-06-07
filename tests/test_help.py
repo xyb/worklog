@@ -79,9 +79,10 @@ class TestHelpIntegration:
             h = self._sub(tmp_db, cmd).format_help()
             assert f"wl help {cmd}" in h, f"{cmd} -h missing wl help pointer"
 
-    def test_command_without_topic_has_no_pointer(self, tmp_db):
-        # `themes` has no topic doc → no auto-pointer
-        assert "wl help themes" not in self._sub(tmp_db, "themes").format_help()
+    def test_help_command_itself_has_no_auto_pointer(self, tmp_db):
+        # every other command now has a topic; `help` has neither a same-named topic nor a
+        # family mapping, so it's the one command with no auto-pointer (no self-reference).
+        assert "More: `wl help" not in self._sub(tmp_db, "help").format_help()
 
     def test_no_duplicate_pointer_when_handwritten(self, tmp_db):
         # add.md exists + add's epilog hand-references wl help add → exactly one mention
