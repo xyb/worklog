@@ -378,8 +378,7 @@ def build_parser():
         ),
         epilog="""\
 Concepts (the data model):
-  `node`     everything is one node in a single tree; its `kind` is task · project · area
-            (PARA, below) · habit (recurring) · meetlog (meeting note) · day/week/month/… (time)
+  `node`     everything is one node in a single tree; its `kind` is task · project · area (PARA, below) · habit (recurring) · meetlog (meeting note) · day/week/month/… (time)
   `log`      a timestamped progress entry on a node (each append is kept = history)
   `tag`      labels on a node; work / personal drive the `wl day` buckets
   `prop`     a static key=value attribute (owner, linear-id, …) — single value, overwritten
@@ -388,8 +387,7 @@ Concepts (the data model):
   `link`     a pointer to an Obsidian vault doc
   `sched`    schedules a node to a day → it shows up "planned" in `wl day`
   `clock`    a time interval (`wl start`/`stop`/`spent`); `wl day` / `active` total it
-  `status`   a node's state, shown as a marker: [ ] todo · [/] doing · [x] done ·
-            [>] later/deferred · [?] wait (blocked) · [-] canceled
+  `status`   a node's state, shown as a marker: [ ] todo · [/] doing · [x] done · [>] later/deferred · [?] wait (blocked) · [-] canceled
   `priority` [#A] = P0 (highest) · [#B] = P1 · [#C] = P2 — shown by the id; sorts lists by default
 
 Commands by purpose (run `wl <command> -h` for options + examples):
