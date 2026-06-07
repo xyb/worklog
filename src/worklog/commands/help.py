@@ -105,9 +105,9 @@ _MD_INLINE = re.compile(
     r"|\[[^\]\n]+\]\([^)\n]+\)"         # [text](url)
     r"|https?://[^\s)]+)"               # bare URL
 )
-# `code` → cyan; **bold** → the strong "header" style (plain [bold]=ESC[1m is too faint to
-# stand out against body text); *italic* → italic.
-_MD_STYLE = {"`": "cyan", "**": "header", "*": "italic"}
+# `code` → "kind" (bright cyan, theme-aware) so it's brighter than the dim body; **bold** →
+# the strong "header" style (plain [bold]=ESC[1m is too faint); *italic* → italic.
+_MD_STYLE = {"`": "kind", "**": "header", "*": "italic"}
 
 
 def _color_on():
@@ -130,21 +130,22 @@ def _md_inline(text):
     would otherwise mis-parse (and crash on a stray `[/]`)."""
     if not _color_on():
         return _strip_md(text)
-    esc = _render._rich_escape
+    # prose runs render in the dim "body" style so bold-white + colored refs stand out
+    # against them (3 tiers: body < refs < bold), Claude-Code-style.
     out_parts, pos = [], 0
     for m in _MD_INLINE.finditer(text):
-        out_parts.append(esc(text[pos:m.start()]))
+        out_parts.append(_c(text[pos:m.start()], "body"))
         tok = m.group(0)
         if tok.startswith(("`", "*")):
             mark = "**" if tok.startswith("**") else tok[0]
             out_parts.append(_c(tok[len(mark):-len(mark)], _MD_STYLE[mark]))
         elif tok.startswith("["):
             lm = re.match(r"\[([^\]]+)\]\(([^)]+)\)", tok)
-            out_parts.append(_c(lm.group(1), "underline") + " " + _c(lm.group(2), "cyan"))
+            out_parts.append(_c(lm.group(1), "underline") + " " + _c(lm.group(2), "kind"))
         else:  # bare URL
             out_parts.append(_c(tok, "underline"))
         pos = m.end()
-    out_parts.append(esc(text[pos:]))
+    out_parts.append(_c(text[pos:], "body"))
     return "".join(out_parts)
 
 
@@ -178,7 +179,7 @@ def _render_topic(topic, meta, body, lang):
         out("")
         # each see-also is a runnable `wl help <topic>` — color it like inline references
         # (cyan), not the dim "id" grey, so the links stand out.
-        links = _c(" · ", "meta").join(_c(t, "cyan") for t in see)
+        links = _c(" · ", "meta").join(_c(t, "kind") for t in see)
         out(_c("See also: ", "meta") + links + _c("   (wl help <topic>)", "meta"))
 
 

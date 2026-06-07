@@ -134,7 +134,7 @@ class TestHelpRendering:
         monkeypatch.setattr(render, "_CONSOLE", object())   # color on (truthy console)
         r = H._md_inline("status [/] and **go** and `wl ls`")
         assert "[header]go[/header]" in r        # bold → strong "header" style (visible)
-        assert "[cyan]wl ls[/cyan]" in r         # inline code styled
+        assert "[kind]wl ls[/kind]" in r         # inline code → bright cyan ("kind")
         assert r"\[/]" in r                      # the literal [/] is escaped, not a stray tag
 
     @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,

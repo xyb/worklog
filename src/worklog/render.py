@@ -21,7 +21,7 @@ except ImportError:
     _RICH_AVAIL = False
 
 # theme = semantic element -> rich style. No "default" theme; default is auto, probes terminal bg and resolves to dark/light/mono.
-_THEME_KEYS = "done doing later wait todo canceled pri_a pri_b pri_c id kind tag hit header meta planned clock".split()
+_THEME_KEYS = "done doing later wait todo canceled pri_a pri_b pri_c id kind tag hit header meta planned clock body".split()
 THEMES = {
     # dark: dark background, use bright_* for contrast
     "dark": {
@@ -30,6 +30,7 @@ THEMES = {
         "pri_a": "bold bright_red", "pri_b": "bright_yellow", "pri_c": "grey50",
         "id": "grey50", "kind": "bright_cyan", "tag": "bright_magenta", "hit": "bold black on bright_yellow",
         "header": "bold bright_white", "meta": "grey50", "planned": "bright_blue", "clock": "bright_green",
+        "body": "grey70",   # help prose: slightly grey so bold-white + colored refs stand out
     },
     # light: light background, use deep saturated colors (avoid bright/white getting lost on white bg)
     "light": {
@@ -38,6 +39,7 @@ THEMES = {
         "pri_a": "bold red3", "pri_b": "dark_orange3", "pri_c": "grey42",
         "id": "grey42", "kind": "dark_cyan", "tag": "purple", "hit": "bold black on yellow3",
         "header": "bold grey15", "meta": "grey42", "planned": "blue", "clock": "green4",
+        "body": "grey30",   # help prose: slightly grey so bold + colored refs stand out
     },
     # mono: no color (want rich layout but no color)
     "mono": {k: "default" for k in _THEME_KEYS},
