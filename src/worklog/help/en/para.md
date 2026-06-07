@@ -3,7 +3,17 @@ title: para — organizing with areas, projects, tasks
 category: guide
 see_also: node, add, planning
 ---
-wl organizes work PARA-style. You build the tree by nesting nodes with `--parent`:
+**PARA** is a popular organizing method by Tiago Forte (a 2017 essay, expanded in his 2022
+book *Building a Second Brain*). It sorts everything into four buckets — **P**rojects,
+**A**reas, **R**esources, **A**rchives — by *actionability* rather than by topic:
+  • Projects   — have a goal and an end
+  • Areas      — ongoing responsibilities with no end
+  • Resources  — reference material for later
+  • Archives   — anything from the above that's now inactive
+
+wl maps the first two onto node kinds (Projects/Areas) and adds `task` for concrete actions;
+Resources/Archives map loosely to tags and the hidden DONE/CANCELED states. You build the
+tree by nesting nodes with `--parent`:
 
   area      an ongoing responsibility with no finish line (e.g. "Health", "Infra").
             Lives at the top level. Use it as a long-lived home for projects.
@@ -22,5 +32,8 @@ note), and the auto-built time skeleton (year ▸ quarter ▸ month ▸ week ▸
 scheduling and day-views hang off of — you never create those by hand.
 
 This is a suggestion, not a requirement: tasks can live at any level. Use `wl tree` to
-see the shape, `wl projects` to list active projects. (Resources/Archives from classic
-PARA map loosely to tags and the hidden DONE/CANCELED states.)
+see the shape, `wl projects` to list active projects.
+
+Further reading (no dedicated Wikipedia page exists — this is the canonical source):
+  Tiago Forte, "The PARA Method": https://fortelabs.com/blog/para/
+  (expanded in his book *Building a Second Brain*, 2022)

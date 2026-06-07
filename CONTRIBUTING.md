@@ -48,6 +48,42 @@ wl --db /tmp/scratch.db add "experiment"
 
 `AGENTS.md` is the operating guide for AI coding agents (Claude Code, Cursor, Aider). Skim it once even if you code by hand; it concentrates the hard-rules into one page.
 
+## Writing `wl help` topics
+
+`wl help <topic>` is an info-style browser over Markdown docs in `src/worklog/help/<lang>/<topic>.md` (architecture: DESIGN §25). `en` is the source language and the per-topic fallback; other languages mirror the same topic ids. To add or edit a topic, just add/edit a `.md` file — the loader, the index, shell completion, and each command's `--help` pointer pick it up automatically.
+
+**File format** — minimal frontmatter between `---` fences, then a Markdown body:
+
+```
+---
+title: tag — labels on a node          # "<name> — <one-line description>"; the index shows the part after the dash
+category: command                       # one of: guide | concept | command | param
+see_also: node, day, ls, add            # comma/space-separated topic ids
+---
+<body>
+```
+
+- The **topic id is the filename stem** (`tag.md` → `wl help tag`). For a command topic, name it after the command so its `--help` auto-gains a `More: wl help <cmd>` pointer (commands without a same-named topic fall back to a family topic via `_HELP_FAMILY` in `cli.py`).
+- Every `see_also` id **must resolve to a real topic** — a test (`test_all_see_also_targets_resolve`) fails on a dangling link, since a "See also" is meant to be runnable as `wl help <x>`.
+
+**Supported Markdown is a small, fixed subset** (rendered by a dependency-free renderer in `commands/help.py` — no Markdown/`rich.markdown` engine):
+
+| Syntax | Renders as |
+|---|---|
+| `# Heading` … `###### ` | a styled heading (the `#`s are stripped) |
+| ` ```fence ` … ` ``` ` | a code block (dimmed; the fence lines are dropped; no inline parsing inside) |
+| `**bold**` | bold |
+| `*italic*` | italic |
+| `` `code` `` | inline code (cyan) |
+| `[text](url)` | underlined text + the url |
+| `http://…` / `https://…` (bare) | underlined link |
+
+Everything else is printed verbatim, so **lay the body out as readable plain text** (it must read fine with color off, where the markers above are simply stripped). Notes:
+
+- **`_italic_` is intentionally NOT supported** — bare underscores are too common in identifiers (`node_id`, `closed_at`, `$WORKLOG_LANG`). Use `*italic*`.
+- Literal brackets (`[ ]`, `[x]`, `[#A]`, `#L42`) are safe — the renderer escapes them; don't avoid them.
+- Preview both ways before committing: `wl help <topic>` and `wl help <topic> --color always`.
+
 ## TDD: red → green → refactor
 
 Every change touching behavior follows the [Red-Green-Refactor cycle](https://brennanbrown.github.io/notes/programming/python-tdd/):

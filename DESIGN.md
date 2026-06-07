@@ -570,8 +570,13 @@ for a full explanation, and makes the help content **i18n-able and reviewable as
 - Unknown topic → closest-match suggestions (never a stack trace).
 - Language: `--lang` > `$WORKLOG_LANG` > `$LANG` prefix > `en`; a missing translation falls back
   to `en` per-topic, never a hard error.
-- Rendering: the body is already human-readable Markdown; the renderer lightly styles headings
-  and the see-also footer and prints the rest verbatim (no heavy Markdown engine, no new dep).
+- Rendering: a **dependency-free renderer** (`commands/help.py`) handles a small fixed Markdown
+  subset — ATX headings, ```fenced``` code blocks, and inline `**bold**` / `*italic*` /
+  `` `code` `` / `[text](url)` / bare URLs (no `_italic_` — underscores collide with identifiers;
+  no Markdown engine, no `rich.markdown`). It **escapes literal text** before injecting style
+  markup, so bodies with `[ ]` / `[x]` / `[/]` / `#L42` render safely (a raw `[/]` previously
+  crashed rich); with color off the markers are simply stripped. The exact subset + frontmatter
+  spec for topic authors lives in **CONTRIBUTING.md** ("Writing `wl help` topics").
 
 ### Relationship to `--help` (the slimming policy)
 - `--help` stays the *quick reference at the point of use*: usage, one-line intro, a couple of

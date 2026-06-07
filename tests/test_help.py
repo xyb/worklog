@@ -107,3 +107,39 @@ class TestHelpIntegration:
         # the help positional completes to topic ids
         assert "subcommand_from help" in out
         assert "para" in out and "planning" in out
+
+
+class TestHelpRendering:
+    """The restricted-Markdown renderer (DESIGN §25): strips markers in plain mode, and
+    (with color) escapes literal brackets so bodies with [ ] / [x] / [/] don't crash rich."""
+
+    def test_strip_md_removes_inline_markers(self):
+        from worklog.commands.help import _strip_md
+        assert _strip_md("**bold** *it* `code` and [text](http://x)") == \
+            "bold it code and text (http://x)"
+
+    def test_md_inline_plain_passthrough(self, monkeypatch):
+        import worklog.render as render
+        from worklog.commands import help as H
+        monkeypatch.setattr(render, "_CONSOLE", None)   # color off
+        assert "**" not in H._md_inline("a **b** c") and "b" in H._md_inline("a **b** c")
+        # literal brackets are untouched in plain mode (no escaping, no crash)
+        assert H._md_inline("[/] done") == "[/] done"
+
+    @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
+                        reason="rich not installed")
+    def test_md_inline_escapes_brackets_with_color(self, monkeypatch):
+        import worklog.render as render
+        from worklog.commands import help as H
+        monkeypatch.setattr(render, "_CONSOLE", object())   # color on (truthy console)
+        r = H._md_inline("status [/] and **go** and `wl ls`")
+        assert "[bold]go[/bold]" in r            # bold styled via markup
+        assert "[cyan]wl ls[/cyan]" in r         # inline code styled
+        assert r"\[/]" in r                      # the literal [/] is escaped, not a stray tag
+
+    @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
+                        reason="rich not installed")
+    def test_help_status_renders_with_color_no_crash(self, cli):
+        # regression: bodies with [ ] / [/] / [x] used to crash rich markup parsing
+        code, _, _ = cli("--color", "always", "help", "status")
+        assert code == 0

@@ -11,10 +11,12 @@ already human-readable Markdown), so no YAML / Markdown engine is pulled in.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from difflib import get_close_matches
 from pathlib import Path
 
+from .. import render as _render
 from ..render import _c, out
 
 HELP_DIR = Path(__file__).resolve().parent.parent / "help"
@@ -91,15 +93,76 @@ def _list_topics(lang):
     return dict(sorted(found.items()))
 
 
+# --- the restricted Markdown subset wl help renders (see CONTRIBUTING.md + DESIGN §25) ---
+# Dependency-free: one inline tokenizer + line-based block handling. Intentionally small;
+# bodies are written to read fine as plain text too. The order in the alternation matters
+# (code span and **bold** before *italic*). `_italic_` is deliberately NOT supported — bare
+# underscores are too common in identifiers (node_id, closed_at, $WORKLOG_LANG).
+_MD_INLINE = re.compile(
+    r"(`[^`\n]+`"                       # `inline code`
+    r"|\*\*[^*\n]+\*\*"                 # **bold**
+    r"|\*[^*\n]+\*"                     # *italic*
+    r"|\[[^\]\n]+\]\([^)\n]+\)"         # [text](url)
+    r"|https?://[^\s)]+)"               # bare URL
+)
+_MD_STYLE = {"`": "cyan", "**": "bold", "*": "italic"}
+
+
+def _color_on():
+    return _render._CONSOLE is not None
+
+
+def _strip_md(text):
+    """Plain-text fallback: drop the inline markers so no `**`/`` ` ``/`[..](..)` leaks."""
+    text = re.sub(r"\*\*([^*\n]+)\*\*", r"\1", text)
+    text = re.sub(r"\*([^*\n]+)\*", r"\1", text)
+    text = re.sub(r"`([^`\n]+)`", r"\1", text)
+    text = re.sub(r"\[([^\]\n]+)\]\(([^)\n]+)\)", r"\1 (\2)", text)
+    return text
+
+
+def _md_inline(text):
+    """Render one line's inline Markdown to an output-ready string: escaped literals + rich
+    markup for styled spans when color is on; markers stripped to plain text when off. The
+    escaping is essential — bodies contain literal `[ ]` / `[x]` / `[#A]` that rich markup
+    would otherwise mis-parse (and crash on a stray `[/]`)."""
+    if not _color_on():
+        return _strip_md(text)
+    esc = _render._rich_escape
+    out_parts, pos = [], 0
+    for m in _MD_INLINE.finditer(text):
+        out_parts.append(esc(text[pos:m.start()]))
+        tok = m.group(0)
+        if tok.startswith(("`", "*")):
+            mark = "**" if tok.startswith("**") else tok[0]
+            out_parts.append(_c(tok[len(mark):-len(mark)], _MD_STYLE[mark]))
+        elif tok.startswith("["):
+            lm = re.match(r"\[([^\]]+)\]\(([^)]+)\)", tok)
+            out_parts.append(_c(lm.group(1), "underline") + " " + _c(lm.group(2), "cyan"))
+        else:  # bare URL
+            out_parts.append(_c(tok, "underline"))
+        pos = m.end()
+    out_parts.append(esc(text[pos:]))
+    return "".join(out_parts)
+
+
 def _render_body(body):
-    """Light terminal styling: color ATX headings and `See also:` lines; print the rest
-    verbatim (the body is already readable Markdown)."""
-    for line in body.rstrip().splitlines():
-        stripped = line.lstrip("#").strip()
-        if line.startswith("#") and stripped:
-            out(_c(stripped, "header"))
+    """Render a topic body with the restricted Markdown subset: ATX headings, fenced code
+    blocks (``` …), and inline **bold** / *italic* / `code` / [text](url) / bare URLs.
+    Everything else is preserved verbatim (bodies are pre-formatted with indentation)."""
+    in_code = False
+    for line in body.rstrip("\n").splitlines():
+        if line.lstrip().startswith("```"):
+            in_code = not in_code          # drop the fence line itself
+            continue
+        if in_code:
+            out(_c(line, "meta"))          # code block: dim, no inline parsing
+            continue
+        heading = line.lstrip("#").strip()
+        if line.startswith("#") and heading:
+            out(_c(heading, "header"))
         else:
-            out(line)
+            out(_md_inline(line))
 
 
 def _render_topic(topic, meta, body, lang):
