@@ -754,3 +754,33 @@ class TestShortFlags:
         cli("recap", "-d", "2026-06-01", "past recap")
         _, out, _ = cli("recap", "-d", "2026-06-01")
         assert "past recap" in out
+
+
+class TestNewcomerHelp:
+    """Top-level help orientation for newcomers: clean usage (no 50-command brace blob),
+    a welcoming quickstart, and a commands-grouped-by-purpose map."""
+
+    def _top_help(self, tmp_db):
+        return tmp_db.build_parser().format_help()
+
+    def test_usage_uses_command_metavar_not_brace_blob(self, tmp_db):
+        h = self._top_help(tmp_db)
+        assert "<command> ..." in h            # clean usage
+        assert "{migrate,config,init,add" not in h   # the old brace blob is gone
+
+    def test_description_has_quickstart(self, tmp_db):
+        h = self._top_help(tmp_db)
+        assert "New here?" in h and "wl init" in h and "wl add" in h
+
+    def test_epilog_groups_commands_by_purpose(self, tmp_db):
+        h = self._top_help(tmp_db)
+        for group in ("track work", "see it", "organize", "plan/reflect", "bulk & setup"):
+            assert group in h
+
+    def test_add_help_has_arg_help_and_relatable_example(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        h = sa.choices["add"].format_help()
+        assert "A = P0" in h                   # priority arg now explained
+        assert "ship the Q3 report" in h       # simple first example, not work-jargon

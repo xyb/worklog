@@ -160,13 +160,15 @@ _USER_ALIASES = None  # lazy cache, populated on first build_parser call
 # shortcut (`wl add`) and under the entity group (`wl node add`); both call the same
 # arg-adder so the two forms stay identical and there's one definition to maintain.
 def _args_node_add(p):
-    p.add_argument("title")
-    p.add_argument("-k", "--kind", default="task", help="node kind (default: task)")
-    p.add_argument("-p", "--priority", choices=["A", "B", "C"])
-    p.add_argument("-t", "--tag", help="comma-separated tags")
-    p.add_argument("--proj", help="project (stored as prop)")
-    p.add_argument("--parent", type=int, help="parent node id")
-    p.add_argument("--status")
+    p.add_argument("title", help="the node's title, e.g. \"ship the Q3 report\" (quote if it has spaces)")
+    p.add_argument("-k", "--kind", default="task",
+                   help="what it is: task (default) / project / area / habit / meetlog / day")
+    p.add_argument("-p", "--priority", choices=["A", "B", "C"],
+                   help="priority: A = P0 (highest) / B = P1 / C = P2")
+    p.add_argument("-t", "--tag", help="comma-separated tags, e.g. -t work or -t work,urgent (work/personal drive bucketing)")
+    p.add_argument("--proj", help="project name (stored as a prop)")
+    p.add_argument("--parent", type=int, help="parent node id (nest under a project/area), e.g. --parent 103")
+    p.add_argument("--status", help="initial status (default TODO); rarely needed at creation")
     p.add_argument("--scheduled", help="(rough hint, writes node.scheduled_date) scheduled time: YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
     p.add_argument("--sched", help="(precise, writes the sched table = visible as planned in `wl day` for that date) date: YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow")
     p.add_argument("--deadline", help="deadline date YYYY-MM-DD")
@@ -321,7 +323,33 @@ def build_parser():
         _USER_ALIASES = _load_user_aliases()
     user_aliases = _USER_ALIASES
 
-    p = _WlParser(prog="wl", description="worklog: SQLite-backed worklog tool")
+    p = _WlParser(
+        prog="wl",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        description=(
+            "worklog (wl) — a fast, local, SQLite-backed worklog & planner.\n"
+            "Track tasks/projects, log progress, plan your day, and review — all from the shell.\n\n"
+            "New here? Try:  wl init  →  wl add \"my first task\" -k task  →  wl log 1 \"made progress\"  →  wl day\n"
+            "Run `wl <command> -h` for any command's options + examples. "
+            "Commands are grouped by purpose at the bottom of this help."
+        ),
+        epilog="""\
+Commands by purpose (run `wl <command> -h` for options + examples):
+  track work    add · log · done · defer · cancel · reopen · wait · tick
+  time          start · stop · spent · active · clock
+  see it        day · tree · ls · show · logs · find · projects · agenda · summary · changes · focus
+  organize      tag · link · sched · set · prop · meta · node · relog · unlog
+  plan/reflect  goal · recap · checkin · metric · dateinfo
+  bulk & setup  import · apply · init · config · alias · themes · print-completion
+
+Good to know:
+  • Node ids work as 42 or #42; most write-commands accept several ids at once.
+  • Dates accept today / yesterday / tomorrow / YYYY-MM-DD (and fuzzy next-week / 2026-Q3 for defer/sched).
+  • A task you `wl sched` to a day shows up "planned" in `wl day`; logging auto-moves TODO → DOING.
+  • Tab-completion: `wl print-completion fish|bash|zsh` (the command prints setup instructions).
+  • Shortcuts: `wl add` = `wl node add`, `wl set` = prop/meta by key; make your own with `wl alias add d day`.
+  • `-q` brief output · `--db PATH` use a different worklog file.""",
+    )
     p.add_argument("--version", action="version", version=f"wl {__version__}")
     p.add_argument("--db", metavar="PATH",
                    help="override the DB path for this invocation (handy for testing / multiple worklogs); takes precedence over $WORKLOG_DB and the XDG default")
@@ -352,7 +380,7 @@ def build_parser():
     filters.add_argument("--kind", help="filter by kind (task/habit/meetlog/project/area/...)")
     filters.add_argument("--status", help="filter by status (TODO/DOING/DONE/WAIT/LATER/CANCELED)")
 
-    _real_sub = p.add_subparsers(dest="cmd", required=False)
+    _real_sub = p.add_subparsers(dest="cmd", required=False, metavar="<command>")
 
     # wrap add_parser to inject user aliases (cross-shell uniform: wl d == wl day)
     class _SubWrapper:
@@ -424,17 +452,21 @@ Config (aliases.ini) lives at $XDG_CONFIG_HOME/worklog/aliases.ini (default ~/.c
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  # New task (work-task-start preferred path)
-  wl add "PoC-3 S3 permissions" -k task -p B -t work,iac --parent 103 --sched today
+  # Simplest — a task (kind defaults to task)
+  wl add "ship the Q3 report"
 
-  # New project under an area
-  wl add "new project" -k project -p A -t work --parent <area_id>
+  # With priority, tag, and scheduled for today
+  wl add "review the PR" -p B -t work --sched today
 
-  # Retrospective entry (create + log + done + closed_at + link, one shot)
-  wl add "got something done" -k task -p B \\
-    --log "result note (PR#42)" --done --at 14:30 --link "vault doc name" --sched today
+  # A project, then a task nested under it (use the project's id as --parent)
+  wl add "Website revamp" -k project -p A -t work
+  wl add "draft the homepage copy" -p B --parent 42
 
-  # meetlog placeholder
+  # Retrospective entry — create + log + mark done + timestamp, in one shot
+  wl add "fixed the login bug" -p B \\
+    --log "root cause: stale token (PR#42)" --done --at 14:30
+
+  # A meeting note for today
   wl add "[meetlog] 09:30 tech sync" -k meetlog -p A -t work,meeting --parent <day_id>
 
 Differences from related commands:
