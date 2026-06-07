@@ -628,17 +628,13 @@ Difference from wl start/stop: spent builds a closed clock interval from a durat
         description="List tasks that are timing right now (an open clock interval). Shows current session elapsed, today's total, and the most recent log. Good for live focus check and finding tasks you forgot to stop.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Use cases:
-  - Before lunch / a meeting, see which task is still timing
-  - Late in the day, find a task you forgot to stop and wrap it up with wl stop <id>
-  - When juggling several tasks, confirm current focus
+Common examples:
+  wl active           # tasks timing now (session elapsed + today's total + latest log)
+  wl active -q        # just id + elapsed
 
-Difference from wl day:
-  - wl day        = full progress for the day (includes done / not-yet-started planned items), for end-of-day review
-  - wl active     = what's timing right now (open clock), for live focus check
+Close a forgotten timer with `wl stop <id>`.
 
-Output includes: current session elapsed + today's total (to decide stop or continue) + latest log (context).
-Brief mode -q: id + elapsed only. Full log body: --log-format full.""")
+More: `wl help active` (vs `wl day` full-day review).""")
     # ac has no other flags but we keep the variable for future args (e.g. --since to look at past activity)
 
     wa = sub.add_parser("wait",
@@ -687,18 +683,13 @@ Difference from wl wait: wait = paused (still planning to do); cancel = not doin
         description="Vault-doc link CRUD — the metric-style entity group. `wl link <id…> <doc>` is the add shortcut (the default verb); `wl unlink` is the rm shortcut.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-Shortcuts / default verb (same handler):
-  wl link 42 "doc"      add (the default verb — = wl link add 42 "doc")
-  wl unlink 42 "doc"    remove (= wl link rm 42 "doc")
-  wl link ls 42         list a node's links (no shortcut)
-
 Common examples:
   wl link 42 "Project hub doc"          # link (add — the default verb)
   wl link 42 43 "shared topic"          # link multiple ids at once
   wl link ls 42                         # list #42's links
   wl link rm 42 "old doc"               # remove (= wl unlink)
 
-Design: the knowledge layer (vault) and execution layer (wl) stay decoupled; wl only knows the linked doc name and does not sync content back.""")
+More: `wl help link`.""")
     _lnsub = ln.add_subparsers(dest="link_sub")
     _args_link(_lnsub.add_parser("add", help="link a node to a vault doc (= the default wl link 42 doc)"))
     _lnsub.add_parser("ls", help="list a node's vault-doc links").add_argument("id", type=int)
@@ -758,11 +749,9 @@ Shortcuts (same handler):
         epilog="""\
 Common examples:
   wl unset 42 owner                   # remove the 'owner' prop (= wl prop rm)
-  wl unset <day_id> goal              # clear the goal meta field (= wl meta rm; see `wl meta -h`)
+  wl unset <day_id> goal              # clear the goal meta field (= wl meta rm)
 
-Differences from related commands:
-  - wl unset 42 owner   delete a UDA prop (= wl prop rm)
-  - wl set 42 owner x   set/overwrite it (= wl prop set)""")
+Key-routed like `wl set`: a meta key → that meta field, any other key → a prop.""")
     _args_prop_rm(us)
 
     # clock entity group (WL#486 / #528): ls / edit / rm. Create stays start/stop/spent.
@@ -959,16 +948,12 @@ tree view misses month/week/someday-pinned items.
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl projects                         # all active projects
-  wl projects --since 2026-05-01      # active since May 1
-  wl projects --week 2026-W22         # active this week
+  wl projects                         # all active projects (cards: subtask counts + activity)
+  wl projects --since 2026-05-01      # active since a date (--week 2026-W22 too)
   wl projects --top 5                 # top 5 by priority
   wl projects --all                   # include DONE/CANCELED projects
 
-Differences from related commands:
-  - wl projects        card view (subtask counts + recent activity)
-  - wl tree --by project flat 2-level: project -> linked tasks (includes tag links)
-  - wl ls --kind project plain list of project nodes (no card, no subtask stats)""")
+More: `wl help projects` (vs `wl tree --by project` / `wl ls --kind project`).""")
     pj.add_argument("--all", action="store_true", help="include DONE/CANCELED projects")
     pj.add_argument("--limit", type=int, metavar="N", help="show only the first N")
     pj.add_argument("--top", type=int, metavar="N",
@@ -981,15 +966,12 @@ Differences from related commands:
         epilog="""\
 Common examples:
   wl changes --week 2026-W22          # this week's changes (per-project)
-  wl changes --since 2026-05-01       # changes since May 1
+  wl changes --since 2026-05-01       # changes since a date
   wl changes --month 2026-05          # whole month
 
-Differences from related commands:
-  - wl changes        change-focused: what was added / closed / how many logs
-  - wl summary        state-distribution snapshot: counts of done/doing/todo
-  - wl projects       project card view (subtask counts + last activity)
+Weekly/Linear-update input: added / closed / log counts per project.
 
-Weekly / Linear-update workflow: wl changes --week -> look at changes -> draft the report""")
+More: `wl help changes` (vs `wl summary` state snapshot / `wl projects` cards).""")
 
     sm = sub.add_parser("summary", parents=[window],
         help="time-window aggregate: done/doing/added counts + grouped by project or day",
@@ -1362,18 +1344,13 @@ Difference from wl import: import = JSON rich format (good for scripted generati
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl find skill                       # default limit 20
-  wl find skill --limit 5             # only the first 5
-  wl find skill --all                 # no limit
+  wl find skill                       # default limit 20 (--all / --limit N to adjust)
   wl find skill --kind project        # only projects
   wl find skill --in title,tag        # only in title/tag (default: all fields)
 
-Differences from related commands:
-  - wl find <q>           content search (across fields; common 'I remember mentioning X')
-  - wl ls --tag X         precise tag filter (when you know the dimension)
-  - wl ls --recent N      by time (recently active)
+Before writing a new task/log, run `wl find` to merge into an existing node, not duplicate it.
 
-Before writing a new task / log, run wl find to check if there's an existing node to merge into, to avoid duplicates.""")
+More: `wl help find` (vs `wl ls --tag` precise filter / `wl ls --recent` by time).""")
     fd.add_argument("query", help="text to search for (matches title/body/log/tag/prop/link)")
     fd.add_argument("--in", dest="in_", help="comma-separated fields to search (default: all)")
     fd.add_argument("--kind", help="filter by kind")

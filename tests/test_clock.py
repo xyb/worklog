@@ -157,14 +157,16 @@ class TestActiveBatteryIncluded:
         assert "latest log" not in out
 
     def test_active_help_epilog(self, cli):
-        """--help should include use cases and diff from wl day"""
+        """--help is slim and points into `wl help active`; the use-cases / wl-day contrast
+        now live in the topics (active.md + day.md's Related line) — no loss, just relocated."""
         from worklog import cli as wl
         p = wl.build_parser()
         sa = next(a for a in p._actions if hasattr(a, "choices") and "active" in (a.choices or {}))
-        active_p = sa.choices["active"]
-        epilog = active_p.epilog or ""
-        assert "Use cases:" in epilog
-        assert "wl day" in epilog and "Difference from" in epilog
+        epilog = sa.choices["active"].epilog or ""
+        assert "wl help active" in epilog
+        from worklog.commands.help import _topic_path, FALLBACK_LANG
+        day_md = _topic_path("day", FALLBACK_LANG).read_text("utf-8")
+        assert "active" in day_md and "running right now" in day_md.lower()
 
 
 class TestActiveTodayTotal:
