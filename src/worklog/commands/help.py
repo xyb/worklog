@@ -237,6 +237,100 @@ def _render_index(lang):
             out("    " + _c(f"{topic:<12}", "kind") + _c(desc, "meta"))
 
 
+# --- colorizing argparse --help output to match the wl help 3-tier scheme (DESIGN §25) ---
+# Runs as a *post-process* on argparse's fully-formatted, column-aligned text, so the injected
+# (zero-width) ANSI never disturbs argparse's own width math. Emits raw ANSI rather than rich
+# markup: `--help` fires inside parse_args, before main() builds _CONSOLE, and argparse prints
+# the returned string directly (not through `out`).
+_HELP_HEADING = re.compile(r"^\S.*:\s*$")          # a section header: unindented, ends with ':'
+# a subcommand-choice row: argparse indents choice names by 4 (`    add   add a log entry`); the
+# leading token is a real command name → color it like the wl help index. Continuation lines wrap
+# at the (deeper) help column, so a 4-space indent never collides with them.
+_HELP_CHOICE = re.compile(r"^( {4})(\S+)(\s{2,}.*)?$")
+_HELP_INLINE = re.compile(
+    r"(`[^`\n]+`"                       # `code`
+    r"|\bwl\s+[a-z][a-z-]*"             # a `wl <subcommand>` invocation
+    r"|\[#[ABC]\]"                      # a [#A]/[#B]/[#C] priority marker
+    r"|\[[ /x>?\-]\]"                   # a [ ]/[/]/[x]/... status marker
+    r"|(?<![\w-])--?[a-zA-Z][\w-]*)"    # an -h / --help option flag
+)
+_PRI_MARKER_STYLE = {"[#A]": "pri_a", "[#B]": "pri_b", "[#C]": "pri_c"}
+
+
+def _argv_color_theme():
+    """Best-effort scan of sys.argv for an explicit --color / --theme (so `wl --color always -h`
+    and `wl --color never -h` are honored even though --help fires before they're parsed)."""
+    color = theme = None
+    argv = sys.argv[1:]
+    for i, a in enumerate(argv):
+        nxt = argv[i + 1] if i + 1 < len(argv) else None
+        if a == "--color":
+            color = nxt
+        elif a.startswith("--color="):
+            color = a.split("=", 1)[1]
+        elif a == "--theme":
+            theme = nxt
+        elif a.startswith("--theme="):
+            theme = a.split("=", 1)[1]
+    return color, theme
+
+
+def _help_token_ansi(tok, pal):
+    """Style one matched inline token (code / wl-command / marker / option flag)."""
+    if tok.startswith("`"):
+        inner = tok[1:-1]
+        return _render.style_ansi(inner, pal[_MARKER_STYLE.get(inner, "kind")])
+    if tok.startswith("wl"):
+        parts = tok.split()
+        sub = parts[1] if len(parts) > 1 else ""
+        return _render.style_ansi(tok, pal["kind" if sub in _commands() else "body"])
+    if tok in _PRI_MARKER_STYLE:
+        return _render.style_ansi(tok, pal[_PRI_MARKER_STYLE[tok]])
+    if tok in _MARKER_STYLE:
+        return _render.style_ansi(tok, pal[_MARKER_STYLE[tok]])
+    return _render.style_ansi(tok, pal["kind"])    # an option flag
+
+
+def _color_help_line(line, pal):
+    """Inline-colorize one body line: dim prose ("body") with bright refs/commands/options/markers
+    standing out, plus a header-styled leading `usage:` label."""
+    prefix = ""
+    if line.startswith("usage:"):
+        prefix = _render.style_ansi("usage:", pal["header"])
+        line = line[len("usage:"):]
+    parts, pos = [], 0
+    for m in _HELP_INLINE.finditer(line):
+        parts.append(_render.style_ansi(line[pos:m.start()], pal["body"]))
+        parts.append(_help_token_ansi(m.group(0), pal))
+        pos = m.end()
+    parts.append(_render.style_ansi(line[pos:], pal["body"]))
+    return prefix + "".join(parts)
+
+
+def colorize_help(text):
+    """Colorize argparse `--help` text to match the `wl help` 3-tier scheme — dim-grey body prose,
+    bright-cyan references (inline code, `wl <command>` invocations, option flags, subcommand
+    names), and bold bright-white section headings. Returns the text unchanged when color is off
+    (non-TTY, --color never, $NO_COLOR, mono theme). See DESIGN §25."""
+    pal = _render.help_palette(*_argv_color_theme())
+    if pal is None:
+        return text
+    lines = []
+    for line in text.split("\n"):
+        if line.startswith("usage:") or (line and not line[0].isspace() and not _HELP_HEADING.match(line)):
+            lines.append(_color_help_line(line, pal))   # usage line + description prose
+        elif _HELP_HEADING.match(line):
+            lines.append(_render.style_ansi(line, pal["header"]))   # section / group header
+        else:
+            cm = _HELP_CHOICE.match(line)
+            if cm:   # a subcommand-choice row: name in cyan, the rest inline-colorized
+                rest = _color_help_line(cm.group(3), pal) if cm.group(3) else ""
+                lines.append(cm.group(1) + _render.style_ansi(cm.group(2), pal["kind"]) + rest)
+            else:
+                lines.append(_color_help_line(line, pal))   # option rows + indented prose
+    return "\n".join(lines)
+
+
 def cmd_help(args, con=None):
     """`wl help [topic]` — render the index, or one topic + its see-also links (DESIGN §25)."""
     lang = _resolve_lang(args)

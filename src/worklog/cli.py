@@ -328,6 +328,12 @@ class _WlParser(argparse.ArgumentParser):
             args = sys.argv[1:]
         return super().parse_known_args(_expand_default_verb(list(args)), namespace)
 
+    def format_help(self):
+        # colorize `wl -h` / `wl <cmd> -h` to match the wl help 3-tier scheme (DESIGN §25).
+        # Post-processes the fully-aligned text, so the zero-width ANSI doesn't shift columns;
+        # a no-op when color is off (non-TTY / --color never / $NO_COLOR / mono).
+        return colorize_help(super().format_help())
+
 
 def build_parser():
     global _USER_ALIASES
@@ -1652,6 +1658,7 @@ from .commands import (
     cmd_logs,
     cmd_themes,
     cmd_help,
+    colorize_help,
     topic_exists,
     topic_names,
 )

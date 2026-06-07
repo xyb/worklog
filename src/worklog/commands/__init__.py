@@ -125,4 +125,4 @@ from .meta import (
     _checkin_per_item,
     _norm_rrule,
 )
-from .help import cmd_help, topic_exists, topic_names
+from .help import cmd_help, colorize_help, topic_exists, topic_names

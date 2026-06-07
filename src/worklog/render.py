@@ -16,6 +16,7 @@ try:
     from rich.console import Console as _RichConsole
     from rich.theme import Theme as _RichTheme
     from rich.markup import escape as _rich_escape
+    from rich.style import Style as _RichStyle
     _RICH_AVAIL = True
 except ImportError:
     _RICH_AVAIL = False
@@ -116,6 +117,28 @@ def _init_console(color_mode, theme_name):
     force = True if color_mode == "always" else None
     _CONSOLE = _RichConsole(theme=_RichTheme(THEMES[name]), force_terminal=force, highlight=False, soft_wrap=True)
     # terminal without color support (TERM=dumb etc.) -> effectively mono, rich won't emit ANSI
+
+
+def help_palette(color_mode=None, theme_name=None):
+    """The theme dict to colorize `--help` output with, or None when color should be off.
+
+    `wl --help` / `wl <cmd> --help` render *before* main() builds `_CONSOLE` (argparse fires
+    its help action mid-parse), so the help colorizer can't read `_CONSOLE` — it resolves
+    color + theme here the same way `_init_console` does (env / TTY / --color / --theme),
+    then styles the returned string with raw ANSI via `style_ansi`."""
+    if not _RICH_AVAIL or not _resolve_color(color_mode):
+        return None
+    name = _resolve_theme(theme_name or os.environ.get("WORKLOG_THEME"))
+    return THEMES[name]
+
+
+def style_ansi(text, style_str):
+    """Wrap `text` in raw ANSI for a rich style string (e.g. "bold bright_white", "grey70").
+    Used for help text returned as a string, independent of any live `_CONSOLE`. A falsy or
+    "default" style (the mono theme) is a no-op, so mono help comes out as plain text."""
+    if not _RICH_AVAIL or not style_str or style_str == "default" or not text:
+        return text
+    return _RichStyle.parse(style_str).render(text)
 
 
 def out(s):

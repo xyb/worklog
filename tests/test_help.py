@@ -157,3 +157,99 @@ class TestHelpRendering:
         # regression: bodies with [ ] / [/] / [x] used to crash rich markup parsing
         code, _, _ = cli("--color", "always", "help", "status")
         assert code == 0
+
+
+class TestArgparseHelpColor:
+    """colorize_help post-processes argparse `--help` into the wl help 3-tier scheme. It must be
+    a no-op when color is off (so piped `-h` and the format_help() tests stay plain), and when on
+    must style headings / options / commands / markers without dropping any visible text."""
+
+    _SAMPLE = (
+        "usage: wl log [-h]\n"
+        "\n"
+        "positional arguments:\n"
+        "    add             add a log entry\n"
+        "\n"
+        "options:\n"
+        "  -h, --help  show this help message and exit\n"
+        "\n"
+        "Concepts:\n"
+        "  status  marker [/] doing [x] done; priority [#A]; run `wl day` / wl bogus\n"
+    )
+
+    def test_color_off_is_identity(self, monkeypatch):
+        from worklog.commands.help import colorize_help
+        monkeypatch.setattr("sys.argv", ["wl", "-h"])
+        monkeypatch.delenv("WORKLOG_COLOR", raising=False)
+        monkeypatch.setenv("NO_COLOR", "1")          # force off regardless of TTY
+        assert colorize_help(self._SAMPLE) == self._SAMPLE
+
+    def _force_on(self, monkeypatch):
+        monkeypatch.setattr("sys.argv", ["wl", "-h"])
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("WORKLOG_COLOR", "always")
+        monkeypatch.setenv("WORKLOG_THEME", "dark")
+
+    @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
+                        reason="rich not installed")
+    def test_three_tier_scheme_applied(self, monkeypatch):
+        self._force_on(monkeypatch)
+        from rich.style import Style
+        import worklog.render as render
+        from worklog.commands.help import colorize_help
+        out = colorize_help(self._SAMPLE)
+        th = render.THEMES["dark"]
+        S = lambda txt, key: Style.parse(th[key]).render(txt)
+        # no visible text lost
+        for s in ("usage:", "wl log", "add", "--help", "Concepts:", "[/]", "[x]", "[#A]", "wl day"):
+            assert s in out, f"{s!r} missing from colorized help"
+        assert S("usage:", "header") in out          # usage label → bold bright-white
+        assert S("options:", "header") in out         # section header → bold bright-white
+        assert S("--help", "kind") in out             # option flag → cyan
+        assert S("add", "kind") in out                # subcommand-choice name → cyan
+        assert S("[/]", "doing") in out and S("[x]", "done") in out   # markers → real status color
+        assert S("[#A]", "pri_a") in out              # priority marker → its color
+        assert S("wl day", "kind") in out             # `wl day` (real command) → cyan
+        assert S("wl bogus", "body") in out           # `wl bogus` (not a command) → stays body
+
+    @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
+                        reason="rich not installed")
+    def test_alignment_preserved_when_ansi_stripped(self, monkeypatch):
+        # the colorized text, with ANSI removed, must equal the original (zero-width injection)
+        self._force_on(monkeypatch)
+        import re
+        from worklog.commands.help import colorize_help
+        out = colorize_help(self._SAMPLE)
+        assert out != self._SAMPLE                                   # color actually applied
+        # stripping ANSI (and the markdown backticks, which render as zero-width code spans)
+        # restores the original byte-for-byte — i.e. coloring never shifts a column.
+        bare = re.sub(r"\x1b\[[0-9;]*m", "", out).replace("`", "")
+        assert bare == self._SAMPLE.replace("`", "")
+
+    @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
+                        reason="rich not installed")
+    def test_explicit_color_never_in_argv_wins(self, monkeypatch):
+        # `wl --color never -h` stays plain even on a (would-be) color TTY
+        from worklog.commands.help import colorize_help
+        monkeypatch.setattr("sys.argv", ["wl", "--color", "never", "-h"])
+        monkeypatch.setenv("WORKLOG_COLOR", "always")
+        assert colorize_help(self._SAMPLE) == self._SAMPLE
+
+    def test_style_ansi_and_palette_helpers(self, monkeypatch):
+        import worklog.render as render
+        assert render.style_ansi("hi", "default") == "hi"   # mono/default → no codes
+        assert render.style_ansi("", "bright_cyan") == ""   # empty → untouched
+        # palette: off when NO_COLOR, a real theme dict when forced on
+        monkeypatch.setattr("sys.argv", ["wl"])
+        monkeypatch.setenv("NO_COLOR", "1")
+        monkeypatch.delenv("WORKLOG_COLOR", raising=False)
+        assert render.help_palette() is None
+        monkeypatch.delenv("NO_COLOR", raising=False)
+        monkeypatch.setenv("WORKLOG_COLOR", "always")
+        if render._RICH_AVAIL:
+            assert render.help_palette(theme_name="dark")["kind"] == "bright_cyan"
+
+    def test_argv_color_theme_scan(self, monkeypatch):
+        from worklog.commands.help import _argv_color_theme
+        monkeypatch.setattr("sys.argv", ["wl", "--color", "always", "--theme=light", "log", "-h"])
+        assert _argv_color_theme() == ("always", "light")
