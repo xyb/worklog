@@ -841,6 +841,21 @@ def cmd_logs(args, con):
 
 # --- zsh backend ---
 
+def _next_sched_fire(rules, start):
+    """Earliest date in [start, start+366d] that any of these rrules fires, as YYYY-MM-DD,
+    or None. Reuses `_sched_fires` — the same predicate `wl day` / `agenda` use — so the
+    shown "next" is exactly when the task will reappear, not a re-derived guess."""
+    from datetime import timedelta
+    from .views import _sched_fires
+    d = start
+    for _ in range(366):
+        ds = d.isoformat()
+        if any(_sched_fires(None, r, ds) for r in rules):
+            return ds
+        d += timedelta(days=1)
+    return None
+
+
 def _show_one(args, con):
     n = _db.get(con, "node", args.id)
     if not n:
@@ -879,7 +894,12 @@ def _show_one(args, con):
         rules = [r["rrule"] for r in sched_rows if r["rrule"]]
         parts = []
         if rules:
-            parts.append("recur " + ", ".join(rules))
+            seg = "recur " + ", ".join(rules)
+            nxt = _next_sched_fire(rules, _tu.today_date())   # when the rule next fires (actionable)
+            if nxt:
+                from datetime import date as _date
+                seg += f" (next {nxt} {_date.fromisoformat(nxt).strftime('%a')})"
+            parts.append(seg)
         if dates:
             parts.append("on " + ", ".join(dates))
         out("  " + _c("schedule:", "meta") + " " + _c("; ".join(parts), "planned"))

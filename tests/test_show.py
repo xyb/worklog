@@ -77,3 +77,17 @@ class TestShowSchedule:
         cli("add", "unscheduled", "-k", "task")
         _, out, _ = cli("show", "1")
         assert "schedule:" not in out
+
+    def test_next_sched_fire_computes_next_occurrence(self):
+        # the recur line's "(next …)" reuses _sched_fires, so it matches when wl day reappears it
+        from datetime import date
+        from worklog.commands.query import _next_sched_fire
+        assert _next_sched_fire(["weekly:Mon"], date(2026, 6, 6)) == "2026-06-08"   # Sat → next Mon
+        assert _next_sched_fire(["daily"], date(2026, 6, 6)) == "2026-06-06"        # daily incl. today
+        assert _next_sched_fire(["weekly:Fri", "weekly:Mon"], date(2026, 6, 6)) == "2026-06-08"  # earliest
+
+    def test_show_recur_line_includes_next(self, cli):
+        cli("add", "standup", "-k", "habit")
+        cli("sched", "1", "--recur", "daily")
+        _, out, _ = cli("show", "1")
+        assert "recur daily (next " in out   # next-occurrence annotation present on the recur rule
