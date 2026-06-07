@@ -10,7 +10,8 @@ then work / personal / other buckets → planned/unplanned → task → its logs
   wl day 2026-05-30          a past day (works for history)
   wl day yesterday           today / yesterday / tomorrow / day-after-tomorrow
   wl day -t work             only the work bucket (-t/--tag, AND)
-  wl day --by project        regroup (default --by plan = planned/unplanned)
+  wl day --by project        regroup (default --by plan = planned/unplanned; --by priority too)
+  wl day --log-tail 1        logs default to the last 3 per task; --all-logs / --no-logs / --log-format full also adjust
 
 Planned vs unplanned: a task you `wl sched` to that day is "planned"; a task you only
 logged on that day (no schedule) is "unplanned". Scheduling, not tags, drives this.
@@ -21,3 +22,6 @@ planning cadence per level lives in `wl help planning`.
 
 End-of-day flow: `wl day` to review → `wl recap "..."` to write the summary (`wl day`
 then shows it, and warns if you log more afterward).
+
+Related: `wl active` = only what's running right now (no history); `wl logs -d <date>` = that
+day's flat log stream (no task tree); `wl tree --root <day_id>` = the day node's subtree.

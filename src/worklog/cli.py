@@ -497,35 +497,14 @@ Config (aliases.ini) lives at $XDG_CONFIG_HOME/worklog/aliases.ini (default ~/.c
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  # Simplest — a task (kind defaults to task)
-  wl add "ship the Q3 report"
+  wl add "ship the Q3 report"                          # simplest — a task
+  wl add "review the PR" -p B -t work --sched today    # priority, tag, plan for today
+  wl add "Website revamp" -k project -p A -t work      # a project (→ e.g. #42)
+  wl add "draft the homepage copy" --parent 42         # nest a task under it
+  wl add "fixed the login bug" -p B --log "root cause: …" --done --at 14:30   # create + log + close
+  wl add "[meetlog] 09:30 tech sync" -k meetlog --parent <day_id>             # a meeting note
 
-  # With priority, tag, and scheduled for today
-  wl add "review the PR" -p B -t work --sched today
-
-  # A project, then a task nested under it (use the project's id as --parent)
-  wl add "Website revamp" -k project -p A -t work
-  wl add "draft the homepage copy" -p B --parent 42
-
-  # Retrospective entry — create + log + mark done + timestamp, in one shot
-  wl add "fixed the login bug" -p B \\
-    --log "root cause: stale token (PR#42)" --done --at 14:30
-
-  # A meeting note for today
-  wl add "[meetlog] 09:30 tech sync" -k meetlog -p A -t work,meeting --parent <day_id>
-
-Organizing (PARA): nest with --parent to build area ▸ project ▸ task —
-  - area     an ongoing responsibility with no end (e.g. "Health", "Infra"); top-level
-  - project  an outcome with a finish line (e.g. "Website revamp"); lives under an area
-  - task     a concrete action; lives under a project (or area)
-  (habit / meetlog / day are other kinds; the year→…→day time skeleton is auto-built.)
-
-Differences from related commands:
-  - wl add ... --log + --done       one-shot create + log + close. Same as add -> log -> done in three steps.
-  - wl tick <id>                    add a check-in log to an existing habit/task, does not create a new one
-  - wl log <id>                     add a log to an existing task, does not create a new one
-
-More: `wl help add` (fuller intro) · `wl help para` (areas / projects / tasks).""")
+More: `wl help add` (fuller intro + key options) · `wl help para` (areas / projects / tasks).""")
     _args_node_add(a)
 
     # log entity group (WL#486): add / ls / edit / rm. `add` is the default verb so the
@@ -924,19 +903,15 @@ Differences from related commands:
                         description="List nodes (multi-dimensional, shell-ls style). Canonical form: `wl node ls` (this is the shortcut; see `wl node -h`).",
                         formatter_class=argparse.RawDescriptionHelpFormatter,
                         epilog="""\
-Common examples (precise queries, shell-ls multi-dimensional):
-  wl ls --parent 45                     children of #45 (like ls dir/)
-  wl ls --kind project                  only projects
-  wl ls --tag work,dev                multi-tag AND filter
-  wl ls --unscheduled --kind task       unscheduled tasks (inbox)
-  wl ls --sort created -r --limit 5     5 most-recently-created (like ls -tr -5)
-  wl ls --sort updated --limit 10       10 most-recently-logged (like ls -t)
-  wl ls --recent 7                      anything that changed in the last 7 days
-  wl ls --ids 39 41 270                 look at specific ids directly (like ls f1 f2)
-  wl ls --status WAIT                   blocked / waiting on others
-  wl ls --all                           remove the 20-row limit + include DONE/CANCELED
+Common examples (shell-ls multi-dimensional):
+  wl ls --parent 45                  children of #45 (like ls dir/)
+  wl ls --kind project               only projects · --tag work,dev (AND) · --status WAIT
+  wl ls --unscheduled --kind task    unscheduled tasks (inbox)
+  wl ls --sort updated --limit 10    10 most-recently-logged (like ls -t; --sort created -r for newest)
+  wl ls --ids 39 41 270              specific ids directly (like ls f1 f2)
+  wl ls --all                        remove the 20-row cap + include DONE/CANCELED
 
-See also: wl find <q> / wl day / wl active / wl projects (each has a dedicated entry point sharper than ls)""")
+More: `wl help ls` · sharper entry points: wl find <q> / wl day / wl active / wl projects.""")
     _args_node_ls(ls)
 
     tr = sub.add_parser("tree", parents=[filters],
@@ -1084,37 +1059,15 @@ Dedup: by default a task appearing in multiple projects (via parent + shared tag
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl day                              # today
-  wl day 2026-05-30                   # historical day
-  wl day yesterday                    # short form (yesterday / day-before-yesterday / tomorrow / day-after-tomorrow)
-  wl day -t work                      # only work items (filter; -t/--tag, AND); -t personal for personal
-  wl day --by project                 # change grouping (default plan: planned/unplanned)
-  wl day --by priority                # group by P0/P1/P2
-  wl day --log-tail 1                 # logs default to last 3, narrow to 1
-  wl day --all-logs                   # full log expansion (default is last 3)
-  wl day --no-logs                    # don't expand logs, just tasks
-  wl day --log-format full            # don't truncate body
+  wl day                       # today
+  wl day 2026-05-30            # a past day (yesterday / tomorrow short forms too)
+  wl day -t work               # only the work bucket (-t/--tag, AND; -t personal too)
+  wl day --by project          # regroup (default --by plan = planned/unplanned; --by priority)
+  wl day --log-tail 1          # logs default to last 3/task (--all-logs / --no-logs / --log-format full)
 
-Time levels — a *suggested* rhythm (entirely optional; nothing here is enforced):
-  The skeleton lifetime ▸ year ▸ quarter ▸ month ▸ week ▸ day builds itself as you log / sched,
-  so you never create those nodes by hand. If you want a planning cadence, a common one is:
-    day      `wl goal "..."` today's target · `wl recap "..."` end-of-day summary · tasks via `wl sched <id> today`
-    week     `wl meta set <week_id> overview "..."`   this week's focus / P0-P1
-    month    `wl meta set <month_id> top5 "..."`      the month's Top 5
-    quarter  `wl meta set <quarter_id> goal "..."`    the quarter's objective (if you plan that far)
-    year     same idea — a yearly direction, optional
-  Find a level's node id with `wl tree` (the timeline is shown by default). Tasks/projects can
-  hang at any level; use whichever levels fit how you actually plan — skip the rest.
+End-of-day flow: wl day → review → wl recap "..." to write the summary.
 
-Differences from related commands:
-  - wl day        single-day overview (plan + actual + status mix, including not-done items)
-  - wl active     tasks running right now (live focus, no history)
-  - wl logs --date YYYY-MM-DD    flat log stream for that day (no task structure)
-  - wl tree --root <day_id>       subtree of that day node (uses tree structure)
-
-End-of-day workflow: wl day -> review the day -> wl recap "..." to write the summary.
-
-More: `wl help day` · `wl help planning` (the time-level cadence).""")
+More: `wl help day` · `wl help planning` (the optional per-level planning cadence).""")
     dy.add_argument("date", nargs="?", help="YYYY-MM-DD (default: today)")
     dy.add_argument("--by", choices=["plan", "project", "priority"], default="plan",
                     help="secondary grouping dimension (default: plan = planned/unplanned)")
@@ -1488,22 +1441,15 @@ Before writing a new task / log, run wl find to check if there's an existing nod
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Common examples:
-  wl logs today                       # preset: today
-  wl logs yesterday                   # yesterday
-  wl logs week                        # since Monday this week
-  wl logs recent                      # --days 1 + -q
-  wl logs --id 42                     # all logs for a task
-  wl logs --id 42 --tail 5            # last 5 logs for a task
-  wl logs --since 2026-05-01          # time window
+  wl logs today                       # presets: today / yesterday / week / recent
+  wl logs --id 42 --tail 5            # last 5 logs for one task
+  wl logs --since 2026-05-01          # a time window (--since/--until/--week/--month)
   wl logs --by-task --tail 3          # aggregate by task, last 3 per task
   wl logs --group day --by project    # group by day -> project -> task
 
-Differences from related commands:
-  - wl logs       flat log stream (with task title, one line per log)
-  - wl day        structured single-day view (plan + task tree + logs)
-  - wl show <id>  single-node detail + timeline
+Defaults to the last 7 days to avoid flooding.
 
-Default window of 7 days avoids full-history flooding. Use --since/--until/--week/--month for precise windows.""")
+More: `wl help logs` (vs `wl day` structured view / `wl show <id>` single-node timeline).""")
     lg.add_argument("preset", nargs="?",
                     choices=["today", "yesterday", "week", "recent"],
                     help="quick preset: today/yesterday (= --date short form) / week (since Monday) / recent (--days 1 -q)")

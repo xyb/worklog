@@ -790,12 +790,17 @@ class TestNewcomerHelp:
         assert "#L42" in h and "#M7" in h  # log / metric id forms (in the tips)
 
     def test_help_mentions_para(self, tmp_db):
+        # top help introduces PARA; the per-command -h is slim and defers the detail to the
+        # `wl help para` topic (which holds the full area/project/task explanation — no loss).
         assert "PARA" in self._top_help(tmp_db)
         import argparse
+        from worklog.commands.help import _topic_path, FALLBACK_LANG
         p = tmp_db.build_parser()
         sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
         add_h = sa.choices["add"].format_help()
-        assert "PARA" in add_h and "ongoing responsibility" in add_h
+        assert "wl help para" in add_h
+        para_md = _topic_path("para", FALLBACK_LANG).read_text("utf-8")
+        assert "PARA" in para_md and "ongoing responsibility" in para_md
 
     def test_top_help_points_to_wl_help_topic_browser(self, tmp_db):
         h = self._top_help(tmp_db)
@@ -817,15 +822,22 @@ class TestNewcomerHelp:
         assert bare == [], f"args missing help: {bare}"
 
     def test_day_help_explains_time_levels_as_optional(self, tmp_db):
+        # the slim day -h defers the per-level cadence to the topic but still points there;
+        # the time levels (framed as optional / self-building / not enforced) live in the
+        # `wl help day` + `wl help planning` topics — no loss from trimming the epilog.
         import argparse
+        from worklog.commands.help import _topic_path, FALLBACK_LANG
         p = tmp_db.build_parser()
         sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
         h = sa.choices["day"].format_help()
-        assert "Time levels" in h
-        assert "year" in h and "quarter" in h and "month" in h and "week" in h
-        # must be framed as a suggestion, not a requirement
-        assert "optional" in h.lower() or "suggested" in h.lower()
-        assert "enforced" in h.lower()
+        assert "wl help planning" in h
+        day_md = _topic_path("day", FALLBACK_LANG).read_text("utf-8")
+        for lvl in ("year", "quarter", "month", "week"):
+            assert lvl in day_md
+        assert "optional" in day_md.lower() or "suggested" in day_md.lower()
+        assert "never create" in day_md.lower()              # self-building, not required
+        plan_md = _topic_path("planning", FALLBACK_LANG).read_text("utf-8")
+        assert "enforced" in plan_md.lower()                 # none of it is enforced
 
     def test_goal_recap_help_show_planning_rhythm_and_no_stale_terms(self, tmp_db):
         import argparse
