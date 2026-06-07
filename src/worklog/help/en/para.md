@@ -34,6 +34,5 @@ scheduling and day-views hang off of — you never create those by hand.
 This is a suggestion, not a requirement: tasks can live at any level. Use `wl tree` to
 see the shape, `wl projects` to list active projects.
 
-Further reading (no dedicated Wikipedia page exists — this is the canonical source):
-  Tiago Forte, "The PARA Method": https://fortelabs.com/blog/para/
-  (expanded in his book *Building a Second Brain*, 2022)
+Further reading — Tiago Forte, "The PARA Method": https://fortelabs.com/blog/para/
+(expanded in his book *Building a Second Brain*, 2022).

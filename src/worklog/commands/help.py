@@ -105,7 +105,9 @@ _MD_INLINE = re.compile(
     r"|\[[^\]\n]+\]\([^)\n]+\)"         # [text](url)
     r"|https?://[^\s)]+)"               # bare URL
 )
-_MD_STYLE = {"`": "cyan", "**": "bold", "*": "italic"}
+# `code` → cyan; **bold** → the strong "header" style (plain [bold]=ESC[1m is too faint to
+# stand out against body text); *italic* → italic.
+_MD_STYLE = {"`": "cyan", "**": "header", "*": "italic"}
 
 
 def _color_on():
@@ -174,8 +176,10 @@ def _render_topic(topic, meta, body, lang):
     see = meta.get("see_also") or []
     if see:
         out("")
-        out(_c("See also: ", "meta") + _c(" · ".join(see), "id")
-            + _c("   (wl help <topic>)", "meta"))
+        # each see-also is a runnable `wl help <topic>` — color it like inline references
+        # (cyan), not the dim "id" grey, so the links stand out.
+        links = _c(" · ", "meta").join(_c(t, "cyan") for t in see)
+        out(_c("See also: ", "meta") + links + _c("   (wl help <topic>)", "meta"))
 
 
 def _render_index(lang):

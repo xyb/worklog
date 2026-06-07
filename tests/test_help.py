@@ -133,7 +133,7 @@ class TestHelpRendering:
         from worklog.commands import help as H
         monkeypatch.setattr(render, "_CONSOLE", object())   # color on (truthy console)
         r = H._md_inline("status [/] and **go** and `wl ls`")
-        assert "[bold]go[/bold]" in r            # bold styled via markup
+        assert "[header]go[/header]" in r        # bold → strong "header" style (visible)
         assert "[cyan]wl ls[/cyan]" in r         # inline code styled
         assert r"\[/]" in r                      # the literal [/] is escaped, not a stray tag
 
