@@ -281,6 +281,18 @@ _DEFAULT_VERB_ENTITIES = {
 # global flags that consume the next token as their value (skip it when locating the subcommand)
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format"))
 
+# commands without a same-named help topic → the topic that covers them (a family guide or
+# a sibling command's topic), so every command's --help can auto-link into `wl help` (§25).
+_HELP_FAMILY = {
+    "start": "time", "stop": "time", "spent": "time", "active": "time", "wait": "time",
+    "tick": "tracking",
+    "set": "prop", "unset": "prop", "unlink": "link", "relog": "log", "unlog": "log",
+    "cancel": "done", "reopen": "done", "ancestors": "focus", "descendants": "focus",
+    "date": "dateinfo",
+    "themes": "admin", "init": "admin", "config": "admin", "migrate": "admin",
+    "print-completion": "admin",
+}
+
 
 def _expand_default_verb(argv):
     """Insert an entity group's default verb so the legacy leaf form keeps working:
@@ -424,11 +436,13 @@ Good to know:
             # clobber a value already set on the global parser.
             pp.add_argument("-q", "--brief", action="store_true", default=argparse.SUPPRESS,
                             help="brief output (same as the global -q; accepted after the subcommand too)")
-            # auto-link --help to the wl help topic when one exists (DESIGN §25 slimming
-            # policy): write a topic doc and the command's --help gains the pointer for free.
-            # Skipped if the epilog already names `wl help <name>` (a hand-written richer one).
-            if topic_exists(name) and f"wl help {name}" not in (pp.epilog or ""):
-                pp.epilog = ((pp.epilog + "\n\n") if pp.epilog else "") + f"More: `wl help {name}`"
+            # auto-link --help to the wl help topic (DESIGN §25 slimming policy): prefer a
+            # same-named topic, else the family topic this command belongs to (_HELP_FAMILY),
+            # so every command's --help points somewhere useful. Skipped if the epilog already
+            # names that `wl help <x>` (a hand-written richer pointer).
+            tgt = name if topic_exists(name) else _HELP_FAMILY.get(name)
+            if tgt and topic_exists(tgt) and f"wl help {tgt}" not in (pp.epilog or ""):
+                pp.epilog = ((pp.epilog + "\n\n") if pp.epilog else "") + f"More: `wl help {tgt}`"
             return pp
         def __getattr__(self, k):
             return getattr(self._sub, k)

@@ -87,6 +87,20 @@ class TestHelpIntegration:
         # add.md exists + add's epilog hand-references wl help add → exactly one mention
         assert self._sub(tmp_db, "add").format_help().count("wl help add") == 1
 
+    def test_every_command_links_into_wl_help(self, tmp_db):
+        # every command's --help points into wl help — its own topic or a family topic
+        # (only `help` itself is exempt). Guards the auto-pointer + _HELP_FAMILY coverage.
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        seen, missing = set(), []
+        for name, sub in sa.choices.items():
+            if id(sub) in seen:
+                continue
+            seen.add(id(sub))
+            if name != "help" and "More: `wl help" not in sub.format_help():
+                missing.append(name)
+        assert missing == [], f"commands with no wl help pointer: {missing}"
+
     def test_completion_offers_help_topics(self, cli):
         _, out, _ = cli("print-completion", "fish")
         # the help positional completes to topic ids
