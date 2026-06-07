@@ -48,6 +48,16 @@ class TestHelpCommand:
         assert "everything is a node" in out
         assert "See also:" in out and "status" in out
 
+    def test_topic_body_wraps_to_width_on_narrow_terminal(self, cli, monkeypatch):
+        # wl help bodies render through the rich console (soft_wrap=True → rich doesn't wrap), so
+        # long lines used to overflow to column 0 on a narrow terminal. They now wrap to help_width.
+        import worklog.render as render
+        monkeypatch.setenv("COLUMNS", "50")
+        _, out, _ = cli("help", "status")           # status.md has long "How status changes" lines
+        w = render.help_width()
+        assert w <= 48
+        assert all(len(line) <= w for line in out.splitlines()), "a topic line overflowed the width"
+
     def test_topic_title_has_no_rule_line(self, cli):
         # the title is underlined (style "title") instead of a wasted ─── separator row
         _, out, _ = cli("help", "status")

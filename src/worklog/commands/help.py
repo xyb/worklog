@@ -193,7 +193,11 @@ def _render_body(body):
         if line.startswith("#") and heading:
             out(_c(heading, "header"))
         else:
-            out(_md_inline(line))
+            # wrap long body lines to help_width() with a hanging indent (same as --help), so a
+            # narrow terminal doesn't overflow them to column 0 (the console is soft_wrap=True,
+            # i.e. rich doesn't wrap — we do). Code fences above are left verbatim.
+            for sub in _wrap_help_line(line, _render.help_width()):
+                out(_md_inline(sub))
 
 
 def _render_topic(topic, meta, body, lang):
@@ -206,10 +210,22 @@ def _render_topic(topic, meta, body, lang):
     see = meta.get("see_also") or []
     if see:
         out("")
-        # each see-also is a runnable `wl help <topic>` — color it like inline references
-        # (cyan), not the dim "id" grey, so the links stand out.
-        links = _c(" · ", "meta").join(_c(t, "kind") for t in see)
-        out(_c("See also: ", "meta") + links + _c("   (wl help <topic>)", "meta"))
+        # each see-also is a runnable `wl help <topic>` — cyan like inline references. Pack the
+        # names into lines that fit help_width(), hanging continuations under the "See also: "
+        # label so a long list doesn't overflow a narrow terminal.
+        label = "See also: "
+        avail = max(_render.help_width() - len(label), 11)
+        rows, cur = [], []
+        for t in see:
+            if cur and len(" · ".join(cur + [t])) > avail:
+                rows.append(cur)
+                cur = [t]
+            else:
+                cur.append(t)
+        rows.append(cur)
+        for i, grp in enumerate(rows):
+            prefix = _c(label, "meta") if i == 0 else " " * len(label)
+            out(prefix + _c(" · ", "meta").join(_c(t, "kind") for t in grp))
 
 
 def _render_index(lang):
@@ -237,8 +253,14 @@ def _render_index(lang):
             # titles read "<name> — <description>"; show the description (or the whole
             # title if there's no dash), so the list isn't "node   node".
             desc = title.split("—", 1)[1].strip() if "—" in title else title
+            namecol = "    " + f"{topic:<{width}}"   # indent + padded name = the hang column
+            # wrap the description to help_width(), hanging continuations under the name column,
+            # so a long desc on a narrow terminal lines up instead of overflowing to column 0.
+            chunks = _greedy_wrap(desc, max(_render.help_width() - len(namecol), 11), "", "")
             # the topic id is a `wl help <topic>` entry → same bright-cyan as See-also links
-            out("    " + _c(f"{topic:<{width}}", "kind") + _c(desc, "meta"))
+            out(namecol[:4] + _c(f"{topic:<{width}}", "kind") + _c(chunks[0], "meta"))
+            for ch in chunks[1:]:
+                out(" " * len(namecol) + _c(ch, "meta"))
 
 
 # --- colorizing argparse --help output to match the wl help 3-tier scheme (DESIGN §25) ---
