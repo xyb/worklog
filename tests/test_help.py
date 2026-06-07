@@ -97,7 +97,8 @@ class TestHelpIntegration:
     def test_help_command_itself_has_no_auto_pointer(self, tmp_db):
         # every other command now has a topic; `help` has neither a same-named topic nor a
         # family mapping, so it's the one command with no auto-pointer (no self-reference).
-        assert "More: `wl help" not in self._sub(tmp_db, "help").format_help()
+        # (plain format_help strips the markdown backticks, so match the bare "More: wl help")
+        assert "More: wl help" not in self._sub(tmp_db, "help").format_help()
 
     def test_no_duplicate_pointer_when_handwritten(self, tmp_db):
         # add.md exists + add's epilog hand-references wl help add → exactly one mention
@@ -113,7 +114,7 @@ class TestHelpIntegration:
             if id(sub) in seen:
                 continue
             seen.add(id(sub))
-            if name != "help" and "More: `wl help" not in sub.format_help():
+            if name != "help" and "More: wl help" not in sub.format_help():
                 missing.append(name)
         assert missing == [], f"commands with no wl help pointer: {missing}"
 
@@ -175,9 +176,10 @@ class TestHelpRendering:
 
 
 class TestArgparseHelpColor:
-    """colorize_help post-processes argparse `--help` into the wl help 3-tier scheme. It must be
-    a no-op when color is off (so piped `-h` and the format_help() tests stay plain), and when on
-    must style headings / options / commands / markers without dropping any visible text."""
+    """colorize_help post-processes argparse `--help` into the wl help 3-tier scheme. When color
+    is off (piped, --color never, $NO_COLOR) it emits no ANSI but still *strips* the restricted
+    Markdown markers so plain `-h` stays clean; when on it styles headings / options / commands /
+    markers and the Markdown (code/bold/italic/link) without dropping any visible text."""
 
     _SAMPLE = (
         "usage: wl log [-h]\n"
@@ -192,12 +194,15 @@ class TestArgparseHelpColor:
         "  status  marker [/] doing [x] done; priority [#A]; run `wl day` / wl bogus\n"
     )
 
-    def test_color_off_is_identity(self, monkeypatch):
+    def test_color_off_strips_markdown_no_ansi(self, monkeypatch):
         from worklog.commands.help import colorize_help
         monkeypatch.setattr("sys.argv", ["wl", "-h"])
         monkeypatch.delenv("WORKLOG_COLOR", raising=False)
         monkeypatch.setenv("NO_COLOR", "1")          # force off regardless of TTY
-        assert colorize_help(self._SAMPLE) == self._SAMPLE
+        out = colorize_help(self._SAMPLE)
+        assert "\x1b" not in out                     # no ANSI when color is off
+        assert "`" not in out                        # but the markdown markers are stripped…
+        assert "wl day" in out and "options:" in out  # …leaving clean text + structure intact
 
     def _force_on(self, monkeypatch):
         monkeypatch.setattr("sys.argv", ["wl", "-h"])
@@ -244,11 +249,27 @@ class TestArgparseHelpColor:
     @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
                         reason="rich not installed")
     def test_explicit_color_never_in_argv_wins(self, monkeypatch):
-        # `wl --color never -h` stays plain even on a (would-be) color TTY
+        # `wl --color never -h` stays plain (no ANSI) even on a would-be color TTY / env
         from worklog.commands.help import colorize_help
         monkeypatch.setattr("sys.argv", ["wl", "--color", "never", "-h"])
         monkeypatch.setenv("WORKLOG_COLOR", "always")
-        assert colorize_help(self._SAMPLE) == self._SAMPLE
+        assert "\x1b" not in colorize_help(self._SAMPLE)
+
+    @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
+                        reason="rich not installed")
+    def test_markdown_in_epilog_styled(self, monkeypatch):
+        # epilogs may use the same restricted Markdown as wl help topics, for explicit styling
+        self._force_on(monkeypatch)
+        from rich.style import Style
+        import worklog.render as render
+        from worklog.commands.help import colorize_help
+        th = render.THEMES["dark"]
+        out = colorize_help("run **now** with `wl day` and *maybe* read [docs](http://x)\n")
+        assert Style.parse(th["header"]).render("now") in out    # **bold** → strong header
+        assert Style.parse("italic").render("maybe") in out      # *italic*
+        assert Style.parse(th["kind"]).render("wl day") in out   # `code` / command → cyan
+        assert "**" not in out and "`" not in out                # markers consumed, not literal
+        assert "docs" in out and "http://x" in out               # link text + url preserved
 
     def test_style_ansi_and_palette_helpers(self, monkeypatch):
         import worklog.render as render

@@ -170,13 +170,13 @@ def _args_node_add(p):
     p.add_argument("--parent", type=int, help="parent node id (nest under a project/area), e.g. --parent 103")
     p.add_argument("--status", help="initial status (default TODO); rarely needed at creation")
     p.add_argument("--scheduled", help="(rough hint, writes node.scheduled_date) scheduled time: YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
-    p.add_argument("--sched", help="(precise, writes the sched table = visible as planned in `wl day` for that date) date: YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow")
+    p.add_argument("--sched", help="(precise, writes the sched table = visible as planned in wl day for that date) date: YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow")
     p.add_argument("--deadline", help="deadline date YYYY-MM-DD")
     p.add_argument("--body", help="optional body text")
     p.add_argument("--log", "-m", help="insert a log entry right after creation (result / output / numbers)")
     p.add_argument("--done", action="store_true", help="mark DONE + write closed_at immediately after creation (retrospective task in one shot)")
     p.add_argument("--at", help="timestamp for --log + (if --done) closed_at (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
-    p.add_argument("--link", help="also attach a vault doc (no .md suffix, same semantics as `wl link`)")
+    p.add_argument("--link", help="also attach a vault doc (no .md suffix, same semantics as wl link)")
     p.add_argument("--metric", action="append", metavar="'tag [value] [unit]'",
                    help="attach a structured datapoint (repeatable); reuses the --log carrier or makes one: "
                         "--metric 'glucose 5.4 mmol/L' / --metric checkin")
@@ -197,7 +197,7 @@ def _args_node_ls(p):
     p.add_argument("--unscheduled", action="store_true",
                    help="only items not in sched (use this for 'unscheduled', not --status)")
     p.add_argument("--ids", type=int, nargs="+", metavar="id",
-                   help="list specific ids directly, skipping filters (like shell `ls file1 file2`)")
+                   help="list specific ids directly, skipping filters (like shell ls file1 file2)")
     return p
 
 
@@ -353,27 +353,27 @@ def build_parser():
         ),
         epilog="""\
 Concepts (the data model):
-  node      everything is one node in a single tree; its `kind` is task · project · area
+  `node`     everything is one node in a single tree; its `kind` is task · project · area
             (PARA, below) · habit (recurring) · meetlog (meeting note) · day/week/month/… (time)
-  log       a timestamped progress entry on a node (each append is kept = history)
-  tag       labels on a node; work / personal drive the `wl day` buckets
-  prop      a static key=value attribute (owner, linear-id, …) — single value, overwritten
-  meta      history-preserving fields: goal / summary / overview / top5 (a separate store)
-  metric    a structured datapoint (a number or a check-in) attached to a log
-  link      a pointer to an Obsidian vault doc
-  sched     schedules a node to a day → it shows up "planned" in `wl day`
-  clock     a time interval (`wl start`/`stop`/`spent`); `wl day` / `active` total it
-  status    a node's state, shown as a marker: [ ] todo · [/] doing · [x] done ·
+  `log`      a timestamped progress entry on a node (each append is kept = history)
+  `tag`      labels on a node; work / personal drive the `wl day` buckets
+  `prop`     a static key=value attribute (owner, linear-id, …) — single value, overwritten
+  `meta`     history-preserving fields: goal / summary / overview / top5 (a separate store)
+  `metric`   a structured datapoint (a number or a check-in) attached to a log
+  `link`     a pointer to an Obsidian vault doc
+  `sched`    schedules a node to a day → it shows up "planned" in `wl day`
+  `clock`    a time interval (`wl start`/`stop`/`spent`); `wl day` / `active` total it
+  `status`   a node's state, shown as a marker: [ ] todo · [/] doing · [x] done ·
             [>] later/deferred · [?] wait (blocked) · [-] canceled
-  priority  [#A] = P0 (highest) · [#B] = P1 · [#C] = P2 — shown by the id; sorts lists by default
+  `priority` [#A] = P0 (highest) · [#B] = P1 · [#C] = P2 — shown by the id; sorts lists by default
 
 Commands by purpose (run `wl <command> -h` for options + examples):
-  track work    add · log · done · defer · cancel · reopen · wait · tick
-  time          start · stop · spent · active · clock
-  see it        day · tree · ls · show · logs · find · projects · agenda · summary · changes · focus
-  organize      tag · link · sched · set · prop · meta · node · relog · unlog
-  plan/reflect  goal · recap · checkin · metric · dateinfo
-  bulk & setup  import · apply · init · config · alias · themes · print-completion
+  track work    `add` · `log` · `done` · `defer` · `cancel` · `reopen` · `wait` · `tick`
+  time          `start` · `stop` · `spent` · `active` · `clock`
+  see it        `day` · `tree` · `ls` · `show` · `logs` · `find` · `projects` · `agenda` · `summary` · `changes` · `focus`
+  organize      `tag` · `link` · `sched` · `set` · `prop` · `meta` · `node` · `relog` · `unlog`
+  plan/reflect  `goal` · `recap` · `checkin` · `metric` · `dateinfo`
+  bulk & setup  `import` · `apply` · `init` · `config` · `alias` · `themes` · `print-completion`
 
 Good to know:
   • Organize PARA-style: areas (ongoing responsibilities, no end) ▸ projects (outcomes with
@@ -395,7 +395,7 @@ Good to know:
                    help="color switch (default auto: enabled on TTY + rich; also reads $WORKLOG_COLOR/$NO_COLOR)")
     p.add_argument("--theme", default=None, choices=["auto"] + list(THEMES),
                    metavar="{auto,%s}" % ",".join(THEMES),
-                   help="color theme (default auto: probe terminal bg, pick dark/light; reads $WORKLOG_THEME; see `wl themes`)")
+                   help="color theme (default auto: probe terminal bg, pick dark/light; reads $WORKLOG_THEME; see wl themes)")
     p.add_argument("-q", "--brief", action="store_true",
                    help="brief output: skip log body/timeline/detail in every command, token-saving for AI")
     p.add_argument("--log-format", choices=["oneline", "full"], default="oneline",
@@ -511,7 +511,7 @@ More: `wl help add` (fuller intro + key options) · `wl help para` (areas / proj
     # everyday `wl log <id> "body"` keeps working; `edit` = wl relog, `rm` = wl unlog
     # (both keep their top-level shortcuts). The rich cross-cutting view stays at `wl logs`.
     g = sub.add_parser("log",
-        help="log CRUD: add / ls / edit / rm — `wl log 42 \"body\"` adds (default verb); edit=relog, rm=unlog",
+        help="log CRUD: add / ls / edit / rm — wl log 42 \"body\" adds (default verb); edit=relog, rm=unlog",
         description="Log-entry CRUD on a node (progress / event stream) — the metric-style entity group. `wl log <id> \"body\"` is the add shortcut (the default verb; auto-progresses TODO->DOING unless --keep-status). `wl relog` = `log edit`, `wl unlog` = `log rm`. The full filterable stream view is `wl logs`.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
@@ -534,7 +534,7 @@ Differences from related commands:
   - wl logs --id 42             full filterable / windowed log view (presets, --since, --by-task)""")
     _lgsub = g.add_subparsers(dest="log_sub")
     _args_log_add(_lgsub.add_parser("add",
-        help="add a log entry (= the default `wl log 42 \"body\"`)",
+        help="add a log entry (= the default wl log 42 \"body\")",
         description="Add a log entry to a node (auto TODO->DOING unless --keep-status; --date/--time backfill history). Also reachable as the default `wl log <id> \"body\"` (omit `add`; see `wl log -h`)."))
     _lgsub.add_parser("ls", help="list a node's logs (full view: wl logs --id <id>)").add_argument("id", type=int)
     _args_relog(_lgsub.add_parser("edit",
@@ -693,7 +693,7 @@ Difference from wl wait: wait = paused (still planning to do); cancel = not doin
     # link entity group (WL#486): add / ls / rm with a default verb of `add`, so the
     # legacy `wl link 42 doc` still works (the parser expands it to `wl link add 42 doc`).
     ln = sub.add_parser("link",
-        help="link CRUD: add / ls / rm — `wl link 42 doc` adds (default verb), `wl unlink` = rm",
+        help="link CRUD: add / ls / rm — wl link 42 doc adds (default verb), wl unlink = rm",
         description="Vault-doc link CRUD — the metric-style entity group. `wl link <id…> <doc>` is the add shortcut (the default verb); `wl unlink` is the rm shortcut.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
@@ -710,7 +710,7 @@ Common examples:
 
 Design: the knowledge layer (vault) and execution layer (wl) stay decoupled; wl only knows the linked doc name and does not sync content back.""")
     _lnsub = ln.add_subparsers(dest="link_sub")
-    _args_link(_lnsub.add_parser("add", help="link a node to a vault doc (= the default `wl link 42 doc`)"))
+    _args_link(_lnsub.add_parser("add", help="link a node to a vault doc (= the default wl link 42 doc)"))
     _lnsub.add_parser("ls", help="list a node's vault-doc links").add_argument("id", type=int)
     _args_link(_lnsub.add_parser("rm", help="remove a vault-doc link (= wl unlink)"))
 
@@ -746,7 +746,7 @@ Meta fields (history-preserving typed log — = wl meta set; see `wl meta -h`):
 
     # prop entity group (WL#486 / #527): set / ls / rm. `set` → wl set shortcut; `rm` → wl unset.
     pr = sub.add_parser("prop",
-        help="prop (UDA) CRUD: set / ls / rm (set has the top-level shortcut `wl set`; rm = `wl unset`)",
+        help="prop (UDA) CRUD: set / ls / rm (set has the top-level shortcut wl set; rm = wl unset)",
         description="Custom key=value prop (UDA) CRUD — the metric-style entity group. Meta fields (goal/summary/overview/top5) and real tags are NOT props (use wl goal/recap and wl tag).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
@@ -802,7 +802,7 @@ Create intervals with the composite helpers:
     # `wl tag <id> +x -y` keeps working (full +add / -remove / bare-add / empty-list grammar);
     # `ls` lists, `rm` removes. Update is atomic (add/remove), so there is no `edit` verb.
     tg = sub.add_parser("tag",
-        help="tag CRUD: add / ls / rm — `wl tag 42 +work -planned` adds/removes (default verb add)",
+        help="tag CRUD: add / ls / rm — wl tag 42 +work -planned adds/removes (default verb add)",
         description="Real-tag CRUD on a node (the tag table; drives work/personal bucketing & grouping) — the metric-style entity group. `wl tag <id> …` is the add shortcut (the default verb) and keeps the full +add / -remove / bare-add / empty-list grammar. Distinct from `wl set <id> tags …`, which would create a shadow 'tags' prop.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
@@ -823,16 +823,16 @@ Edits the real tag field (the tag table), unlike `wl set <id> tags ...` which wo
 just create a shadow 'tags' prop.""")
     _tgsub = tg.add_subparsers(dest="tag_sub")
     _tga = _tgsub.add_parser("add",
-        help="add (and, with -tag, remove) tags (= the default `wl tag 42 +work`)",
+        help="add (and, with -tag, remove) tags (= the default wl tag 42 +work)",
         description="Add tags to a node. Power form: +tag adds, -tag removes, a bare word adds, no ops lists. Also reachable as the default `wl tag <id> …` (omit `add`; see `wl tag -h`).")
     _tga.add_argument("id", type=int)
     _tga.add_argument("ops", nargs=argparse.REMAINDER,
                       help="+tag adds, -tag removes, bare word adds; empty = list current tags")
-    _tgsub.add_parser("ls", help="list a node's real tags (= bare `wl tag <id>`)").add_argument("id", type=int)
-    _tgr = _tgsub.add_parser("rm", help="remove tag(s) from a node (= `wl tag <id> -tag`)")
+    _tgsub.add_parser("ls", help="list a node's real tags (= bare wl tag <id>)").add_argument("id", type=int)
+    _tgr = _tgsub.add_parser("rm", help="remove tag(s) from a node (= wl tag <id> -tag)")
     _tgr.add_argument("id", type=int)
     _tgr.add_argument("tags", nargs="+", metavar="tag",
-                      help="tag name(s) to remove (plain name; to use a - prefix use `wl tag <id> -tag`)")
+                      help="tag name(s) to remove (plain name; to use a - prefix use wl tag <id> -tag)")
 
     sh = sub.add_parser("show",
         help="full detail + timeline for a node (accepts multiple ids)",
@@ -1239,7 +1239,7 @@ For single habit check-in, use wl tick <id>.""")
     # --clear / list-when-empty grammar via cmd_sched); `ls` lists, `rm` clears. `wl defer`
     # (status=LATER + rough hint) stays its own composite command.
     sc = sub.add_parser("sched",
-        help="sched CRUD: add / ls / rm — `wl sched 42 2026-06-15` schedules (default verb add); drives wl day 'planned'",
+        help="sched CRUD: add / ls / rm — wl sched 42 2026-06-15 schedules (default verb add); drives wl day 'planned'",
         description="Forward-planning CRUD — schedule a task to a day / recurring rule (drives wl day 'planned') — the metric-style entity group. `wl sched <id> <when>` is the add shortcut (the default verb) and keeps the full when / --recur / --clear / list-when-empty grammar. Distinct from `wl defer` (status=LATER + rough hint).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
@@ -1268,15 +1268,15 @@ Difference from wl defer: sched writes to the sched table (precise; appears as "
 Create + schedule in one line: wl add "..." --sched today""")
     _scsub = sc.add_subparsers(dest="sched_sub")
     _sca = _scsub.add_parser("add",
-        help="schedule to a day / recurring rule (= the default `wl sched 42 <when>`)",
+        help="schedule to a day / recurring rule (= the default wl sched 42 <when>)",
         description="Schedule a task to a one-off day or a recurring rule (--recur); no when/--recur lists; --clear clears. Also reachable as the default `wl sched <id> <when>` (omit `add`; see `wl sched -h`).")
     _sca.add_argument("id", type=int)
     _sca.add_argument("when", nargs="?", help="YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow (one-off date)")
     _sca.add_argument("--recur",
                       help="recurring rule (all support -1 = last day): daily / weekly:Mon|1-7|-1 / monthly:5|-1 / quarterly:M-D|-1 / yearly:MM-DD|-1")
     _sca.add_argument("--clear", action="store_true", help="clear all schedule entries for this task")
-    _scsub.add_parser("ls", help="list a node's schedule entries (= bare `wl sched <id>`)").add_argument("id", type=int)
-    _scsub.add_parser("rm", help="clear a node's schedule entries (= `wl sched <id> --clear`)").add_argument("id", type=int)
+    _scsub.add_parser("ls", help="list a node's schedule entries (= bare wl sched <id>)").add_argument("id", type=int)
+    _scsub.add_parser("rm", help="clear a node's schedule entries (= wl sched <id> --clear)").add_argument("id", type=int)
 
     di = sub.add_parser("dateinfo",
         help="date metadata (holiday/vacation/working-day swap; shown in wl day header)",
@@ -1300,7 +1300,7 @@ Explicit verbs: wl date set/ls/rm/import (same date_meta table; see `wl date -h`
     # date entity group (WL#486): set / ls / rm / import. A clean group — `date` doesn't
     # collide with any leaf, so no default verb. `wl dateinfo` is the polymorphic shortcut.
     dt = sub.add_parser("date",
-        help="date-metadata CRUD: set / ls / rm / import (polymorphic shortcut: `wl dateinfo`)",
+        help="date-metadata CRUD: set / ls / rm / import (polymorphic shortcut: wl dateinfo)",
         description="Date-metadata CRUD (holiday / vacation / working-day-swap label, shown in the wl day header) — the metric-style entity group. The everyday polymorphic shortcut is `wl dateinfo` (set when a label is given, list when not, --clear / --import variants).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
@@ -1340,7 +1340,7 @@ Common examples:
   wl meta ls 3                                  # show #3's current meta fields
   wl meta rm 3 goal                             # clear a meta field (reversible)""")
     _mesub = me.add_subparsers(dest="meta_sub")
-    _mset = _mesub.add_parser("set", help="set/append a meta field (= the `wl set <node> <field>` shortcut)")
+    _mset = _mesub.add_parser("set", help="set/append a meta field (= the wl set <node> <field> shortcut)")
     _mset.add_argument("id", type=int)
     _mset.add_argument("field", choices=list(_META_LOG_TYPES))
     _mset.add_argument("value")
@@ -1351,7 +1351,7 @@ Common examples:
 
     # alias command: manage ~/.config/worklog/aliases.ini (wired into the parser at startup)
     al = sub.add_parser("alias",
-        help="manage command aliases: add / ls / rm (e.g. `wl alias add d day` → `wl d`)",
+        help="manage command aliases: add / ls / rm (e.g. wl alias add d day → wl d)",
         description="Manage command aliases stored in ~/.config/worklog/aliases.ini. An alias maps a short name to a wl command (`wl alias add d day` makes `wl d` == `wl day`). Aliases are wired into the parser at startup, so a change takes effect on the NEXT wl invocation.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
@@ -1477,7 +1477,7 @@ More: `wl help logs` (vs `wl day` structured view / `wl show <id>` single-node t
         epilog="Switch theme: top-level --theme {auto,dark,light,mono} flag, or export WORKLOG_THEME=...; auto probes terminal background and picks dark/light.")
 
     hp = sub.add_parser("help",
-        help="info-style topic browser: `wl help` lists topics, `wl help <topic>` reads one",
+        help="info-style topic browser: wl help lists topics, wl help <topic> reads one",
         description="Browse the bundled help topics — fuller explanations of commands, concepts, parameters, and workflows than `<command> -h` gives, with 'See also' links. `wl help` shows the index; `wl help <topic>` reads one topic.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\

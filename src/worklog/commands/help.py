@@ -252,7 +252,11 @@ _HELP_HEADING = re.compile(r"^\S.*:\s*$")          # a section header: unindente
 # at the (deeper) help column, so a 4-space indent never collides with them.
 _HELP_CHOICE = re.compile(r"^( {4})(\S+)(\s{2,}.*)?$")
 _HELP_INLINE = re.compile(
-    r"(`[^`\n]+`"                       # `code`
+    r"(`[^`\n]+`"                       # `code`  (same restricted Markdown wl help renders)
+    r"|\*\*[^*\n]+\*\*"                 # **bold**
+    r"|\*[^*\n]+\*"                     # *italic*
+    r"|\[[^\]\n]+\]\([^)\n]+\)"         # [text](url)
+    r"|https?://[^\s)]+"                # bare URL
     r"|\bwl\s+[a-z][a-z-]*"             # a `wl <subcommand>` invocation
     r"|\[#[ABC]\]"                      # a [#A]/[#B]/[#C] priority marker
     r"|\[[ /x>?\-]\]"                   # a [ ]/[/]/[x]/... status marker
@@ -280,11 +284,21 @@ def _argv_color_theme():
 
 
 def _help_token_ansi(tok, pal):
-    """Style one matched inline token (code / wl-command / marker / option flag)."""
-    if tok.startswith("`"):
+    """Style one matched inline token — the restricted Markdown (code/bold/italic/link/url, same
+    as wl help topics) plus the argparse heuristics (wl-command / marker / option flag)."""
+    if tok.startswith("`"):                          # `code` (a status marker keeps its color)
         inner = tok[1:-1]
         return _render.style_ansi(inner, pal[_MARKER_STYLE.get(inner, "kind")])
-    if tok.startswith("wl"):
+    if tok.startswith("**"):                         # **bold** → strong header style
+        return _render.style_ansi(tok[2:-2], pal["header"])
+    if tok.startswith("*"):                          # *italic*
+        return _render.style_ansi(tok[1:-1], "italic")
+    if tok.startswith("[") and "](" in tok:          # [text](url)
+        lm = re.match(r"\[([^\]]+)\]\(([^)]+)\)", tok)
+        return _render.style_ansi(lm.group(1), "underline") + " " + _render.style_ansi(lm.group(2), pal["kind"])
+    if tok.startswith("http"):                       # bare URL
+        return _render.style_ansi(tok, "underline")
+    if tok.startswith("wl"):                         # `wl <subcommand>` — cyan only if it's real
         parts = tok.split()
         sub = parts[1] if len(parts) > 1 else ""
         return _render.style_ansi(tok, pal["kind" if sub in _commands() else "body"])
@@ -314,17 +328,21 @@ def _color_help_line(line, pal):
 def colorize_help(text):
     """Colorize argparse `--help` text to match the `wl help` 3-tier scheme — dim-grey body prose,
     bright-cyan references (inline code, `wl <command>` invocations, option flags, subcommand
-    names), and bold bright-white section headings. Returns the text unchanged when color is off
-    (non-TTY, --color never, $NO_COLOR, mono theme). See DESIGN §25."""
+    names), and bold bright-white section headings. Epilogs/descriptions may use the same
+    restricted Markdown as wl help topics (`code` / **bold** / *italic* / [text](url)) for explicit
+    styling. When color is off (non-TTY, --color never, $NO_COLOR), the Markdown markers are
+    *stripped* so plain `-h` stays clean (no literal ** or backticks). See DESIGN §25."""
     pal = _render.help_palette(*_argv_color_theme())
     if pal is None:
-        return text
+        return "\n".join(_strip_md(line) for line in text.split("\n"))
     lines = []
     for line in text.split("\n"):
         if line.startswith("usage:") or (line and not line[0].isspace() and not _HELP_HEADING.match(line)):
             lines.append(_color_help_line(line, pal))   # usage line + description prose
         elif _HELP_HEADING.match(line):
-            lines.append(_render.style_ansi(line, pal["header"]))   # section / group header
+            # whole line is a header (bold); strip any markdown markers so a heading like
+            # "Commands by purpose (run `wl ...`):" doesn't show literal backticks.
+            lines.append(_render.style_ansi(_strip_md(line), pal["header"]))   # section / group header
         else:
             cm = _HELP_CHOICE.match(line)
             if cm:   # a subcommand-choice row: name in cyan, the rest inline-colorized

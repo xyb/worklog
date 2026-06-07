@@ -84,6 +84,11 @@ Everything else is printed verbatim, so **lay the body out as readable plain tex
 - Literal brackets (`[ ]`, `[x]`, `[#A]`, `#L42`) are safe — the renderer escapes them; don't avoid them.
 - Preview both ways before committing: `wl help <topic>` and `wl help <topic> --color always`.
 
+**The same subset also styles `--help`** — `argparse` epilogs and `description=` strings are colorized by `colorize_help` (in `commands/help.py`) into the identical scheme, so you may use `` `code` `` / `**bold**` / `*italic*` / `[text](url)` there too. Two rules:
+
+- **Markdown only in `epilog=` / `description=`** (which argparse prints raw/un-wrapped). **Never in a per-command `help=` one-line summary** — argparse line-wraps those, which splits a Markdown span across lines (the marker then leaks instead of styling). Keep `help=` plain prose; `wl <command>` references in it still get colored by the heuristic.
+- A `wl <command>` reference colors itself (the heuristic recognizes real subcommand names) — reserve backticks for the cases the heuristic can't catch: bare command names that collide with English (`` `set` `` / `` `log` `` / `` `show` ``), key=value bits, flags-in-prose.
+
 ## TDD: red → green → refactor
 
 Every change touching behavior follows the [Red-Green-Refactor cycle](https://brennanbrown.github.io/notes/programming/python-tdd/):
