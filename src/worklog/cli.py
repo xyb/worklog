@@ -366,7 +366,9 @@ Good to know:
   • A task you `wl sched` to a day shows up "planned" in `wl day`; logging auto-moves TODO → DOING.
   • Tab-completion: `wl print-completion fish|bash|zsh` (the command prints setup instructions).
   • Shortcuts: `wl add` = `wl node add`, `wl set` = prop/meta by key; make your own with `wl alias add d day`.
-  • `-q` brief output · `--db PATH` use a different worklog file.""",
+  • `-q` brief output · `--db PATH` use a different worklog file.
+  • Deeper docs: `wl help` is an info-style topic browser — `wl help para` (organizing),
+    `wl help planning` (goals/summaries), `wl help status`, `wl help <command>`, …""",
     )
     p.add_argument("--version", action="version", version=f"wl {__version__}")
     p.add_argument("--db", metavar="PATH",
@@ -496,7 +498,9 @@ Organizing (PARA): nest with --parent to build area ▸ project ▸ task —
 Differences from related commands:
   - wl add ... --log + --done       one-shot create + log + close. Same as add -> log -> done in three steps.
   - wl tick <id>                    add a check-in log to an existing habit/task, does not create a new one
-  - wl log <id>                     add a log to an existing task, does not create a new one""")
+  - wl log <id>                     add a log to an existing task, does not create a new one
+
+More: `wl help add` (fuller intro) · `wl help para` (areas / projects / tasks).""")
     _args_node_add(a)
 
     # log entity group (WL#486): add / ls / edit / rm. `add` is the default verb so the
@@ -1083,7 +1087,9 @@ Differences from related commands:
   - wl logs --date YYYY-MM-DD    flat log stream for that day (no task structure)
   - wl tree --root <day_id>       subtree of that day node (uses tree structure)
 
-End-of-day workflow: wl day -> review the day -> wl recap "..." to write the summary.""")
+End-of-day workflow: wl day -> review the day -> wl recap "..." to write the summary.
+
+More: `wl help day` · `wl help planning` (the time-level cadence).""")
     dy.add_argument("date", nargs="?", help="YYYY-MM-DD (default: today)")
     dy.add_argument("--by", choices=["plan", "project", "priority"], default="plan",
                     help="secondary grouping dimension (default: plan = planned/unplanned)")
@@ -1499,6 +1505,22 @@ Default window of 7 days avoids full-history flooding. Use --since/--until/--wee
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="Switch theme: top-level --theme {auto,dark,light,mono} flag, or export WORKLOG_THEME=...; auto probes terminal background and picks dark/light.")
 
+    hp = sub.add_parser("help",
+        help="info-style topic browser: `wl help` lists topics, `wl help <topic>` reads one",
+        description="Browse the bundled help topics — fuller explanations of commands, concepts, parameters, and workflows than `<command> -h` gives, with 'See also' links. `wl help` shows the index; `wl help <topic>` reads one topic.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""\
+Examples:
+  wl help                 # the index + all topics by category
+  wl help para            # how to organize (areas / projects / tasks)
+  wl help planning        # goals / summaries / scheduling rhythm
+  wl help status          # what the [ ] / [/] / [x] markers mean
+
+Topics live as Markdown docs in the repo (i18n-ready); `wl <command> -h` stays the quick
+per-command reference, `wl help <topic>` is the fuller teaching layer.""")
+    hp.add_argument("topic", nargs="?", help="topic name (omit to list all; e.g. node / add / planning)")
+    hp.add_argument("--lang", help="help language (default: $WORKLOG_LANG / $LANG, falling back to en)")
+
     pc = sub.add_parser("print-completion",
         help="dump shell completion script (argparse -> fish/bash/zsh; init-load model)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1610,6 +1632,7 @@ from .commands import (
     cmd_find,
     cmd_logs,
     cmd_themes,
+    cmd_help,
 )
 
 def cmd_node(args, con):
@@ -1673,6 +1696,7 @@ HANDLERS = {
     "find": cmd_find,
     "logs": cmd_logs,
     "themes": cmd_themes,
+    "help": cmd_help,
     "print-completion": cmd_print_completion,
 }
 
@@ -1712,8 +1736,9 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
         HANDLERS[args.cmd](args, None)
         return
     _init_console(args.color, args.theme)
-    # config is read-only and side-effect free — don't create the DB just to print paths
-    if args.cmd == "config":
+    # config / help are read-only and side-effect free — don't create the DB just to
+    # print paths or render a help topic (a newcomer may run `wl help` before `wl init`).
+    if args.cmd in ("config", "help"):
         HANDLERS[args.cmd](args, None)
         return
     # --- per-invocation DB override (--db flag) ---

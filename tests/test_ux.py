@@ -797,6 +797,10 @@ class TestNewcomerHelp:
         add_h = sa.choices["add"].format_help()
         assert "PARA" in add_h and "ongoing responsibility" in add_h
 
+    def test_top_help_points_to_wl_help_topic_browser(self, tmp_db):
+        h = self._top_help(tmp_db)
+        assert "wl help" in h   # the --help surface points into the topic browser
+
     def test_no_user_facing_arg_lacks_help(self, tmp_db):
         import argparse
         p = tmp_db.build_parser()

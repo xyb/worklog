@@ -542,6 +542,50 @@ The decision model: **schedule (forward planning, calendar-like) and log (retros
 
 When changing sched / day derivation, keep `_sched_fires` / `_scheduled_node_ids` / `_node_plan` / `_sec_group` / `_render_day_group` / `cmd_day` / `cmd_logs(--group)` / `cmd_sched` in sync.
 
+## 25. Help topic system (`wl help` — info-style)
+
+Beyond per-command `--help` (§1.2), `wl help` is a standalone, **info-style topic browser**:
+a repo-managed set of docs — one per command / concept / common-param / guide — navigable by
+"see also" links. This keeps `--help` short (summary + a pointer) while giving each topic room
+for a full explanation, and makes the help content **i18n-able and reviewable as plain files**.
+
+### Docs live in the repo (packaged, i18n-ready)
+- Location: `src/worklog/help/<lang>/<topic>.md`, shipped in the wheel like `migrations/`.
+  `en` is the source language and the fallback; other langs mirror the same topic ids.
+- One Markdown file per topic; topic id = filename stem (`node.md` → `wl help node`).
+- Minimal frontmatter (no YAML dep), `key: value` lines between `---` fences:
+  ```
+  ---
+  title: node — the single unit of everything
+  category: concept        # concept | command | param | guide
+  see_also: log, tag, status, add
+  ---
+  <markdown body>
+  ```
+- `index.md` is the root (`wl help` with no topic): the overview + topic list grouped by category.
+
+### `wl help` behavior
+- `wl help` → render `index.md` + list topics by category.
+- `wl help <topic>` → title, body, then a "See also: …" footer resolved from `see_also`.
+- Unknown topic → closest-match suggestions (never a stack trace).
+- Language: `--lang` > `$WORKLOG_LANG` > `$LANG` prefix > `en`; a missing translation falls back
+  to `en` per-topic, never a hard error.
+- Rendering: the body is already human-readable Markdown; the renderer lightly styles headings
+  and the see-also footer and prints the rest verbatim (no heavy Markdown engine, no new dep).
+
+### Relationship to `--help` (the slimming policy)
+- `--help` stays the *quick reference at the point of use*: usage, one-line intro, a couple of
+  examples, and — when a fuller topic exists — a closing `More: wl help <topic>`.
+- `wl help <topic>` is the *teaching* layer: concepts, rationale, cross-links, the planning
+  rhythm, PARA, etc. Content that would bloat `--help` lives here, keeping `--help` scannable.
+- The top-level `wl -h` Concepts glossary stays a one-line teaser per concept, pointing to
+  `wl help <concept>` for the full entry.
+
+### Rollout (incremental)
+Land the loader + `wl help` command + a handful of seed topics first; then author one topic per
+command / concept / param and trim each `--help` to summary + pointer. Topics land piecemeal —
+a missing topic simply isn't offered; nothing breaks.
+
 ## 24+. Additional sections (24–37)
 
 Sections 24 onward cover finer-grained extensions: metadata at the top of `wl day` (goal / summary / top5 / overview blockquote), date context (`date_meta` for holidays / makeups), `--by-task` per-task aggregation in `wl logs`, `wl active` (active CLOCKs with elapsed), the `compound flag` semantics on `add` / `done` / `cancel` (`--log` / `--at` / `--link` / `--sched` / `--done` in one shot), `unlog` / `relog` (log editing through `#L<id>` references), time backfill (`start --at` / `stop --at` / `spent`), the multi-habit interactive `wl checkin`, recurrence rules including `-1` for "last day of period", the `wl ls` multi-dimension query model, default-tail-N to prevent screen-blast, shell completion via `print-completion` init-load (matching the starship / direnv / zoxide pattern), and the **battery-included command help design philosophy** (every `--help` carries a one-line intro + scenario + diff-from-neighbors).
