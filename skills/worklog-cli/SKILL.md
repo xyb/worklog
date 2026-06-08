@@ -41,6 +41,7 @@ Likewise, before adding a dev todo under a project, check that project's existin
 | Focus a node's parents/children | `wl focus <id>` / `wl ancestors <id>` / `wl descendants <id>` |
 | Link a vault doc | `wl link <id> "doc name"` (no `.md` suffix); remove one with `wl unlink <id> "doc name"` |
 | Edit a node's tags | `wl tag <id> +work -planned` (bare word = add; no ops = list). **Edits the real tag field** — do NOT `wl set <id> tags ...` (rejected; it would create a misleading shadow prop). For bulk, `apply ~ #id / +tag` or `import add_tags/remove_tags` |
+| Bind / show which task **this agent session** is on | `wl agent <id>` binds the current Claude Code session to a node (session id from `$WL_SESSION_ID` / `$CLAUDE_CODE_SESSION_ID`, fails closed if neither); `wl agent` shows it · `wl agent ls` lists all · `wl agent rm` unbinds. Stored as the `agent_session.claude` prop (no new table; prefix shared across apps). A status line + a `UserPromptSubmit` hook can surface it — status bar `📌WL#<id>` + inject the bound task into the agent's context each turn so it stays anchored — **`wl help agent` has the exact setup snippets** (sqlite reverse-lookup + hook + settings.json). Set it up so the AI always knows which task this session is on |
 | List log stream | `wl logs` (**default: last 7 days only**, to avoid flooding); `--since/--until/--date` for explicit range; `--group day [--by project/priority/plan]` for daily replay |
 
 ## UX v2 (iteratively converged)
