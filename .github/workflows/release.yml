@@ -2,7 +2,8 @@ name: Release
 
 # Pushing a vX.Y.Z tag:
 #   1. verifies the tag matches pyproject.toml version,
-#   2. runs the test suite (release gate),
+#   2. requires the full Test matrix (test.yml: 3.11/3.12/3.13 × ubuntu/macos) to be green for
+#      this commit — depends on that run, does not re-run a single-version gate,
 #   3. builds the wheel + sdist with uv,
 #   4. publishes to PyPI via OIDC Trusted Publisher (no token needed),
 #   5. creates a GitHub Release with auto-generated notes + the dist/ files attached.
@@ -17,6 +18,7 @@ jobs:
     permissions:
       contents: write   # for creating the GitHub Release
       id-token: write   # for PyPI Trusted Publisher (OIDC)
+      actions: read     # to read the Test workflow's run status for this commit (release gate)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,17 +34,38 @@ jobs:
             exit 1
           fi
 
+      # Release gate: require the FULL Test matrix (test.yml: 3.11/3.12/3.13 × ubuntu/macos) to
+      # have passed for this exact commit. The tag points at a commit already pushed to main, so
+      # test.yml has run (or is running) for this SHA — we depend on that result instead of
+      # re-running a single 3.12 gate here (which missed e.g. a 3.13-only argparse difference).
+      - name: Require the Test matrix green for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha="${{ github.sha }}"
+          echo "Waiting for the Test matrix (test.yml) to pass on $sha ..."
+          for i in $(seq 1 80); do          # up to ~20 min (matrix takes a couple minutes)
+            run=$(gh run list --workflow=test.yml --commit "$sha" -L 1 \
+                  --json status,conclusion,url 2>/dev/null || echo '[]')
+            status=$(echo "$run" | jq -r '.[0].status // "missing"')
+            concl=$(echo "$run" | jq -r '.[0].conclusion // ""')
+            url=$(echo "$run" | jq -r '.[0].url // ""')
+            echo "  test.yml: status=$status conclusion=$concl $url"
+            if [ "$status" = "completed" ]; then
+              [ "$concl" = "success" ] && { echo "Test matrix green — publishing."; exit 0; }
+              echo "::error::Test matrix for $sha did not pass (conclusion=$concl). Refusing to publish. $url"
+              exit 1
+            fi
+            sleep 15
+          done
+          echo "::error::Timed out (~20 min) waiting for the Test matrix on $sha."
+          exit 1
+
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
           python-version: '3.12'
           enable-cache: true
-
-      - name: Sync deps
-        run: uv sync --all-groups
-
-      - name: Run tests (release gate)
-        run: uv run pytest -q --no-cov
 
       - name: Build wheel + sdist
         run: uv build
