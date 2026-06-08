@@ -348,6 +348,17 @@ class _WlParser(argparse.ArgumentParser):
     """ArgumentParser that applies the default-verb expansion before parsing, so both
     `main()` (sys.argv) and the tests (which call parse_args directly) get it."""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        import re as _re
+        # Treat any `-<digit>…` token as a negative-number-LIKE positional, so a signed date delta
+        # (`-2`, `-2d`, `-2week`) is consumed by a date positional instead of mis-read as an unknown
+        # option. Python 3.14's argparse already uses this loose `-\.?\d` matcher; 3.11–3.13 use a
+        # strict `^-\d+$` that rejects `-2week`. We unify on the loose form (wl has no
+        # negative-number options, so nothing legitimate is mis-detected). Subparsers are _WlParser
+        # too (parser_class defaults to type(self)), so they inherit this.
+        self._negative_number_matcher = _re.compile(r"-\.?\d")
+
     def parse_known_args(self, args=None, namespace=None):
         if args is None:
             args = sys.argv[1:]
