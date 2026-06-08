@@ -19,6 +19,53 @@ class TestPropGroup:
         _, out, _ = cli("prop", "ls", "1")
         assert "owner=xyb" in out
 
+    def test_reserved_field_names_rejected_as_props(self, cli, tmp_db):
+        """WL#574: a core node field must NOT become a UDA prop (it would shadow the real
+        column — e.g. a `status` prop next to the real status). Both `wl set` and `wl prop set`
+        reject reserved names with a pointer to the right command; nothing is written."""
+        cli("add", "t", "-k", "task")
+        for key, val in [("status", "LATER"), ("priority", "A"), ("tags", "work"),
+                         ("title", "x"), ("parent", "3"), ("scheduled", "today"),
+                         ("deadline", "2026-06-09"), ("kind", "habit")]:
+            code, _, err = cli("set", "1", key, val)
+            assert code != 0 and "reserved node field" in err, f"{key} not rejected"
+            code, _, err = cli("prop", "set", "1", key, val)   # same guard via prop set
+            assert code != 0 and "reserved node field" in err, f"prop set {key} not rejected"
+        con = tmp_db.db_connect()
+        rows = con.execute("SELECT key FROM prop WHERE node_id=1 AND deleted_at IS NULL").fetchall()
+        assert rows == [], "a reserved key leaked into the prop table"
+
+    def test_reserved_field_case_insensitive(self, cli):
+        cli("add", "t", "-k", "task")
+        assert cli("set", "1", "STATUS", "LATER")[0] != 0
+        assert cli("set", "1", "Priority", "A")[0] != 0
+
+    def test_set_empty_key_rejected(self, cli):
+        cli("add", "t", "-k", "task")
+        assert cli("set", "1", "", "v")[0] != 0       # empty key
+        assert cli("set", "1", "   ", "v")[0] != 0     # whitespace-only key
+
+    def test_reserved_prop_hint_unit(self):
+        """The single source of truth: reserved → hint (case/space-insensitive); free key,
+        empty, and None → None (so the guard never fires on a legitimate UDA prop)."""
+        from worklog.queries import _reserved_prop_hint
+        assert _reserved_prop_hint("status")
+        assert _reserved_prop_hint("  STATUS ")        # lowercased + stripped before lookup
+        assert _reserved_prop_hint("owner") is None    # ordinary UDA prop — allowed
+        assert _reserved_prop_hint("") is None
+        assert _reserved_prop_hint(None) is None
+
+    def test_import_props_reject_reserved_key(self, cli):
+        """The importer shares the same backstop (via _upsert_prop): a `props` block naming a
+        reserved field is refused, not silently turned into a shadow prop."""
+        import json, tempfile, os
+        spec = {"add": [{"title": "child", "kind": "task", "props": {"status": "LATER"}}]}
+        f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+        json.dump(spec, f); f.close()
+        code, _, err = cli("import", f.name)
+        os.unlink(f.name)
+        assert code != 0 and ("reserved node field" in err or "shadow" in err)
+
     def test_prop_rm_and_unset_shortcut(self, cli, tmp_db):
         cli("add", "t", "-k", "task")
         cli("set", "1", "a", "1")

@@ -56,6 +56,7 @@ from ..queries import (
     _delete_link,
     _set_typed_log,
     _META_LOG_TYPES,
+    _reserved_prop_hint,
 )
 from .metric import attach_metric_specs, checkin_metric, _CARRIER_TYPE
 from ..render import (
@@ -407,11 +408,12 @@ def cmd_set(args, con):
     if not args.key or not args.key.strip():
         sys.exit("✗ prop key cannot be empty")
     args.key = args.key.strip()
-    if args.key.lower() in ("tag", "tags"):
-        # Guard the #441 footgun: 'tags' is not a UDA prop. Setting it here used to
-        # silently create a shadow 'tags' prop while the real tag field went unchanged.
-        sys.exit("✗ 'tags' is not a prop — use `wl tag <id> +x -y` to edit real tags "
-                 "(plain `wl set` here would silently create a misleading shadow prop)")
+    hint = _reserved_prop_hint(args.key)
+    if hint:
+        # WL#574/#441: a core node field (status/priority/tags/title/…) must not become a UDA
+        # prop — that would shadow the real field. Reject with a pointer to the right command.
+        sys.exit(f"✗ '{args.key}' is a reserved node field, not a UDA prop — {hint}\n"
+                 f"  (plain `wl set` / `wl prop set` would silently create a misleading shadow prop)")
     if args.key in _META_LOG_TYPES:
         # goal/summary/overview/top5 are history-preserving meta fields, stored as typed
         # logs (not single-value props): each write appends a log, the latest is current.

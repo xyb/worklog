@@ -315,9 +315,50 @@ def _check_ids_exist(con, ids):
             sys.exit(f"✗ node #{nid} not found")
 
 
+# Core node fields (real columns / hierarchy / tags) that must NEVER become UDA props.
+# Storing one as a prop (via `wl set` / `wl prop set` / an import `props:` block) used to
+# silently create a *shadow* prop next to the real field — e.g. `wl set 574 status LATER` left
+# the real status TODO while a misleading `status=LATER` prop showed up in `wl show` (WL#574).
+# Generalizes the original 'tags'-only guard (WL#441). Keyed by lowercased name → the command
+# that actually edits that field.
+_RESERVED_PROP_KEYS = {
+    "tag": "real tags — use `wl tag <id> +x -y`",
+    "tags": "real tags — use `wl tag <id> +x -y`",
+    "status": "node status — use `wl done` / `defer` / `reopen` / `start` / `wait` / `cancel`",
+    "priority": "node field — use `wl node edit <id> -p A|B|C`",
+    "kind": "node field — use `wl node edit <id> -k …`",
+    "title": "node field — use `wl node edit <id> --title …`",
+    "body": "node field — use `wl node edit <id> --body …`",
+    "scheduled": "node field — use `wl sched` / `wl defer` / `wl node edit <id> --scheduled …`",
+    "scheduled_date": "node field — use `wl sched` / `wl defer` / `wl node edit <id> --scheduled …`",
+    "deadline": "node field — use `wl node edit <id> --deadline …`",
+    "deadline_date": "node field — use `wl node edit <id> --deadline …`",
+    "parent": "node hierarchy — use `wl node reparent <id> <parent>`",
+    "parent_id": "node hierarchy — use `wl node reparent <id> <parent>`",
+    "closed_at": "managed automatically by `wl done` / `reopen`",
+    "created_at": "immutable node field",
+    "id": "immutable node id",
+    "deleted_at": "managed by `wl node rm` / restore (WL#501)",
+}
+
+
+def _reserved_prop_hint(key):
+    """If `key` collides with a core node field (so storing it as a UDA prop would shadow the
+    real field), return the corrective hint; else None. Single source of truth for the guard
+    shared by cmd_set (wl set / wl prop set) and the importers."""
+    return _RESERVED_PROP_KEYS.get((key or "").strip().lower())
+
+
 def _upsert_prop(con, nid, key, value):
     """Unified prop UPSERT (no commit; caller controls the transaction). Batch-friendly.
-    `_set_prop` is the commit version for single daily operations."""
+    `_set_prop` is the commit version for single daily operations. Rejects reserved node-field
+    names so a prop can't shadow a real column (WL#574) — the universal backstop behind the
+    nicer cmd_set / importer pre-checks."""
+    hint = _reserved_prop_hint(key)
+    if hint:
+        raise ValueError(
+            f"'{key}' is a reserved node field, not a UDA prop — {hint} "
+            f"(storing it as a prop would create a misleading shadow of the real field)")
     _db.upsert(con, "prop", {"node_id": nid, "key": key, "value": value}, key=("node_id", "key"))
 
 

@@ -50,6 +50,16 @@ class TestNodeEdit:
         code, _, err = cli("node", "edit", "99", "--title", "x")
         assert code != 0 and "not found" in err
 
+    def test_edit_kind_body_deadline(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("node", "edit", "1", "-k", "habit", "--body", "b", "--deadline", "2026-06-30")
+        con = tmp_db.db_connect()
+        r = con.execute("SELECT kind, body, deadline_date FROM node WHERE id=1").fetchone()
+        assert (r["kind"], r["body"], r["deadline_date"]) == ("habit", "b", "2026-06-30")
+        cli("node", "edit", "1", "--deadline", "")  # clear deadline
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT deadline_date FROM node WHERE id=1").fetchone()[0] is None
+
 
 class TestNodeReparent:
     def test_reparent_moves(self, cli, tmp_db):
@@ -76,6 +86,16 @@ class TestNodeReparent:
         cli("add", "a", "-k", "task")
         code, _, err = cli("node", "reparent", "1", "1")
         assert code != 0 and "own parent" in err
+
+    def test_reparent_invalid_parent_string(self, cli):
+        cli("add", "a", "-k", "task")
+        code, _, err = cli("node", "reparent", "1", "abc")  # not an id, not none/root/0
+        assert code != 0 and "parent must be a node id" in err
+
+    def test_reparent_parent_not_found(self, cli):
+        cli("add", "a", "-k", "task")
+        code, _, err = cli("node", "reparent", "1", "9999")
+        assert code != 0 and "not found" in err
 
 
 class TestNodeRm:

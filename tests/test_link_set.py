@@ -116,6 +116,14 @@ class TestCmdTag:
         n = con.execute("SELECT COUNT(*) FROM tag WHERE node_id=1 AND tag='work'").fetchone()[0]
         assert n == 1  # INSERT OR IGNORE, no duplicate
 
+    def test_tag_empty_ops_are_noops(self, cli, tmp_db):
+        # a bare '+' / '-' has nothing after stripping the sign → skipped, not a blank tag row
+        cli("add", "t1", "-k", "task", "-t", "work")
+        cli("tag", "1", "+", "-")
+        con = tmp_db.db_connect()
+        tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1 AND deleted_at IS NULL")}
+        assert tags == {"work"} and "" not in tags
+
     def test_tag_node_not_found(self, cli):
         code, _, _ = cli("tag", "999", "+x")
         assert code != 0
