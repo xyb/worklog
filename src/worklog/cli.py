@@ -277,6 +277,7 @@ _DEFAULT_VERB_ENTITIES = {
     "tag": ("add", frozenset(("add", "ls", "rm"))),
     "log": ("add", frozenset(("add", "ls", "edit", "rm"))),
     "sched": ("add", frozenset(("add", "ls", "rm"))),
+    "agent": ("set", frozenset(("set", "ls", "rm"))),
 }
 # global flags that consume the next token as their value (skip it when locating the subcommand)
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format"))
@@ -771,6 +772,26 @@ More: `wl help prop`.""")
     _prsub.add_parser("ls", help="list a node's props").add_argument("id", type=int)
     _args_prop_rm(_prsub.add_parser("rm", help="remove a prop (= wl unset)",
         description="Remove a UDA prop (soft-delete the row). Also: the top-level shortcut `wl unset`."))
+
+    ag = sub.add_parser("agent",
+        help="bind the current AI agent session to a task: wl agent <id> (set) / wl agent (show) / wl agent ls / wl agent rm",
+        description="Bind the current AI agent (Claude Code) session to a node so the agent knows which task it's on and the status line / hook context can surface it (WL#573). Stored as the `agent_session.claude` prop on the node — no new table. `wl agent <id>` is the set shortcut (default verb).",
+        formatter_class=_WlHelpFormatter,
+        epilog="""\
+Common examples:
+  wl agent 42        # bind this session to task #42 (default verb: set)
+  wl agent           # show what this session is bound to
+  wl agent ls        # list all session→task bindings
+  wl agent rm        # unbind this session
+
+Reads $WL_SESSION_ID / $CLAUDE_CODE_SESSION_ID for the current session.
+
+More: `wl help agent`.""")
+    _agsub = ag.add_subparsers(dest="agent_sub")
+    _ags = _agsub.add_parser("set", help="bind current session to <id>")
+    _ags.add_argument("id", type=int)
+    _agsub.add_parser("ls", help="list all session→task bindings")
+    _agsub.add_parser("rm", help="unbind the current session")
 
     us = sub.add_parser("unset",
         help="remove a value from a node — key-routed: a prop (= wl prop rm) or a meta field (= wl meta rm)",
@@ -1473,6 +1494,7 @@ from .commands import (
     cmd_node_edit,
     cmd_node_rm,
     cmd_node_reparent,
+    cmd_agent,
     cmd_prop,
     cmd_prop_rm,
     cmd_clock,
@@ -1577,6 +1599,7 @@ HANDLERS = {
     "unset": cmd_prop_rm,
     "tag": cmd_tag_group,
     "node": cmd_node,
+    "agent": cmd_agent,
     "prop": cmd_prop,
     "clock": cmd_clock,
     "metric": cmd_metric,

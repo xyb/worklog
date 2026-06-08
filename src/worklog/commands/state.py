@@ -957,6 +957,76 @@ def cmd_prop(args, con):
     {"set": cmd_set, "ls": cmd_prop_ls, "rm": cmd_prop_rm}[sub](args, con)
 
 
+# --- agent entity group (WL#573): bind the current agent session to a node, stored as an
+# `agent_session.<app>` prop on that node (no new table). The prefix `agent_session.` finds a
+# node's bindings across apps; the suffix is the app (claude / cursor / …). CRUD:
+#   wl agent <id> (set) · wl agent (show current) · wl agent ls (list all) · wl agent rm (unbind).
+_AGENT_APP = "claude"                       # this CLI binds the Claude Code session
+_AGENT_PREFIX = "agent_session."            # cross-app prefix
+_AGENT_KEY = _AGENT_PREFIX + _AGENT_APP       # agent_session.claude
+
+def _short(s, n=50):
+    """Truncate a title for one-line bind output (plain char count is fine here)."""
+    s = s or ""
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+def _current_session_id():
+    """Session id of the running agent shell. Prefer $WL_SESSION_ID (a SessionStart hook can
+    freeze the official session_id under this stable name), fall back to the (undocumented)
+    $CLAUDE_CODE_SESSION_ID. None if neither — callers fail closed (WL#573 / GPT review)."""
+    import os
+    return os.environ.get("WL_SESSION_ID") or os.environ.get("CLAUDE_CODE_SESSION_ID") or None
+
+def _agent_need_sid():
+    sid = _current_session_id()
+    if not sid:
+        sys.exit("✗ no session id ($WL_SESSION_ID / $CLAUDE_CODE_SESSION_ID) — run inside a Claude Code session")
+    return sid
+
+def cmd_agent(args, con):
+    """`wl agent` — bind the current agent session to a node (WL#573).
+    wl agent <id> = set · wl agent = show current · wl agent ls = list all · wl agent rm = unbind."""
+    sub = getattr(args, "agent_sub", None)
+    if sub == "set":
+        sid = _agent_need_sid()
+        nid = args.id
+        if not _node_exists(con, nid):
+            sys.exit(f"✗ node #{nid} not found")
+        cur = _db.query_one(con, "prop", cols="value", node_id=nid, key=_AGENT_KEY)
+        if cur and cur["value"] != sid:
+            out(_c(f"⚠ #{nid} 已被 session {cur['value'][:8]}… 绑定,将被覆盖", "later"))
+        _db.delete(con, "prop", key=_AGENT_KEY, value=sid)   # one session → one node
+        _upsert_prop(con, nid, _AGENT_KEY, sid)
+        con.commit()
+        title = (_db.get(con, "node", nid) or {})["title"]
+        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{_AGENT_APP}:{sid[:8]}…", "meta") + " · " + _short(title))
+        return
+    if sub == "ls":
+        rows = _db.query(con, "prop", cols="node_id, key, value", key__like=_AGENT_PREFIX + "%", order="key, value")
+        if not rows:
+            out(_c("(no session bindings)", "meta"))
+            return
+        for r in rows:
+            node = _db.get(con, "node", r["node_id"])
+            title = node["title"] if node else "(deleted)"
+            out(_c(f"#{r['node_id']}", "id") + " ← " + _c(f"{r['key'][len(_AGENT_PREFIX):]}:{r['value'][:8]}…", "meta") + " · " + _short(title))
+        return
+    if sub == "rm":
+        sid = _agent_need_sid()
+        n = _db.delete(con, "prop", key=_AGENT_KEY, value=sid)
+        con.commit()
+        out(_c(f"✓ unbound (session {sid[:8]}…)" if n else f"(session {sid[:8]}… 本来就没绑定)", "meta"))
+        return
+    # bare `wl agent` → show the current session's binding
+    sid = _agent_need_sid()
+    row = _db.query_one(con, "prop", cols="node_id", key=_AGENT_KEY, value=sid)
+    if not row:
+        out(_c(f"(session {sid[:8]}… 未绑定任何任务)", "meta"))
+        return
+    title = (_db.get(con, "node", row["node_id"]) or {})["title"]
+    out(_c(f"#{row['node_id']}", "id") + " ← " + _c(f"{_AGENT_APP}:{sid[:8]}…", "meta") + " · " + _short(title))
+
+
 # --- clock entity group (WL#486 / #528): ls / edit / rm (create = start/stop/spent) ---
 def cmd_clock_ls(args, con):
     """List a node's clock intervals (start → end, duration). Read primitive for clock."""
