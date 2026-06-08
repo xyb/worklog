@@ -50,24 +50,52 @@ def _resolve_window(args):
     return since, until
 
 
+def _norm_word(s):
+    """Lowercase + drop connector chars (hyphen / underscore / whitespace) so a relative-date
+    *word* collapses to one lookup key: 'next-week', 'Next_Week', 'next week' and 'nextweek'
+    all → 'nextweek'. Deliberately NOT applied to ISO dates or signed deltas — those keep
+    their '-' sign / 'YYYY-MM-DD' structure and are matched on the original string. (A stripped
+    delta like '-2w' → '2w' simply misses every word key, so the sign is never lost: the delta
+    branch re-parses the original string.)"""
+    import re as _re
+    return _re.sub(r"[-_\s]+", "", s.strip().lower())
+
+
 def _resolve_concrete_date(s):
-    """Resolve today/yesterday/tomorrow/day-before-yesterday/day-after-tomorrow/YYYY-MM-DD (and Chinese aliases) to a concrete date string.
-    English aliases are case-insensitive."""
+    """Resolve a relative word / signed delta / YYYY-MM-DD to a concrete date string.
+    Words: today/yesterday/day-before-yesterday/tomorrow/day-after-tomorrow (offset days) and
+    next-week/next-month/next-quarter (→ that period's first day) + Chinese aliases. Matching is
+    case-insensitive and connector-insensitive (so 'Day After Tomorrow' / 'next_week' resolve).
+    `someday` has no anchor day and is rejected here (use `wl defer`)."""
     from datetime import date, timedelta
 
     s = s.strip()
     lower = s.lower()
+    # word table keyed by the *normalized* form (see _norm_word): connectors stripped, lowercase.
     rel = {
         "today": 0, "今天": 0,
         "yesterday": -1, "昨天": -1,
-        "day-before-yesterday": -2, "前天": -2,
+        "daybeforeyesterday": -2, "前天": -2,
         "tomorrow": 1, "明天": 1,
-        "day-after-tomorrow": 2, "后天": 2,
+        "dayaftertomorrow": 2, "后天": 2,
     }
-    if s in rel:
-        return (_tu.today_date() + timedelta(days=rel[s])).isoformat()
-    if lower in rel:
-        return (_tu.today_date() + timedelta(days=rel[lower])).isoformat()
+    nw = _norm_word(s)
+    if nw in rel:
+        return (_tu.today_date() + timedelta(days=rel[nw])).isoformat()
+    # fuzzy-period words resolve to that period's *anchor day* (its start), so concrete-date
+    # commands (sched on_date / day / log --date) accept them too. `wl defer` keeps the coarser
+    # granularity instead (next-week → a whole ISO week) — that is the one intentional split.
+    today = _tu.today_date()
+    if nw in ("nextweek", "下周", "下个星期"):
+        y, w, _ = (today + timedelta(days=7)).isocalendar()
+        return date.fromisocalendar(y, w, 1).isoformat()       # Monday of next ISO week
+    if nw in ("nextmonth", "下月", "下个月"):
+        y, mo = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
+        return date(y, mo, 1).isoformat()
+    if nw in ("nextquarter", "下季", "下个季度"):
+        q = (today.month - 1) // 3 + 1
+        ny, nq = (today.year + 1, 1) if q == 4 else (today.year, q + 1)
+        return date(ny, (nq - 1) * 3 + 1, 1).isoformat()
     # signed relative delta from today: +1 / -2 / +1d / -2day / +3w / -2week / +1m / -1y.
     # signed number, optional unit (d/day[s] default · w/week[s] · m/month[s] · y/year[s]).
     import re as _re
@@ -212,22 +240,25 @@ def _norm_sched(s):
     s = s.strip()
     if not s:
         return None
+    # relative words match by normalized key (connector-insensitive, lowercase); ISO/delta forms
+    # below keep matching the original `s` (their '-' is structural, not a connector).
+    nw = _norm_word(s)
     today = _tu.today_date()
-    if s in ("today", "今天"):
+    if nw in ("today", "今天"):
         return today.isoformat()
-    if s in ("tomorrow", "明天"):
+    if nw in ("tomorrow", "明天"):
         return (today + _dt.timedelta(days=1)).isoformat()
-    if s in ("next-week", "下周", "下个星期"):
+    if nw in ("nextweek", "下周", "下个星期"):
         y, w, _ = (today + _dt.timedelta(days=7)).isocalendar()
         return f"{y}-W{w:02d}"
-    if s in ("next-month", "下月", "下个月"):
+    if nw in ("nextmonth", "下月", "下个月"):
         y, m = (today.year + 1, 1) if today.month == 12 else (today.year, today.month + 1)
         return f"{y}-{m:02d}"
-    if s in ("next-quarter", "下季", "下个季度"):
+    if nw in ("nextquarter", "下季", "下个季度"):
         q = (today.month - 1) // 3 + 1
         ny, nq = (today.year + 1, 1) if q == 4 else (today.year, q + 1)
         return f"{ny}-Q{nq}"
-    if s in ("someday", "以后", "有空", "总有一天"):
+    if nw in ("someday", "以后", "有空", "总有一天"):
         return "someday"
     if _re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
         _dt.date.fromisoformat(s)  # validate; raises ValueError on bad input

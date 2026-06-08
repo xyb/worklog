@@ -52,19 +52,21 @@ class TestPrintCompletionFish:
         assert "(__wl_date_suggestions)" in out
 
     def test_fish_concrete_date_completion_excludes_someday(self, cli):
-        """#414: day/log/logs/dateinfo only accept concrete dates, so their completion
-        (__wl_date_suggestions) must NOT offer 'someday' — only sched/defer's fuzzy
-        helper does."""
+        """#414: day/log/logs/dateinfo/sched accept a concrete day (period words included, but
+        NOT 'someday'), so __wl_date_suggestions must not offer someday — only defer's helper
+        (__wl_defer_suggestions) does."""
         _, out, _ = cli("print-completion", "fish")
-        # extract the concrete-date helper body and assert no someday in it
-        body = out.split("function __wl_date_suggestions", 1)[1].split("end", 1)[0]
+        # extract the concrete-date helper body and assert no someday, but period words present
+        body = out.split("function __wl_date_suggestions", 1)[1].split("\nend", 1)[0]
         assert "someday" not in body
-        # fuzzy helper for sched/defer keeps someday
-        fuzzy = out.split("function __wl_sched_suggestions", 1)[1].split("end", 1)[0]
+        assert "next-week" in body and "next-month" in body and "next-quarter" in body
+        # defer's helper keeps someday
+        fuzzy = out.split("function __wl_defer_suggestions", 1)[1].split("\nend", 1)[0]
         assert "someday" in fuzzy
-        # day uses the concrete helper, sched uses the fuzzy one
+        # day AND sched use the concrete helper; only defer uses the someday-inclusive one
         assert 'subcommand_from day" -f -a "(__wl_date_suggestions)"' in out
-        assert 'subcommand_from sched" -f -a "(__wl_sched_suggestions)"' in out
+        assert 'subcommand_from sched" -f -a "(__wl_date_suggestions)"' in out
+        assert 'subcommand_from defer" -f -a "(__wl_defer_suggestions)"' in out
 
     def test_fish_compound_flags_present(self, cli):
         """wl add compound flags --log/--done/--at/--link must appear"""

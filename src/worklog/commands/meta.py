@@ -508,7 +508,9 @@ def cmd_sched(args, con):
         try:
             d = _resolve_concrete_date(args.when)
         except ValueError:
-            sys.exit(f"✗ invalid date '{args.when}' (use YYYY-MM-DD / today / yesterday / tomorrow / day-after-tomorrow)")
+            sys.exit(f"✗ invalid date '{args.when}' — sched takes a concrete day: YYYY-MM-DD / "
+                     f"today / tomorrow / day-after-tomorrow / +1 / -2w / next-week / next-month / "
+                     f"next-quarter (resolved to the period's first day). For 'someday' use `wl defer`.")
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, on_date) row
             exists = _db.exists(con, "sched", node_id=nid, on_date=d)

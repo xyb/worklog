@@ -370,7 +370,9 @@ class TestGroupLeafCompletions:
     def test_fish_sched_recur_and_when(self, cli):
         _, out, _ = cli("print-completion", "fish")
         assert "(__wl_recur_suggestions)" in out
-        assert 'subcommand_from sched" -f -a "(__wl_sched_suggestions)"' in out
+        # sched's `when` takes a concrete day (someday rejected) → date suggestions, not defer's
+        assert 'subcommand_from sched" -f -a "(__wl_date_suggestions)"' in out
+        assert "(__wl_defer_suggestions)" in out   # defer keeps the someday-inclusive list
 
     def test_fish_log_date_present(self, cli):
         _, out, _ = cli("print-completion", "fish")

@@ -34,8 +34,8 @@ _FISH_HELPERS = {
     ("dateinfo", "date"): "(__wl_date_suggestions)",
     ("dateinfo", None): "(__wl_date_suggestions)",
     ("day", "date"): "(__wl_date_suggestions)",
-    ("sched", "when"): "(__wl_sched_suggestions)",
-    ("defer", "date"): "(__wl_sched_suggestions)",
+    ("sched", "when"): "(__wl_date_suggestions)",   # sched takes a concrete on_date (someday rejected)
+    ("defer", "date"): "(__wl_defer_suggestions)",  # defer also takes someday (fuzzy backlog)
 }
 # subcommands whose default positional argument takes a node id (when not explicitly specified)
 
@@ -69,14 +69,15 @@ function __wl_list_tags
 end
 
 function __wl_date_suggestions
-    # concrete dates only — commands like day/log/logs/dateinfo reject fuzzy values
-    printf 'today\ttoday\nyesterday\tyesterday\nday-before-yesterday\tday before yesterday\ntomorrow\ttomorrow\nday-after-tomorrow\tday after tomorrow\n'
+    # concrete day — accepted by day/log/logs/dateinfo/sched. period words resolve to that
+    # period's first day (next-week → next Monday). The fuzzy backlog token lives in defer only.
+    printf 'today\ttoday\nyesterday\tyesterday\nday-before-yesterday\tday before yesterday\ntomorrow\ttomorrow\nday-after-tomorrow\tday after tomorrow\nnext-week\tnext Monday\nnext-month\t1st of next month\nnext-quarter\t1st of next quarter\n'
     set -l today (date +%Y-%m-%d)
     printf '%s\ttoday YYYY-MM-DD\n' $today
 end
 
-function __wl_sched_suggestions
-    # for sched/defer, which also accept fuzzy granularities
+function __wl_defer_suggestions
+    # defer also accepts someday (fuzzy backlog); next-week/-month/-quarter stay coarse buckets
     __wl_date_suggestions
     printf 'someday\tno specific time\n'
 end

@@ -59,6 +59,85 @@ class TestRelativeDelta:
         assert cli("day", "-2")[0] == 0              # day positional, bare negative
 
 
+class TestDateWordNormalization:
+    """Relative-date *words* are matched case-insensitively and ignoring connector chars
+    (hyphen / underscore / whitespace), so 'next-week', 'NEXT_WEEK', 'next week', 'nextweek'
+    all parse the same. ISO dates and signed deltas keep their structure (the '-' in '-2w' is a
+    sign, not a connector) — _norm_word never strips it from the actual delta/ISO parse."""
+
+    def _today(self, monkeypatch, y=2026, m=6, d=8):
+        import worklog.timeutil as tu
+        from datetime import date
+        monkeypatch.setattr(tu, "today_date", lambda: date(y, m, d))
+
+    def test_norm_word_collapses_variants(self):
+        from worklog.helpers import _norm_word
+        for v in ("next-week", "Next_Week", "NEXT WEEK", "next  week", " next-week "):
+            assert _norm_word(v) == "nextweek"
+        assert _norm_word("Day-After-Tomorrow") == "dayaftertomorrow"
+        assert _norm_word("-2w") == "2w"   # sign stripped from the *key* — never matches a word
+
+    def test_concrete_words_case_and_connector_insensitive(self, monkeypatch):
+        self._today(monkeypatch)
+        from worklog.helpers import _resolve_concrete_date as r
+        for v in ("day-after-tomorrow", "DAY AFTER TOMORROW", "day_after_tomorrow", "Day-After-Tomorrow"):
+            assert r(v) == "2026-06-10"
+        assert r("Tomorrow") == "2026-06-09" and r("YESTERDAY") == "2026-06-07"
+
+    def test_concrete_resolves_period_words_to_anchor_day(self, monkeypatch):
+        # next-week/next-month/next-quarter resolve to that period's FIRST day (so sched/day take
+        # them); connector+case variants too. today = Mon 2026-06-08.
+        self._today(monkeypatch)
+        from worklog.helpers import _resolve_concrete_date as r
+        assert r("next-week") == r("NEXT_WEEK") == r("next week") == "2026-06-15"   # next Monday
+        assert r("next-month") == "2026-07-01"
+        assert r("next-quarter") == "2026-07-01"   # Q2 → Q3 starts Jul 1
+        assert r("下周") == "2026-06-15" and r("下月") == "2026-07-01"
+
+    def test_concrete_still_rejects_someday(self, monkeypatch):
+        # someday has no anchor day — concrete commands (day/log/sched) must reject it
+        self._today(monkeypatch)
+        from worklog.helpers import _resolve_concrete_date as r
+        for bad in ("someday", "以后", "garbage", "next-eon"):
+            with pytest.raises(ValueError):
+                r(bad)
+
+    def test_sched_next_week_variants_equal(self, monkeypatch):
+        self._today(monkeypatch)
+        from worklog.helpers import _norm_sched as n
+        for v in ("next-week", "NEXT-WEEK", "next week", "next_week", "NEXT WEEK", "nextweek"):
+            assert n(v) == "2026-W25"
+        for v in ("next-month", "NEXT_MONTH", "next month"):
+            assert n(v) == "2026-07"
+        for v in ("next-quarter", "Next_Quarter"):
+            assert n(v) == "2026-Q3"
+
+    def test_sched_delta_sign_survives_normalization(self, monkeypatch):
+        # the '-' in -2w is a sign: normalization must not let it be read as a connector word
+        self._today(monkeypatch)
+        from worklog.helpers import _norm_sched as n
+        assert n("-2w") == "2026-05-25" and n("+2weeks") == "2026-06-22"
+
+    def test_plural_unit_tolerance(self, monkeypatch):
+        # +2weeks / +2week / +2w all mean the same in both parse paths
+        self._today(monkeypatch)
+        from worklog.helpers import _resolve_concrete_date as r, _norm_sched as n
+        assert r("+2weeks") == r("+2week") == r("+2w") == "2026-06-22"
+        assert n("+2weeks") == n("+2week") == n("+2w") == "2026-06-22"
+        assert r("+1months") == r("+1month") == r("+1m") == "2026-07-08"
+
+    def test_cli_normalized_words_per_command_semantics(self, cli):
+        # sched/day take a CONCRETE date (_resolve_concrete_date, period words → first day);
+        # defer takes a fuzzy granularity (_norm_sched, next-week → whole ISO week). someday has
+        # no concrete day → defer only.
+        cli("add", "t", "-k", "task")
+        assert cli("sched", "1", "DAY_AFTER_TOMORROW")[0] == 0  # concrete word, connector+case variant
+        assert cli("sched", "1", "NEXT_WEEK")[0] == 0           # period word → next Monday (concrete)
+        assert cli("defer", "1", "next week")[0] == 0           # fuzzy week bucket
+        assert cli("day", "someday")[0] != 0                    # someday has no concrete day
+        assert cli("sched", "1", "someday")[0] != 0             # ditto — sched needs a concrete fire date
+
+
 class TestFuzzySchedule:
     def test_norm_exact_formats(self, tmp_db):
         wl = tmp_db
