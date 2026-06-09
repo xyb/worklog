@@ -60,7 +60,7 @@ wl --db /tmp/scratch.db add "..."
 
 ## Hard rules
 
-- **DESIGN.md is the source of truth.** If a convention changes (statuses, markers, time-window flag set, project↔task linkage rule, `--by` aggregation dim, theme key set, schema), update DESIGN + `src/worklog/cli.py` + tests + completion strings in the same commit. Drift between them is the failure mode this project guards against.
+- **Keep every surface in sync, same commit.** A command/flag/behavior change isn't done until all its descriptions agree — update `src/worklog/cli.py` (incl. its `help=`/`epilog`/`description`) + shell completion + the `wl help <topic>` doc + `tests/` + a `CHANGELOG.md` `[Unreleased]` line, plus `DESIGN.md` (+`.zh`) if a convention changed and `SKILL.md` if everyday usage changed. Drift between them is the failure mode this project guards against. (Full checklist: CONTRIBUTING.md "Keep every surface in sync".)
 - **Status / priority / theme key names** are enumerated in DESIGN §3/§5/§19; add to `_THEME_KEYS` when introducing a new palette entry — `test_themes_have_same_keys` catches misses.
 - **No bare `print()` for renderable content**; all rows go through `out()` + `_c()`.
 - **Bulk writes default to `--dry-run`.** `wl apply` and `wl import` validate first, then execute as a single transaction (`_collect_descendants` recurses for the `-` delete prefix because the FK is `ON DELETE SET NULL`, not cascade). Update flags strictly: only fields that appear in the diff are touched — see DESIGN §18.2 "anti-wipe" rule.

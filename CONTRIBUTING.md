@@ -44,9 +44,20 @@ wl --db /tmp/scratch.db add "experiment"
 
 ## Architecture
 
-`DESIGN.md` is canonical for every shared convention — command style, state machine, marker symbols, time-window flags, render pipeline, schema, `import` / `apply` formats, theme keys, scheduled-time resolution, planned/unplanned derivation. Read the relevant section before adding a command or changing a format. If your change touches a convention, the same commit must update **DESIGN.md + `src/worklog/cli.py` + `tests/` + completion strings together** — drift between them is the failure mode this project guards against.
+`DESIGN.md` is canonical for every shared convention — command style, state machine, marker symbols, time-window flags, render pipeline, schema, `import` / `apply` formats, theme keys, scheduled-time resolution, planned/unplanned derivation. Read the relevant section before adding a command or changing a format.
 
 `AGENTS.md` is the operating guide for AI coding agents (Claude Code, Cursor, Aider). Skim it once even if you code by hand; it concentrates the hard-rules into one page.
+
+### Keep every surface in sync (same commit)
+
+A command/flag/behavior is described in many places; a change isn't done until they all agree. Drift between them is the failure mode this project guards against. When you touch one, update in the **same commit**:
+
+- **`src/worklog/cli.py`** — the implementation + its argparse `help=` / `epilog` / `description`.
+- **Shell completion** — a new command/flag must appear; if it takes a node id or tag, also wire `_FISH_POSITIONAL_NODE` / the dynamic helpers (it regenerates from the parser, but id/tag completion is hand-registered).
+- **`wl help <topic>`** — the matching topic doc under `src/worklog/help/<lang>/`.
+- **`CHANGELOG.md`** — a one-line `[Unreleased]` entry.
+- **`tests/test_<area>.py`** — the test that pins it.
+- **`DESIGN.md`** (+ `DESIGN.zh.md`) if a convention changed; **`skills/worklog-cli/SKILL.md`** if everyday usage changed.
 
 ## Writing `wl help` topics
 
@@ -154,4 +165,4 @@ The workflow fails the release if any of the three version anchors disagree, so 
 - Branch from `main`. PRs target `main`.
 - Each PR moves the test count up: a refactor adds no tests but keeps coverage ≥95%; a feature/fix adds the test that exercises it.
 - Run `make test` locally before pushing. CI runs the same parallel pytest + 95% gate across ubuntu + macos × Python 3.9–3.14.
-- DESIGN.md / AGENTS.md drift is the most common review block — when in doubt, update them in the same PR.
+- Doc/completion/help/changelog drift is the most common review block — run the "Keep every surface in sync" checklist above before pushing.
