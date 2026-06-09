@@ -117,7 +117,7 @@ The one **clean group** (no collision, so no default verb) is **`date`** (the `d
 table): `date set / ls / rm / import`, with `wl dateinfo` as the polymorphic everyday
 shortcut (sets when given a label, lists when not, `--clear` / `--import` variants).
 
-The `<entity> <verb>` reshape (WL#486) is now **complete** for every entity.
+The `<entity> <verb>` reshape is now **complete** for every entity.
 
 **B. Composite helper** — a one-step shortcut that wraps one or more primitives for
 the common path; never the *only* way to do something (the primitive stays). Status

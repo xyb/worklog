@@ -1,5 +1,5 @@
 """Soft-delete (tombstone) cascade — the app-level replacement for the old FK
-`ON DELETE CASCADE` (WL#501). FK enforcement is now off; a node "delete" is a
+`ON DELETE CASCADE`. FK enforcement is now off; a node "delete" is a
 soft-delete that tombstones the node and its spoke rows, reversible and hidden
 from reads, instead of physically removing anything."""
 import sqlite3

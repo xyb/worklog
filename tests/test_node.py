@@ -1,4 +1,4 @@
-"""The node entity group (WL#486): `wl node add/ls/show/edit/rm/reparent`, the metric-
+"""The node entity group: `wl node add/ls/show/edit/rm/reparent`, the metric-
 style primitive CRUD. The top-level add/ls/show are shortcuts onto the same handlers."""
 import sqlite3
 import pytest

@@ -52,7 +52,7 @@ class TestPrintCompletionFish:
         assert "(__wl_date_suggestions)" in out
 
     def test_fish_concrete_date_completion_excludes_someday(self, cli):
-        """#414: day/log/logs/dateinfo/sched accept a concrete day (period words included, but
+        """day/log/logs/dateinfo/sched accept a concrete day (period words included, but
         NOT 'someday'), so __wl_date_suggestions must not offer someday — only defer's helper
         (__wl_defer_suggestions) does."""
         _, out, _ = cli("print-completion", "fish")

@@ -76,7 +76,7 @@ class TestCmdSetErrors:
 
     def test_set_tags_rejected_points_at_tag_cmd(self, cli):
         """`wl set <id> tags X` must be rejected — it used to silently create a shadow
-        'tags' prop while the real tag field stayed unchanged (#441)."""
+        'tags' prop while the real tag field stayed unchanged."""
         cli("add", "t1", "-k", "task")
         for key in ("tags", "tag", "Tags"):
             code, out, err = cli("set", "1", key, "work")
@@ -88,7 +88,7 @@ class TestCmdSetErrors:
 
 
 class TestCmdTag:
-    """wl tag <id> +x -y edits the real tag field (tag table), not a shadow prop (#440)."""
+    """wl tag <id> +x -y edits the real tag field (tag table), not a shadow prop."""
 
     def test_tag_add_and_remove(self, cli, tmp_db):
         cli("add", "t1", "-k", "task", "-t", "work,planned")
@@ -135,7 +135,7 @@ def _links(con, nid):
 
 
 class TestLinkWikilinkStrip:
-    """#462: an outer [[ ]] wrapper is stripped on input so [[X]] and X store identically
+    """an outer [[ ]] wrapper is stripped on input so [[X]] and X store identically
     (no [[[[X]]]] double-wrap), dedup via the natural key, and unlink matches either form."""
 
     def test_wrapper_stripped(self, cli, tmp_db):

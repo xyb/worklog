@@ -184,7 +184,7 @@ class TestAddCompound:
 
 
 class TestAddDuplicateWarning:
-    """wl add warns (without blocking) when a similar open task/project already exists (#435)."""
+    """wl add warns (without blocking) when a similar open task/project already exists."""
 
     def test_warns_on_substring_overlap(self, cli):
         cli("add", "biz-agg slack-log merge", "-k", "task")

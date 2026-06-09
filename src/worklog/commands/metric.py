@@ -221,7 +221,7 @@ def cmd_metric_ls(args, con):
     if args.tag:
         simple["tag"] = args.tag.strip()
     where, params = _db.clause(**simple)
-    where.append("deleted_at IS NULL")  # hide soft-deleted metrics (WL#501)
+    where.append("deleted_at IS NULL")  # hide soft-deleted metrics
     if not args.all:
         since, until = _resolve_window(args)  # shared window: --since/--until/--week/--month
         where.append(f"{_tu.local_day_sql('at')} BETWEEN ? AND ?")

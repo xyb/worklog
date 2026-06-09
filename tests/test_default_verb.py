@@ -1,4 +1,4 @@
-"""The default-verb mechanism (WL#486) + the link entity group, the first collision
+"""The default-verb mechanism + the link entity group, the first collision
 entity (group name == old leaf command). `wl link 42 doc` keeps working as the add
 default verb; `wl link ls/rm` reach the group; `wl unlink` is the rm shortcut."""
 import sqlite3

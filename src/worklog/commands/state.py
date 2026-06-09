@@ -89,7 +89,7 @@ def _find_similar_open(con, title, kind):
     """Open (non-terminal) task/project nodes whose title looks like a duplicate of
     `title`: identical after normalization, or one normalized title contains the other
     (with the shorter ≥4 chars, to avoid trivial substring noise). Best-effort, used
-    only to warn before creating a possible duplicate (#435)."""
+    only to warn before creating a possible duplicate."""
     if kind not in ("task", "project"):
         return []
     nt = _norm_title(title)
@@ -117,7 +117,7 @@ def cmd_add(args, con):
         sys.exit("✗ title cannot be empty")
     args.title = args.title.strip()
     # Duplicate check (warn only, never block): a related open task/project may already
-    # exist, possibly pinned at @month/@someday and easy to miss (#435). Computed before
+    # exist, possibly pinned at @month/@someday and easy to miss. Computed before
     # insert so the new node doesn't match itself.
     similar = _find_similar_open(con, args.title, args.kind)
     if args.sched and args.scheduled:
@@ -387,7 +387,7 @@ def cmd_link(args, con):
         out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{doc}]]"))
 
 def cmd_unlink(args, con):
-    """Remove a single vault-doc link from a node (#426). Symmetric with wl link;
+    """Remove a single vault-doc link from a node. Symmetric with wl link;
     previously a mistaken link could only be cleared wholesale via `wl set links ''`."""
     doc = _strip_wikilink(args.vault_doc)
     if not doc:
@@ -410,7 +410,7 @@ def cmd_set(args, con):
     args.key = args.key.strip()
     hint = _reserved_prop_hint(args.key)
     if hint:
-        # WL#574/#441: a core node field (status/priority/tags/title/…) must not become a UDA
+        # a core node field (status/priority/tags/title/…) must not become a UDA
         # prop — that would shadow the real field. Reject with a pointer to the right command.
         sys.exit(f"✗ '{args.key}' is a reserved node field, not a UDA prop — {hint}\n"
                  f"  (plain `wl set` / `wl prop set` would silently create a misleading shadow prop)")
@@ -431,7 +431,7 @@ def cmd_tag(args, con):
     """Add/remove real tags on a node (the tag table): `wl tag <id> +work -planned`.
     A bare word adds (same as +word); no ops lists current tags. This is the direct
     editor for the real tag field — `wl set <id> tags ...` is rejected on purpose so
-    it can't quietly create a shadow prop (#440/#441)."""
+    it can't quietly create a shadow prop."""
     if not _node_exists(con, args.id):
         sys.exit(f"✗ node #{args.id} not found")
     ops = [o.strip() for o in (args.ops or []) if o.strip()]
@@ -489,7 +489,7 @@ def cmd_tag_rm(args, con):
 
 
 def cmd_tag_group(args, con):
-    """Dispatch `wl tag <add|ls|rm>` (the metric-style entity group; WL#486).
+    """Dispatch `wl tag <add|ls|rm>` (the metric-style entity group).
     `add` is the default verb (`wl tag <id> +x -y` == `wl tag add <id> +x -y`) and keeps the
     full +add / -remove / bare-add / empty-list grammar; `ls` / `rm` are single-purpose."""
     sub = getattr(args, "tag_sub", None)
@@ -700,7 +700,7 @@ def cmd_log_ls(args, con):
 
 
 def cmd_log_group(args, con):
-    """Dispatch `wl log <add|ls|edit|rm>` (the metric-style entity group; WL#486).
+    """Dispatch `wl log <add|ls|edit|rm>` (the metric-style entity group).
     `add` is the default verb (`wl log <id> "body"` == `wl log add <id> "body"`); `edit`
     is `wl relog` and `rm` is `wl unlog` (both keep their top-level shortcuts)."""
     sub = getattr(args, "log_sub", None)
@@ -839,7 +839,7 @@ def _edit_in_editor(initial_text, suffix=".txt"):
 
 
 def cmd_node_reparent(args, con):
-    """Move a node under a new parent — changes the real `parent_id` (WL#485 / #486),
+    """Move a node under a new parent — changes the real `parent_id`,
     not a UDA prop. 'none'/'root'/0 detaches to the top level. Refuses a cycle (the new
     parent must not be the node itself or one of its descendants)."""
     nid = args.id
@@ -867,7 +867,7 @@ def cmd_node_reparent(args, con):
 
 
 def cmd_node_rm(args, con):
-    """Soft-delete node(s) and their subtree (reversible tombstone, WL#501) — the
+    """Soft-delete node(s) and their subtree (reversible tombstone) — the
     primitive single-node form of `wl apply - #id`. Clearing `deleted_at` restores."""
     for nid in args.ids:
         if not _node_exists(con, nid):
@@ -914,7 +914,7 @@ def cmd_node_edit(args, con):
     out(_c(f"✓ #{nid} updated: " + ", ".join(changes), "meta"))
 
 
-# --- prop entity group (WL#486 / #527): set / ls / rm ---
+# --- prop entity group: set / ls / rm ---
 def cmd_prop_ls(args, con):
     """List a node's UDA props (key=value). The read primitive for prop (props are also
     shown inline by `wl show`)."""
@@ -929,7 +929,7 @@ def cmd_prop_ls(args, con):
 
 
 def cmd_prop_rm(args, con):
-    """Remove a UDA prop from a node (soft-delete the row; WL#527). Also the `wl unset`
+    """Remove a UDA prop from a node (soft-delete the row). Also the `wl unset`
     shortcut. The delete counterpart of `wl set`."""
     if not _node_exists(con, args.id):
         sys.exit(f"✗ node #{args.id} not found")
@@ -950,14 +950,14 @@ def cmd_prop_rm(args, con):
 
 
 def cmd_prop(args, con):
-    """Dispatch `wl prop <set|ls|rm>` (the metric-style entity group; WL#486)."""
+    """Dispatch `wl prop <set|ls|rm>` (the metric-style entity group)."""
     sub = getattr(args, "prop_sub", None)
     if sub is None:
         sys.exit("✗ usage: wl prop <set|ls|rm> … (see `wl prop --help`)")
     {"set": cmd_set, "ls": cmd_prop_ls, "rm": cmd_prop_rm}[sub](args, con)
 
 
-# --- agent entity group (WL#573): bind the current agent session to a node, stored as an
+# --- agent entity group: bind the current agent session to a node, stored as an
 # `agent_session.<app>` prop on that node (no new table). The prefix `agent_session.` finds a
 # node's bindings across apps; the suffix is the app (claude / cursor / …). CRUD:
 #   wl agent <id> (set) · wl agent (show current) · wl agent ls (list all) · wl agent rm (unbind).
@@ -967,7 +967,7 @@ _AGENT_KEY = _AGENT_PREFIX + _AGENT_APP       # agent_session.claude
 _AGENT_METRIC_TAG = "agent_session"          # metric tag for the bind-history trail (mirrors the prop)
 
 def _record_bind_history(con, nid, sid):
-    """Append-only record that session `sid` was bound to node `nid` (WL#580, light design).
+    """Append-only record that session `sid` was bound to node `nid` (light design).
 
     Two stores with different jobs:
       * the prop `agent_session.claude` is the *live* pointer — one session → one node, and it
@@ -997,7 +997,7 @@ def _short(s, n=50):
 def _current_session_id():
     """Session id of the running agent shell. Prefer $WL_SESSION_ID (a SessionStart hook can
     freeze the official session_id under this stable name), fall back to the (undocumented)
-    $CLAUDE_CODE_SESSION_ID. None if neither — callers fail closed (WL#573 / GPT review)."""
+    $CLAUDE_CODE_SESSION_ID. None if neither — callers fail closed (GPT review)."""
     import os
     return os.environ.get("WL_SESSION_ID") or os.environ.get("CLAUDE_CODE_SESSION_ID") or None
 
@@ -1008,7 +1008,7 @@ def _agent_need_sid():
     return sid
 
 def cmd_agent(args, con):
-    """`wl agent` — bind the current agent session to a node (WL#573).
+    """`wl agent` — bind the current agent session to a node.
     wl agent <id> = set · wl agent = show current · wl agent ls = list all · wl agent rm = unbind."""
     sub = getattr(args, "agent_sub", None)
     if sub == "set":
@@ -1023,7 +1023,7 @@ def cmd_agent(args, con):
         _db.delete(con, "prop", key=_AGENT_KEY, value=sid)   # one session → one node (live pointer)
         _upsert_prop(con, nid, _AGENT_KEY, sid)
         if getattr(args, "record", False) and not already:
-            _record_bind_history(con, nid, sid)   # append-only history trail (WL#580 light design)
+            _record_bind_history(con, nid, sid)   # append-only history trail (light design)
         con.commit()
         title = (_db.get(con, "node", nid) or {})["title"]
         line = _c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{_AGENT_APP}:{sid[:8]}…", "meta") + " · " + _short(title)
@@ -1057,7 +1057,7 @@ def cmd_agent(args, con):
     out(_c(f"#{row['node_id']}", "id") + " ← " + _c(f"{_AGENT_APP}:{sid[:8]}…", "meta") + " · " + _short(title))
 
 
-# --- clock entity group (WL#486 / #528): ls / edit / rm (create = start/stop/spent) ---
+# --- clock entity group: ls / edit / rm (create = start/stop/spent) ---
 def cmd_clock_ls(args, con):
     """List a node's clock intervals (start → end, duration). Read primitive for clock."""
     if not _node_exists(con, args.id):
@@ -1075,7 +1075,7 @@ def cmd_clock_ls(args, con):
 
 def cmd_clock_edit(args, con):
     """Edit a clock interval's start / end (recomputes elapsed_sec). Fix a mistimed
-    `wl start/stop/spent` entry (WL#528)."""
+    `wl start/stop/spent` entry."""
     row = _db.get(con, "clock", args.clock_id)
     if not row:
         sys.exit(f"✗ clock interval #C{args.clock_id} not found")
@@ -1115,7 +1115,7 @@ def cmd_clock_edit(args, con):
 
 
 def cmd_clock_rm(args, con):
-    """Soft-delete a clock interval (WL#528) — remove a wrong `wl spent`/start-stop entry."""
+    """Soft-delete a clock interval — remove a wrong `wl spent`/start-stop entry."""
     for cid in args.clock_ids:
         if not _db.exists(con, "clock", id=cid):
             sys.exit(f"✗ clock interval #C{cid} not found")
@@ -1126,7 +1126,7 @@ def cmd_clock_rm(args, con):
 
 
 def cmd_clock(args, con):
-    """Dispatch `wl clock <ls|edit|rm>` (the metric-style entity group; WL#486).
+    """Dispatch `wl clock <ls|edit|rm>` (the metric-style entity group).
     Creating intervals stays with the `start` / `stop` / `spent` composite helpers."""
     sub = getattr(args, "clock_sub", None)
     if sub is None:
@@ -1134,7 +1134,7 @@ def cmd_clock(args, con):
     {"ls": cmd_clock_ls, "edit": cmd_clock_edit, "rm": cmd_clock_rm}[sub](args, con)
 
 
-# --- link entity group (WL#486): add / ls / rm, default verb `add` ---
+# --- link entity group: add / ls / rm, default verb `add` ---
 def cmd_link_ls(args, con):
     """List a node's vault-doc links. Read primitive for link (also shown by `wl show`)."""
     if not _node_exists(con, args.id):
@@ -1148,7 +1148,7 @@ def cmd_link_ls(args, con):
 
 
 def cmd_link_group(args, con):
-    """Dispatch `wl link <add|ls|rm>` (WL#486). `add` is the default verb, so the legacy
+    """Dispatch `wl link <add|ls|rm>`. `add` is the default verb, so the legacy
     `wl link 42 doc` still works (the parser expands it to `wl link add 42 doc`). `rm` also
     has the top-level shortcut `wl unlink`."""
     sub = getattr(args, "link_sub", None)

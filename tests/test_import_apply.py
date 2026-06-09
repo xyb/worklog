@@ -63,7 +63,7 @@ class TestImport:
 
     def test_import_update_tags_key_rejected(self, cli, tmp_db):
         """update {tags: ...} is a footgun — silently ignored (not add_tags). Reject it
-        with a pointer to add_tags/remove_tags instead of no-op'ing (#441)."""
+        with a pointer to add_tags/remove_tags instead of no-op'ing."""
         cli("add", "task", "-k", "task")
         import json, tempfile, os
         spec = {"update": [{"id": 1, "tags": "sneaky"}]}
@@ -188,7 +188,7 @@ class TestApply:
 
     def test_apply_unindented_fieldop_hints_indent(self, cli, tmp_db):
         """A field op written flush-left under ~ (a common mistake) must produce an
-        actionable 'indent it' error, not a bare 'cannot parse' (#411)."""
+        actionable 'indent it' error, not a bare 'cannot parse'."""
         cli("add", "p1", "-k", "project")  # 1
         cli("add", "t", "-k", "task")      # 2
         code, out, err = self._apply(cli, "~ #2\nparent 1\n")  # parent not indented

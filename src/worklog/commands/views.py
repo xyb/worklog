@@ -384,7 +384,7 @@ def _pinned_at(con, node):
     month / '2026-W23' week / '2026' year). They hang under their project in the
     parent_id tree, not under the time node, so tree / focus on the time node would
     otherwise miss them — which led to creating duplicates when checking 'is anything
-    already scheduled this month' (#436). Returns [] for non-time / day nodes."""
+    already scheduled this month'. Returns [] for non-time / day nodes."""
     if node["kind"] not in _FUZZY_TIME_KINDS:
         return []
     return _db.query(con, "node", scheduled_date=node["title"], order="priority NULLS LAST, id")
@@ -398,7 +398,7 @@ def _print_tree(con, node, depth, max_depth, *, include_canceled=False, log_tail
         _print_day_activity(con, node, depth, max_depth,
                             include_canceled=include_canceled, log_tail=log_tail, full=full)
         return
-    # fuzzy time pins (#436): a month/week/year node's @-pinned tasks live under their
+    # fuzzy time pins: a month/week/year node's @-pinned tasks live under their
     # project, not here — surface them so a "what's scheduled this month" view sees them.
     children = _tree_children(con, node, include_canceled=include_canceled)
     child_ids = {c["id"] for c in children}
@@ -429,7 +429,7 @@ def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log
                 keep.add(a["id"])
     if subtree is not None:
         keep &= subtree  # drop ancestors above the requested root
-    # #436 × #518: a time node in the subtree can have @-pins — tasks pinned at it via
+    # a time node in the subtree can have @-pins — tasks pinned at it via
     # scheduled_date, which hang under their project (NOT in this subtree) — that match
     # the filter. They aren't found by the universe scan, so collect them per time node
     # and force-keep that node so it renders as their container. Only on a --root
@@ -465,7 +465,7 @@ def _print_kept_subtree(con, node, depth, keep, *, pin_parent=None,
     """Print `node` and recurse only into children in the `keep` set (the filtered-tree
     companion to _print_tree; no depth cap — `keep` is already the pruned node set).
     `pin_parent[node_id]` (if given) is the precomputed list of filter-matching @-pins to
-    list under a time node (#436 under a filter)."""
+    list under a time node (under a filter)."""
     out(_node_line(con, node, indent="  " * depth, sched=True))
     for p in (pin_parent or {}).get(node["id"], []):
         out(_node_line(con, p, indent="  " * (depth + 1), sched=True))
@@ -608,7 +608,7 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                     # only "not-done" if the task is still open; a terminal-status task
                     # scheduled on a day with no logs is done, not pending (avoids the
                     # contradictory "[x] … «planned·not-done»"). Suppressed under `--by plan`
-                    # (#500): the `▸ planned` group header + the `[ ]` marker already say it.
+                    # the `▸ planned` group header + the `[ ]` marker already say it.
                     hint = _c("  «planned·not-done»", "planned")
                 elif logs and log_tail == 0:
                     # compact mode: don't expand body, attach a count hint after the title line

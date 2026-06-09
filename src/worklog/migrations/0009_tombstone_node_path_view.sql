@@ -1,4 +1,4 @@
--- worklog schema v9: make the v_node_path helper view tombstone-aware (WL#501).
+-- worklog schema v9: make the v_node_path helper view tombstone-aware.
 --
 -- v_node_path (a recursive node → "A / B / C" path view, from 0001) predates soft-delete
 -- and would include soft-deleted nodes if queried manually. The CLI doesn't read it today,

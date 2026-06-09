@@ -1,4 +1,4 @@
-"""prop and clock entity groups (WL#486, filling #527 prop-unset and #528 clock-edit/rm).
+"""prop and clock entity groups (filling prop-unset and clock-edit/rm).
 prop: set/ls/rm (set = wl set, rm = wl unset). clock: ls/edit/rm (create via start/stop/spent)."""
 import sqlite3
 import pytest
@@ -20,7 +20,7 @@ class TestPropGroup:
         assert "owner=xyb" in out
 
     def test_reserved_field_names_rejected_as_props(self, cli, tmp_db):
-        """WL#574: a core node field must NOT become a UDA prop (it would shadow the real
+        """a core node field must NOT become a UDA prop (it would shadow the real
         column — e.g. a `status` prop next to the real status). Both `wl set` and `wl prop set`
         reject reserved names with a pointer to the right command; nothing is written."""
         cli("add", "t", "-k", "task")
@@ -173,7 +173,7 @@ class TestPropClockReviewFixes:
         assert con.execute("SELECT elapsed_sec FROM clock WHERE id=1").fetchone()[0] is None  # still running
 
     def test_unset_meta_field_routes_to_meta_rm(self, cli, tmp_db):
-        # WL#486: goal/summary/overview/top5 are typed logs, not props — `wl unset <metakey>`
+        # goal/summary/overview/top5 are typed logs, not props — `wl unset <metakey>`
         # is now the key-routed shortcut for `wl meta rm` (clears the typed log), symmetric
         # with `wl set <metakey>` → `wl meta set`.
         cli("add", "t", "-k", "task")

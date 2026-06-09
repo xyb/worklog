@@ -70,7 +70,7 @@ def _project_members(con, proj_id):
 
 def _ancestors_chain(con, node_id):
     """Return the path list[Row] from the top-level root to node (inclusive). Cycle-safe:
-    FK enforcement is off (WL#501) so `parent_id` integrity isn't DB-guaranteed and a
+    FK enforcement is off so `parent_id` integrity isn't DB-guaranteed and a
     bad/legacy graph could contain a cycle — a visited set stops the walk re-entering it
     rather than looping forever."""
     chain = []
@@ -130,10 +130,10 @@ def _collect_descendants(con, root_id, *, include_deleted=False):
     """Recursively collect all descendant ids of a node (excluding self). By default only
     live nodes; `include_deleted=True` walks through tombstoned nodes too, so a structural
     cascade (soft-delete subtree / cycle check) reaches live nodes hanging under an already-
-    tombstoned intermediate (WL#501 / #486)."""
+    tombstoned intermediate."""
     acc = []
     stack = [root_id]
-    seen = {root_id}  # cycle-safe: FK is off (WL#501), so a bad parent_id graph could loop
+    seen = {root_id}  # cycle-safe: FK is off, so a bad parent_id graph could loop
     while stack:
         pid = stack.pop()
         children = _db.query(con, "node", cols="id", parent_id=pid, include_deleted=include_deleted)
@@ -167,7 +167,7 @@ def nodes_with_tag(con, tags, *, kinds=None, cols="*", order=None):
 
 
 # every spoke table references node_id; soft-deleting a node tombstones these too —
-# the app-level stand-in for the old FK ON DELETE CASCADE (foreign_keys is now OFF, WL#501).
+# the app-level stand-in for the old FK ON DELETE CASCADE (foreign_keys is now OFF).
 _NODE_SPOKES = ("log", "tag", "link", "prop", "sched", "clock", "metric")
 
 
@@ -318,8 +318,8 @@ def _check_ids_exist(con, ids):
 # Core node fields (real columns / hierarchy / tags) that must NEVER become UDA props.
 # Storing one as a prop (via `wl set` / `wl prop set` / an import `props:` block) used to
 # silently create a *shadow* prop next to the real field — e.g. `wl set 574 status LATER` left
-# the real status TODO while a misleading `status=LATER` prop showed up in `wl show` (WL#574).
-# Generalizes the original 'tags'-only guard (WL#441). Keyed by lowercased name → the command
+# the real status TODO while a misleading `status=LATER` prop showed up in `wl show`.
+# Generalizes the original 'tags'-only guard. Keyed by lowercased name → the command
 # that actually edits that field.
 _RESERVED_PROP_KEYS = {
     "tag": "real tags — use `wl tag <id> +x -y`",
@@ -338,7 +338,7 @@ _RESERVED_PROP_KEYS = {
     "closed_at": "managed automatically by `wl done` / `reopen`",
     "created_at": "immutable node field",
     "id": "immutable node id",
-    "deleted_at": "managed by `wl node rm` / restore (WL#501)",
+    "deleted_at": "managed by `wl node rm` / restore",
 }
 
 
@@ -352,7 +352,7 @@ def _reserved_prop_hint(key):
 def _upsert_prop(con, nid, key, value):
     """Unified prop UPSERT (no commit; caller controls the transaction). Batch-friendly.
     `_set_prop` is the commit version for single daily operations. Rejects reserved node-field
-    names so a prop can't shadow a real column (WL#574) — the universal backstop behind the
+    names so a prop can't shadow a real column — the universal backstop behind the
     nicer cmd_set / importer pre-checks."""
     hint = _reserved_prop_hint(key)
     if hint:
@@ -365,7 +365,7 @@ def _upsert_prop(con, nid, key, value):
 def _strip_wikilink(doc):
     """Strip an outer ``[[ ... ]]`` wrapper (repeatedly) plus surrounding whitespace from a
     vault-doc name, so ``[[X]]`` and ``X`` store identically and an already-wrapped value
-    can't become ``[[[[X]]]]`` (#462)."""
+    can't become ``[[[[X]]]]``."""
     s = (doc or "").strip()
     while len(s) >= 4 and s.startswith("[[") and s.endswith("]]"):
         s = s[2:-2].strip()
@@ -374,7 +374,7 @@ def _strip_wikilink(doc):
 
 def _upsert_link(con, nid, doc):
     """Add a vault-doc link to a node (idempotent revive-or-insert), normalizing the doc
-    name via `_strip_wikilink` first. The single chokepoint for link writes (#462). No commit.
+    name via `_strip_wikilink` first. The single chokepoint for link writes. No commit.
     Returns the stripped doc name (callers echo it)."""
     name = _strip_wikilink(doc)
     _db.upsert(con, "link", {"node_id": nid, "vault_doc": name}, key=("node_id", "vault_doc"))
@@ -383,7 +383,7 @@ def _upsert_link(con, nid, doc):
 
 def _delete_link(con, nid, doc):
     """Soft-delete a vault-doc link, matching by the normalized (stripped) doc name so a
-    link added as `X` is removable whether the caller passes `X` or `[[X]]` (#462). No
+    link added as `X` is removable whether the caller passes `X` or `[[X]]`. No
     commit. Returns (stripped_name, rowcount)."""
     name = _strip_wikilink(doc)
     return name, _db.delete(con, "link", node_id=nid, vault_doc=name)

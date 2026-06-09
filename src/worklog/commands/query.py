@@ -122,7 +122,7 @@ def cmd_ls(args, con):
     if args.parent is not None:
         simple["parent_id"] = args.parent
     where, params = _db.clause(**simple)
-    where.append("deleted_at IS NULL")  # hide soft-deleted nodes (WL#501)
+    where.append("deleted_at IS NULL")  # hide soft-deleted nodes
     if not args.status and not args.all:
         # default: list non-DONE only (DONE hidden); --show-canceled decides CANCELED visibility separately
         frag, p = _status_filter_sql(inc_cancel, hide_done=True)
@@ -294,7 +294,7 @@ def cmd_focus(args, con):
     else:
         children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
         # a time node's @-pinned tasks (scheduled_date == its title) hang under their
-        # project, not here — surface them too so focus on a month/week shows them (#436)
+        # project, not here — surface them too so focus on a month/week shows them
         inc_cancel = getattr(args, "show_canceled", False)
         pinned = [p for p in _pinned_at(con, n) if inc_cancel or p["status"] != "CANCELED"]
         if children or pinned:
@@ -344,7 +344,7 @@ def cmd_agenda(args, con):
     """Cross-time-range scheduling overview: every node scheduled within [start, end],
     regardless of granularity (day / week / month / quarter / year), ordered by anchor
     date. A single-month tree view misses items pinned at @month / @someday — this
-    lists them all in one place so planning can spot duplicates (#434)."""
+    lists them all in one place so planning can spot duplicates."""
     try:
         start = _resolve_concrete_date(args.start)
         end = _resolve_concrete_date(args.end)
@@ -355,7 +355,7 @@ def cmd_agenda(args, con):
     inc_cancel = getattr(args, "show_canceled", False)
     show_all = getattr(args, "all", False)
 
-    # Two schedule sources, both matter (else we recreate the very bug #434 is about —
+    # Two schedule sources, both matter (else we recreate the very bug this guards against —
     # month/someday-level plans live in node.scheduled_date, not the sched table):
     #   - sched table on_date: concrete one-off days (+ rrule, handled elsewhere)
     #   - node.scheduled_date:    a single fuzzy-granularity pin (@2026-06 / someday / ...)
@@ -814,7 +814,7 @@ def cmd_logs(args, con):
             # flat logs row "[YYYY-MM-DD HH:MM:SS] #L<id> #<node> 'title': <body>" — one
             # line. Both the title and the body are variable / CJK-wide, so budget the
             # terminal width across them instead of a fixed indent guess: a wide CJK
-            # title alone used to fill the line and push the body to a second row (#415).
+            # title alone used to fill the line and push the body to a second row.
             fixed_w = _display_width(f"[{lat}] #L{r['id']} #{r['node_id']} '': ")
             rem = max(20, _term_width() - fixed_w)
             # title takes up to ~40% of the remaining width, body the rest

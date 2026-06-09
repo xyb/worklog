@@ -1,5 +1,5 @@
 """Tests for `wl agent` — bind the current agent session to a node, stored as the
-`agent_session.claude` prop (WL#573). CRUD: wl agent <id> / wl agent / wl agent ls / wl agent rm.
+`agent_session.claude` prop. CRUD: wl agent <id> / wl agent / wl agent ls / wl agent rm.
 The session id comes from $WL_SESSION_ID (preferred) or $CLAUDE_CODE_SESSION_ID."""
 import sqlite3
 import pytest
@@ -16,7 +16,7 @@ def _bound_value(tmp_db, nid):
 
 
 def _history_metrics(tmp_db, nid):
-    """The append-only bind-history metrics on a node (WL#580 --record)."""
+    """The append-only bind-history metrics on a node (--record)."""
     con = tmp_db.db_connect()
     return con.execute(
         "SELECT value_text, note FROM metric WHERE node_id=? AND tag='agent_session' "
@@ -93,7 +93,7 @@ class TestAgent:
         _, out, _ = cli("agent")
         assert "未绑定" in out
 
-    # --- WL#580 light design: prop = live pointer; --record = append-only history trail ---
+    # --- light design: prop = live pointer; --record = append-only history trail ---
 
     def test_plain_bind_writes_no_history(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")

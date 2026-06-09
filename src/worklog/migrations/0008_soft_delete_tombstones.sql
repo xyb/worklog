@@ -1,4 +1,4 @@
--- worklog schema v8: soft-delete tombstones (WL#501).
+-- worklog schema v8: soft-delete tombstones.
 --
 -- Direction (xyb): (1) stop enforcing foreign keys so the tables decouple and can
 -- be maintained / synced independently, and (2) avoid irreversible DELETE — a

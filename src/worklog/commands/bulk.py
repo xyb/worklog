@@ -195,7 +195,7 @@ def cmd_apply(args, con):
                 stack[depth] = f["id"]
                 continue
             if pfx == "-":
-                # recursive subtree soft-delete (WL#501): tombstone the node + each
+                # recursive subtree soft-delete: tombstone the node + each
                 # descendant (and, via soft_delete_node, their spoke rows) — reversible,
                 # no cascade needed (FK is off). _collect_descendants returns live nodes.
                 ids = [f["id"]] + _collect_descendants(con, f["id"], include_deleted=True)
@@ -291,7 +291,7 @@ def _import_update(con, spec, dry, counters):
     nid = spec.get("id")
     if not nid or not _node_exists(con, nid):
         raise ValueError(f"update target #{nid} does not exist")
-    # Footgun guard (#441): `tags`/`tag` is not an update field — it's silently ignored
+    # Footgun guard: `tags`/`tag` is not an update field — it's silently ignored
     # here (and would silently create a shadow prop via wl set), so a writer thinks tags
     # were set when nothing happened. Tags go through add_tags / remove_tags.
     bad = {"tags", "tag"} & set(spec)
@@ -306,7 +306,7 @@ def _import_update(con, spec, dry, counters):
     if "parent" in spec and spec["parent"] is not None:
         if not _node_exists(con, spec["parent"]):
             raise ValueError(f"update #{nid}: parent #{spec['parent']} does not exist")
-        # cycle guard (parity with cmd_node_reparent): FK is off (WL#501), so a bad
+        # cycle guard (parity with cmd_node_reparent): FK is off, so a bad
         # parent_id isn't DB-rejected — refuse making a node its own ancestor, which would
         # otherwise leave a cycle that hangs the ancestor/descendant walks.
         if spec["parent"] == nid:
@@ -431,7 +431,7 @@ def _parse_wld(text):
         m = re.match(r"^([+~\- ])(\s*)(.*)$", raw)
         if not m:
             # A flush-left line that parses as a field op right after a `~ #id` is
-            # almost always a forgotten indent (#411) — field ops must be indented
+            # almost always a forgotten indent — field ops must be indented
             # under the lock line (DESIGN §18.2). Give an actionable hint instead of
             # the opaque "cannot parse".
             if cur_update is not None and _parse_fieldop(s) is not None:

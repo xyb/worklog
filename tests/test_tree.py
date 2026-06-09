@@ -268,7 +268,7 @@ class TestTreeByProjectSharedTag:
 
 
 class TestTreeTimePins:
-    """#436: a task fuzzy-pinned at a time node (scheduled_date == its title, e.g.
+    """a task fuzzy-pinned at a time node (scheduled_date == its title, e.g.
     @2026-06) hangs under its project, not under the month node — tree/focus on the
     time node must still surface it, else a 'what's scheduled this month' check misses
     it and a duplicate gets created."""
@@ -302,7 +302,7 @@ class TestTreeTimePins:
         assert "month task" in out2
 
     def test_filtered_tree_root_month_shows_matching_pins(self, cli):
-        # #436 × #518: a filtered drill-down on a month must still surface its @-pins
+        # a filtered drill-down on a month must still surface its @-pins
         # that match the filter (they hang under their project, not the month subtree)
         cli("add", "Lifetime", "-k", "lifetime")                       # 1
         cli("add", "2026", "-k", "year", "--parent", "1")              # 2

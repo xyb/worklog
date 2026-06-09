@@ -135,7 +135,7 @@ class TestMetricSchema:
         assert cols == {
             "id", "log_id", "node_id", "tag",
             "value_num", "value_text", "unit", "note", "at",
-            "deleted_at",  # soft-delete tombstone (migration 0008, WL#501)
+            "deleted_at",  # soft-delete tombstone (migration 0008)
         }
 
     def test_log_has_tag_column(self, cli, tmp_db):
@@ -241,7 +241,7 @@ class TestMetricSchema:
         assert con.execute("SELECT node_id FROM metric").fetchone()["node_id"] == 2
 
     def test_soft_delete_node_tombstones_its_metrics(self, cli, tmp_db):
-        """FK enforcement is off (WL#501); soft-deleting a node tombstones its metrics
+        """FK enforcement is off; soft-deleting a node tombstones its metrics
         via the app-level cascade (queries.soft_delete_node), not an FK CASCADE."""
         from worklog import queries as q
         cli("add", "t", "-k", "task")

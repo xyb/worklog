@@ -169,7 +169,7 @@ class TestDayPlannedNotDoneSuppression:
         assert "planned·not-done" in out          # footer stat count is still present
 
     def test_row_hint_suppressed_under_by_plan(self, cli):
-        # #500: under the default --by plan the `▸ planned` group header + the `[ ]` marker
+        # under the default --by plan the `▸ planned` group header + the `[ ]` marker
         # already convey it, so the per-row «planned·not-done» hint is redundant → hidden.
         cli("add", "todo task", "-k", "task", "-t", "work")
         cli("sched", "1", "2026-06-15")

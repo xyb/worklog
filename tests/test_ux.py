@@ -728,7 +728,7 @@ class TestWelcomeBanner:
 
 
 class TestShortFlags:
-    """#487: single-letter short flags for high-frequency args (-d/--date, -n/--note)."""
+    """single-letter short flags for high-frequency args (-d/--date, -n/--note)."""
 
     def test_log_dash_d_date(self, cli, tmp_db):
         cli("add", "t", "-k", "task")

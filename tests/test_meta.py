@@ -20,7 +20,7 @@ class TestGoalRecapTick:
         assert today in out  # day node exists
 
     def test_auto_day_builds_full_time_ancestor_chain(self, cli, tmp_db):
-        """Auto-created day must hang under week→month→quarter→year, not dangle (#410)."""
+        """Auto-created day must hang under week→month→quarter→year, not dangle."""
         from datetime import date
         cli("goal", "g")  # triggers _ensure_today_day on an empty DB
         con = tmp_db.db_connect()
@@ -39,7 +39,7 @@ class TestGoalRecapTick:
 
     def test_auto_day_reuses_existing_year_any_title_style(self, cli, tmp_db):
         """Lenient year lookup: an existing year titled 'YYYY 年' (or any 'YYYY…') is
-        reused, not duplicated by a new ISO 'YYYY' node (#410, xyb's chosen behavior)."""
+        reused, not duplicated by a new ISO 'YYYY' node (xyb's chosen behavior)."""
         from datetime import date
         y = date.today().year
         cli("add", f"{y} 年", "-k", "year")  # pre-existing Chinese-style year
@@ -55,7 +55,7 @@ class TestGoalRecapTick:
 
     def test_recap_past_date_writes_and_stamps(self, cli, tmp_db):
         """wl recap --date <past day> back-fills that day's summary + stamps summary_at,
-        building the day node if needed (#437)."""
+        building the day node if needed."""
         _, wout, _ = cli("recap", "--date", "2026-06-01", "backfilled recap")
         assert "2026-06-01" in wout
         # read it back via --date
@@ -126,7 +126,7 @@ def _typed_logs(con, nid, tag):
 
 
 class TestMetaGroup:
-    """WL#486: `wl meta set/ls/rm` — the group for history-preserving typed-log meta fields
+    """`wl meta set/ls/rm` — the group for history-preserving typed-log meta fields
     (goal/summary/overview/top5), distinct from props. `wl set`/`wl unset` route meta keys
     here as a documented shortcut (key-routed, parallel to prop)."""
 

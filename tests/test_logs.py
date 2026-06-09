@@ -8,7 +8,7 @@ def _disp_width(s):
 
 
 class TestLogsLineWidth:
-    """#415: flat logs row must fit the terminal width — a wide CJK title used to push
+    """flat logs row must fit the terminal width — a wide CJK title used to push
     the body past the edge and wrap to a second line (fixed indent_cols was too small)."""
 
     def test_flat_logs_row_fits_width_with_cjk_title(self, cli, monkeypatch):

@@ -730,7 +730,7 @@ class TestSchedIdempotent:
 
 class TestAgenda:
     """wl agenda <start> <end>: cross-granularity scheduling overview from both the
-    sched table (concrete days) and node.scheduled_at (fuzzy month/someday pins) (#434)."""
+    sched table (concrete days) and node.scheduled_at (fuzzy month/someday pins)."""
 
     def _seed(self, cli):
         cli("add", "exact day", "-k", "task")   # 1 → sched table, day
@@ -746,7 +746,7 @@ class TestAgenda:
         self._seed(cli)
         _, out, _ = cli("agenda", "2026-06-01", "2026-06-30")
         assert "exact day" in out          # sched-table day in range
-        assert "month pin" in out          # scheduled_at month pin in range — the #434 case
+        assert "month pin" in out          # scheduled_at month pin in range — the month-pin case
         assert "july task" not in out      # out of range
         assert "someday item" not in out   # someday not shown without --someday
 

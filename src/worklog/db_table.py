@@ -91,7 +91,7 @@ def _where(conds: dict, *, alive: bool = True):
     """Build a `WHERE …` fragment + bound params from a kwargs dict. Key `col` →
     `col = ?`; `col__op` → operator; `col__in=[…]`; `col=None` / `col__ne=None` →
     `IS NULL` / `IS NOT NULL`. When `alive` (the default), a `deleted_at IS NULL`
-    tombstone filter is ANDed on so reads skip soft-deleted rows (WL#501)."""
+    tombstone filter is ANDed on so reads skip soft-deleted rows."""
     frags, params = _clause(conds)
     if alive:
         frags = frags + ["deleted_at IS NULL"]
@@ -122,7 +122,7 @@ def insert(con, table, row: dict, *, or_=None) -> int:
 
 def upsert(con, table, row, *, key) -> bool:
     """Tombstone-safe insert-or-revive by a natural key — the replacement for
-    `INSERT OR IGNORE` / `INSERT OR REPLACE` under soft-delete (WL#501). Updates the row
+    `INSERT OR IGNORE` / `INSERT OR REPLACE` under soft-delete. Updates the row
     matching `key` (a tuple of the natural-key columns), reviving it if it was tombstoned
     and writing the non-key columns, or INSERTs a fresh row if none exists. So re-adding a
     removed tag / re-setting a prop revives its tombstone instead of being swallowed by it
@@ -154,7 +154,7 @@ def update(con, table, row_id, changes: dict) -> int:
 
 
 def delete(con, table, **conds) -> int:
-    """Soft-delete (WL#501): stamp `deleted_at` on the live rows matching the kwargs
+    """Soft-delete: stamp `deleted_at` on the live rows matching the kwargs
     filter, instead of removing them; return the number tombstoned. Idempotent — a
     row already tombstoned isn't re-stamped. Reads (query/get/exists/count) skip
     tombstoned rows, so this looks like a delete but is reversible (clear `deleted_at`
@@ -180,7 +180,7 @@ def purge(con, table, **conds) -> int:
 
 def query(con, table, *, cols="*", order=None, limit=None, include_deleted=False, **conds):
     """SELECT rows from one table matching the kwargs filter; return list[Row].
-    Skips soft-deleted rows unless `include_deleted=True` (WL#501). `cols` / `order`
+    Skips soft-deleted rows unless `include_deleted=True`. `cols` / `order`
     are raw SQL expressions (code-controlled, e.g. "COUNT(*) AS n" / "priority NULLS LAST, id")."""
     _ident(table)
     where, params = _where(conds, alive=not include_deleted)

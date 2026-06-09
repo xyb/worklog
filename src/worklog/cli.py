@@ -156,7 +156,7 @@ def _load_user_aliases():
 _USER_ALIASES = None  # lazy cache, populated on first build_parser call
 
 
-# --- shared argument sets (WL#486): a node operation is reachable both as a top-level
+# --- shared argument sets: a node operation is reachable both as a top-level
 # shortcut (`wl add`) and under the entity group (`wl node add`); both call the same
 # arg-adder so the two forms stay identical and there's one definition to maintain.
 def _args_node_add(p):
@@ -267,7 +267,7 @@ def _args_unlog(p):
     return p
 
 
-# --- default-verb dispatch (WL#486) ---
+# --- default-verb dispatch ---
 # Some entity groups share a name with the old leaf command (link / sched / log / tag).
 # To keep the legacy leaf form working (`wl link 42 doc`) while adding `wl link add/ls/rm`,
 # we insert the group's *default verb* when the token after the entity isn't a known verb.
@@ -543,7 +543,7 @@ Common examples:
 More: `wl help add` (fuller intro + key options) · `wl help para` (areas / projects / tasks).""")
     _args_node_add(a)
 
-    # log entity group (WL#486): add / ls / edit / rm. `add` is the default verb so the
+    # log entity group: add / ls / edit / rm. `add` is the default verb so the
     # everyday `wl log <id> "body"` keeps working; `edit` = wl relog, `rm` = wl unlog
     # (both keep their top-level shortcuts). The rich cross-cutting view stays at `wl logs`.
     g = sub.add_parser("log",
@@ -710,7 +710,7 @@ Difference from wl wait: wait = paused (still planning to do); cancel = not doin
     cx.add_argument("--log", "-m", help="add a log explaining why you're canceling")
     cx.add_argument("--at", help="use this timestamp for closed_at + log")
 
-    # link entity group (WL#486): add / ls / rm with a default verb of `add`, so the
+    # link entity group: add / ls / rm with a default verb of `add`, so the
     # legacy `wl link 42 doc` still works (the parser expands it to `wl link add 42 doc`).
     ln = sub.add_parser("link",
         help="link CRUD: add / ls / rm — wl link 42 doc adds (default verb), wl unlink = rm",
@@ -756,7 +756,7 @@ Key-routed: goal/summary/overview/top5 → meta (history-preserving); any other 
 More: `wl help set`.""")
     _args_prop_set(se)
 
-    # prop entity group (WL#486 / #527): set / ls / rm. `set` → wl set shortcut; `rm` → wl unset.
+    # prop entity group: set / ls / rm. `set` → wl set shortcut; `rm` → wl unset.
     pr = sub.add_parser("prop",
         help="prop (UDA) CRUD: set / ls / rm (set has the top-level shortcut wl set; rm = wl unset)",
         description="Custom key=value prop (UDA) CRUD — the metric-style entity group. Meta fields (goal/summary/overview/top5) and real tags are NOT props (use wl goal/recap and wl tag).",
@@ -775,7 +775,7 @@ More: `wl help prop`.""")
 
     ag = sub.add_parser("agent",
         help="bind the current AI agent session to a task: wl agent <id> (set) / wl agent (show) / wl agent ls / wl agent rm",
-        description="Bind the current AI agent (Claude Code) session to a node so the agent knows which task it's on and the status line / hook context can surface it (WL#573). Stored as the `agent_session.claude` prop on the node — no new table. `wl agent <id>` is the set shortcut (default verb).",
+        description="Bind the current AI agent (Claude Code) session to a node so the agent knows which task it's on and the status line / hook context can surface it. Stored as the `agent_session.claude` prop on the node — no new table. `wl agent <id>` is the set shortcut (default verb).",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
@@ -820,7 +820,7 @@ Common examples:
 Key-routed like `wl set`: a meta key → that meta field, any other key → a prop.""")
     _args_prop_rm(us)
 
-    # clock entity group (WL#486 / #528): ls / edit / rm. Create stays start/stop/spent.
+    # clock entity group: ls / edit / rm. Create stays start/stop/spent.
     ck = sub.add_parser("clock",
         help="clock-interval CRUD: ls / edit / rm (create with start / stop / spent)",
         description="Time-tracking interval CRUD — the metric-style entity group. Intervals are CREATED by the composite helpers `wl start` / `wl stop` / `wl spent`; this group lists, edits and removes them.",
@@ -843,7 +843,7 @@ Create intervals with the composite helpers:
     _ckr = _cksub.add_parser("rm", help="remove clock interval(s)")
     _ckr.add_argument("clock_ids", type=int, nargs="+", metavar="clock_id")
 
-    # tag entity group (WL#486): add / ls / rm. `add` is the default verb so the everyday
+    # tag entity group: add / ls / rm. `add` is the default verb so the everyday
     # `wl tag <id> +x -y` keeps working (full +add / -remove / bare-add / empty-list grammar);
     # `ls` lists, `rm` removes. Update is atomic (add/remove), so there is no `edit` verb.
     tg = sub.add_parser("tag",
@@ -886,7 +886,7 @@ Common examples:
 More: `wl help show` (vs `wl focus` up/down context / `wl logs --id` log stream only).""")
     _args_node_show(sh)
 
-    # node entity group (WL#486): the metric-style `wl node <verb>` primitive CRUD.
+    # node entity group: the metric-style `wl node <verb>` primitive CRUD.
     # The top-level add/ls/show are the high-frequency shortcuts onto the same handlers;
     # edit/rm/reparent are the field-edit / soft-delete / move primitives.
     nd = sub.add_parser("node",
@@ -918,7 +918,7 @@ More: `wl help node`.""")
     _nde.add_argument("--body")
     _nde.add_argument("--scheduled", help="scheduled_date pin (YYYY-MM-DD / YYYY-MM / someday / …); pass '' to clear")
     _nde.add_argument("--deadline", help="deadline date YYYY-MM-DD; pass '' to clear")
-    _ndr = _ndsub.add_parser("rm", help="soft-delete node(s) + their spoke rows (reversible tombstone, WL#501)")
+    _ndr = _ndsub.add_parser("rm", help="soft-delete node(s) + their spoke rows (reversible tombstone)")
     _ndr.add_argument("ids", type=int, nargs="+", metavar="id")
     _ndrp = _ndsub.add_parser("reparent", help="move a node under a new parent (changes the real parent_id, not a prop)")
     _ndrp.add_argument("id", type=int)
@@ -1240,7 +1240,7 @@ For single habit check-in, use wl tick <id>.""")
     ci.add_argument("--per-item", action="store_true",
                     help="fallback mode: prompt y/n/note/q per item (allows per-item note; auto-used when not on a TTY)")
 
-    # sched entity group (WL#486): add / ls / rm. `add` is the default verb so the everyday
+    # sched entity group: add / ls / rm. `add` is the default verb so the everyday
     # `wl sched <id> <when>` / `wl sched <id> --clear` keep working (full when / --recur /
     # --clear / list-when-empty grammar via cmd_sched); `ls` lists, `rm` clears. `wl defer`
     # (status=LATER + rough hint) stays its own composite command.
@@ -1289,7 +1289,7 @@ Explicit verbs: wl date set/ls/rm/import (same date_meta table; see `wl date -h`
     di.add_argument("--import", dest="import_file", metavar="FILE", help='batch import {"YYYY-MM-DD":"label"} JSON, - reads stdin')
     di.add_argument("--clear", action="store_true", help="clear the label for this date")
 
-    # date entity group (WL#486): set / ls / rm / import. A clean group — `date` doesn't
+    # date entity group: set / ls / rm / import. A clean group — `date` doesn't
     # collide with any leaf, so no default verb. `wl dateinfo` is the polymorphic shortcut.
     dt = sub.add_parser("date",
         help="date-metadata CRUD: set / ls / rm / import (polymorphic shortcut: wl dateinfo)",
@@ -1314,7 +1314,7 @@ Common examples:
     _dtsub.add_parser("rm", help="clear a date's label (= wl dateinfo <date> --clear)").add_argument("date", help="YYYY-MM-DD")
     _dtsub.add_parser("import", help='batch import {"YYYY-MM-DD":"label"} JSON (= wl dateinfo --import)').add_argument("file", help="JSON file path, or - for stdin")
 
-    # meta entity group (WL#486): set / ls / rm for the history-preserving typed-log meta
+    # meta entity group: set / ls / rm for the history-preserving typed-log meta
     # fields (goal/summary/overview/top5). Distinct from props (prop = static single-value).
     me = sub.add_parser("meta",
         help="meta-field CRUD: set / ls / rm — history-preserving typed logs (goal/summary/overview/top5)",
@@ -1584,8 +1584,7 @@ from .commands import (
 )
 
 def cmd_node(args, con):
-    """Dispatch `wl node <add|ls|show|edit|rm|reparent>` (the metric-style entity group;
-    WL#486). The top-level add/ls/show route to the same handlers."""
+    """Dispatch `wl node <add|ls|show|edit|rm|reparent>` (the metric-style entity group). The top-level add/ls/show route to the same handlers."""
     sub = getattr(args, "node_sub", None)
     if sub is None:
         sys.exit("✗ usage: wl node <add|ls|show|edit|rm|reparent> … (see `wl node --help`)")

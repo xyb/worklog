@@ -93,7 +93,7 @@ class TestCheckin:
         monkeypatch.setattr(wl_mod.commands.meta, "_multi_select_tty", lambda options, header: [0])
         _, out, _ = cli("checkin")
         assert "done 1/3" in out
-        # 1st (#1) checked in
+        # 1st checked in
         _, s1, _ = cli("show", "1")
         assert "✓ done" in s1
         # 2nd/3rd not checked in

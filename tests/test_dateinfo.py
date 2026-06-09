@@ -43,7 +43,7 @@ class TestCnWeekday:
 
 
 class TestDateGroup:
-    """WL#486: the metric-style `wl date set/ls/rm/import` group (a clean group — no
+    """the metric-style `wl date set/ls/rm/import` group (a clean group — no
     default verb, since `date` doesn't collide with any leaf). `wl dateinfo` stays the
     polymorphic everyday shortcut over the same date_meta table."""
 

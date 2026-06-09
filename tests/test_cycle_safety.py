@@ -1,4 +1,4 @@
-"""parent_id cycle safety. FK enforcement is OFF (WL#501), so a bad parent_id graph
+"""parent_id cycle safety. FK enforcement is OFF, so a bad parent_id graph
 isn't DB-rejected. Two layers of defense: (1) the bulk update path refuses to create a
 cycle (parity with cmd_node_reparent); (2) the ancestor/descendant walks are visited-set
 guarded so a pre-existing/legacy cycle degrades gracefully instead of hanging the CLI."""

@@ -252,7 +252,7 @@ def cmd_date_import(args, con):
 
 
 def cmd_date_group(args, con):
-    """Dispatch `wl date <set|ls|rm|import>` (the metric-style entity group; WL#486).
+    """Dispatch `wl date <set|ls|rm|import>` (the metric-style entity group).
     A clean group (no default verb — `date` doesn't collide with any leaf). `wl dateinfo`
     is the polymorphic everyday shortcut over the same date_meta table."""
     sub = getattr(args, "date_sub", None)
@@ -305,7 +305,7 @@ def cmd_summary_prop(args, con):
     out(_c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta"))
 
 
-# --- meta entity group (WL#486): set / ls / rm for the history-preserving typed-log meta
+# --- meta entity group: set / ls / rm for the history-preserving typed-log meta
 # fields (goal/summary/overview/top5). These are NOT props (single-value, overwrite) — each
 # is a `log.tag` log, latest = current, history kept. `wl set <node> <field>` routes here as
 # a documented shortcut (parallel to `wl set` → `wl prop set`); `wl goal`/`wl recap` are the
@@ -349,7 +349,7 @@ def cmd_meta_rm(args, con):
 
 
 def cmd_meta(args, con):
-    """Dispatch `wl meta <set|ls|rm>` (the metric-style entity group; WL#486). Meta fields
+    """Dispatch `wl meta <set|ls|rm>` (the metric-style entity group). Meta fields
     (goal/summary/overview/top5) are history-preserving typed logs, distinct from props."""
     sub = getattr(args, "meta_sub", None)
     if sub is None:
@@ -545,7 +545,7 @@ def cmd_sched_rm(args, con):
 
 
 def cmd_sched_group(args, con):
-    """Dispatch `wl sched <add|ls|rm>` (the metric-style entity group; WL#486).
+    """Dispatch `wl sched <add|ls|rm>` (the metric-style entity group).
     `add` is the default verb (`wl sched <id> <when>` == `wl sched add <id> <when>`) and
     keeps the full when / --recur / --clear / list-when-empty grammar (`cmd_sched`); `ls`
     lists, `rm` clears. `wl defer` (status=LATER + rough hint) stays its own command."""
@@ -564,7 +564,7 @@ def _ensure_time_ancestors(con, d):
     plain ISO form (year `YYYY`, quarter `YYYY-Qn`, month `YYYY-MM`, week ISO `YYYY-Www`).
     Year hangs under an existing `lifetime` node if there is one, else stays top-level.
     Without this, a day created on the first of a month/week (when month/week don't yet
-    exist) dangled directly under lifetime/NULL and broke per-month aggregation (#410).
+    exist) dangled directly under lifetime/NULL and broke per-month aggregation.
     """
     y, m = d.year, d.month
     iso = d.isocalendar()
@@ -593,7 +593,7 @@ def _ensure_time_ancestors(con, d):
 def _ensure_day(con, d):
     """Return the day-node id for date `d` (a datetime.date); create it if missing,
     building the full time skeleton (year→quarter→month→week) above it so it never
-    dangles (#410). Works for any date, not just today — back-fills past days too."""
+    dangles. Works for any date, not just today — back-fills past days too."""
     iso = d.isoformat()
     r = _db.query_one(con, "node", cols="id", kind="day", title__like=iso + "%", order="id")
     if r:
