@@ -127,3 +127,28 @@ class TestAgent:
         assert _bound_value(tmp_db, 1) is None      # prop cleared off #1
         assert len(_history_metrics(tmp_db, 1)) == 1   # but #1's history stays
         assert len(_history_metrics(tmp_db, 2)) == 1
+
+    # --- `wl agent context` (machine line for integrations) + cache invalidation ---
+
+    def test_context_outputs_machine_line(self, cli, monkeypatch):
+        self._sess(monkeypatch, "sess-ctx")
+        cli("add", "hello task", "-k", "task")
+        _, out, _ = cli("agent", "context")
+        assert out.strip() == ""                    # not bound yet → empty
+        cli("agent", "1")
+        _, out, _ = cli("agent", "context")
+        assert out.strip() == "1\thello task"       # <id>\t<title>
+
+    def test_set_and_rm_invalidate_the_session_cache(self, cli, tmp_path, monkeypatch):
+        state = tmp_path / "state"
+        monkeypatch.setenv("XDG_STATE_HOME", str(state))
+        self._sess(monkeypatch, "sess-inv")
+        cli("add", "t", "-k", "task")
+        cache = state / "worklog" / "agent" / "sess-inv"
+        cache.parent.mkdir(parents=True)
+        cache.write_text("stale")
+        cli("agent", "1")                           # bind → invalidates the stale cache
+        assert not cache.exists()
+        cache.write_text("stale-again")
+        cli("agent", "rm")                          # unbind → invalidates again
+        assert not cache.exists()

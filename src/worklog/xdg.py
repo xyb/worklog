@@ -22,6 +22,12 @@ def _xdg_config_home() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
 
 
+def _xdg_state_home() -> Path:
+    """`$XDG_STATE_HOME` (default `~/.local/state`) — transient state, e.g. the per-session
+    agent-binding pointer files that let hooks / the status line read the binding without a DB query."""
+    return Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state"))
+
+
 def _resolve_db_path(args=None) -> Path:
     """Resolve the SQLite DB path. Priority:
 

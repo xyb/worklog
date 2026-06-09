@@ -72,7 +72,7 @@ from ..render import (
     _snippet,
     out,
 )
-from ..xdg import _resolve_db_path, _resolve_aliases_path, _xdg_data_home, _xdg_config_home
+from ..xdg import _resolve_db_path, _resolve_aliases_path, _xdg_data_home, _xdg_config_home, _xdg_state_home
 
 # Lazy access to cli module (for DB wrappers + module state).
 # Used at function call time (not at import) to avoid the cli ↔ commands
@@ -966,6 +966,34 @@ _AGENT_PREFIX = "agent_session."            # cross-app prefix
 _AGENT_KEY = _AGENT_PREFIX + _AGENT_APP       # agent_session.claude
 _AGENT_METRIC_TAG = "agent_session"          # metric tag for the bind-history trail (mirrors the prop)
 
+def _agent_cache_dir():
+    """Where integrations cache a session's binding: `$XDG_STATE_HOME/worklog/agent/`."""
+    return _xdg_state_home() / "worklog" / "agent"
+
+def _invalidate_agent_cache(sid):
+    """Drop a session's cached binding so an integration (the UserPromptSubmit context hook, a
+    status line) re-fetches via `wl agent context` next time. Called on every bind /
+    rebind / unbind — the binding changed, so the cache is stale. Best-effort."""
+    d = _agent_cache_dir()
+    try:
+        (d / sid).unlink()
+    except OSError:
+        pass
+
+def _agent_context_line(con, sid):
+    """The current binding for `sid` as a machine line `<node_id>\\t<title>` (empty if unbound).
+    The single query an integration calls (via `wl agent context`) — so a hook never hand-writes
+    SQL and never reads the DB on its hot path; it caches this and invalidates on rebind."""
+    if not sid:
+        return ""
+    row = _db.query_one(con, "prop", cols="node_id", key=_AGENT_KEY, value=sid)
+    if not row:
+        return ""
+    node = _db.get(con, "node", row["node_id"])
+    if not node:
+        return ""
+    return f"{node['id']}\t{node['title']}"
+
 def _record_bind_history(con, nid, sid):
     """Append-only record that session `sid` was bound to node `nid` (light design).
 
@@ -1025,6 +1053,7 @@ def cmd_agent(args, con):
         if getattr(args, "record", False) and not already:
             _record_bind_history(con, nid, sid)   # append-only history trail (light design)
         con.commit()
+        _invalidate_agent_cache(sid)   # binding changed → integrations re-fetch via `wl agent context`
         title = (_db.get(con, "node", nid) or {})["title"]
         line = _c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{_AGENT_APP}:{sid[:8]}…", "meta") + " · " + _short(title)
         if getattr(args, "record", False) and not already:
@@ -1045,7 +1074,13 @@ def cmd_agent(args, con):
         sid = _agent_need_sid()
         n = _db.delete(con, "prop", key=_AGENT_KEY, value=sid)
         con.commit()
+        _invalidate_agent_cache(sid)   # drop cached binding so the hook stops injecting
         out(_c(f"✓ unbound (session {sid[:8]}…)" if n else f"(session {sid[:8]}… 本来就没绑定)", "meta"))
+        return
+    if sub == "context":
+        # Machine output for integrations (the context hook): `<node_id>\t<title>` or empty.
+        # Plain print (not `out`) — consumed by scripts, not rendered.
+        print(_agent_context_line(con, _current_session_id()))
         return
     # bare `wl agent` → show the current session's binding
     sid = _agent_need_sid()

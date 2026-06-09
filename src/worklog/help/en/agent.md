@@ -62,11 +62,19 @@ with `session_id` on stdin; add a segment:
   bound=$(sqlite3 "$DB" "SELECT node_id FROM prop WHERE key='agent_session.claude' AND value='$sid' AND deleted_at IS NULL LIMIT 1;")
   [ -n "$bound" ] && printf ' 📌WL#%s' "$bound"
 
-**2. Context hook — keep the agent anchored.** A `UserPromptSubmit` hook that injects the bound
-task every turn. The hook reads `session_id` from stdin, joins prop→node for the title, and prints:
+**2. Context hook — keep the agent anchored, cheaply.** A `UserPromptSubmit` hook that injects
+the bound task — but only when the binding *changes*, not every turn (re-injecting an unchanged
+binding each prompt just burns tokens). Use `wl agent context`, which prints the current session's
+binding as a machine line `<id>\t<title>` (empty if unbound) — the one query, owned by `wl`, so
+the hook never hand-writes SQL:
 
-  {"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"bound to WL#<id>: <title>"}}
+  cache="$STATE/$sid"                       # $STATE = $XDG_STATE_HOME/worklog/agent
+  [ -f "$cache" ] && exit 0                 # cached → unchanged → silent (no wl, no DB)
+  line=$(WL_SESSION_ID="$sid" wl agent context); printf '%s' "$line" >"$cache"
+  [ -n "$line" ] && printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"bound to WL#%s: %s"}}' "${line%%	*}" "${line#*	}"
 
-Register the hook script in `~/.claude/settings.json` under `hooks.UserPromptSubmit`. Both pieces
-read the same `agent_session.claude` prop, so `wl agent <id>` / `wl agent rm` update them with no
-extra wiring — bind once, the status line and the agent's context both follow.
+`wl agent set` / `wl agent rm` **delete `$STATE/$sid`** on every bind / rebind / unbind, so the
+next prompt re-fetches and re-injects. The common path touches neither the DB nor `wl` — just a
+file existence check. Register the hook in `~/.claude/settings.json` under `hooks.UserPromptSubmit`.
+(The status line, which must stay current on every refresh, keeps the direct `sqlite3` lookup above;
+the hook caches because it only needs to act on change.)

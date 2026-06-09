@@ -277,7 +277,7 @@ _DEFAULT_VERB_ENTITIES = {
     "tag": ("add", frozenset(("add", "ls", "rm"))),
     "log": ("add", frozenset(("add", "ls", "edit", "rm"))),
     "sched": ("add", frozenset(("add", "ls", "rm"))),
-    "agent": ("set", frozenset(("set", "ls", "rm"))),
+    "agent": ("set", frozenset(("set", "ls", "rm", "context"))),
 }
 # global flags that consume the next token as their value (skip it when locating the subcommand)
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format"))
@@ -807,6 +807,7 @@ More: `wl help agent`.""")
         help="also append a one-off history log + `agent_session` metric on the node (so `wl metric ls <id> --tag agent_session --all` recovers every session it was worked under)")
     _agsub.add_parser("ls", help="list all session→task bindings")
     _agsub.add_parser("rm", help="unbind the current session")
+    _agsub.add_parser("context", help="machine line `<id>\\t<title>` of the current session's binding (for hooks; empty if unbound)")
 
     us = sub.add_parser("unset",
         help="remove a value from a node — key-routed: a prop (= wl prop rm) or a meta field (= wl meta rm)",
