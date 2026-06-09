@@ -10,33 +10,43 @@
 
 **worklog(`wl`)是一个 AI-first、local-first 的执行体系 CLI** —— 用来替代 Markdown 工作记录。完整执行体系层级建模在单个 SQLite `node` 表里 —— lifetime / decade / year / quarter / month / week / day / project / task / habit / signal / meetlog —— 共享同一个 id 空间,通过 `parent_id` 自引用形成树,命令风格沿用 `todo.sh`。
 
-## 为什么是 AI-first、local-first
+## 为什么用 worklog?
 
-最早是 AI 帮我记的 Markdown 工作记录。几个月体积涨了大约 50 倍:一个共享文件扛不住多个 AI session 并发写,`[[wikilink]]` 每次重命名就断一片,要总结一个时段得让 AI 把一堆大文件重读一遍。到某个点之后,花在"让 AI 读懂 Markdown、不写冲突、维护链接"上的时间,已经超过 AI 帮我省下的时间。解法是把结构化的部分挪进一个为 AI 驱动而设计的数据库。
+起源:AI 帮我记的 Markdown 工作记录涨了大约 50 倍后撑不住——并发写互相覆盖、wikilink 重命名就断、总结要重读大文件。于是把结构化的部分挪进一个为 AI 驱动而设计的数据库。
 
-**AI-first** —— 设计前提不是"给一个人填的工具",而是"让 AI 替一个人驱动的工具"。AI 才是真正的使用者,人只在终端上看一眼输出,确认记得对不对。这决定了整个命令面:
+**AI-first** —— AI 才是真正的使用者,人只在终端看一眼确认:
 
-- 命令短、参数直接、**不用交互问答** —— 一行就把添加任务、附加日志、标记完成、记录完成时间、关联文档全做完(AI 在 shell 里调用最不易出错的形式):
-  ```fish
-  wl add "..." -k task --parent 42 --log "..." --done --at 14:30 --link "..."
-  ```
-- 每条命令都有 **`-q`** brief 模式,列表按终端宽度截一行,捕获输出省 token。
-- 输出是 AI 能直接读的纯文本 —— `--color auto` 在管道/捕获时自动给纯文本。
-- 自带一个 [Claude Code skill](skills/worklog-cli/SKILL.md),教 AI 何时、如何调 `wl`(含批量 `import` / `apply`)。
+- 命令单行、无交互问答 —— shell 里调用最不易出错。
+- `-q` brief 模式 + 按宽度截行 → 输出省 token。
+- 输出是 AI 能直接读的纯文本;自带 [Claude Code skill](skills/worklog-cli/SKILL.md)。
 
-**local-first** —— 一个本地 SQLite 文件(XDG 路径),schema 透明且版本化,**没有常驻进程、没有图形界面、没有封闭格式**:
+**local-first** —— 一个 SQLite 文件、schema 透明、无常驻进程 / GUI / 锁定:
 
-- AI 写的内容人能直接读和改,人写的 AI 也读得到 —— 同一份事实,不锁定,不用维护一个后台服务。
-- 并发写不冲突,多个 AI session 能并行记录,互不覆盖(这正是共享 Markdown 文件会坏掉的地方)。
-- 通过 `wl link` 跟 vault 配合:结构化执行数据进 `wl`,长文笔记留在 vault(Obsidian 等),各做擅长的事。如果 vault 是第二大脑,worklog 就是它的高速缓存 —— 容量小、读写快,装着当下高频要用的那部分。
+- 人和 AI 读写同一个文件 —— 同一份事实。
+- 并发写安全 → 多个 AI session 并行记录不互相覆盖(Markdown 做不到)。
+- 通过 `wl link` 跟 vault 配合 —— 结构化执行进 `wl`,长文笔记留在 Obsidian。
 
 **设计约定见 [DESIGN.md](DESIGN.md)** —— 加命令前必读,保持各处一致。
 **AI 协作见 [skills/worklog-cli/SKILL.md](skills/worklog-cli/SKILL.md)** —— Claude Code skill(何时 / 如何用 `wl` + 批量 import / apply)。
 背景: 在调研了 12 个候选产品(Logseq / Tana / TaskWarrior / org-mode / Anytype / Capacities / Linear 等)后没找到能同时覆盖三个维度(时间层级 / 项目层级 / vault wikilink)又无折中的现成方案,所以自建。
 
+## 特性
+
+- **一张 `node` 表装下一切** —— 时间线(year → day)+ 项目线(area → task)+ 习惯 / 会议记录,连成树。
+- **Log** —— 任意 node 上带时间戳的进展,保留历史。
+- **Metric** —— 结构化数据点(次数、血糖、打卡),能做趋势。
+- **习惯 & 循环** —— 打卡 + `--recur`(daily / weekly / monthly / …)。
+- **排期** —— 把任务排到某天;模糊时间词(`tomorrow` / `next-week` / `+3w`)。
+- **状态机** —— TODO / DOING / LATER / WAIT / DONE / DEFERRED / CANCELED。
+- **日 / 周 / 月视图** —— `wl day` / `tree` / `summary` 重建画面 + 统计。
+- **全文搜索** —— `wl find`,命中高亮。
+- **Vault 关联** —— `wl link` 到 Obsidian 文档(`[[wikilink]]`)。
+- **批量 import / apply** —— 一个 JSON 或 wl-diff 导入一整天。
+- **AI 友好输出** —— `-q` brief、捕获时纯文本、TTY 上配色、shell 补全。
+
 ## 安装
 
-需要先装 [uv](https://docs.astral.sh/uv/)(`brew install uv` 或 `pipx install uv`)。
+需要 Python ≥ 3.11。先装 [uv](https://docs.astral.sh/uv/)(`brew install uv` 或 `pipx install uv`)。
 
 ```fish
 git clone https://github.com/xyb/worklog.git ~/projects/worklog
@@ -56,7 +66,21 @@ wl init
 
 数据库位置遵循 [XDG Base Directory 规范](https://specifications.freedesktop.org/basedir-spec/): 默认 `$XDG_DATA_HOME/worklog/worklog.db`(即 `~/.local/share/worklog/worklog.db`)。可以用 `wl --db PATH ...` 单次覆盖,也可以用 `$WORKLOG_DB` 环境变量全局覆盖。用户配置(aliases.ini)走 `$XDG_CONFIG_HOME/worklog/aliases.ini`(默认 `~/.config/worklog/aliases.ini`)。
 
+## 快速开始
+
+头 30 秒 —— 加任务、记进展、完成、复现当天:
+
+```fish
+wl init                                   # 建库(一次)
+wl add "写 README" -k task -p A           # → 打印新 id,如 #1
+wl log 1 "起草了 Features 段"             # 追加进展
+wl done 1                                 # 完成
+wl day                                    # 今天的工作, 重新分组 + 统计
+```
+
 ## 命令
+
+更全的命令面 —— 每条命令也有 `wl <cmd> --help`,`wl help` 浏览主题文档:
 
 ```fish
 wl add "调研 X" -k task -p A -t work,P0 --proj dev_tooling --parent 42
