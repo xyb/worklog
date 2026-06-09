@@ -223,7 +223,8 @@ def cmd_add(args, con):
     con.commit()
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
     out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{args.kind} '{args.title}'")
-        + st + sched_hint + link_hint + log_hint + metric_hint)
+        + st + sched_hint + link_hint + log_hint + metric_hint
+        + _c(f"  @{_tu.local_now()[:16]}", "meta"))   # stamp "now" so the caller (esp. an AI) sees the real current time
     if similar:
         out(_c(f"⚠ {len(similar)} similar open {args.kind}(s) already exist — reuse instead of duplicating?", "later"))
         for r in similar[:5]:
@@ -262,7 +263,7 @@ def cmd_log(args, con):
         nm = attach_metric_specs(con, log_id, args.id, specs, at=log_at)
         metric_hint = f" + {nm} metric(s)"
     con.commit()
-    print(f"✓ log added to #{args.id}{auto_progress_hint}{metric_hint}")
+    print(f"✓ log added to #{args.id}{auto_progress_hint}{metric_hint}  @{_tu.local_now()[:16]}")
 
 def cmd_done(args, con):
     _warn_recurring_done(con, _ids_list(args))

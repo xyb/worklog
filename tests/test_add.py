@@ -81,6 +81,13 @@ class TestAdd:
         row = con.execute("SELECT status FROM node WHERE id=1").fetchone()
         assert row["status"] is None
 
+    def test_add_stamps_current_time(self, cli):
+        # deliberate design: stamp "now" so the caller (esp. an AI whose date drifts to
+        # session-start) sees the real current time on every content-creating command.
+        import re
+        _, out, _ = cli("add", "t", "-k", "task")
+        assert re.search(r"@\d{4}-\d{2}-\d{2} \d{2}:\d{2}", out)
+
 
 # ─── log ───
 
