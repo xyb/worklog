@@ -44,9 +44,8 @@ Likewise, before adding a dev todo under a project, check that project's existin
 | Bind / show which task **this agent session** is on | `wl agent <id>` binds the current Claude Code session to a node (session id from `$WL_SESSION_ID` / `$CLAUDE_CODE_SESSION_ID`, fails closed if neither); `wl agent` shows it · `wl agent ls` lists all · `wl agent rm` unbinds. Stored as the `agent_session.claude` prop (no new table). A status line + a `UserPromptSubmit` hook can surface it — **`wl help agent` has the setup snippets** (status bar `📌WL#<id>` + inject the bound task each turn) |
 | List log stream | `wl logs` (**default: last 7 days only**, to avoid flooding); `--since/--until/--date` for explicit range; `--group day [--by project/priority/plan]` for daily replay |
 
-Each command's `wl <cmd> --help` is the quick per-command reference; full grammar for the
-ergonomic features (compound `add --log --done --at --link --sched`, `unlog`/`relog`, clock
-backfill, `wl metric`, `wl checkin`, recurrence, `wl ls` queries) is in `references/features.md`.
+Each command's `wl <cmd> --help` is the per-command quick reference; full grammar for the
+compound/batch params, clock, `wl metric`, recurrence, and `wl ls` queries → `references/features.md`.
 
 ## ⭐ Brief / token-saving mode (REQUIRED for AI usage)
 
@@ -88,30 +87,14 @@ vault markdown = human-written archive; the `wl` DB = machine-queryable executio
 <id> "Dev tooling"` associates a task with a vault doc (stores the doc name, no `.md` suffix,
 matching `[[...]]`). Prefer `wl` first for new tasks; attach a vault link if a vault doc is involved.
 
-## Related sub-skills
-
-By frequency and trigger scenario:
-
-| skill | trigger / scenario | main `wl` commands |
-|---|---|---|
-| `worklog` | top-level entry / navigation, which sub to pick | (router) |
-| `log` | single entry: got one thing done today / mark done / backfill an unplanned item | `wl add` / `wl log` / `wl done` / `wl link` |
-| `worklog-daily-planning` | morning / weekend / period boundary planning | `wl day` / `wl show <month/week>` / `wl goal "..."` / `wl sched <id> today` |
-| `worklog-end-of-day-planning` | end-of-day wrap-up + next-day prep | `wl day` / `wl recap "..."` / `wl set <week> overview` (Fri) / hand off to `habits` |
-| `habits` | habit check-in (standalone or end-of-day) | `wl tick <id> --note "..."` |
-| `worklog-day-summary` | end-of-day summary paragraph rules | `wl recap "..."` (data: `wl day`) |
-| `worklog-weekly-plan` | Mon (or week start) plan this week | `wl set <week> overview` + week tasks via `wl add` + `wl sched` to each day |
-| `worklog-weekly-summary` | Fri / week-end summary vault doc | `wl summary --week` + `wl set <week> overview` + `wl link <week> "<vault doc>"` |
-| `meetlog-plan-sync` | meeting follow-up syncs into concrete tasks | `wl add ... -k task` + `wl sched <id> <date>` + `wl link <id> "<meetlog>"` |
-| `progress-snapshot` | dashboard view (today/this week/this month) | `wl day --by plan/priority` / `wl summary --week/--month` |
-| `pick-next-task` | pick next thing | `wl day --by plan` / `wl projects` / `wl show <month> top5` |
-
 ## More detail (load on demand)
 
-- **`references/features.md`** — full command grammar: ergonomic commands, compound params,
-  `unlog`/`relog`, clock backfill, `wl metric`, `wl checkin`, recurrence rules, `wl ls`
-  multi-dimensional query, the log/timeline tail table, query-precision principle.
-- **`references/bulk.md`** — `wl import` / `wl apply` format, the update (`~`) safety rule, and
-  the typical AI day-handling workflow.
-- **`references/setup.md`** — install on a new machine, shell completion, colors / themes, and
-  the `wl agent` status-line + hook setup pointer.
+- **`references/features.md`** — full command grammar: compound & batch params, `unlog`/`relog`,
+  clock backfill, `wl metric`, `wl checkin`, recurrence rules, `wl ls` queries, timeline-tail
+  defaults, query-precision principle.
+- **`references/bulk.md`** — `wl import` / `wl apply` format, the update (`~`) safety rule, the
+  typical AI day-handling workflow.
+- **`references/setup.md`** — install `wl`, install this skill (whole-dir symlink), shell
+  completion, colors / themes, `wl agent` status-line + hook setup.
+- **`references/related-skills.md`** — routing table for the higher-level worklog workflow skills
+  (planning / summary / habits / …) that sit on top of `wl` and self-trigger.
