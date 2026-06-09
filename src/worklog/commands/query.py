@@ -594,10 +594,14 @@ def cmd_summary(args, con):
     done_map = {n["id"]: n for n in done}
     pend_map = {n["id"]: n for n in pending}
 
-    def _print_block(p_done, p_pending, indent="    "):
+    def _print_block(p_done, p_pending, p_worked=None, indent="    "):
         if p_done:
             for n in sorted(p_done, key=lambda n: (n["priority"] or "Z", n["id"])):
                 out(_node_line(con, n, indent=indent, done=True, planned=True, clock=True, sched=True))
+        if p_worked:
+            out(_c(f"{indent}· worked (有进展):", "meta"))
+            for n in sorted(p_worked, key=lambda n: (n["priority"] or "Z", n["id"])):
+                out(_node_line(con, n, indent=indent + "  ", planned=True, clock=True, sched=True))
         if p_pending:
             by_status = {}
             for n in p_pending:
@@ -622,13 +626,40 @@ def cmd_summary(args, con):
             d = (n["scheduled_date"][:10] if n["scheduled_date"]
                  else (_tu.local_day_of(n["created_at"]) if n["created_at"] else "")) or "unscheduled"
             day_pend[d].append(n)
-        if day_done or day_pend:
+        # worked: tasks with log activity on a given local day (log-centric). This is the piece the
+        # node-centric done/pending buckets miss — a day's progress on a task created/closed another
+        # day. Universe = the same task/meetlog/habit nodes; logged_at (a UTC instant) -> local day.
+        nmap = {n["id"]: n for n in nodes}
+        day_worked = defaultdict(list)
+        seen = defaultdict(set)
+        rows = con.execute(
+            f"SELECT DISTINCT node_id, {_tu.local_day_sql('logged_at')} AS d FROM log "
+            f"WHERE deleted_at IS NULL AND {_tu.local_day_sql('logged_at')} BETWEEN ? AND ?",
+            (since, until)).fetchall()
+        for r in rows:
+            n = nmap.get(r["node_id"])
+            d = r["d"]
+            if n is None or n["id"] in seen[d]:
+                continue
+            # don't repeat a task already shown as done that same day
+            if any(x["id"] == n["id"] for x in day_done.get(d, [])):
+                continue
+            seen[d].add(n["id"])
+            day_worked[d].append(n)
+        # a worked task created the same day is also in pending[d]; show it once, under worked
+        for d, ws in day_worked.items():
+            wset = {n["id"] for n in ws}
+            if d in day_pend:
+                day_pend[d] = [n for n in day_pend[d] if n["id"] not in wset]
+        if day_done or day_pend or day_worked:
             out(_c("\n=== by day ===", "header"))
-            for d in sorted(set(day_done) | set(day_pend)):
+            for d in sorted(set(day_done) | set(day_pend) | set(day_worked)):
                 pd = day_done.get(d, [])
+                pw = day_worked.get(d, [])
                 pp = day_pend.get(d, [])
-                out("\n▸ " + _c(d, "header") + _c(f"  (done {len(pd)} / pending {len(pp)})", "meta"))
-                _print_block(pd, pp)
+                out("\n▸ " + _c(d, "header")
+                    + _c(f"  (done {len(pd)} / worked {len(pw)} / pending {len(pp)})", "meta"))
+                _print_block(pd, pp, p_worked=pw)
     elif done_map or pend_map:
         out(_c("\n=== by project ===", "header"))
         projects = _db.query(con, "node", kind="project", order="priority NULLS LAST, id")

@@ -76,6 +76,19 @@ class TestSummary:
         assert t in out  # today's date acts as the group header
         assert "completed1" in out
 
+    def test_summary_by_day_worked_group(self, cli):
+        """a task logged (progress) on a day shows under that day's `worked` group, once —
+        not double-listed in pending; this is the log-centric piece node buckets alone miss."""
+        from datetime import date
+        cli("add", "ongoing task", "-k", "task", "-t", "work")
+        cli("log", "1", "made progress today", "--keep-status")
+        t = date.today().isoformat()
+        code, out, _ = cli("summary", "--since", t, "--until", t, "--by", "day")
+        assert code == 0
+        assert "worked (有进展)" in out
+        assert "worked 1" in out          # the logged task counts as worked
+        assert out.count("ongoing task") == 1   # shown once (worked), not also in pending
+
     def test_summary_clock_hours(self, cli):
         import time
         from datetime import date

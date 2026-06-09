@@ -12,6 +12,12 @@ or by day — the raw material for a weekly report.
   wl summary --week 2026-W22 --top 5    # only the 5 most-progressed projects
   wl summary --week 2026-W22 --projects-only   # project rows only, no task expansion
 
+`--by day` lists, per day: **done** (closed that day), **worked** (≥1 log that day — progress on a
+task created/closed another day, which the done/pending buckets alone would miss), and **pending**
+(scheduled/created that day, still open). A task can appear on more than one day for different
+reasons (e.g. created Mon, worked Wed); worked is shown once per day and never repeats a same-day
+done task.
+
 Time-window flags (`--since` / `--until` / `--week` / `--month`) are shared with `wl changes`
 and `wl logs` (see `wl help window`). For per-project added/done/log deltas use `wl changes`;
 for one day's detail use `wl day`. A task spanning multiple projects is counted once by
