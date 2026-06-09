@@ -326,7 +326,7 @@ Reuse these when a new command needs the functionality; do not write another cop
 
 ## 15. Test conventions
 
-- One `Test<Cmd>` class per command, in `tests/test_wl.py`
+- One `Test<Cmd>` class per command, in the matching `tests/test_<area>.py`
 - `conftest.py`'s `cli` fixture: per-test isolated tempdir DB (`WORKLOG_DB` env + `tmp_path`), `run_cli` captures stdout/stderr/exit_code
 - New commands must cover: happy path + edges (missing id / empty DB / filter no-match)
 - If convention changes invalidate an assertion, update the assertion synchronously — do not leave it red
