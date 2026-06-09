@@ -15,6 +15,15 @@ def _bound_value(tmp_db, nid):
     return r["value"] if r else None
 
 
+def _history_metrics(tmp_db, nid):
+    """The append-only bind-history metrics on a node (WL#580 --record)."""
+    con = tmp_db.db_connect()
+    return con.execute(
+        "SELECT value_text, note FROM metric WHERE node_id=? AND tag='agent_session' "
+        "AND deleted_at IS NULL ORDER BY id", (nid,)
+    ).fetchall()
+
+
 class TestAgent:
     def _sess(self, monkeypatch, sid="sess-aaa"):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", sid)
@@ -83,3 +92,38 @@ class TestAgent:
         self._sess(monkeypatch, "sess-none")
         _, out, _ = cli("agent")
         assert "未绑定" in out
+
+    # --- WL#580 light design: prop = live pointer; --record = append-only history trail ---
+
+    def test_plain_bind_writes_no_history(self, cli, tmp_db, monkeypatch):
+        self._sess(monkeypatch, "sess-aaa")
+        cli("add", "t", "-k", "task")
+        cli("agent", "1")                          # no --record
+        assert _bound_value(tmp_db, 1) == "sess-aaa"   # live pointer set
+        assert _history_metrics(tmp_db, 1) == []        # but no history metric/log
+
+    def test_record_writes_one_history_metric(self, cli, tmp_db, monkeypatch):
+        self._sess(monkeypatch, "sess-full-1234-xyz")
+        cli("add", "t", "-k", "task")
+        code, out, _ = cli("agent", "1", "--record")
+        assert code == 0 and "history" in out
+        rows = _history_metrics(tmp_db, 1)
+        assert len(rows) == 1
+        assert rows[0]["value_text"] == "sess-full-1234-xyz"   # FULL sid stored, not truncated
+        assert rows[0]["note"] == "claude"
+
+    def test_record_rebind_same_pair_no_duplicate(self, cli, tmp_db, monkeypatch):
+        self._sess(monkeypatch, "sess-aaa")
+        cli("add", "t", "-k", "task")
+        cli("agent", "1", "--record")
+        cli("agent", "1", "--record")              # same (node, session) again
+        assert len(_history_metrics(tmp_db, 1)) == 1   # not duplicated
+
+    def test_record_history_survives_rebind_to_other_node(self, cli, tmp_db, monkeypatch):
+        self._sess(monkeypatch, "sess-aaa")
+        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")  # #1 #2
+        cli("agent", "1", "--record")
+        cli("agent", "2", "--record")              # live pointer moves to #2
+        assert _bound_value(tmp_db, 1) is None      # prop cleared off #1
+        assert len(_history_metrics(tmp_db, 1)) == 1   # but #1's history stays
+        assert len(_history_metrics(tmp_db, 2)) == 1

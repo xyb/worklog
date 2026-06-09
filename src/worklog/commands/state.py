@@ -964,6 +964,30 @@ def cmd_prop(args, con):
 _AGENT_APP = "claude"                       # this CLI binds the Claude Code session
 _AGENT_PREFIX = "agent_session."            # cross-app prefix
 _AGENT_KEY = _AGENT_PREFIX + _AGENT_APP       # agent_session.claude
+_AGENT_METRIC_TAG = "agent_session"          # metric tag for the bind-history trail (mirrors the prop)
+
+def _record_bind_history(con, nid, sid):
+    """Append-only record that session `sid` was bound to node `nid` (WL#580, light design).
+
+    Two stores with different jobs:
+      * the prop `agent_session.claude` is the *live* pointer — one session → one node, and it
+        MOVES on rebind, so it always names the node a session is currently on;
+      * this log + metric is the *history* — it stays on the node forever, so
+        `wl metric ls <id> --tag agent_session --all` / `wl show <id>` recover every session a
+        node was ever worked under.
+
+    Written once per (node, session) bind, NOT stamped onto every later log — one row per
+    association instead of tagging every write, which is the whole point of the light design."""
+    log_id = _db.insert(con, "log", {
+        "node_id": nid, "logged_at": _tu.utc_now(),
+        "body": f"agent session bound · {_AGENT_APP}:{sid[:8]}…",
+        "tag": "metric",   # auto metric-carrier log (same convention as `wl metric add`)
+    })
+    _db.insert(con, "metric", {
+        "log_id": log_id, "node_id": nid, "tag": _AGENT_METRIC_TAG,
+        "value_num": None, "value_text": sid, "unit": None,
+        "note": _AGENT_APP, "at": _tu.utc_now(),
+    })
 
 def _short(s, n=50):
     """Truncate a title for one-line bind output (plain char count is fine here)."""
@@ -993,13 +1017,19 @@ def cmd_agent(args, con):
         if not _node_exists(con, nid):
             sys.exit(f"✗ node #{nid} not found")
         cur = _db.query_one(con, "prop", cols="value", node_id=nid, key=_AGENT_KEY)
+        already = bool(cur and cur["value"] == sid)
         if cur and cur["value"] != sid:
             out(_c(f"⚠ #{nid} 已被 session {cur['value'][:8]}… 绑定,将被覆盖", "later"))
-        _db.delete(con, "prop", key=_AGENT_KEY, value=sid)   # one session → one node
+        _db.delete(con, "prop", key=_AGENT_KEY, value=sid)   # one session → one node (live pointer)
         _upsert_prop(con, nid, _AGENT_KEY, sid)
+        if getattr(args, "record", False) and not already:
+            _record_bind_history(con, nid, sid)   # append-only history trail (WL#580 light design)
         con.commit()
         title = (_db.get(con, "node", nid) or {})["title"]
-        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{_AGENT_APP}:{sid[:8]}…", "meta") + " · " + _short(title))
+        line = _c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{_AGENT_APP}:{sid[:8]}…", "meta") + " · " + _short(title)
+        if getattr(args, "record", False) and not already:
+            line += _c("  +history", "meta")
+        out(line)
         return
     if sub == "ls":
         rows = _db.query(con, "prop", cols="node_id, key, value", key__like=_AGENT_PREFIX + "%", order="key, value")
