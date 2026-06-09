@@ -77,6 +77,11 @@ automatically**, no need to explicitly disable. To pipe colored output (e.g. `| 
 `--help` width, 100 cols) / `--width N` / `$WORKLOG_WIDTH=N`, e.g. to keep long lines readable on
 a very wide terminal; `--width full` is the default (no cap).
 
+**Long titles** — a node title too wide for the line wraps onto multiple lines by default,
+continuation lines hang-indented under the title so the tree/list stays aligned. Use `wl --title
+clip` / `$WORKLOG_TITLE=clip` to keep one line truncated with `…` instead; `--title wrap` is the
+default.
+
 ## wl agent — status line + context hook (check & install)
 
 `wl agent <id>` binds the current AI session to a task. Two optional integrations make that

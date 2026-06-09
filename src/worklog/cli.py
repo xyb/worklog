@@ -72,6 +72,8 @@ from .helpers import (
     _apply_top_limit,
     _set_width_cap,
     _resolve_width_cap,
+    _set_title_mode,
+    _resolve_title_mode,
     _log_full,
     _status_marker,
     _resolve_window,
@@ -282,7 +284,7 @@ _DEFAULT_VERB_ENTITIES = {
     "agent": ("set", frozenset(("set", "ls", "rm", "context"))),
 }
 # global flags that consume the next token as their value (skip it when locating the subcommand)
-_GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format"))
+_GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format", "--width", "--title"))
 
 # commands without a same-named help topic → the topic that covers them (a family guide or
 # a sibling command's topic), so every command's --help can auto-link into `wl help` (§25).
@@ -436,6 +438,8 @@ Good to know:
                    help="color theme (default auto: probe terminal bg, pick dark/light; reads $WORKLOG_THEME; see wl themes)")
     p.add_argument("--width", default=None, metavar="{full,help,N}",
                    help="output width: full (fill terminal, default) / help (cap to the --help width, 100) / N columns; also reads $WORKLOG_WIDTH")
+    p.add_argument("--title", choices=["wrap", "clip"], default=None,
+                   help="long node title: wrap (multi-line, hang-indented under the title; default) / clip (one line, truncate with …); also reads $WORKLOG_TITLE")
     p.add_argument("-q", "--brief", action="store_true",
                    help="brief output: skip log body/timeline/detail in every command, token-saving for AI")
     p.add_argument("--log-format", choices=["oneline", "full"], default="oneline",
@@ -1694,6 +1698,7 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
         return
     _init_console(args.color, args.theme)
     _set_width_cap(_resolve_width_cap(getattr(args, "width", None)))
+    _set_title_mode(_resolve_title_mode(getattr(args, "title", None)))
     # config / help are read-only and side-effect free — don't create the DB just to
     # print paths or render a help topic (a newcomer may run `wl help` before `wl init`).
     if args.cmd in ("config", "help"):

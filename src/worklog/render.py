@@ -191,7 +191,10 @@ def _hl(text, q):
 
 
 # --- node-line rendering (extracted from cli.py) ---
-from .helpers import _status_marker, _sched_display, _fmt_dur
+from .helpers import (
+    _status_marker, _sched_display, _fmt_dur,
+    _term_width, _wrap_display, _title_mode, _truncate_log_body, _display_width,
+)
 from .queries import _has_tag, _node_clock_min, _node_tags
 
 def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, planned=False, clock=True, sched=False, hl=None):
@@ -205,12 +208,27 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
     marker = _c(mk, "done" if done else _STATUS_STYLE.get(n["status"], "todo"))
     if n["priority"]:
         pri = _c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"]))
+        pri_plain = f"[#{n['priority']}]"
     else:
-        pri = "   "  # no priority: spaces as placeholder to align with [#A], no collision with marker
-    kind = (_c(f"[{n['kind']}]", "kind") + " ") if (show_kind and n["kind"] != "task") else ""
+        pri = pri_plain = "   "  # no priority: spaces as placeholder to align with [#A], no collision with marker
+    kind_plain = f"[{n['kind']}] " if (show_kind and n["kind"] != "task") else ""
+    kind = (_c(kind_plain.rstrip(), "kind") + " ") if kind_plain else ""
     nid = _c(f"#{n['id']}", "id")
-    title = _hl(n["title"], hl) if hl else _c(n["title"])
-    s = f"{indent}{marker} {pri} {nid} {kind}{title}"
+    prefix = f"{indent}{marker} {pri} {nid} {kind}"
+    # hanging-indent column = display width of the plain prefix (everything left of the title).
+    # Continuation lines (wrap mode) align here so a long title doesn't break tree indentation.
+    prefix_cols = _display_width(f"{indent}{mk} {pri_plain} #{n['id']} {kind_plain}")
+    _render = (lambda t: _hl(t, hl)) if hl else _c
+    if _title_mode() == "clip":
+        # one line: truncate the title to the remaining width, append … (same budget as log bodies)
+        s = prefix + _render(_truncate_log_body(n["title"], indent_cols=prefix_cols))
+    else:
+        # default: wrap onto multiple lines, continuation lines hang-indented under the title
+        wlines = _wrap_display(n["title"], _term_width() - prefix_cols)
+        cont = " " * prefix_cols
+        s = prefix + _render(wlines[0])
+        for ln in wlines[1:]:
+            s += "\n" + cont + _render(ln)
     if planned and _has_tag(con, n["id"], "planned"):
         s += " " + _c("·planned", "planned")
     if sched and n["scheduled_date"]:

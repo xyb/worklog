@@ -265,6 +265,83 @@ class TestNodeLineWithClockTags:
         assert "t1" in out
 
 
+class TestTitleWrap:
+    """--title / $WORKLOG_TITLE: wrap (multi-line, hang-indented; default) vs clip (one line + …)."""
+
+    def test_resolve_title_mode(self, monkeypatch):
+        from worklog.helpers import _resolve_title_mode
+        monkeypatch.delenv("WORKLOG_TITLE", raising=False)
+        assert _resolve_title_mode(None) == "wrap"       # default
+        assert _resolve_title_mode("wrap") == "wrap"
+        assert _resolve_title_mode("clip") == "clip"
+        assert _resolve_title_mode("garbage") == "wrap"  # anything but clip → safe wrap default
+        monkeypatch.setenv("WORKLOG_TITLE", "clip")
+        assert _resolve_title_mode(None) == "clip"       # env fallback
+        assert _resolve_title_mode("wrap") == "wrap"     # explicit flag overrides env
+
+    def test_wrap_display_short_one_line(self):
+        from worklog.helpers import _wrap_display
+        assert _wrap_display("hello world", 40) == ["hello world"]
+
+    def test_wrap_display_empty(self):
+        from worklog.helpers import _wrap_display
+        assert _wrap_display("", 40) == [""]
+
+    def test_wrap_display_breaks_on_spaces(self):
+        from worklog.helpers import _wrap_display, _display_width
+        lines = _wrap_display("alpha beta gamma delta epsilon", 12)
+        assert len(lines) > 1
+        for ln in lines:
+            assert _display_width(ln) <= 12
+            assert not ln.startswith(" ")      # no leading space carried onto wrapped lines
+
+    def test_wrap_display_hard_breaks_cjk_run(self):
+        from worklog.helpers import _wrap_display, _display_width
+        # CJK has no spaces → must hard-break per character; each line within the cap
+        lines = _wrap_display("中文标题没有空格必须按字符硬折行", 10)
+        assert len(lines) > 1
+        for ln in lines:
+            assert _display_width(ln) <= 10
+
+    def test_node_line_wrap_hangs_indent(self, cli):
+        from worklog import helpers
+        long_title = "x" * 200
+        cli("add", long_title, "-k", "task", "-p", "A")
+        helpers._set_width_cap(40)
+        helpers._set_title_mode("wrap")
+        try:
+            from worklog import cli as wl
+            con = wl.db_connect()
+            n = con.execute("SELECT * FROM node WHERE id=1").fetchone()
+            line = wl._node_line(con, n)
+        finally:
+            helpers._set_width_cap(None)
+            helpers._set_title_mode("wrap")
+        parts = line.split("\n")
+        assert len(parts) > 1                       # wrapped onto multiple visual lines
+        # continuation lines hang-indent under the title (not column 0)
+        prefix_cols = len(parts[0]) - len(parts[0].lstrip())  # leading spaces of 2nd line measure indent
+        for cont in parts[1:]:
+            assert cont.startswith(" ")             # indented, never flush-left
+            assert cont.strip()                     # and carries title text
+
+    def test_node_line_clip_single_line(self, cli):
+        from worklog import helpers
+        cli("add", "y" * 200, "-k", "task", "-p", "B")
+        helpers._set_width_cap(40)
+        helpers._set_title_mode("clip")
+        try:
+            from worklog import cli as wl
+            con = wl.db_connect()
+            n = con.execute("SELECT * FROM node WHERE id=1").fetchone()
+            line = wl._node_line(con, n)
+        finally:
+            helpers._set_width_cap(None)
+            helpers._set_title_mode("wrap")
+        assert "\n" not in line                      # clip = exactly one line
+        assert "…" in line                           # truncated with ellipsis
+
+
 class TestWidthCap:
     """--width / $WORKLOG_WIDTH cap: full = fill terminal, help = 100, N = N columns."""
 

@@ -199,6 +199,57 @@ def _display_width(s):
     across the codebase — log truncation budgets, help wrapping, and hanging indents all share it."""
     return sum(_cw(ch) for ch in s)
 
+
+_TITLE_MODE = "wrap"   # "wrap" = multi-line with hanging indent (default); "clip" = one line, truncate with …
+
+def _set_title_mode(mode):
+    """Set how node titles render when too wide: 'wrap' (default) or 'clip'. Called once from main()."""
+    global _TITLE_MODE
+    _TITLE_MODE = mode
+
+def _resolve_title_mode(flag):
+    """Resolve title mode: `--title` flag > `$WORKLOG_TITLE` > default 'wrap'. Anything other than
+    'clip' (incl. unset / 'wrap' / garbage) → 'wrap', so the safe multi-line default always wins."""
+    import os
+    val = flag if flag is not None else os.environ.get("WORKLOG_TITLE")
+    return "clip" if val == "clip" else "wrap"
+
+def _title_mode():
+    return _TITLE_MODE
+
+def _wrap_display(text, width):
+    """Word-wrap `text` to lines no wider than `width` display columns (East-Asian aware).
+
+    Breaks preferentially at spaces; a token longer than `width` (e.g. a long CJK run, which has
+    no spaces) is hard-broken at the character boundary. Returns a list of plain-text lines
+    (always at least one, even for empty input). `width` is floored at 1."""
+    width = max(1, width)
+    lines, line, used = [], [], 0
+    # split keeping spaces as their own tokens, so we can break at them and drop the trailing space
+    import re as _re
+    tokens = _re.findall(r"\s+|\S+", text)
+    for tok in tokens:
+        is_space = tok.isspace()
+        tw = _display_width(tok)
+        if not is_space and tw > width:
+            # token wider than the line: flush, then hard-break it per character
+            if line:
+                lines.append("".join(line)); line, used = [], 0
+            for ch in tok:
+                cw = _cw(ch)
+                if used + cw > width:
+                    lines.append("".join(line)); line, used = [], 0
+                line.append(ch); used += cw
+            continue
+        if used + tw > width:
+            lines.append("".join(line)); line, used = [], 0
+            if is_space:
+                continue  # don't carry a leading space onto the new line
+        line.append(tok); used += tw
+    lines.append("".join(line))
+    # strip trailing spaces left on each line by the space-token handling
+    return [ln.rstrip() if ln.strip() else ln for ln in lines] or [""]
+
 def _truncate_log_body(body, indent_cols, full=False):
     """Truncate log body to one line (terminal width - indent - safety margin), append … at end. full=True keeps body untouched.
     indent_cols is the column width already occupied before body (indent + marker).
