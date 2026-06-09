@@ -14,3 +14,9 @@ A **metric** is a structured datapoint hanging off a log: a number (`glucose 5.4
 Every metric must hang off a log (the carrier). A "done today" check-in is a `tag=checkin`
 metric written by `wl tick` / `wl checkin` (not just "a log exists") — see `wl help checkin`.
 Metrics are referenced as `#M<id>`.
+
+**Metric vs prop** — a metric is a **per-node series** (many, append-only, time-stamped) for
+process/structured records: a dev task's commits (`--metric 'commit <hash>'`), reps, glucose. A
+**prop** is a single-value **query dimension** you filter/stat the whole tree by (see
+`wl help prop`). Use a metric to structure a process trail; use a prop for the one identifying
+attribute (`release=v0.7.0`) you'll slice nodes by. Don't put many-valued process data in props.

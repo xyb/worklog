@@ -15,3 +15,10 @@ history-preserving — each edit appends (see `wl help meta`). `wl set` / `wl un
 key: a meta key goes to the meta store, any other key to a prop. To edit real **tags** use
 `wl tag` — `wl set <id> tags ...` is refused on purpose (it would make a misleading shadow
 prop, not touch the real tag field).
+
+**What belongs in a prop:** a prop is a **query dimension** — one value per key, the few
+attributes you'll filter / group / count the tree by (`owner`, `project`, the single
+identifying ref a task maps to, the `release` it shipped in). It is NOT for many-valued process
+records: a dev task's many commits go in `log` (add a `commit` **metric** if you want them
+structured) — don't flood the key-space with process noise. Rule of thumb: *"will I filter or
+stat over it across nodes?"* → prop; *"is it a per-event process trail?"* → log / metric.
