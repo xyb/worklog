@@ -447,7 +447,7 @@ Terminal highlighting goes through `rich`; can be turned off, can switch themes,
 
 ### 19.1 Switches and detection
 
-- Global flags (before any subcommand): `--color {auto,always,never}` + `--theme {auto,dark,light,mono}` (theme choices = `["auto"] + list(THEMES)`; new palettes are auto-added to choices)
+- Global flags (before any subcommand): `--color {auto,always,never}` + `--theme {auto,dark,light,mono}` (theme choices = `["auto"] + list(THEMES)`; new palettes are auto-added to choices) + `--width {full,help,N}` / `$WORKLOG_WIDTH` (output width cap: `full` = fill terminal [default], `help` = the `--help` cap `HELP_MAX_WIDTH`, `N` = N columns). Resolved by `_resolve_width_cap` → `_set_width_cap`; `_term_width()` returns `min(terminal, cap)`, so all width-sensitive rendering (`_truncate_log_body`, title fits) respects it from one lever.
 - Env fallback: `$WORKLOG_COLOR` (same values as `--color`), `$WORKLOG_THEME`, `$NO_COLOR` (standard, any value disables color)
 - `--color auto` (default) decides: `rich available AND stdout.isatty() AND no $NO_COLOR` → enabled. So pipes / redirects / test StringIO auto-downgrade to plain text, **tests need no special handling.**
 - `_init_console(color, theme)` is called once in `main()` after parsing args, sets the global `_CONSOLE` (`None` = plain text / `rich.Console` = highlighting); `--color always` uses `force_terminal=True` to force ANSI even through pipes (for `less -R`).

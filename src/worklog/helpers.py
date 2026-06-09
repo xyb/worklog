@@ -153,13 +153,38 @@ def _resolve_at_ts(at, default_now=True):
     raise ValueError(f"invalid --at '{at}': supported formats: HH:MM / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
 
 
+_WIDTH_CAP = None   # None = fill the terminal; int = cap rendered width to that many columns
+
+def _set_width_cap(cap):
+    """Set the output width cap (None = full terminal width). Called once from main()."""
+    global _WIDTH_CAP
+    _WIDTH_CAP = cap
+
+def _resolve_width_cap(flag):
+    """Resolve the cap: `--width` flag > `$WORKLOG_WIDTH` > default (None = full). Values:
+    `full` → None, `help` → the `--help` cap (100 cols), a positive int → that many columns."""
+    import os
+    val = flag if flag is not None else os.environ.get("WORKLOG_WIDTH")
+    if not val or val == "full":
+        return None
+    if val == "help":
+        from .render import HELP_MAX_WIDTH
+        return HELP_MAX_WIDTH
+    try:
+        n = int(val)
+    except ValueError:
+        return None
+    return n if n > 0 else None
+
 def _term_width():
-    """Terminal column count. No TTY (pipe/redirect) -> default 80."""
+    """Rendered column count: the terminal width, capped to `--width` / `$WORKLOG_WIDTH` if set
+    (so wide terminals can hold output to a fixed, readable width). No TTY (pipe/redirect) -> 80."""
     import shutil
     try:
-        return shutil.get_terminal_size().columns or 80
+        w = shutil.get_terminal_size().columns or 80
     except OSError:
-        return 80
+        w = 80
+    return min(w, _WIDTH_CAP) if _WIDTH_CAP else w
 
 def _cw(ch):
     """Display columns for one char: East-Asian Wide/Fullwidth = 2, else 1. Uses

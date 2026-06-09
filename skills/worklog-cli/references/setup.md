@@ -73,6 +73,10 @@ previews. `--color auto` (default) only colors a TTY — **AI capturing stdout g
 automatically**, no need to explicitly disable. To pipe colored output (e.g. `| less -R`), use
 `--color always`. Details in `DESIGN.md` §19.
 
+**Output width** — by default output fills the terminal. Cap it with `wl --width help` (the
+`--help` width, 100 cols) / `--width N` / `$WORKLOG_WIDTH=N`, e.g. to keep long lines readable on
+a very wide terminal; `--width full` is the default (no cap).
+
 ## wl agent — status line + context hook (check & install)
 
 `wl agent <id>` binds the current AI session to a task. Two optional integrations make that

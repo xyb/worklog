@@ -70,6 +70,8 @@ from .helpers import GENERIC_TAGS  # noqa: F401
 from .helpers import (
     _fmt_dur,
     _apply_top_limit,
+    _set_width_cap,
+    _resolve_width_cap,
     _log_full,
     _status_marker,
     _resolve_window,
@@ -432,6 +434,8 @@ Good to know:
     p.add_argument("--theme", default=None, choices=["auto"] + list(THEMES),
                    metavar="{auto,%s}" % ",".join(THEMES),
                    help="color theme (default auto: probe terminal bg, pick dark/light; reads $WORKLOG_THEME; see wl themes)")
+    p.add_argument("--width", default=None, metavar="{full,help,N}",
+                   help="output width: full (fill terminal, default) / help (cap to the --help width, 100) / N columns; also reads $WORKLOG_WIDTH")
     p.add_argument("-q", "--brief", action="store_true",
                    help="brief output: skip log body/timeline/detail in every command, token-saving for AI")
     p.add_argument("--log-format", choices=["oneline", "full"], default="oneline",
@@ -1689,6 +1693,7 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
         HANDLERS[args.cmd](args, None)
         return
     _init_console(args.color, args.theme)
+    _set_width_cap(_resolve_width_cap(getattr(args, "width", None)))
     # config / help are read-only and side-effect free — don't create the DB just to
     # print paths or render a help topic (a newcomer may run `wl help` before `wl init`).
     if args.cmd in ("config", "help"):

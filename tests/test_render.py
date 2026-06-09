@@ -263,3 +263,34 @@ class TestNodeLineWithClockTags:
         _, out, _ = cli("ls", "--all")
         # both tags and clock should appear
         assert "t1" in out
+
+
+class TestWidthCap:
+    """--width / $WORKLOG_WIDTH cap: full = fill terminal, help = 100, N = N columns."""
+
+    def test_resolve_width_cap(self, monkeypatch):
+        from worklog.helpers import _resolve_width_cap
+        monkeypatch.delenv("WORKLOG_WIDTH", raising=False)
+        assert _resolve_width_cap(None) is None          # default → full (no cap)
+        assert _resolve_width_cap("full") is None
+        assert _resolve_width_cap("help") == 100         # the --help cap
+        assert _resolve_width_cap("50") == 50
+        assert _resolve_width_cap("0") is None           # non-positive → full
+        assert _resolve_width_cap("garbage") is None
+        monkeypatch.setenv("WORKLOG_WIDTH", "60")
+        assert _resolve_width_cap(None) == 60            # env fallback
+        assert _resolve_width_cap("full") is None        # explicit flag overrides env
+
+    def test_term_width_respects_cap(self, monkeypatch):
+        import os
+        from worklog import helpers
+        monkeypatch.setattr("shutil.get_terminal_size", lambda *a: os.terminal_size((200, 50)))
+        try:
+            helpers._set_width_cap(None)
+            assert helpers._term_width() == 200          # full = terminal width
+            helpers._set_width_cap(100)
+            assert helpers._term_width() == 100          # capped below terminal
+            helpers._set_width_cap(300)
+            assert helpers._term_width() == 200          # cap above terminal = no-op
+        finally:
+            helpers._set_width_cap(None)                 # reset module global for isolation
