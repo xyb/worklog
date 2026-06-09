@@ -26,7 +26,7 @@ Likewise, before adding a dev todo under a project, check that project's existin
 | **Daily three** (the daily flow) | `wl goal "deliver X today"` (read = `wl goal`) / `wl recap "end-of-day summary..."` (read = `wl recap`) / `wl tick <id> [--note "..."] [--done]` to check in. **Auto-creates today's day node** (hung under the current ISO week), no need to manually `wl add ... -k day`. `wl recap`/`wl goal` write a history-preserving `log.tag` log (latest = current); `wl day` shows "(written MM-DD HH:MM)" from the recap log's own time, and if more plain-note logs land after it, warns "⚠ N changes after recap, consider rewriting". Back-fill a past day with `wl recap --date YYYY-MM-DD "..."` (`goal --date` is not available — recap only) |
 | Add a task / project / habit | `wl add "..." -k task -p A -t work,P0 --parent N` |
 | Add a task with scheduled time (precise or fuzzy) | `wl add "..." --scheduled 2026-06-15` / `--scheduled 2026-06` / `next-week` / `next-month` / `someday` |
-| Log progress on a task | `wl log <id> "..."` (backfill old logs with `--date 2026-05-06`, or use `import` with body `"2026-05-06 content"` so logs land on the original day, not today) |
+| Log progress on a task | `wl log <id> "..."` (backfill old logs with `--date 2026-05-06`, or use `import` with body `"2026-05-06 content"` so logs land on the original day, not today). **Logging a TODO auto-promotes it to DOING** ("I logged → I'm working on it"); add **`--keep-status`** to just record a note without changing status (e.g. a side observation on a not-yet-started task) |
 | Record a number / measurement / check-in | `wl metric add <id> glucose 5.4 --unit mmol/L` / `wl metric ls <id>` / `wl metric edit #M7` / `wl metric rm #M7`; inline: `wl log <id> "..." --metric 'pullups 8'`. Habit done-today = a `checkin` metric (`wl tick`/`wl checkin`). Detail → `references/features.md` |
 | Mark done / defer (fuzzy time ok) / start clock | `wl done <id>` / `wl defer <id> next-month` (also accepts `2026-Q3` / `someday` / precise date) / `wl start <id>` `wl stop <id>` |
 | Schedule task to a date / repeat (drives "planned") | `wl sched <id> 2026-06-15` (also accepts `tomorrow` / `day-after-tomorrow`) / `--clear`. `--recur` supports period start / end (`daily` / `weekly:Mon,Fri` / `monthly:-1` / `quarterly:1-15` / `yearly:-1`; `-1` = period end) — full grammar in `references/features.md`. A task scheduled to a day shows up in `wl day` as "planned · not yet logged" even with no log |
@@ -75,11 +75,27 @@ typical day-handling workflow → `references/bulk.md`.
 
 ## What NOT to do
 
+- **⚠️ Confirm an id is a `wl` node id before any mutating command** (`done`/`log`/`link`/`rm`/`reopen`/`tick`/`cancel`/`defer`/`unlog`). A bare `#NNN` is ambiguous — the harness TaskList, a Claude Code session/task, Linear, a PR/issue all have their own `#NNN` spaces that collide numerically. `wl show <id>` first and check the title is the node you mean; using another space's id mutates the wrong node and corrupts real data.
 - **No silent bulk delete / modification** — confirm with the user via `wl show <id>` before destructive changes
 - **Don't bypass `wl` and `sqlite3` the DB directly for writes** — the DB (default `~/.local/share/worklog/worklog.db`, or wherever `$WORKLOG_DB` / `--db PATH` points) is the source of truth; schema lives in `DESIGN.md`
 - **Don't run `wl reset`** (drops the DB) unless explicitly requested
 - Before any bulk write, **`--dry-run` first**, especially for update/delete
 - When adding a command to `src/worklog/cli.py`: change implementation + tests + completion + `DESIGN.md` (if convention touched) + this `SKILL.md` (if usage touched) together; `make ship` (push only if tests pass)
+
+## Where a fact goes: prop vs metric vs log
+
+Sort by *"will I filter / group / stat over it across nodes?"* + cardinality (full rule in
+`DESIGN.md` §2 / `wl help prop` / `wl help metric`):
+
+- **`prop`** — a single-value **query dimension** you slice the tree by (`owner`, `project`, the
+  one identifying ref a task maps to, the `release` it shipped in → "which tasks shipped in
+  v0.7.0" is one prop query). Scarce, high-value; **don't flood it with process noise**.
+- **`log`** — the human **process record** (a dev task's many intermediate commits go in the body).
+- **`metric`** — those process records made structured/queryable per node: `wl metric add <id>
+  commit <hash>` (or `--metric 'commit <hash>'`), then `wl metric ls <id> --tag commit`. Many-per-
+  node, append-only — *not* a cross-node filter dimension.
+- Worked example (commit / PR / release ↔ task): **many** commits → log (+ a `commit` metric for
+  structure); a **single** identifying PR/commit, or the **release** → prop.
 
 ## Vault link (knowledge ⇄ execution decoupling)
 
