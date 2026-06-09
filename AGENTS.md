@@ -7,7 +7,7 @@ Primary operating guide for AI coding agents (Claude Code, Cursor, Aider, etc.) 
 - **`DESIGN.md`** is canonical for every shared convention (command style, state machine, marker symbols, time-window flags, rendering, schema, import/apply formats, color theming, scheduled time, planned/unplanned derivation, etc.). Read the relevant section before adding a command or changing a format — keeping `src/worklog/cli.py`, the tests, the completion strings, and DESIGN in sync is the project's hardest rule.
 - **`CONTRIBUTING.md`** holds the full dev setup, TDD + DRY conventions, local Makefile overrides, and release process. Do not duplicate that content here.
 - **`skills/worklog-cli/SKILL.md`** is the Claude Code skill (AI-facing usage guide: when to use `wl`, scenario→command table, bulk `import` / `apply` patterns, `-q` brief mode for token savings). Update this when usage patterns change.
-- `README.md` is the project overview + install pointer only; `tests/test_wl.py` is the de-facto contract for every command.
+- `README.md` is the project overview + install pointer only; the `tests/test_*.py` suite (split by area) is the de-facto contract for every command.
 
 ## Common commands
 
@@ -25,7 +25,7 @@ make ship           # test then push (only pushes if green)
 Single-test invocation:
 
 ```fish
-uv run pytest tests/test_wl.py::TestApply::test_apply_delete_cascades_subtree -v --no-cov
+uv run pytest tests/test_add.py::TestAdd::test_add_task -v --no-cov
 ```
 
 Ad-hoc DB for scratch work without touching `~/.local/share/worklog/worklog.db`:
@@ -55,7 +55,7 @@ wl --db /tmp/scratch.db add "..."
 
 ## Core principles
 
-- **TDD (Red → Green → Refactor).** Behavioral changes start with a failing test in `tests/test_wl.py` that reproduces the bug or pins the new behavior. Confirm it fails for the right reason, then write the minimum code to make it pass, then refactor. Tests stay green at every step. A PR that adds behavior without adding the test that drives it is rejected. See CONTRIBUTING.md "TDD" for the full loop.
+- **TDD (Red → Green → Refactor).** Behavioral changes start with a failing test in the matching `tests/test_<area>.py` that reproduces the bug or pins the new behavior. Confirm it fails for the right reason, then write the minimum code to make it pass, then refactor. Tests stay green at every step. A PR that adds behavior without adding the test that drives it is rejected. See CONTRIBUTING.md "TDD" for the full loop.
 - **DRY (Don't Repeat Yourself).** The codebase has a small set of single-source helpers — `_status_marker`, `_node_line`, `out`/`_c`, `_resolve_window`, `_resolve_db_path`, `_project_members`, `_node_clock_min`, `_collect_descendants` (see DESIGN §12 for the full list). New code reuses them; re-implementing one of them in a fresh form is a review block. Same rule for docs: install / dev / release info is in CONTRIBUTING.md and only there — link to it, don't restate it.
 
 ## Hard rules
