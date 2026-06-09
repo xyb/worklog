@@ -96,5 +96,3 @@ matching `[[...]]`). Prefer `wl` first for new tasks; attach a vault link if a v
   typical AI day-handling workflow.
 - **`references/setup.md`** — install `wl`, install this skill (whole-dir symlink), shell
   completion, colors / themes, `wl agent` status-line + hook setup.
-- **`references/related-skills.md`** — routing table for the higher-level worklog workflow skills
-  (planning / summary / habits / …) that sit on top of `wl` and self-trigger.
