@@ -95,12 +95,19 @@ class TestAgent:
 
     # --- light design: prop = live pointer; --record = append-only history trail ---
 
-    def test_plain_bind_writes_no_history(self, cli, tmp_db, monkeypatch):
+    def test_plain_bind_records_history_by_default(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")
         cli("add", "t", "-k", "task")
-        cli("agent", "1")                          # no --record
+        cli("agent", "1")                          # default → records (so auto-binds capture history)
         assert _bound_value(tmp_db, 1) == "sess-aaa"   # live pointer set
-        assert _history_metrics(tmp_db, 1) == []        # but no history metric/log
+        assert len(_history_metrics(tmp_db, 1)) == 1    # and history recorded by default
+
+    def test_no_record_skips_history(self, cli, tmp_db, monkeypatch):
+        self._sess(monkeypatch, "sess-aaa")
+        cli("add", "t", "-k", "task")
+        cli("agent", "1", "--no-record")           # opt out → pointer only
+        assert _bound_value(tmp_db, 1) == "sess-aaa"
+        assert _history_metrics(tmp_db, 1) == []
 
     def test_record_writes_one_history_metric(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-full-1234-xyz")

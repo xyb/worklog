@@ -22,28 +22,27 @@ another session already holds prints a conflict warning but still binds. The key
 `agent_session.` is shared across apps (a future `agent_session.cursor` etc.), so one query
 finds all of a node's session bindings.
 
-## Live pointer vs. history: `--record`
+## Live pointer vs. history (records by default)
 
 The binding splits into two stores with different jobs:
 
 - The `agent_session.claude` **prop is the live pointer** — exactly one session → one node, and
   it *moves* on rebind. It answers "what is this session on right now?" and powers the status
-  line / hook. Plain `wl agent <id>` only touches this — no log, cheap.
-- `wl agent <id> --record` additionally writes the **history trail**: one log + an
-  `agent_session` metric carrying the *full* session id, which stays on the node forever. It
-  answers "which sessions has this node ever been worked under?" Recover it with:
+  line / hook.
+- A **history trail** — one log + an `agent_session` metric carrying the *full* session id, which
+  stays on the node forever. It answers "which sessions has this node ever been worked under?"
+  **`wl agent <id>` writes it by default** (so auto-binds capture the lineage without anyone
+  remembering a flag); `wl agent <id> --no-record` skips it for a pointer-only bind. Recover it:
 
       wl metric ls <id> --tag agent_session --all   # every session that bound this node
       wl show <id>                                   # the bind events appear in the timeline
 
 Only the bind *event* is recorded — later logs don't each carry the session id, so the cost is
-one row per association, not a stamp on every write. That's the deliberate light design: the
-prop never accumulates, the metric is the append-only ledger.
+one row per *binding*, not a stamp on every write. Rebinding the same session to the same node
+again doesn't duplicate it.
 
-**Recommended usage**: bind without `--record` for routine single-session work (the live pointer
-is all you need). Add `--record` when a node's session lineage matters — a long-lived task that
-several agent sessions pass through, or anything you may later want to forensically trace back to
-the conversation that touched it.
+**Recommended usage**: leave it on (the default) so a node's session lineage is always traceable;
+reach for `--no-record` only for a throwaway pointer-only bind where the history would be noise.
 
 ## Wiring it up: status line + context hook (optional)
 

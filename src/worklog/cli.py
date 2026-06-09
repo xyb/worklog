@@ -779,23 +779,22 @@ More: `wl help prop`.""")
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
-  wl agent 42          # bind this session to task #42 (default verb: set)
-  wl agent 42 --record # bind + leave a permanent history mark on the node
-  wl agent             # show what this session is bound to
-  wl agent ls          # list all session→task bindings
-  wl agent rm          # unbind this session
+  wl agent 42             # bind this session to task #42 (default verb: set) — records history
+  wl agent 42 --no-record # bind without leaving a history mark (pointer only)
+  wl agent                # show what this session is bound to
+  wl agent ls             # list all session→task bindings
+  wl agent rm             # unbind this session
 
 Two stores, two jobs:
   * the `agent_session.claude` prop is the LIVE pointer — one session → one node, it MOVES on
-    rebind, so it always names the node a session is currently on (cheap, no log written);
-  * `--record` additionally appends a one-off log + an `agent_session` metric carrying the full
-    session id — the HISTORY trail, which stays on the node forever. Recover it later with
+    rebind, so it always names the node a session is currently on;
+  * a HISTORY trail (one log + an `agent_session` metric carrying the full session id) stays on
+    the node forever. `wl agent <id>` writes it BY DEFAULT (so auto-binds capture lineage with no
+    flag to remember); `--no-record` skips it. Recover it with
     `wl metric ls <id> --tag agent_session --all` (or read `wl show <id>`'s timeline).
 
-Recommended: bind without --record for routine work; add --record when a node's session lineage
-is worth keeping (a task several agents pass through, anything you'll want to forensically trace).
 Only the bind event is recorded — later logs don't each carry the session, so it costs one row
-per association, not per write.
+per binding, not per write; rebinding the same pair doesn't duplicate it.
 
 Reads $WL_SESSION_ID / $CLAUDE_CODE_SESSION_ID for the current session.
 
@@ -803,8 +802,8 @@ More: `wl help agent`.""")
     _agsub = ag.add_subparsers(dest="agent_sub")
     _ags = _agsub.add_parser("set", help="bind current session to <id>")
     _ags.add_argument("id", type=int)
-    _ags.add_argument("--record", action="store_true",
-        help="also append a one-off history log + `agent_session` metric on the node (so `wl metric ls <id> --tag agent_session --all` recovers every session it was worked under)")
+    _ags.add_argument("--record", action=argparse.BooleanOptionalAction, default=True,
+        help="append a one-off history log + `agent_session` metric on the node so `wl metric ls <id> --tag agent_session --all` recovers every session it was worked under (default on; `--no-record` for a pointer-only bind)")
     _agsub.add_parser("ls", help="list all session→task bindings")
     _agsub.add_parser("rm", help="unbind the current session")
     _agctx = _agsub.add_parser("context", help="machine line `<id>\\t<title>` of the current session's binding (for hooks; empty if unbound)")
