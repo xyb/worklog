@@ -55,7 +55,7 @@ A command/flag/behavior is described in many places; a change isn't done until t
 - **`src/worklog/cli.py`** — the implementation + its argparse `help=` / `epilog` / `description`.
 - **Shell completion** — a new command/flag must appear; if it takes a node id or tag, also wire `_FISH_POSITIONAL_NODE` / the dynamic helpers (it regenerates from the parser, but id/tag completion is hand-registered).
 - **`wl help <topic>`** — the matching topic doc under `src/worklog/help/<lang>/`.
-- **`CHANGELOG.md`** — a one-line `[Unreleased]` entry.
+- **`CHANGELOG.md`** — a one-line `[Unreleased]` entry; a **breaking** change (env/path/schema migration, renamed or removed command/flag, changed contract) goes in a `### Breaking` section, listed first in the release.
 - **`tests/test_<area>.py`** — the test that pins it.
 - **`DESIGN.md`** (+ `DESIGN.zh.md`) if a convention changed; **`skills/worklog-cli/SKILL.md`** if everyday usage changed.
 
