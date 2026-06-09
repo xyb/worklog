@@ -46,7 +46,7 @@
 
 ## 安装
 
-需要 Python ≥ 3.11。先装 [uv](https://docs.astral.sh/uv/)(`brew install uv` 或 `pipx install uv`)。
+需要 Python ≥ 3.9(在 3.9–3.14 上测过)。先装 [uv](https://docs.astral.sh/uv/)(`brew install uv` 或 `pipx install uv`)。
 
 ```fish
 git clone https://github.com/xyb/worklog.git ~/projects/worklog

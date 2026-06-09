@@ -50,7 +50,7 @@ Background: built after surveying 12 candidate products (Logseq / Tana / TaskWar
 
 ### From PyPI (recommended for users)
 
-Requires Python ≥ 3.11.
+Requires Python ≥ 3.9 (tested on 3.9–3.14).
 
 ```fish
 pipx install pyworklog          # or: uv tool install pyworklog
