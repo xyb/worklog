@@ -40,12 +40,19 @@ jobs:
 
       - name: Smoke test CLI
         run: |
+          set -euo pipefail
           export WORKLOG_DB=$(mktemp -d)/worklog.db
           uv run wl init
           uv run wl --version
-          uv run wl add "ci smoke task" -k task -p A
+          uv run wl add "ci smoke task" -k task -p A --sched today
           uv run wl log 1 "hello from CI"
-          uv run wl done 1
+          uv run wl recap "ci smoke recap"   # creates today's day skeleton so the overview renders
           uv run wl show 1
-          uv run wl tree
+          uv run wl day
+          # wl tree must render real structure (the timeline + the scheduled task),
+          # not just exit 0 on an empty overview — assert the task title shows up.
+          tree=$(uv run wl tree)
+          printf '%s\n' "$tree"
+          printf '%s\n' "$tree" | grep -q "ci smoke task" || { echo "::error::wl tree rendered no structure"; exit 1; }
+          uv run wl done 1
           uv run wl migrate

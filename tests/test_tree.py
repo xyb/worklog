@@ -35,7 +35,7 @@ class TestTree:
 
     def test_tree_empty(self, cli):
         code, out, _ = cli("tree")
-        assert "no root" in out.lower()
+        assert "empty" in out.lower()
 
 
 # ─── logs ───
@@ -151,7 +151,20 @@ class TestTreeDepthSortActivity:
 class TestTreeEmpty:
     def test_tree_empty_repo(self, cli):
         _, out, _ = cli("tree")
-        assert "no root nodes" in out
+        assert "empty" in out.lower()
+
+    def test_tree_nodes_outside_overview_not_called_empty(self, cli):
+        # An orphan task (parent_id NULL, not a time/area node) is outside the default
+        # overview's scope, but the DB is NOT empty — the message must say so and point at
+        # how to see it, never imply "no nodes" (regression: it used to print "(no root nodes)").
+        cli("add", "orphan task", "-k", "task")
+        _, out, _ = cli("tree")
+        assert "empty" not in out.lower()
+        assert "1 node" in out and "overview" in out
+        assert "--depth" in out or "ls --all" in out
+        # the node really is reachable via a deeper expansion
+        _, deep, _ = cli("tree", "--depth", "9")
+        assert "orphan task" in deep
 
     def test_tree_root_no_kind_filter_match(self, cli):
         cli("add", "t1", "-k", "task")  # parent_id=NULL, kind=task

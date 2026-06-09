@@ -65,8 +65,14 @@ setup: sync install  ## first-time setup: uv sync + install wrapper
 
 # ── demo / sample data ──
 
-demo:                ## populate DB with sample tree (idempotent reset DB)
-	@rm -f $(WORKLOG_DB_PATH)
+demo:                ## populate a fresh demo DB with a sample tree (REFUSES to touch an existing DB)
+	@if [ -e "$(WORKLOG_DB_PATH)" ]; then \
+	  echo "✗ refusing to overwrite an existing DB: $(WORKLOG_DB_PATH)"; \
+	  echo "  'make demo' must NEVER delete a real worklog. Point it at a throwaway demo DB:"; \
+	  echo "    WORKLOG_DB=/tmp/wl-demo.db make demo"; \
+	  echo "    WORKLOG_DB=/tmp/wl-demo.db wl tree      # then browse it"; \
+	  exit 1; \
+	fi
 	@wl init
 	@wl add "Lifetime" -k lifetime
 	@wl add "2026" -k year --parent 1

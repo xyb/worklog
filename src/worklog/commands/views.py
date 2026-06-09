@@ -119,7 +119,7 @@ def cmd_tree(args, con):
         roots = list(con.execute(root_sql, params_root))
 
     if not roots:
-        print("(no root nodes)")
+        out(_c('(empty — add a task with `wl add "..." -k task`)', "meta"))
         return
 
     # default depth limit to avoid flooding: full tree default 2 (area->project / year->quarter overview), --root default 3 (one extra level for drill-down)
@@ -543,7 +543,18 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
     has_day = _db.exists(con, "node", kind="day")
     has_month = _db.exists(con, "node", kind="month")
     if not life and not has_day and not has_month:
-        print("(no root nodes)")
+        # Nothing anchors the timeline/areas overview. Be honest about *why* it's empty: a
+        # brand-new DB vs. nodes that exist but aren't in the overview's scope yet — never
+        # imply "the DB is empty" when nodes actually exist (the old bare "(no root nodes)"
+        # printed identically in both cases and misread as empty).
+        total = con.execute(
+            "SELECT COUNT(*) AS c FROM node WHERE deleted_at IS NULL").fetchone()["c"]
+        if total == 0:
+            out(_c('(empty — add a task with `wl add "..." -k task`, or `wl day` to start today)', "meta"))
+        else:
+            noun = "node" if total == 1 else "nodes"
+            out(_c(f"({total} {noun} exist but none are in the timeline/areas overview yet "
+                   "— try `wl tree --depth 9` or `wl ls --all`)", "meta"))
         return
     base = 0
     if life:

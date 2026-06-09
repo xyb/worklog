@@ -17,7 +17,7 @@ make test           # pytest in parallel (-n auto) with the 95% cov gate from py
 make test-v         # sequential, no cov — debug noisy output
 make test-fast      # parallel, no cov gate — quick dev loop
 make cov            # detailed term-missing coverage report
-make demo           # reset DB + populate sample tree (irreversible)
+make demo           # populate a FRESH demo DB (refuses if the DB exists; use WORKLOG_DB=/tmp/wl-demo.db)
 make reset          # interactive: drop current DB + re-init
 make ship           # test then push (only pushes if green)
 ```
