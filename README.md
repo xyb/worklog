@@ -10,11 +10,31 @@
 
 > **Changelog**: see [CHANGELOG.md](CHANGELOG.md) for a curated highlight reel of every release.
 
-SQLite-backed worklog tool with a `todo.sh`-style CLI. Models the full execution-system hierarchy in a single `node` table — lifetime / decade / year / quarter / month / week / day / project / task / habit / signal / meetlog — all sharing one id space, tree-linked via `parent_id` self-reference.
+**worklog (`wl`) is an AI-first, local-first execution-system CLI** — a structured replacement for a Markdown worklog. It models the full execution hierarchy in a single SQLite `node` table — lifetime / decade / year / quarter / month / week / day / project / task / habit / signal / meetlog — all sharing one id space, tree-linked via `parent_id` self-reference, behind a `todo.sh`-style command surface.
+
+## Why AI-first, local-first
+
+It started as plain Markdown worklogs an AI kept for me. Within a few months they had grown ~50× in size; a single shared file couldn't take concurrent writes from parallel AI sessions, `[[wikilinks]]` drifted on every rename, and summarizing a time range meant re-reading huge files. Past a point, the time spent keeping Markdown readable to the AI exceeded the time the AI saved. The fix was to move the structured part into a database built for an AI to drive.
+
+**AI-first** — the premise isn't "a tool a person fills in" but "a tool an AI drives on a person's behalf". The AI is the real user; you glance at the terminal to confirm what it recorded. That shapes the whole surface:
+
+- Short commands, direct flags, **no interactive prompts** — one line creates a task, attaches a log, marks it done, stamps the time, and links a doc (the form an AI calls most reliably from a shell):
+  ```fish
+  wl add "..." -k task --parent 42 --log "..." --done --at 14:30 --link "..."
+  ```
+- A brief **`-q`** mode on every command and width-clipped one-line rows, so captured output stays token-cheap to read.
+- Plain-text output an AI parses directly — `--color auto` hands a piped/captured stdout plain text automatically.
+- A bundled [Claude Code skill](skills/worklog-cli/SKILL.md) teaches the assistant when and how to call `wl` (including bulk `import` / `apply`).
+
+**Local-first** — one local SQLite file (XDG path), a transparent versioned schema, **no daemon, no GUI, no closed format**:
+
+- What the AI writes you can read and edit, and what you write the AI reads back — one shared source of truth, no lock-in, no service to keep running.
+- Concurrent writes don't conflict, so several AI sessions can record in parallel without clobbering each other (the failure mode of a shared Markdown file).
+- Pairs with a vault via `wl link`: structured execution data in `wl`, long-form notes in your vault (Obsidian etc.) — each does what it's good at. If the vault is your second brain, worklog is its fast cache: small, quick read/write, holding the high-frequency working set.
 
 **Design conventions: see [DESIGN.md](DESIGN.md)** — required reading before adding commands, to keep everything consistent.
 **AI collaboration: see [skills/worklog-cli/SKILL.md](skills/worklog-cli/SKILL.md)** — Claude Code skill (when / how to use `wl`, plus bulk import / apply).
-Background: structured worklog tool, built as a self-built alternative after surveying 12 candidate products (Logseq / Tana / TaskWarrior / org-mode / Anytype / Capacities / Linear etc.) and finding no off-the-shelf tool that fits all three dimensions (time hierarchy, project hierarchy, vault wikilink) without compromise.
+Background: built after surveying 12 candidate products (Logseq / Tana / TaskWarrior / org-mode / Anytype / Capacities / Linear etc.) and finding no off-the-shelf tool that fits all three dimensions (time hierarchy, project hierarchy, vault wikilink) without compromise.
 
 ## Install
 

@@ -8,11 +8,31 @@
 [![codecov](https://codecov.io/gh/xyb/worklog/branch/main/graph/badge.svg)](https://codecov.io/gh/xyb/worklog)
 [![License: MIT](https://img.shields.io/pypi/l/pyworklog.svg)](https://github.com/xyb/worklog/blob/main/LICENSE)
 
-SQLite 后端的 worklog 工具,`todo.sh` 风格 CLI。完整执行体系层级建模在单个 `node` 表里 —— lifetime / decade / year / quarter / month / week / day / project / task / habit / signal / meetlog —— 共享同一个 id 空间,通过 `parent_id` 自引用形成树状结构。
+**worklog(`wl`)是一个 AI-first、local-first 的执行体系 CLI** —— 用来替代 Markdown 工作记录。完整执行体系层级建模在单个 SQLite `node` 表里 —— lifetime / decade / year / quarter / month / week / day / project / task / habit / signal / meetlog —— 共享同一个 id 空间,通过 `parent_id` 自引用形成树,命令风格沿用 `todo.sh`。
+
+## 为什么是 AI-first、local-first
+
+最早是 AI 帮我记的 Markdown 工作记录。几个月体积涨了大约 50 倍:一个共享文件扛不住多个 AI session 并发写,`[[wikilink]]` 每次重命名就断一片,要总结一个时段得让 AI 把一堆大文件重读一遍。到某个点之后,花在"让 AI 读懂 Markdown、不写冲突、维护链接"上的时间,已经超过 AI 帮我省下的时间。解法是把结构化的部分挪进一个为 AI 驱动而设计的数据库。
+
+**AI-first** —— 设计前提不是"给一个人填的工具",而是"让 AI 替一个人驱动的工具"。AI 才是真正的使用者,人只在终端上看一眼输出,确认记得对不对。这决定了整个命令面:
+
+- 命令短、参数直接、**不用交互问答** —— 一行就把添加任务、附加日志、标记完成、记录完成时间、关联文档全做完(AI 在 shell 里调用最不易出错的形式):
+  ```fish
+  wl add "..." -k task --parent 42 --log "..." --done --at 14:30 --link "..."
+  ```
+- 每条命令都有 **`-q`** brief 模式,列表按终端宽度截一行,捕获输出省 token。
+- 输出是 AI 能直接读的纯文本 —— `--color auto` 在管道/捕获时自动给纯文本。
+- 自带一个 [Claude Code skill](skills/worklog-cli/SKILL.md),教 AI 何时、如何调 `wl`(含批量 `import` / `apply`)。
+
+**local-first** —— 一个本地 SQLite 文件(XDG 路径),schema 透明且版本化,**没有常驻进程、没有图形界面、没有封闭格式**:
+
+- AI 写的内容人能直接读和改,人写的 AI 也读得到 —— 同一份事实,不锁定,不用维护一个后台服务。
+- 并发写不冲突,多个 AI session 能并行记录,互不覆盖(这正是共享 Markdown 文件会坏掉的地方)。
+- 通过 `wl link` 跟 vault 配合:结构化执行数据进 `wl`,长文笔记留在 vault(Obsidian 等),各做擅长的事。如果 vault 是第二大脑,worklog 就是它的高速缓存 —— 容量小、读写快,装着当下高频要用的那部分。
 
 **设计约定见 [DESIGN.md](DESIGN.md)** —— 加命令前必读,保持各处一致。
 **AI 协作见 [skills/worklog-cli/SKILL.md](skills/worklog-cli/SKILL.md)** —— Claude Code skill(何时 / 如何用 `wl` + 批量 import / apply)。
-背景: 结构化 worklog 工具,在调研了 12 个候选产品(Logseq / Tana / TaskWarrior / org-mode / Anytype / Capacities / Linear 等)后没找到能同时覆盖三个维度(时间层级 / 项目层级 / vault wikilink)又无折中的现成方案,所以自建。
+背景: 在调研了 12 个候选产品(Logseq / Tana / TaskWarrior / org-mode / Anytype / Capacities / Linear 等)后没找到能同时覆盖三个维度(时间层级 / 项目层级 / vault wikilink)又无折中的现成方案,所以自建。
 
 ## 安装
 
