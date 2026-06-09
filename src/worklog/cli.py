@@ -807,7 +807,9 @@ More: `wl help agent`.""")
         help="also append a one-off history log + `agent_session` metric on the node (so `wl metric ls <id> --tag agent_session --all` recovers every session it was worked under)")
     _agsub.add_parser("ls", help="list all session→task bindings")
     _agsub.add_parser("rm", help="unbind the current session")
-    _agsub.add_parser("context", help="machine line `<id>\\t<title>` of the current session's binding (for hooks; empty if unbound)")
+    _agctx = _agsub.add_parser("context", help="machine line `<id>\\t<title>` of the current session's binding (for hooks; empty if unbound)")
+    _agctx.add_argument("--hook", action="store_true",
+        help="emit a ready-to-print Claude Code UserPromptSubmit JSON payload instead (so a hook needs no jq)")
 
     us = sub.add_parser("unset",
         help="remove a value from a node — key-routed: a prop (= wl prop rm) or a meta field (= wl meta rm)",

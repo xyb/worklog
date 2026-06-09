@@ -73,9 +73,33 @@ previews. `--color auto` (default) only colors a TTY — **AI capturing stdout g
 automatically**, no need to explicitly disable. To pipe colored output (e.g. `| less -R`), use
 `--color always`. Details in `DESIGN.md` §19.
 
-## wl agent — status line + context hook
+## wl agent — status line + context hook (check & install)
 
-`wl agent <id>` binds the current AI session to a task. Making that binding *visible* (status
-bar `📌WL#<id>`) and *injected* into the agent's context is a one-time setup of a status-line
-segment + a `UserPromptSubmit` hook — the exact snippets (sqlite reverse-lookup, hook,
-settings.json registration) live in the shipped help topic: run `wl help agent`.
+`wl agent <id>` binds the current AI session to a task. Two optional integrations make that
+binding **visible** (status bar `📌WL#<id>`) and **injected** into the agent's context each time
+it changes. Both ship with this skill under `integrations/` and depend only on `wl` (no jq, no
+sqlite CLI):
+
+- `integrations/wl-session-context.sh` — a `UserPromptSubmit` hook. Reads the binding via
+  `wl agent context --hook`, caches it per session, injects only when it changes.
+- `integrations/statusline-wl.sh` — a status-line segment printing ` 📌WL#<id>`.
+
+**When the user asks to set this up (or asks why the binding isn't showing), check then install:**
+
+1. **Check the hook**: is `~/.claude/hooks/wl-session-context.sh` present AND is it registered
+   under `hooks.UserPromptSubmit` in `~/.claude/settings.json`? (`grep -q wl-session-context
+   ~/.claude/settings.json`.)
+2. **Install the hook** if missing:
+   ```fish
+   mkdir -p ~/.claude/hooks
+   cp <skill-dir>/integrations/wl-session-context.sh ~/.claude/hooks/ && chmod +x ~/.claude/hooks/wl-session-context.sh
+   ```
+   then add a `hooks.UserPromptSubmit` entry running it to `~/.claude/settings.json` (a `command`
+   hook with `"command": "$HOME/.claude/hooks/wl-session-context.sh"`). Edit the JSON with the
+   user's confirmation.
+3. **Status line**: if the user wants the `📌WL#<id>` segment, copy `integrations/statusline-wl.sh`
+   to `~/.claude/` and have their status-line command pipe its stdin through it (it appends the
+   segment). If `wl` isn't on the hook/status-line PATH, set `WL_BIN` to the wl binary.
+
+`<skill-dir>` is wherever this skill is installed (e.g. `~/.claude/skills/worklog-cli/`). The
+human-facing walkthrough + the JSON snippet are in the shipped help topic too: `wl help agent`.

@@ -994,6 +994,19 @@ def _agent_context_line(con, sid):
         return ""
     return f"{node['id']}\t{node['title']}"
 
+def _agent_hook_json(con, sid):
+    """The current binding as a Claude Code `UserPromptSubmit` hook payload (JSON), or "" if
+    unbound. Lets the shipped context hook emit valid JSON without `jq` — wl owns the escaping.
+    The message is intentionally short (the agent re-reads it); titles are escaped by json.dumps."""
+    line = _agent_context_line(con, sid)
+    if not line:
+        return ""
+    nid, _, title = line.partition("\t")
+    msg = (f"📌 This session is bound to WL#{nid}: {title}. "
+           f"Keep this session's work on it; prefer logging progress to WL#{nid}.")
+    return json.dumps({"hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit", "additionalContext": msg}}, ensure_ascii=False)
+
 def _record_bind_history(con, nid, sid):
     """Append-only record that session `sid` was bound to node `nid` (light design).
 
@@ -1078,9 +1091,11 @@ def cmd_agent(args, con):
         out(_c(f"✓ unbound (session {sid[:8]}…)" if n else f"(session {sid[:8]}… 本来就没绑定)", "meta"))
         return
     if sub == "context":
-        # Machine output for integrations (the context hook): `<node_id>\t<title>` or empty.
-        # Plain print (not `out`) — consumed by scripts, not rendered.
-        print(_agent_context_line(con, _current_session_id()))
+        # Machine output for integrations (the context hook): a `<node_id>\t<title>` line, or
+        # with --hook the ready-to-emit UserPromptSubmit JSON (so the hook needs no `jq`). Empty
+        # when unbound. Plain print (not `out`) — consumed by scripts, not rendered.
+        sid = _current_session_id()
+        print(_agent_hook_json(con, sid) if getattr(args, "hook", False) else _agent_context_line(con, sid))
         return
     # bare `wl agent` → show the current session's binding
     sid = _agent_need_sid()

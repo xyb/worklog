@@ -47,34 +47,33 @@ the conversation that touched it.
 
 ## Wiring it up: status line + context hook (optional)
 
-`wl agent` only stores the binding. To make it *visible* and *known to the agent*, wire two
-small pieces that read the prop straight from the DB with `sqlite3` (fast — no `wl` spawn per
-refresh). The reverse lookup (session id → task) is one query, where `$DB` is `$WORKLOG_DB` or
-`~/.local/share/worklog/worklog.db`:
+`wl agent` only stores the binding. Two small integrations make it *visible* (status bar
+`📌WL#<id>`) and *known to the agent* (injected each time the binding changes). Both ship with
+the worklog-cli skill under `integrations/` and depend only on `wl` + POSIX `sh`/`sed` — **no
+`jq`, no `sqlite3` CLI**:
 
-  sqlite3 "$DB" "SELECT node_id FROM prop WHERE key='agent_session.claude'
-                 AND value='<session-id>' AND deleted_at IS NULL LIMIT 1;"
+- `wl-session-context.sh` — a `UserPromptSubmit` hook.
+- `statusline-wl.sh` — a status-line segment printing ` 📌WL#<id>`.
 
-**1. Status line — show `📌WL#<id>`.** Claude Code passes its status-line command a JSON blob
-with `session_id` on stdin; add a segment:
+The query they rely on is `wl agent context` — it prints the current session's binding as a
+machine line `<id>\t<title>` (empty if unbound), or with `--hook` the ready-to-emit
+`UserPromptSubmit` JSON (so the hook needs no `jq`; `wl` does the escaping).
 
-  sid=$(echo "$input" | jq -r '.session_id // empty')
-  bound=$(sqlite3 "$DB" "SELECT node_id FROM prop WHERE key='agent_session.claude' AND value='$sid' AND deleted_at IS NULL LIMIT 1;")
-  [ -n "$bound" ] && printf ' 📌WL#%s' "$bound"
+**Install the context hook:**
 
-**2. Context hook — keep the agent anchored, cheaply.** A `UserPromptSubmit` hook that injects
-the bound task — but only when the binding *changes*, not every turn (re-injecting an unchanged
-binding each prompt just burns tokens). Use `wl agent context`, which prints the current session's
-binding as a machine line `<id>\t<title>` (empty if unbound) — the one query, owned by `wl`, so
-the hook never hand-writes SQL:
+  mkdir -p ~/.claude/hooks
+  cp <skill>/integrations/wl-session-context.sh ~/.claude/hooks/ && chmod +x ~/.claude/hooks/wl-session-context.sh
 
-  cache="$STATE/$sid"                       # $STATE = $XDG_STATE_HOME/worklog/agent
-  [ -f "$cache" ] && exit 0                 # cached → unchanged → silent (no wl, no DB)
-  line=$(WL_SESSION_ID="$sid" wl agent context); printf '%s' "$line" >"$cache"
-  [ -n "$line" ] && printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"bound to WL#%s: %s"}}' "${line%%	*}" "${line#*	}"
+then register it in `~/.claude/settings.json` under `hooks.UserPromptSubmit` (a `command` hook
+running `$HOME/.claude/hooks/wl-session-context.sh`). If `wl` isn't on the hook's PATH, set
+`WL_BIN` to the binary.
 
-`wl agent set` / `wl agent rm` **delete `$STATE/$sid`** on every bind / rebind / unbind, so the
-next prompt re-fetches and re-injects. The common path touches neither the DB nor `wl` — just a
-file existence check. Register the hook in `~/.claude/settings.json` under `hooks.UserPromptSubmit`.
-(The status line, which must stay current on every refresh, keeps the direct `sqlite3` lookup above;
-the hook caches because it only needs to act on change.)
+**Why it stays cheap.** The hook caches the binding per session under `$XDG_STATE_HOME/worklog/
+agent/<sid>` and injects only when it *changes* (re-injecting an unchanged binding every prompt
+just burns tokens). `wl agent set` / `rm` delete that cache on every bind / rebind / unbind, so
+the next prompt re-fetches and re-injects. On the common (cached) path it spawns nothing.
+
+**Status line.** Pipe your status-line command's stdin JSON through `statusline-wl.sh`; it appends
+` 📌WL#<id>`. It calls `wl` per refresh (simple, dependency-light). For a faster segment, query
+the DB directly instead: `sqlite3 "$DB" "SELECT node_id FROM prop WHERE key='agent_session.claude'
+AND value='$sid' AND deleted_at IS NULL LIMIT 1;"` (needs `sqlite3` + a way to read `session_id`).

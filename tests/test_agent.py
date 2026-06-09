@@ -139,6 +139,19 @@ class TestAgent:
         _, out, _ = cli("agent", "context")
         assert out.strip() == "1\thello task"       # <id>\t<title>
 
+    def test_context_hook_emits_valid_json(self, cli, monkeypatch):
+        import json as _json
+        self._sess(monkeypatch, "sess-hook")
+        cli("add", 'tricky "quote" task', "-k", "task")
+        _, out, _ = cli("agent", "context", "--hook")
+        assert out.strip() == ""                     # unbound → empty
+        cli("agent", "1")
+        _, out, _ = cli("agent", "context", "--hook")
+        payload = _json.loads(out)                   # valid JSON (title quotes escaped by wl)
+        assert payload["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
+        ctx = payload["hookSpecificOutput"]["additionalContext"]
+        assert "WL#1" in ctx and 'tricky "quote" task' in ctx
+
     def test_set_and_rm_invalidate_the_session_cache(self, cli, tmp_path, monkeypatch):
         state = tmp_path / "state"
         monkeypatch.setenv("XDG_STATE_HOME", str(state))
