@@ -209,7 +209,7 @@ dev ai sync strategy reflection reading family health morning_check slack_scan
 
 ## 15. 测试约定
 
-- 每个命令一个 `Test<Cmd>` 类，`tests/test_wl.py`
+- 每个命令一个 `Test<Cmd>` 类，放对应的 `tests/test_<area>.py`
 - `conftest.py` 的 `cli` fixture：每测试独立临时 DB（`WORKLOG_DB` env + tmp_path），`run_cli` 抓 stdout/stderr/exit_code
 - 新命令必须覆盖：正常路径 + 边界（不存在 id / 空库 / 过滤无命中）
 - 改约定导致旧测试断言失效 → 同步更新断言，别留红
