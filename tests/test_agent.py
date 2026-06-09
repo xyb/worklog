@@ -109,6 +109,18 @@ class TestAgent:
         assert _bound_value(tmp_db, 1) == "sess-aaa"
         assert _history_metrics(tmp_db, 1) == []
 
+    def test_later_bind_backfills_missing_history(self, cli, tmp_db, monkeypatch):
+        # A pair bound without a history record (early auto-bind / --no-record) gets recorded on a
+        # later bind — dedup is by the metric, not "is the prop already set".
+        self._sess(monkeypatch, "sess-aaa")
+        cli("add", "t", "-k", "task")
+        cli("agent", "1", "--no-record")           # bound, no history
+        assert _history_metrics(tmp_db, 1) == []
+        cli("agent", "1")                          # re-bind same pair → backfills history
+        assert len(_history_metrics(tmp_db, 1)) == 1
+        cli("agent", "1")                          # and again → no duplicate
+        assert len(_history_metrics(tmp_db, 1)) == 1
+
     def test_record_writes_one_history_metric(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-full-1234-xyz")
         cli("add", "t", "-k", "task")

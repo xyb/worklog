@@ -1007,6 +1007,13 @@ def _agent_hook_json(con, sid):
     return json.dumps({"hookSpecificOutput": {
         "hookEventName": "UserPromptSubmit", "additionalContext": msg}}, ensure_ascii=False)
 
+def _has_agent_history(con, nid, sid):
+    """Whether the (node, session) bind is already in the history trail — dedup by the actual
+    `agent_session` metric, so re-binding the same pair never duplicates it, yet a pair that
+    was bound without a history record still gets one on a later bind."""
+    return _db.query_one(con, "metric", cols="id", node_id=nid,
+                         tag=_AGENT_METRIC_TAG, value_text=sid) is not None
+
 def _record_bind_history(con, nid, sid):
     """Append-only record that session `sid` was bound to node `nid` (light design).
 
@@ -1058,18 +1065,21 @@ def cmd_agent(args, con):
         if not _node_exists(con, nid):
             sys.exit(f"✗ node #{nid} not found")
         cur = _db.query_one(con, "prop", cols="value", node_id=nid, key=_AGENT_KEY)
-        already = bool(cur and cur["value"] == sid)
         if cur and cur["value"] != sid:
             out(_c(f"⚠ #{nid} 已被 session {cur['value'][:8]}… 绑定,将被覆盖", "later"))
+        # Record the history trail unless told not to AND it isn't already recorded — dedup by the
+        # actual metric (not "is the prop already set"), so a pair bound before history existed
+        # (an early auto-bind, or a --no-record bind) still gets recorded on a later bind.
+        do_record = getattr(args, "record", True) and not _has_agent_history(con, nid, sid)
         _db.delete(con, "prop", key=_AGENT_KEY, value=sid)   # one session → one node (live pointer)
         _upsert_prop(con, nid, _AGENT_KEY, sid)
-        if getattr(args, "record", False) and not already:
-            _record_bind_history(con, nid, sid)   # append-only history trail (light design)
+        if do_record:
+            _record_bind_history(con, nid, sid)   # append-only history trail
         con.commit()
         _invalidate_agent_cache(sid)   # binding changed → integrations re-fetch via `wl agent context`
         title = (_db.get(con, "node", nid) or {})["title"]
         line = _c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{_AGENT_APP}:{sid[:8]}…", "meta") + " · " + _short(title)
-        if getattr(args, "record", False) and not already:
+        if do_record:
             line += _c("  +history", "meta")
         out(line)
         return
