@@ -26,7 +26,7 @@ Likewise, before adding a dev todo under a project, check that project's existin
 | **Daily three** (the daily flow) | `wl goal "deliver X today"` (read = `wl goal`) / `wl recap "end-of-day summary..."` (read = `wl recap`) / `wl tick <id> [--note "..."] [--done]` to check in. **Auto-creates today's day node** (hung under the current ISO week), no need to manually `wl add ... -k day`. `wl recap`/`wl goal` write a history-preserving `log.tag` log (latest = current); `wl day` shows "(written MM-DD HH:MM)" from the recap log's own time, and if more plain-note logs land after it, warns "⚠ N changes after recap, consider rewriting". Back-fill a past day with `wl recap --date YYYY-MM-DD "..."` (`goal --date` is not available — recap only) |
 | Add a task / project / habit | `wl add "..." -k task -p A -t work,P0 --parent N` |
 | Add a task with scheduled time (precise or fuzzy) | `wl add "..." --scheduled 2026-06-15` / `--scheduled 2026-06` / `next-week` / `next-month` / `someday` |
-| Log progress on a task | `wl log <id> "..."` (backfill old logs with `--date 2026-05-06`, or use `import` with body `"2026-05-06 content"` so logs land on the original day, not today). **Logging a TODO auto-promotes it to DOING** ("I logged → I'm working on it"); add **`--keep-status`** to just record a note without changing status (e.g. a side observation on a not-yet-started task) |
+| Log progress on a task | `wl log <id> "..."` (backfill old logs with `--date 2026-05-06`, or use `import` with body `"2026-05-06 content"` so logs land on the original day, not today). **Logging a TODO auto-promotes it to DOING**; `--keep-status` logs without changing status |
 | Record a number / measurement / check-in | `wl metric add <id> glucose 5.4 --unit mmol/L` / `wl metric ls <id>` / `wl metric edit #M7` / `wl metric rm #M7`; inline: `wl log <id> "..." --metric 'pullups 8'`. Habit done-today = a `checkin` metric (`wl tick`/`wl checkin`). Detail → `references/features.md` |
 | Mark done / defer (fuzzy time ok) / start clock | `wl done <id>` / `wl defer <id> next-month` (also accepts `2026-Q3` / `someday` / precise date) / `wl start <id>` `wl stop <id>` |
 | Schedule task to a date / repeat (drives "planned") | `wl sched <id> 2026-06-15` (also accepts `tomorrow` / `day-after-tomorrow`) / `--clear`. `--recur` supports period start / end (`daily` / `weekly:Mon,Fri` / `monthly:-1` / `quarterly:1-15` / `yearly:-1`; `-1` = period end) — full grammar in `references/features.md`. A task scheduled to a day shows up in `wl day` as "planned · not yet logged" even with no log |
@@ -41,7 +41,7 @@ Likewise, before adding a dev todo under a project, check that project's existin
 | Focus a node's parents/children | `wl focus <id>` / `wl ancestors <id>` / `wl descendants <id>` |
 | Link a vault doc | `wl link <id> "doc name"` (no `.md` suffix); remove one with `wl unlink <id> "doc name"` |
 | Edit a node's tags | `wl tag <id> +work -planned` (bare word = add; no ops = list). **Edits the real tag field** — do NOT `wl set <id> tags ...` (rejected; it would create a misleading shadow prop). For bulk, `apply ~ #id / +tag` or `import add_tags/remove_tags` |
-| Bind / show which task **this agent session** is on | `wl agent <id>` binds the current Claude Code session to a node (session id from `$WL_SESSION_ID` / `$CLAUDE_CODE_SESSION_ID`, fails closed if neither); `wl agent` shows it · `wl agent ls` lists all · `wl agent rm` unbinds. Stored as the `agent_session.claude` prop = **live pointer** (one session → one node, no new table). Each bind **also records history by default** (one log + an `agent_session` metric with the full sid; `--no-record` opts out) — recover past sessions a node was worked under with `wl metric ls <id> --tag agent_session --all`. A status line + a `UserPromptSubmit` hook can surface the live binding — the scripts ship with this skill under `integrations/` (jq-free; use `wl agent context [--hook]`), and **`references/setup.md` has the check-&-install steps** the assistant runs on request (`wl help agent` is the human walkthrough) |
+| Bind / show which task **this agent session** is on | `wl agent <id>` binds this session to a node (id from `$WL_SESSION_ID` / `$CLAUDE_CODE_SESSION_ID`); `wl agent` shows · `ls` lists all · `rm` unbinds. Stored as the `agent_session.claude` prop (live pointer, one session→one node). Each bind also records history by default (`--no-record` to skip) — past sessions via `wl metric ls <id> --tag agent_session --all`. Status-line + hook scripts ship under `integrations/` (jq-free; `wl agent context [--hook]`); install steps in `references/setup.md`, walkthrough in `wl help agent` |
 | List log stream | `wl logs` (**default: last 7 days only**, to avoid flooding); `--since/--until/--date` for explicit range; `--group day [--by project/priority/plan]` for daily replay |
 
 Each command's `wl <cmd> --help` is the per-command quick reference; full grammar for the
@@ -75,8 +75,8 @@ typical day-handling workflow → `references/bulk.md`.
 
 ## What NOT to do
 
-- **⚠️ Confirm an id is a `wl` node id before any mutating command** (`done`/`log`/`link`/`rm`/`reopen`/`tick`/`cancel`/`defer`/`unlog`). A bare `#NNN` is ambiguous — the harness TaskList, a Claude Code session/task, Linear, a PR/issue all have their own `#NNN` spaces that collide numerically. `wl show <id>` first and check the title is the node you mean; using another space's id mutates the wrong node and corrupts real data.
-- **⚠️ For "today", let `wl` read the system clock — never hand-type the date.** Query today with **bare `wl day`** (no date arg; same for `wl recap` / `wl agenda`); set to today with **`today`**, not `YYYY-MM-DD` (`wl sched <id> today`, `wl add ... --sched today`, `wl log` with no `--date`). An AI's notion of "today" drifts to its session-start date — bare `wl day` / `today` immunizes against that. Only pass an explicit `YYYY-MM-DD` for a *specific* past/future day, and run `date "+%Y-%m-%d"` first to confirm real today. (Distinct from writing absolute dates in human-facing log/doc **text** — that stays `YYYY-MM-DD`.) See memory `feedback_wl_day_no_arg_for_today`.
+- **⚠️ Verify an id is a `wl` node before any mutating command.** A bare `#NNN` collides with the harness TaskList / session / Linear / PR id spaces — `wl show <id>` first, or you mutate the wrong node.
+- **⚠️ For dates near now, let `wl` read the clock — don't hand-type them** (an AI's "today" drifts to its session start). Today = bare `wl day`, set with `today`; nearby days = `yesterday`/`tomorrow` or signed deltas (`wl day -1`, `wl sched 42 +2`, `wl log 42 "..." --date -1`). Use `YYYY-MM-DD` only for a fixed/far date (run `date` first). Absolute dates in human-facing **text** still stay `YYYY-MM-DD`.
 - **No silent bulk delete / modification** — confirm with the user via `wl show <id>` before destructive changes
 - **Don't bypass `wl` and `sqlite3` the DB directly for writes** — the DB (default `~/.local/share/worklog/worklog.db`, or wherever `$WORKLOG_DB` / `--db PATH` points) is the source of truth; schema lives in `DESIGN.md`
 - **Don't run `wl reset`** (drops the DB) unless explicitly requested
@@ -85,18 +85,12 @@ typical day-handling workflow → `references/bulk.md`.
 
 ## Where a fact goes: prop vs metric vs log
 
-Sort by *"will I filter / group / stat over it across nodes?"* + cardinality (full rule in
-`DESIGN.md` §2 / `wl help prop` / `wl help metric`):
+Ask *"will I filter/stat over it across nodes?"* + cardinality (full rule: `DESIGN.md` §2 / `wl help prop`):
 
-- **`prop`** — a single-value **query dimension** you slice the tree by (`owner`, `project`, the
-  one identifying ref a task maps to, the `release` it shipped in → "which tasks shipped in
-  v0.7.0" is one prop query). Scarce, high-value; **don't flood it with process noise**.
-- **`log`** — the human **process record** (a dev task's many intermediate commits go in the body).
-- **`metric`** — those process records made structured/queryable per node: `wl metric add <id>
-  commit <hash>` (or `--metric 'commit <hash>'`), then `wl metric ls <id> --tag commit`. Many-per-
-  node, append-only — *not* a cross-node filter dimension.
-- Worked example (commit / PR / release ↔ task): **many** commits → log (+ a `commit` metric for
-  structure); a **single** identifying PR/commit, or the **release** → prop.
+- **`prop`** — single-value **query dimension** (`owner`, `project`, the one ref a task maps to, the `release` it shipped → "which tasks shipped in v0.7.0" = one query). Don't flood with process noise.
+- **`log`** — the process record (a dev task's many commits).
+- **`metric`** — those records made queryable per node: `wl metric add <id> commit <hash>`, then `wl metric ls <id> --tag commit`. Many-per-node, not a cross-node filter.
+- commit/PR/release: many commits → log (+ a `commit` metric for structure); a single identifying PR/commit or the release → prop.
 
 ## Vault link (knowledge ⇄ execution decoupling)
 
