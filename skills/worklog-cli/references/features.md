@@ -143,6 +143,13 @@ wl ls --ids 39 41 270                 # specific ids (like ls f1 f2)
 wl ls --all                           # remove limit + include DONE/CANCELED
 ```
 
+### `wl show -o json` — machine-readable node detail
+
+`wl show <id> -o json` emits the full node + relations (tags / ancestors / props / links /
+schedule / children / logs / metrics / clock) as JSON — one object per id, an array for several,
+full timeline. Field names = DB columns (stable); `*_at` are UTC, `*_date` local. Pull an exact
+field instead of parsing the text view (e.g. `wl show 42 -o json | jq .status`).
+
 ### log/timeline default-tail to N (so long tasks don't blast screen)
 
 | Command | Default tail | Disable | Full expand | Custom |

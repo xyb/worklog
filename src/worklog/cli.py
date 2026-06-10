@@ -273,6 +273,8 @@ def _args_node_show(p):
     p.add_argument("--timeline-tail", type=int, metavar="N",
                    help="only show the latest N timeline entries (default 5, with middle elided)")
     p.add_argument("--all-timelines", action="store_true", help="full timeline, no elision")
+    p.add_argument("-o", "--output", choices=["text", "json"], default="text",
+                   help="output format: text (default, rich) or json (machine-readable, full node + relations; one object per id, an array for several)")
     return p
 
 

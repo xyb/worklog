@@ -79,9 +79,62 @@ from .bulk import _VALID_FIND_FIELDS, _VALID_KINDS
 from .state import _ids_list
 from .views import _print_tree, _print_day_activity, _render_day_group, _scheduled_node_ids, _pinned_at
 
+def _node_to_dict(con, n):
+    """Full structured form of a node + its relations — the `wl show -o json` payload. Stable
+    field names (the DB columns) so it can serve as an API contract. Timestamp convention: `*_at`
+    are UTC instants (verbatim, as stored), `*_date` are local calendar days. Timeline data is
+    emitted in full (no tail elision) — machine output wants everything."""
+    nid = n["id"]
+    sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
+    return {
+        "id": nid,
+        "kind": n["kind"],
+        "title": n["title"],
+        "status": n["status"],
+        "priority": n["priority"],
+        "parent_id": n["parent_id"],
+        "body": n["body"],
+        "created_at": n["created_at"],          # UTC instant
+        "closed_at": n["closed_at"],            # UTC instant
+        "scheduled_date": n["scheduled_date"],  # local calendar day
+        "deadline_date": n["deadline_date"],    # local calendar day
+        "tags": _node_tags(con, nid),
+        "ancestors": [{"id": p["id"], "title": p["title"], "kind": p["kind"]}
+                      for p in _ancestors_chain(con, nid)[:-1]],
+        "props": {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)},
+        "links": [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid)],
+        "schedule": {
+            "dates": list(dict.fromkeys(r["on_date"] for r in sched_rows if r["on_date"])),
+            "rrules": list(dict.fromkeys(r["rrule"] for r in sched_rows if r["rrule"])),
+        },
+        "children": [{"id": c["id"], "title": c["title"], "kind": c["kind"],
+                      "status": c["status"], "priority": c["priority"]}
+                     for c in _db.query(con, "node", parent_id=nid, order="priority NULLS LAST, id")],
+        "logs": [{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]}
+                 for r in _db.query(con, "log", cols="id, logged_at, body, tag", node_id=nid, order="id")],
+        "metrics": [{"log_id": r["log_id"], "tag": r["tag"], "value_num": r["value_num"],
+                     "value_text": r["value_text"], "unit": r["unit"], "note": r["note"], "at": r["at"]}
+                    for r in _db.query(con, "metric", cols="log_id, tag, value_num, value_text, unit, note, at",
+                                       node_id=nid, order="id")],
+        "clock": [{"start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"]}
+                  for r in _db.query(con, "clock", cols="start_at, end_at, elapsed_sec", node_id=nid, order="id")],
+    }
+
+
 def cmd_show(args, con):
-    # multiple ids: show each in turn, blank-line separated; same rendering
     ids = _ids_list(args)
+    if getattr(args, "output", "text") == "json":
+        # machine-readable: one object per id, an array when several were asked for
+        nodes = []
+        for nid in ids:
+            n = _db.get(con, "node", nid)
+            if not n:
+                sys.exit(f"✗ node #{nid} not found")
+            nodes.append(_node_to_dict(con, n))
+        import json
+        print(json.dumps(nodes[0] if len(nodes) == 1 else nodes, ensure_ascii=False, indent=2))
+        return
+    # multiple ids: show each in turn, blank-line separated; same rendering
     for i, nid in enumerate(ids):
         if i > 0:
             print()

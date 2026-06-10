@@ -123,3 +123,51 @@ class TestShowSchedule:
         _, out, _ = cli("show", "1")
         sched_line = next(l for l in out.splitlines() if "schedule:" in l)
         assert sched_line.count("2026-06-02") == 1   # deduped at display, not shown twice
+
+
+class TestShowJson:
+    """`wl show -o json` — machine-readable full node + relations."""
+
+    def test_json_is_valid_object_with_core_fields(self, cli):
+        cli("add", "json task", "-k", "task", "-p", "A", "-t", "work,dev")
+        code, out, _ = cli("show", "1", "-o", "json")
+        import json
+        d = json.loads(out)
+        assert code == 0 and isinstance(d, dict)
+        assert d["id"] == 1 and d["kind"] == "task" and d["title"] == "json task"
+        assert d["priority"] == "A"
+        assert set(d["tags"]) == {"work", "dev"}
+
+    def test_json_includes_relations(self, cli):
+        cli("add", "proj", "-k", "project")               # 1
+        cli("add", "child", "-k", "task", "--parent", "1") # 2
+        cli("set", "1", "owner", "xyb")
+        cli("link", "1", "Design doc")
+        cli("log", "1", "did work", "--metric", "pullups 8")
+        _, out, _ = cli("show", "1", "-o", "json")
+        import json
+        d = json.loads(out)
+        assert d["props"] == {"owner": "xyb"}
+        assert d["links"] == ["Design doc"]
+        assert [c["id"] for c in d["children"]] == [2]
+        assert d["logs"] and d["logs"][0]["body"] == "did work"
+        assert d["metrics"] and d["metrics"][0]["tag"] == "pullups"
+
+    def test_json_single_object_multi_array(self, cli):
+        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")
+        import json
+        _, one, _ = cli("show", "1", "-o", "json")
+        assert isinstance(json.loads(one), dict)
+        _, many, _ = cli("show", "1", "2", "-o", "json")
+        arr = json.loads(many)
+        assert isinstance(arr, list) and [n["id"] for n in arr] == [1, 2]
+
+    def test_json_missing_id_errors(self, cli):
+        code, _, err = cli("show", "999", "-o", "json")
+        assert code != 0 and "not found" in err
+
+    def test_text_default_unchanged(self, cli):
+        cli("add", "plain", "-k", "task")
+        _, out, _ = cli("show", "1")
+        assert "#1" in out and "plain" in out
+        assert not out.lstrip().startswith("{")   # default is rich text, not json
