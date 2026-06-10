@@ -1106,10 +1106,19 @@ def cmd_agent(args, con):
         if not rows:
             out(_c("(no session bindings)", "meta"))
             return
+        # pad the #id and <agent>:<sid> columns to a uniform width so the ← / · / title columns
+        # line up — node ids and agent names differ in length, which left them ragged.
+        items = []
         for r in rows:
             node = _db.get(con, "node", r["node_id"])
             title = node["title"] if node else "(deleted)"
-            out(_c(f"#{r['node_id']}", "id") + " ← " + _c(f"{r['key'][len(_AGENT_PREFIX):]}:{r['value'][:8]}…", "meta") + " · " + _short(title))
+            idstr = f"#{r['node_id']}"
+            seg = f"{r['key'][len(_AGENT_PREFIX):]}:{r['value'][:8]}…"
+            items.append((idstr, seg, title))
+        idw = max(len(i[0]) for i in items)       # segment text is ASCII (id/agent/hex sid) + one
+        segw = max(len(i[1]) for i in items)      # `…` (1 col), so len == display width here
+        for idstr, seg, title in items:
+            out(_c(idstr.ljust(idw), "id") + " ← " + _c(seg.ljust(segw), "meta") + " · " + _short(title))
         return
     if sub == "rm":
         sid = _agent_need_sid()

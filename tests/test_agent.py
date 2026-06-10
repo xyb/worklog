@@ -54,6 +54,23 @@ class TestAgent:
         _, out, _ = cli("agent", "ls")
         assert "#1" in out and "#2" in out and "claude:" in out
 
+    def test_ls_columns_aligned_across_id_and_agent_widths(self, cli, monkeypatch):
+        """ls pads #id and <agent>:<sid> so the ← / · columns line up despite differing widths."""
+        self._sess(monkeypatch)
+        for i in range(12):
+            cli("add", f"t{i}", "-k", "task")       # ids #1..#10 (1-digit) and #11/#12 (2-digit)
+        monkeypatch.setenv("WL_SESSION_ID", "sess1"); monkeypatch.setenv("WL_AGENT", "claude")
+        cli("agent", "1")
+        monkeypatch.setenv("WL_SESSION_ID", "sess2"); monkeypatch.setenv("WL_AGENT", "codex")
+        cli("agent", "12")                          # 2-digit id + shorter agent name
+        _, out, _ = cli("agent", "ls")
+        lines = [ln for ln in out.splitlines() if "←" in ln]
+        assert len(lines) == 2
+        # the ← separator must sit at the same column on every row
+        assert len({ln.index("←") for ln in lines}) == 1
+        # and so must the · before the title
+        assert len({ln.index("·") for ln in lines}) == 1
+
     def test_conflict_warns_when_node_held_by_other_session(self, cli, monkeypatch):
         cli("add", "a", "-k", "task")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
