@@ -69,6 +69,16 @@ class TestUserAliasesIni:
         # subcommand argument condition should include main name + alias
         assert "__fish_seen_subcommand_from day d" in out
 
+    def test_fish_completion_descr_with_quote_is_single_quoted(self, tmp_path, monkeypatch):
+        """a help string with a literal `"` (the alias help: `wl alias add w "day -t work"`)
+        must not break fish `complete`. Descriptions are wrapped in SINGLE quotes (where `"` is
+        literal), so the generated script has no `-d "` and the embedded quote survives verbatim.
+        Regression: double-quoted `-d` made fish read `-t` inside the help as an option."""
+        wl = self._setup_aliases(tmp_path, monkeypatch, "[aliases]\n")
+        out = wl._generate_fish_completion(wl.build_parser())
+        assert ' -d "' not in out                       # every description is single-quoted
+        assert 'wl alias add w "day -t work"' in out      # the quote-bearing help is preserved
+
     def test_alias_in_bash_completion(self, tmp_path, monkeypatch):
         wl = self._setup_aliases(tmp_path, monkeypatch,
                                   "[aliases]\nd = day\n")

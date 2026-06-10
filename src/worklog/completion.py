@@ -154,7 +154,7 @@ def _fish_one_complete(prefix, action, sub_cmd=None):
 
     line = f"{prefix} {opt_str}"
     if descr:
-        line += f' -d "{_fish_escape(descr)}"'
+        line += f" -d '{_fish_escape(descr)}'"
 
     # value-completion source: choices > helper map > default (none)
     val_src = None
@@ -214,7 +214,7 @@ def _fish_positional_complete(parser, sub_cmd):
             descr = (a.help or "").split("\n")[0].strip()
             line = f"{prefix} -f -a \"{val_src}\""
             if descr:
-                line += f' -d "{_fish_escape(descr)}"'
+                line += f" -d '{_fish_escape(descr)}'"
             lines.append(line)
     return lines
 
@@ -244,12 +244,12 @@ def _generate_fish_completion(parser):
     lines.append("")
     lines.append("# --- subcommand names (+ aliases) ---")
     for name, descr, _sub, aliases in sub_metas:
-        descr_part = f' -d "{_fish_escape(descr)}"' if descr else ""
+        descr_part = f" -d '{_fish_escape(descr)}'" if descr else ""
         lines.append(f'complete -c wl -n "__fish_use_subcommand" -a "{name}"{descr_part}')
         for alias in aliases:
             alias_descr = f"{descr} (= {name})" if descr else f"alias of {name}"
             lines.append(f'complete -c wl -n "__fish_use_subcommand" -a "{alias}"'
-                         f' -d "{_fish_escape(alias_descr)}"')
+                         f" -d '{_fish_escape(alias_descr)}'")
 
     # per-subcommand arguments -- condition includes the primary name + all aliases
     lines.append("")
