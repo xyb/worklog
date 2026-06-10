@@ -208,6 +208,23 @@ def _pri_marker(priority):
     return _c("[# ]", "meta")
 
 
+def _hang_wrap(prefix, prefix_cols, title, *, hl=None):
+    """Render `prefix` + a node `title` that wraps per the title mode (the single wrap utility,
+    shared by `_node_line` and the day/tree custom renderers so they all behave the same).
+    `prefix` is the styled left part of the line; `prefix_cols` is the display width of its PLAIN
+    text. `wrap` (default): fold the title, continuation lines hang-indented to `prefix_cols`;
+    `clip`: one line truncated with `…`. Caller appends any trailing suffixes (clock/tags/…)."""
+    render = (lambda t: _hl(t, hl)) if hl else _c
+    if _title_mode() == "clip":
+        return prefix + render(_truncate_log_body(title, indent_cols=prefix_cols))
+    wlines = _wrap_display(title, _term_width() - prefix_cols)
+    cont = " " * prefix_cols
+    s = prefix + render(wlines[0])
+    for ln in wlines[1:]:
+        s += "\n" + cont + render(ln)
+    return s
+
+
 def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, planned=False, clock=True, sched=False, hl=None):
     """Unified node-line rendering (sole source per DESIGN.md §6).
 
@@ -226,17 +243,7 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
     # hanging-indent column = display width of the plain prefix (everything left of the title).
     # Continuation lines (wrap mode) align here so a long title doesn't break tree indentation.
     prefix_cols = _display_width(f"{indent}{mk} {pri_plain} #{n['id']} {kind_plain}")
-    _render = (lambda t: _hl(t, hl)) if hl else _c
-    if _title_mode() == "clip":
-        # one line: truncate the title to the remaining width, append … (same budget as log bodies)
-        s = prefix + _render(_truncate_log_body(n["title"], indent_cols=prefix_cols))
-    else:
-        # default: wrap onto multiple lines, continuation lines hang-indented under the title
-        wlines = _wrap_display(n["title"], _term_width() - prefix_cols)
-        cont = " " * prefix_cols
-        s = prefix + _render(wlines[0])
-        for ln in wlines[1:]:
-            s += "\n" + cont + _render(ln)
+    s = _hang_wrap(prefix, prefix_cols, n["title"], hl=hl)
     if planned and _has_tag(con, n["id"], "planned"):
         s += " " + _c("·planned", "planned")
     if sched and n["scheduled_date"]:

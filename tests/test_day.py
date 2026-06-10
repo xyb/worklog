@@ -347,3 +347,27 @@ class TestDayJson:
         _, out, _ = cli("day", "2099-01-01", "-o", "json")
         d = json.loads(out)
         assert d["date"] == "2099-01-01" and d["tasks"] == []
+
+
+class TestDayTitleWrap:
+    """wl day's custom task-line renderer wraps long titles with hang-indent (shared _hang_wrap)."""
+
+    def test_day_long_title_wraps_hang_indented(self, cli):
+        from worklog import helpers
+        long = "x" * 200
+        cli("add", long, "-k", "task", "-t", "work")
+        cli("sched", "1", "today")
+        cli("log", "1", "did")
+        from datetime import date
+        helpers._set_width_cap(50)
+        try:
+            _, out, _ = cli("--color", "never", "day", date.today().isoformat())
+        finally:
+            helpers._set_width_cap(None)
+        body = [ln for ln in out.splitlines() if "x" in ln and "did" not in ln]
+        assert len(body) > 1                       # the title wrapped onto multiple lines
+        first = body[0]
+        col = first.index("xxx")                    # where the title text starts
+        for cont in body[1:]:
+            assert cont.startswith(" " * col)       # continuations hang-indent to the title column
+            assert cont.strip().startswith("x")
