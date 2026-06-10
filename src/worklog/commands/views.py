@@ -176,17 +176,20 @@ _DAY_META = {
 
 
 def _meta_blockquote(body, marker, indent="  "):
-    """Render a day-header meta field as a *continued* blockquote: every line — both
-    soft-wrapped continuations and embedded newlines — carries the `<indent>> ` prefix, so a long
-    or multi-line recap reads as one quote block instead of breaking flush-left after line 1.
-    The marker (🎯 / Recap: / …) rides on the first line. Soft-wraps by display width (CJK-aware)."""
+    """Render a day-header meta field: only the FIRST line carries the `<indent>> ` prefix; every
+    continuation (soft-wrap or embedded newline) is indented with plain spaces to align under the
+    text after `> ` — cleaner than repeating `> ` on every line. The marker (🎯 / Recap: / …) rides
+    on the first line. Soft-wraps by display width (CJK-aware)."""
     qp = f"{indent}> "
+    cont = " " * _display_width(qp)   # continuation lines align under the `> ` content column
     avail = max(8, _term_width() - _display_width(qp))
     paras = (marker + (body or "")).split("\n")
     lines = []
+    first = True
     for para in paras:
         for chunk in _wrap_display(para, avail):
-            lines.append(qp + chunk)
+            lines.append((qp if first else cont) + chunk)
+            first = False
     return "\n".join(lines)
 
 

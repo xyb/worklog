@@ -275,13 +275,19 @@ class TestDayMetaMarkersAndGoalProgress:
         assert "📅 This week: O" in out
 
     def test_recap_blockquote_continuation(self, cli):
-        """a multi-line recap keeps the `> ` prefix on every line (no flush-left break)."""
+        """only the FIRST line carries `> `; continuation lines align (spaces) under the `> `
+        content column — not flush-left, not a repeated `> ` on every line."""
         today = self._day(cli, summary="line one\nline two\nline three")
         _, out, _ = cli("day", today)
-        meta_lines = [ln for ln in out.splitlines() if "line one" in ln or "line two" in ln or "line three" in ln]
-        assert len(meta_lines) == 3
-        for ln in meta_lines:
-            assert ln.lstrip().startswith(">")   # every continuation line is quoted, not flush-left
+        l1 = next(ln for ln in out.splitlines() if "line one" in ln)
+        l2 = next(ln for ln in out.splitlines() if "line two" in ln)
+        l3 = next(ln for ln in out.splitlines() if "line three" in ln)
+        assert "> " in l1                              # first line quoted
+        assert ">" not in l2 and ">" not in l3         # continuations carry no `>`
+        # continuations align under the `> ` content (same column as line 1's text start)
+        col = l1.index(">") + 2                         # where text after "> " begins
+        assert l2.startswith(" " * col) and l2[col] != " "
+        assert l3.startswith(" " * col) and l3[col] != " "
 
     def test_goal_progress_partial(self, cli):
         cli("add", "a", "-k", "task")   # 1

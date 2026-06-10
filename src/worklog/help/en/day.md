@@ -6,8 +6,8 @@ see_also: planning, para, status
 `wl day [date]` reproduces one day (default today): the day's header meta at the top — each
 field with its own marker (🎯 goal · 📝 recap · ⭐ top5 · 📅 week overview), a goal that names
 task `#ids` showing ` [done/total]` progress — then work / personal / other buckets →
-planned/unplanned → task → its logs that day. Long/multi-line recaps stay quoted (`>`) on every
-line.
+planned/unplanned → task → its logs that day. A long/multi-line recap carries `> ` only on its
+first line; continuation lines align (spaces) under the `> ` content column.
 
   wl day                     today
   wl day 2026-05-30          a past day (works for history)
