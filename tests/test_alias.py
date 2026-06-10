@@ -29,6 +29,18 @@ class TestAlias:
         _, out, _ = cli("alias", "ls")
         assert "c" in out and "checkin" in out
 
+    def test_add_multi_token_target(self, cli, monkeypatch, tmp_path):
+        """an alias may carry args: `wl alias add w "day -t work"` stores the full target."""
+        f = _alias_file(monkeypatch, tmp_path)
+        cli("alias", "add", "w", "day -t work")
+        assert _read(f) == {"w": "day -t work"}
+
+    def test_add_multi_token_rejects_bad_first_word(self, cli, monkeypatch, tmp_path):
+        f = _alias_file(monkeypatch, tmp_path)
+        _, _, err = cli("alias", "add", "x", "notacommand -t work")
+        assert "unknown command" in err
+        assert not f.exists() or _read(f) == {}
+
     def test_add_rejects_unknown_target(self, cli, monkeypatch, tmp_path):
         f = _alias_file(monkeypatch, tmp_path)
         _, _, err = cli("alias", "add", "x", "notacommand")

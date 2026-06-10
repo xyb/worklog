@@ -86,6 +86,70 @@ class TestUserAliasesIni:
         # case includes day|d
         assert "day|d)" in out
 
+    def test_load_aliases_multi_token_keyed_by_first_word(self, tmp_path, monkeypatch):
+        """an arg-carrying target (`w = day -t work`) registers the alias under its first word."""
+        wl = self._setup_aliases(tmp_path, monkeypatch,
+                                  "[aliases]\nw = day -t work\np = day -t personal\n")
+        loaded = wl._load_user_aliases()
+        assert loaded == {"day": ["w", "p"]} or loaded == {"day": ["p", "w"]}
+
+    def test_parser_registers_multi_token_alias_under_target(self, tmp_path, monkeypatch):
+        wl = self._setup_aliases(tmp_path, monkeypatch, "[aliases]\nw = day -t work\n")
+        parser = wl.build_parser()
+        import argparse
+        sa = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+        assert "w" in sa.choices and sa.choices["w"] is sa.choices["day"]
+
+
+class TestExpandUserAlias:
+    """`_expand_user_alias` — the argv splice that makes `wl w` == `wl day -t work`."""
+
+    def test_single_token(self):
+        from worklog.cli import _expand_user_alias
+        assert _expand_user_alias(["d"], {"d": "day"}) == ["day"]
+
+    def test_multi_token(self):
+        from worklog.cli import _expand_user_alias
+        assert _expand_user_alias(["w"], {"w": "day -t work"}) == ["day", "-t", "work"]
+
+    def test_user_args_appended_after_expansion(self):
+        from worklog.cli import _expand_user_alias
+        assert _expand_user_alias(["w", "2026-06-10"], {"w": "day -t work"}) == \
+            ["day", "-t", "work", "2026-06-10"]
+
+    def test_global_flags_before_alias_are_skipped(self):
+        from worklog.cli import _expand_user_alias
+        # --color consumes its value; the alias after it still expands
+        assert _expand_user_alias(["--color", "never", "w"], {"w": "day -t work"}) == \
+            ["--color", "never", "day", "-t", "work"]
+
+    def test_non_alias_subcommand_untouched(self):
+        from worklog.cli import _expand_user_alias
+        assert _expand_user_alias(["day", "-t", "work"], {"w": "day -t work"}) == \
+            ["day", "-t", "work"]
+
+    def test_alias_name_as_argument_not_expanded(self):
+        from worklog.cli import _expand_user_alias
+        # `w` here is find's query, not the subcommand → must NOT expand
+        assert _expand_user_alias(["find", "w"], {"w": "day -t work"}) == ["find", "w"]
+
+    def test_chain_resolves(self):
+        from worklog.cli import _expand_user_alias
+        assert _expand_user_alias(["ww"], {"ww": "w", "w": "day -t work"}) == \
+            ["day", "-t", "work"]
+
+    def test_cycle_does_not_hang(self):
+        from worklog.cli import _resolve_alias_tokens
+        # a → b → a: bounded, returns something without infinite recursion
+        out = _resolve_alias_tokens("a", {"a": "b", "b": "a"})
+        assert out is not None
+
+    def test_empty_map_passthrough(self):
+        from worklog.cli import _expand_user_alias
+        assert _expand_user_alias(["w"], {}) == ["w"]
+
+
+class TestUserAliasesIniExtra:
     def test_no_aliases_clean_output(self, tmp_path, monkeypatch):
         """without an ini file, output should have no alias traces"""
         monkeypatch.setenv("HOME", str(tmp_path))

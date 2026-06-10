@@ -391,15 +391,17 @@ def cmd_alias_ls(args, con):
 
 
 def cmd_alias_add(args, con):
-    """Add/update a command alias (`wl alias add d day` → `wl d` == `wl day`). The target
-    must be a real wl command, and an alias can't shadow an existing command. Takes effect
-    on the next wl invocation (aliases are wired into the parser at startup)."""
+    """Add/update a command alias. The target may carry arguments — `wl alias add w "day -t work"`
+    makes `wl w` == `wl day -t work`; `wl alias add d day` makes `wl d` == `wl day`. The target's
+    first word must be a real wl command, and an alias can't shadow an existing command. Takes
+    effect on the next wl invocation (aliases are wired into the parser at startup)."""
     name, target = args.name.strip(), args.target.strip()
     if not name or not target:
         sys.exit("✗ alias name and target are both required")
     valid = set(_cli.HANDLERS)
-    if target not in valid:
-        sys.exit(f"✗ unknown command '{target}' — an alias target must be a wl command")
+    cmd = target.split()[0]   # the target may carry args; only its first word is the command
+    if cmd not in valid:
+        sys.exit(f"✗ unknown command '{cmd}' — an alias target must start with a wl command")
     if name in valid:
         sys.exit(f"✗ '{name}' is already a wl command — an alias can't shadow it")
     cfg, p = _read_aliases_cfg()

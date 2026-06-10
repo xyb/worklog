@@ -126,13 +126,14 @@ def ensure_db():
     _db.ensure_db(DB_PATH, MIGRATIONS_DIR)
 
 
-def _load_user_aliases():
-    """Read ~/.config/worklog/aliases.ini and return {target_cmd: [alias1, alias2, ...]}.
+def _user_alias_map():
+    """Read ~/.config/worklog/aliases.ini → {alias_name: target_str}. The target may carry
+    arguments — `w = day -t work` — which are spliced onto argv at the subcommand position
+    before parsing (the git-alias model). Returns {} on failure / missing file.
     Format:
         [aliases]
         d = day
-        c = checkin
-    Multiple aliases pointing to the same target are merged. Returns {} on failure / missing file.
+        w = day -t work
     """
     import configparser
     # Resolve at call-time so that tests monkeypatching HOME / XDG_CONFIG_HOME
@@ -150,14 +151,74 @@ def _load_user_aliases():
         return {}
     out = {}
     for alias, target in cfg["aliases"].items():
-        target = target.strip()
-        if not target:
-            continue
-        out.setdefault(target, []).append(alias.strip())
+        alias, target = alias.strip(), target.strip()
+        if alias and target:
+            out[alias] = target
     return out
 
 
-_USER_ALIASES = None  # lazy cache, populated on first build_parser call
+def _resolve_alias_tokens(name, amap, _depth=0):
+    """Resolve an alias name to its expansion token list (`w` → ['day','-t','work']), following
+    a chain if the target's own first token is another alias (`ww = w`). Cycle-/depth-guarded
+    (cap 8). Returns None if `name` isn't an alias."""
+    if name not in amap or _depth > 8:
+        return None
+    import shlex
+    try:
+        toks = shlex.split(amap[name])
+    except ValueError:
+        return None
+    if toks and toks[0] != name and toks[0] in amap:
+        deeper = _resolve_alias_tokens(toks[0], amap, _depth + 1)
+        if deeper:
+            toks = deeper + toks[1:]
+    return toks
+
+
+def _load_user_aliases(amap=None):
+    """{resolved_first_token: [alias1, ...]} — feeds argparse's `aliases=` (so `wl <alias> -h`
+    and completion know the alias) and is keyed by the target command, e.g. `w = day -t work`
+    registers `w` under `day`. The actual argument splice is done by `_expand_user_alias`."""
+    if amap is None:
+        amap = _user_alias_map()
+    out = {}
+    for name in amap:
+        toks = _resolve_alias_tokens(name, amap)
+        if toks:
+            out.setdefault(toks[0], []).append(name)
+    return out
+
+
+def _expand_user_alias(argv, amap=None):
+    """Splice a user alias at the subcommand position into its (possibly multi-token) target:
+    `wl w --since X` with `w = day -t work` → `wl day -t work --since X`. Scans past leading
+    global flags (same rule as `_expand_default_verb`). Only the subcommand token is considered,
+    so an alias name appearing as an argument (`wl find w`) is left untouched."""
+    global _USER_ALIAS_MAP
+    if amap is None:
+        if _USER_ALIAS_MAP is None:
+            _USER_ALIAS_MAP = _user_alias_map()
+        amap = _USER_ALIAS_MAP
+    if not amap:
+        return argv
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok in _GLOBAL_VALUE_FLAGS:
+            i += 2
+            continue
+        if tok.startswith("-"):
+            i += 1
+            continue
+        toks = _resolve_alias_tokens(tok, amap)
+        if toks is not None:
+            argv[i:i + 1] = toks
+        return argv
+    return argv
+
+
+_USER_ALIASES = None     # lazy cache: {first_token: [alias, ...]} for argparse registration
+_USER_ALIAS_MAP = None   # lazy cache: {alias: target_str} for the argv splice
 
 
 # --- shared argument sets: a node operation is reachable both as a top-level
@@ -367,7 +428,12 @@ class _WlParser(argparse.ArgumentParser):
     def parse_known_args(self, args=None, namespace=None):
         if args is None:
             args = sys.argv[1:]
-        return super().parse_known_args(_expand_default_verb(list(args)), namespace)
+        args = list(args)
+        # User-alias splice only at the top level (prog "wl"): an alias name reaching a subparser
+        # as an argument (`wl find w`) must not be expanded. Default-verb runs at every level.
+        if self.prog == "wl":
+            args = _expand_user_alias(args)
+        return super().parse_known_args(_expand_default_verb(args), namespace)
 
     def format_help(self):
         # colorize `wl -h` / `wl <cmd> -h` to match the wl help 3-tier scheme (DESIGN §25).
@@ -377,9 +443,10 @@ class _WlParser(argparse.ArgumentParser):
 
 
 def build_parser():
-    global _USER_ALIASES
+    global _USER_ALIASES, _USER_ALIAS_MAP
     if _USER_ALIASES is None:
-        _USER_ALIASES = _load_user_aliases()
+        _USER_ALIAS_MAP = _user_alias_map()
+        _USER_ALIASES = _load_user_aliases(_USER_ALIAS_MAP)
     user_aliases = _USER_ALIASES
 
     p = _WlParser(
@@ -423,7 +490,7 @@ Good to know:
     (number + d/w/m/y, default days), and fuzzy next-week / 2026-Q3 (defer/sched).
   • A task you `wl sched` to a day shows up "planned" in `wl day`; logging auto-moves TODO → DOING.
   • Tab-completion: `wl print-completion fish|bash|zsh` (the command prints setup instructions).
-  • Shortcuts: `wl add` = `wl node add`, `wl set` = prop/meta by key; make your own with `wl alias add d day`.
+  • Shortcuts: `wl add` = `wl node add`, `wl set` = prop/meta by key; make your own with `wl alias add w "day -t work"`.
   • `-q` brief output · `--db PATH` use a different worklog file.
   • Deeper docs: `wl help` is an info-style topic browser — `wl help para` (organizing),
     `wl help planning` (goals/summaries), `wl help status`, `wl help <command>`, …""",
@@ -1360,20 +1427,22 @@ Common examples:
 
     # alias command: manage ~/.config/worklog/aliases.ini (wired into the parser at startup)
     al = sub.add_parser("alias",
-        help="manage command aliases: add / ls / rm (e.g. wl alias add d day → wl d)",
-        description="Manage command aliases stored in ~/.config/worklog/aliases.ini. An alias maps a short name to a wl command (`wl alias add d day` makes `wl d` == `wl day`). Aliases are wired into the parser at startup, so a change takes effect on the NEXT wl invocation.",
+        help="manage command aliases: add / ls / rm (e.g. wl alias add w \"day -t work\" → wl w)",
+        description="Manage command aliases stored in ~/.config/worklog/aliases.ini. An alias maps a short name to a wl command, optionally WITH arguments — `wl alias add w \"day -t work\"` makes `wl w` == `wl day -t work` (extra args you type are appended); `wl alias add d day` makes `wl d` == `wl day`. Aliases are wired in at startup, so a change takes effect on the NEXT wl invocation.",
         formatter_class=_WlHelpFormatter,
         epilog="""\
-  wl alias add d day        # wl d == wl day (next run)
-  wl alias add c checkin    # wl c == wl checkin
-  wl alias ls               # list configured aliases
-  wl alias rm d             # remove an alias
+  wl alias add d day            # wl d == wl day (next run)
+  wl alias add w "day -t work"  # wl w == wl day -t work (quote a target with args)
+  wl alias add p "day -t personal"
+  wl alias ls                   # list configured aliases
+  wl alias rm d                 # remove an alias
 
-The target must be a real wl command, and an alias can't shadow an existing command.""")
+The target's first word must be a real wl command; an alias can't shadow an existing command.
+Args you type after the alias are appended (`wl w 2026-06-08` → `wl day -t work 2026-06-08`).""")
     _alsub = al.add_subparsers(dest="alias_sub")
-    _aadd = _alsub.add_parser("add", help="add/update an alias (name → command)")
+    _aadd = _alsub.add_parser("add", help="add/update an alias (name → command [+ args])")
     _aadd.add_argument("name", help="the short alias to type")
-    _aadd.add_argument("target", help="the wl command it expands to")
+    _aadd.add_argument("target", help="the wl command it expands to (quote if it carries args: \"day -t work\")")
     _alsub.add_parser("ls", help="list configured aliases")
     _alsub.add_parser("rm", help="remove an alias").add_argument("name", help="alias name to remove")
 
@@ -1498,7 +1567,7 @@ Usage (write once to your shell rc, then new shells auto-load; stays in sync wit
 
 Same pattern as starship/direnv/zoxide.
 
-User aliases: add [aliases] section to ~/.config/worklog/aliases.ini (e.g. d = day / c = checkin / ...); new shells pick them up (uniform across shells).""")
+User aliases: add [aliases] section to ~/.config/worklog/aliases.ini (e.g. d = day / w = day -t work / ...); a target may carry args; new shells pick them up (uniform across shells).""")
     pc.add_argument("shell", choices=["fish", "bash", "zsh"], help="target shell")
 
     return p

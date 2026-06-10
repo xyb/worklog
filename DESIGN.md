@@ -87,9 +87,14 @@ recap` additionally auto-target today's day node for the goal / summary fields.
 > the escape hatch.
 
 **`wl alias add/ls/rm`** manages `~/.config/worklog/aliases.ini` (maps a short name to a
-command, e.g. `wl d` == `wl day`); aliases are wired into the parser at startup, so a change
-takes effect on the next invocation. The target must be a real command and an alias may not
-shadow one.
+command, e.g. `wl d` == `wl day`). A target may **carry arguments** — `w = day -t work` makes
+`wl w` == `wl day -t work` — using the git-alias model: `_expand_user_alias` splices the
+shlex-tokenized target onto argv at the subcommand position *before* parsing (so args you type
+after the alias are appended), running only at the top level (prog `wl`) so an alias name reaching
+a subparser as an argument isn't expanded; chains (`ww = w`) resolve with a depth/cycle guard.
+The alias is also registered under its target's first word as an argparse alias, so `wl <alias>
+-h` and shell completion know it. The target's first word must be a real command and an alias may
+not shadow one. Aliases are wired in at startup, so a change takes effect on the next invocation.
 
 **Default-verb dispatch (collision entities).** When the group name equals the old leaf
 command (`link` / `tag` / `log` / `sched`), a custom parser (`_WlParser` /

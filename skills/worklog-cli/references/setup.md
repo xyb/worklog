@@ -57,10 +57,14 @@ Same loading model as starship / direnv / zoxide — new shells pick up changes 
 d = day
 c = checkin
 ll = ls
+w = day -t work       # a target may carry args
+p = day -t personal
 ```
 
-Cross-shell consistent — `wl d` resolves to `wl day` in fish/bash/zsh; edit the ini and open a
-new shell to apply.
+Cross-shell consistent — `wl d` resolves to `wl day` in fish/bash/zsh. A target may carry
+arguments (`w = day -t work` → `wl w` == `wl day -t work`); args you type after the alias are
+appended (`wl w 2026-06-08` → `wl day -t work 2026-06-08`). Edit the ini (or use `wl alias add w
+"day -t work"`) and open a new shell to apply.
 
 ## Highlighting / colors
 
