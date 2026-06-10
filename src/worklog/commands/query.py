@@ -338,13 +338,13 @@ def cmd_find(args, con):
                 out("    " + _c("log:", "meta") + " " + _snippet(r["body"], q))
         if "tag" in where:
             tg = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid, tag__like=like)]
-            out("    " + _c("tag:", "meta") + " " + _c(", ".join(tg), "tag"))
+            out("    " + _c("tag:", "meta") + " " + _hl(", ".join(tg), q))
         if "prop" in where:
             for r in con.execute("SELECT key,value FROM prop WHERE node_id=? AND (key LIKE ? OR value LIKE ?) AND deleted_at IS NULL", (nid, like, like)):
-                out("    " + _c("prop:", "meta") + " " + _c(f"{r['key']}={r['value']}"))
+                out("    " + _c("prop:", "meta") + " " + _hl(f"{r['key']}={r['value']}", q))
         if "link" in where:
             for r in _db.query(con, "link", cols="vault_doc", node_id=nid, vault_doc__like=like):
-                out("    " + _c("link:", "meta") + " " + _c(f"[[{r['vault_doc']}]]"))
+                out("    " + _c("link:", "meta") + " " + _hl(f"[[{r['vault_doc']}]]", q))
 
 def cmd_focus(args, con):
     """Focus on a node: upstream path + self + downstream subtree."""

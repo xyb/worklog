@@ -31,11 +31,12 @@ class TestColorRendering:
         assert "[login]" in out  # escape works; brackets preserved verbatim
 
     def test_wikilink_double_bracket_preserved_in_find(self, cli):
-        """find expands link match; [[doc]] double brackets preserved"""
+        """find link hit: [[ ]] brackets survive (not eaten by markup), even though the matched
+        term inside is hit-highlighted (so the literal isn't contiguous)."""
         cli("add", "linked task")
         cli("link", "1", "Dev tooling")
         code, out, _ = cli("--color", "always", "find", "Dev", "--in", "link")
-        assert "[[Dev tooling]]" in out
+        assert "[[" in out and "tooling]]" in out   # brackets preserved (escaped, not markup-eaten)
 
     def test_find_hit_highlighted_styled(self, cli):
         """styled mode: hit gets ANSI (hit style), no *…* markers"""

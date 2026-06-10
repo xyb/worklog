@@ -68,7 +68,8 @@ class TestFind:
     def test_find_expands_link_and_prop(self, cli):
         self._seed(cli)
         code, out, _ = cli("find", "gaming-team")
-        assert "prop: owner=gaming-team" in out
+        # prop hit content is shown AND the matched term is hit-marked (plain mode → *…*)
+        assert "prop: owner=*gaming-team*" in out
 
     def test_find_title_hit_not_expanded(self, cli):
         """match only in title (already in the row) -> no extra body/log expansion"""
