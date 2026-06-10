@@ -99,3 +99,18 @@ class TestSummary:
         t = date.today().isoformat()
         code, out, _ = cli("summary", "--since", t, "--until", t)
         assert "clock" in out
+
+
+class TestSummaryJson:
+    def test_summary_json(self, cli):
+        cli("add", "done task", "-k", "task", "-t", "work")
+        cli("add", "open task", "-k", "task", "-t", "work")
+        cli("done", "1")
+        import json
+        code, out, _ = cli("summary", "--since", "2026-01-01", "--until", "2099-12-31", "-o", "json")
+        d = json.loads(out)
+        assert code == 0
+        assert d["totals"]["done"] == 1
+        assert d["by_direction"]["work"] == 1
+        assert [n["title"] for n in d["done"]] == ["done task"]
+        assert "open task" in [n["title"] for n in d["pending"]]

@@ -658,6 +658,28 @@ def cmd_summary(args, con):
         if inw(r["end_at"]):
             clock_min += int((r["elapsed_sec"] or 0) / 60)
 
+    # pending (window-relevant): planned / doing / added-in-window and not done
+    pending = [
+        n for n in nodes
+        if (n["status"] or "TODO") not in ("DONE", "CANCELED")
+        and (_has_tag(con, n["id"], "planned") or n["status"] == "DOING" or inw(n["created_at"]))
+    ]
+
+    if getattr(args, "output", "text") == "json":
+        # machine view: window + totals + by-direction done counts + flat done/pending node lists
+        # (group by parent/project from the summaries if needed; the text view does the grouping).
+        import json
+        print(json.dumps({
+            "since": since, "until": until,
+            "totals": {"done": len(done), "doing": len(doing),
+                       "added_open": len(added_open), "clock_min": clock_min},
+            "by_direction": {d: len([n for n in done if _has_tag(con, n["id"], d)])
+                             for d in ("work", "personal")},
+            "done": [_node_summary_dict(con, n) for n in done],
+            "pending": [_node_summary_dict(con, n) for n in pending],
+        }, ensure_ascii=False, indent=2))
+        return
+
     out(_c(f"📊 {since} ~ {until} summary", "header"))
     line = f"done {len(done)} · doing {len(doing)} · added-open {len(added_open)}"
     if clock_min:
@@ -673,13 +695,6 @@ def cmd_summary(args, con):
     if dir_lines:
         out(_c("\nby direction:", "header"))
         out(_c("\n".join(dir_lines)))
-
-    # pending (window-relevant): planned / doing / added-in-window and not done
-    pending = [
-        n for n in nodes
-        if (n["status"] or "TODO") not in ("DONE", "CANCELED")
-        and (_has_tag(con, n["id"], "planned") or n["status"] == "DOING" or inw(n["created_at"]))
-    ]
 
     # === by project: per-project done + pending (grouped by status), each with priority + clock ===
     done_map = {n["id"]: n for n in done}

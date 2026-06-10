@@ -1034,7 +1034,7 @@ Common examples (shell-ls multi-dimensional):
 More: `wl help ls` · sharper entry points: wl find <q> / wl day / wl active / wl projects.""")
     _args_node_ls(ls)
 
-    tr = sub.add_parser("tree", parents=[filters],
+    tr = sub.add_parser("tree", parents=[filters, output_parent],
         help="tree view of nodes (default: timeline up to today + areas one level, ~30 rows)",
         description="Tree view of nodes. Default: timeline expanded up to today (year -> quarter -> month -> week -> today + today's tasks) + areas one level, ~30 rows to avoid scrolling. Use --root <id> to drill into a node.",
         formatter_class=_WlHelpFormatter,
@@ -1133,7 +1133,7 @@ Weekly/Linear-update input: added / closed / log counts per project.
 
 More: `wl help changes` (vs `wl summary` state snapshot / `wl projects` cards).""")
 
-    sm = sub.add_parser("summary", parents=[window],
+    sm = sub.add_parser("summary", parents=[window, output_parent],
         help="time-window aggregate: done/doing/added counts + grouped by project or day",
         description="Snapshot of current state distribution in a time window: counts of done / doing / added, grouped by project (default) or day. First-pass material for weekly / monthly reports.",
         formatter_class=_WlHelpFormatter,
@@ -1153,7 +1153,7 @@ More: `wl help summary` (vs `wl changes` deltas / `wl day` single day).""")
     sm.add_argument("--no-dedup", action="store_true",
                     help="no dedup: a task across multiple projects is repeated in each bucket (old behavior)")
 
-    dy = sub.add_parser("day", parents=[filters],
+    dy = sub.add_parser("day", parents=[filters, output_parent],
         help="full view of a day (default today): bucket -> project/plan -> task -> log",
         description="Full view of one day: work/personal/other -> (planned/unplanned/project/priority) -> task -> indented logs. The header states the day's nature (workday / weekend, refined to holiday / leave / makeup by a `wl dateinfo` label). Top shows end-of-day summary + today's goal + Top5 (if set). Defaults to log-date-driven (works for past days too).",
         formatter_class=_WlHelpFormatter,

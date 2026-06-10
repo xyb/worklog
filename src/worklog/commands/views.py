@@ -80,7 +80,41 @@ from .. import cli as _cli  # noqa: E402
 
 
 
+def _emit_tree_json(con, args):
+    """`wl tree -o json`: the structural node subtree as nested `{...node, children:[...]}`.
+    `--root` → that subtree (default depth 3); else the top-level forest (default depth 2).
+    Honors `--depth` and `--show-canceled`; ignores the text-view `--by` / tag/status filters
+    (for filtered flat data use `wl ls -o json`)."""
+    import json
+    inc_cancel = getattr(args, "show_canceled", False)
+    if args.root is not None:
+        root = _db.get(con, "node", args.root)
+        if not root:
+            sys.exit(f"✗ node #{args.root} not found")
+        roots = [root]
+        max_depth = args.depth if args.depth is not None else 3
+    else:
+        roots = list(_db.query(con, "node", parent_id=None, order="priority NULLS LAST, id"))
+        max_depth = args.depth if args.depth is not None else 2
+    if not inc_cancel:
+        roots = [r for r in roots if r["status"] != "CANCELED"]
+
+    def node_json(n, depth):
+        d = {"id": n["id"], "kind": n["kind"], "title": n["title"],
+             "status": n["status"], "priority": n["priority"]}
+        if depth < max_depth:
+            kids = _db.query(con, "node", parent_id=n["id"], order="priority NULLS LAST, id")
+            kids = [c for c in kids if inc_cancel or c["status"] != "CANCELED"]
+            d["children"] = [node_json(c, depth + 1) for c in kids]
+        return d
+
+    print(json.dumps([node_json(r, 0) for r in roots], ensure_ascii=False, indent=2))
+
+
 def cmd_tree(args, con):
+    if getattr(args, "output", "text") == "json":
+        _emit_tree_json(con, args)
+        return
     # explicit --status overrides the default CANCELED hide so the filtered tree can
     # recurse into the matching terminal-status nodes (no-filter path: status is unset).
     inc_cancel = getattr(args, "show_canceled", False) or bool(getattr(args, "status", None))
@@ -156,15 +190,13 @@ def _meta_blockquote(body, marker, indent="  "):
     return "\n".join(lines)
 
 
-def _goal_progress(con, body):
-    """Structured goal achievement from the `#<id>` (or `WL#<id>`) task references a goal
-    already names: resolve them, count settled (DONE/CANCELED), return ` [done/total] <emoji>` or
-    "" if the goal references no tasks. Zero-schema: progress rides on the ids you write in the goal
-    (`wl goal "ship #12 and #13"`); no ids → no indicator. ✅ all done · 🟡 partial · ⬜ none."""
+def _goal_counts(con, body):
+    """(done, total) from the `#<id>` / `WL#<id>` task refs a goal names — total = distinct
+    resolvable ids, done = those settled (DONE/CANCELED). (0, 0) if the goal names no tasks."""
     import re
-    ids = [int(m) for m in re.findall(r"(?:WL)?#(\d+)", body or "")]
     seen, total, done = set(), 0, 0
-    for nid in ids:
+    for m in re.findall(r"(?:WL)?#(\d+)", body or ""):
+        nid = int(m)
         if nid in seen:
             continue
         seen.add(nid)
@@ -174,10 +206,73 @@ def _goal_progress(con, body):
         total += 1
         if (n["status"] or "TODO") in ("DONE", "CANCELED"):
             done += 1
+    return done, total
+
+
+def _goal_progress(con, body):
+    """Goal achievement as ` [done/total] <emoji>` (zero-schema: progress rides on the ids you
+    write in the goal — `wl goal "ship #12 and #13"`). "" if no tasks named.
+    ✅ all done · 🟡 partial · ⬜ none."""
+    done, total = _goal_counts(con, body)
     if not total:
         return ""
     emoji = "✅" if done == total else ("⬜" if done == 0 else "🟡")
     return f" [{done}/{total}] {emoji}"
+
+
+def _day_meta_dict(con, day):
+    """The day-header meta as a dict (for `wl day -o json`): goal (+ goal_progress {done,total}),
+    summary (+ summary_at), top5, week_overview. Only present keys are included."""
+    if not day:
+        return {}
+    d = {}
+    g = _latest_typed_log(con, day["id"], "goal")
+    if g and g["body"]:
+        d["goal"] = g["body"]
+        dn, tt = _goal_counts(con, g["body"])
+        if tt:
+            d["goal_progress"] = {"done": dn, "total": tt}
+    s = _latest_typed_log(con, day["id"], "summary")
+    if s and s["body"]:
+        d["summary"] = s["body"]
+        d["summary_at"] = s["logged_at"]   # UTC instant
+    t5 = _latest_typed_log(con, day["id"], "top5")
+    if t5 and t5["body"]:
+        d["top5"] = t5["body"]
+    wk = _db.query_one(con, "node", cols="id", id=day["parent_id"], kind="week") if day["parent_id"] else None
+    if wk:
+        ov = _latest_typed_log(con, wk["id"], "overview")
+        if ov and ov["body"]:
+            d["week_overview"] = ov["body"]
+    return d
+
+
+def _emit_day_json(con, target, day, items, sched_ids):
+    """`wl day -o json`: the day's meta + the tasks active that day (each with its logs that day,
+    planned flag, clock minutes) + the day's total clock. Machine view of `wl day`."""
+    import json
+    tasks = []
+    for nid, it in items.items():
+        n = it["node"]
+        tasks.append({
+            "id": nid, "title": n["title"], "status": n["status"],
+            "priority": n["priority"], "kind": n["kind"],
+            "planned": nid in sched_ids,
+            "logs": list(it["logs"]),
+            "clock_min": _node_clock_min(con, nid, target),
+        })
+    clock_sec = con.execute(
+        f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock "
+        f"WHERE {_tu.local_day_sql('end_at')} = ? AND deleted_at IS NULL", (target,)).fetchone()["s"]
+    print(json.dumps({
+        "date": target,
+        "weekday": _cn_weekday(target),
+        "nature": _day_nature(con, target),
+        "day_node_id": day["id"] if day else None,
+        "meta": _day_meta_dict(con, day),
+        "tasks": tasks,
+        "clock_min_total": int(clock_sec / 60),
+    }, ensure_ascii=False, indent=2))
 
 
 def cmd_day(args, con):
@@ -198,10 +293,13 @@ def cmd_day(args, con):
     wd = _cn_weekday(target)
     nature = _day_nature(con, target)
     head = target + (f" {wd}" if wd else "") + (f" · {nature}" if nature else "")
-    out(_c(head, "header"))
+    is_json = getattr(args, "output", "text") == "json"
+    if not is_json:
+        out(_c(head, "header"))
     # meta (history-preserving typed logs on the day node): goal / recap(summary) / Top5;
-    # plus the parent week node's overview. Each is the latest log of that type.
-    if day:
+    # plus the parent week node's overview. Each is the latest log of that type. (json mode
+    # gathers these into a dict via _day_meta_dict instead of rendering text.)
+    if day and not is_json:
         g = _latest_typed_log(con, day["id"], "goal")
         if g and g["body"]:
             # goal carries its own achievement [done/total] from the #ids it names
@@ -267,10 +365,16 @@ def cmd_day(args, con):
     if nf:
         items = {nid: it for nid, it in items.items() if nf(nid)}
         if not items:
-            out(_c(f"  (nothing matches the filter on {target})", "meta"))
+            if is_json:
+                _emit_day_json(con, target, day, {}, sched_ids)
+            else:
+                out(_c(f"  (nothing matches the filter on {target})", "meta"))
             return
 
     if not items:
+        if is_json:
+            _emit_day_json(con, target, day, {}, sched_ids)
+            return
         # clock-only day: time was tracked (wl spent / start-stop) but nothing logged/planned
         clock_sec = con.execute(
             f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE {_tu.local_day_sql('end_at')} = ? AND deleted_at IS NULL",
@@ -281,6 +385,10 @@ def cmd_day(args, con):
             out(_c(f"  (no logged task progress for {target}) · CLOCK {cm}min ({cm // 60}h{cm % 60}m)", "meta"))
         else:
             out(_c(f"  (no log progress for {target}, and nothing planned)", "meta"))
+        return
+
+    if is_json:
+        _emit_day_json(con, target, day, items, sched_ids)
         return
 
     # log_tail priority: --no-logs/--brief -> 0 / --all-logs -> None (full) /

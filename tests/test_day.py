@@ -316,3 +316,28 @@ class TestDayMetaMarkersAndGoalProgress:
         import re
         self._day_id = int(re.search(r"#(\d+)", out).group(1))
         return today
+
+
+class TestDayJson:
+    def test_day_json_structure(self, cli):
+        from datetime import date
+        today = date.today().isoformat()
+        cli("add", today, "-k", "day")                      # 1
+        cli("add", "task a", "-k", "task", "-t", "work")     # 2
+        cli("sched", "2", "today")
+        cli("log", "2", "did it")
+        cli("set", "1", "goal", "do #2")
+        import json
+        code, out, _ = cli("day", today, "-o", "json")
+        d = json.loads(out)
+        assert code == 0 and d["date"] == today
+        assert d["meta"]["goal"] == "do #2"
+        assert d["meta"]["goal_progress"] == {"done": 0, "total": 1}
+        t = next(t for t in d["tasks"] if t["id"] == 2)
+        assert t["planned"] is True and t["logs"] == ["did it"]
+
+    def test_day_json_empty_day(self, cli):
+        import json
+        _, out, _ = cli("day", "2099-01-01", "-o", "json")
+        d = json.loads(out)
+        assert d["date"] == "2099-01-01" and d["tasks"] == []

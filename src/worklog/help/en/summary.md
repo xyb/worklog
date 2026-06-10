@@ -11,6 +11,7 @@ or by day — the raw material for a weekly report.
   wl summary --month 2026-06 --by project
   wl summary --week 2026-W22 --top 5    # only the 5 most-progressed projects
   wl summary --week 2026-W22 --projects-only   # project rows only, no task expansion
+  wl summary --week 2026-W22 -o json           # totals + by-direction + done/pending lists (machine)
 
 `--by day` lists, per day: **done** (closed that day), **worked** (≥1 log that day — progress on a
 task created/closed another day, which the done/pending buckets alone would miss), and **pending**

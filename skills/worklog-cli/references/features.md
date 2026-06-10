@@ -143,17 +143,21 @@ wl ls --ids 39 41 270                 # specific ids (like ls f1 f2)
 wl ls --all                           # remove limit + include DONE/CANCELED
 ```
 
-### `-o json` — machine-readable output (show / ls / logs / projects)
+### `-o json` — machine-readable output (show / ls / logs / projects / day / tree / summary)
 
 `-o json` emits structured JSON instead of the text view, on `wl show` / `wl ls` / `wl logs` /
-`wl projects` (other commands reject `-o`). Field names = DB columns (stable); `*_at` UTC,
-`*_date` local; empty → `[]`. Pull an exact field instead of parsing text:
+`wl projects` / `wl day` / `wl tree` / `wl summary` (other commands reject `-o`). Field names =
+DB columns (stable); `*_at` UTC, `*_date` local; empty → `[]`. Pull an exact field instead of
+parsing text:
 
 ```fish
 wl show 42 -o json | jq .status       # full node + relations (one object; array for several ids)
 wl ls -p A -o json | jq '.[].title'   # array of node summaries (filters apply, no 20-cap)
 wl logs --id 42 -o json               # array of that node's log rows
 wl projects -o json | jq '.[].counts' # projects + per-project done/doing/pending/total
+wl day -o json | jq '.meta.goal_progress'  # day meta + tasks-with-logs + clock
+wl tree --root 45 -o json             # nested structural subtree
+wl summary --week 2026-W22 -o json | jq .totals   # window totals + done/pending
 ```
 
 ### log/timeline default-tail to N (so long tasks don't blast screen)

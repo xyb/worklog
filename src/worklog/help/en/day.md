@@ -16,6 +16,7 @@ line.
   wl day -t work             only the work bucket (-t/--tag, AND)
   wl day --by project        regroup (default --by plan = planned/unplanned; --by priority too)
   wl day --log-tail 1        logs default to the last 3 per task; --all-logs / --no-logs / --log-format full also adjust
+  wl day -o json             machine-readable: meta (+ goal progress) + tasks-with-logs + clock
 
 Planned vs unplanned: a task you `wl sched` to that day is "planned"; a task you only
 logged on that day (no schedule) is "unplanned". Scheduling, not tags, drives this.

@@ -326,3 +326,25 @@ class TestTreeTimePins:
         _, out, _ = cli("tree", "--root", "3", "-t", "work")
         assert "work pin" in out
         assert "personal pin" not in out
+
+
+class TestTreeJson:
+    def test_tree_json_nested(self, cli):
+        cli("add", "area", "-k", "area")                       # 1
+        cli("add", "proj", "-k", "project", "--parent", "1")    # 2
+        cli("add", "t", "-k", "task", "--parent", "2")          # 3
+        import json
+        code, out, _ = cli("tree", "--depth", "5", "-o", "json")
+        d = json.loads(out)
+        assert code == 0 and isinstance(d, list)
+        root = next(r for r in d if r["id"] == 1)
+        assert root["children"][0]["id"] == 2
+        assert root["children"][0]["children"][0]["id"] == 3
+
+    def test_tree_json_root_subtree(self, cli):
+        cli("add", "proj", "-k", "project")                     # 1
+        cli("add", "t", "-k", "task", "--parent", "1")          # 2
+        import json
+        _, out, _ = cli("tree", "--root", "1", "-o", "json")
+        d = json.loads(out)
+        assert d[0]["id"] == 1 and [c["id"] for c in d[0]["children"]] == [2]
