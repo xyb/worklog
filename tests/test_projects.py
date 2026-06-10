@@ -86,3 +86,37 @@ class TestKinds:
         _, out, _ = cli("kinds", "-o", "json")
         d = json.loads(out)
         assert {"kind": "task", "count": 1} in d
+
+
+class TestVocabLists:
+    """wl tags / props / metrics — cross-node 'list the vocabulary in use' commands."""
+
+    def test_tags(self, cli):
+        cli("add", "a", "-k", "task", "-t", "work")
+        cli("add", "b", "-k", "task", "-t", "work,urgent")
+        code, out, _ = cli("tags")
+        assert code == 0 and "work" in out and "urgent" in out
+        assert out.index("work") < out.index("urgent")   # most-used first (work=2, urgent=1)
+
+    def test_props_alpha_grouped(self, cli):
+        cli("add", "a", "-k", "task")
+        cli("set", "1", "owner", "xyb"); cli("set", "1", "github.pr", "5")
+        _, out, _ = cli("props")
+        assert "github.pr" in out and "owner" in out
+        assert out.index("github.pr") < out.index("owner")   # alphabetical (namespaces group)
+
+    def test_metrics(self, cli):
+        cli("add", "a", "-k", "task")
+        cli("log", "1", "x", "--metric", "pullups 8")
+        _, out, _ = cli("metrics")
+        assert "pullups" in out
+
+    def test_vocab_json(self, cli):
+        cli("add", "a", "-k", "task", "-t", "work")
+        import json
+        _, out, _ = cli("tags", "-o", "json")
+        assert {"tag": "work", "count": 1} in json.loads(out)
+
+    def test_empty(self, cli):
+        _, out, _ = cli("tags")
+        assert "(none)" in out

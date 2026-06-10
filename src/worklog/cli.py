@@ -357,6 +357,7 @@ _HELP_FAMILY = {
     "date": "dateinfo",
     "themes": "admin", "init": "admin", "config": "admin", "migrate": "admin",
     "print-completion": "admin",
+    "tags": "tag", "props": "prop", "metrics": "metric",   # the cross-node "list all" lists
 }
 
 
@@ -1551,6 +1552,19 @@ More: `wl help logs` (vs `wl day` structured view / `wl show <id>` single-node t
         formatter_class=_WlHelpFormatter,
         epilog="Like `wl projects` but for kinds. `-o json` for the machine list. Filter a kind with `wl ls --kind <k>` / `wl tree --kind <k>`.")
 
+    sub.add_parser("tags", parents=[output_parent],
+        help="list every tag in use + a count of nodes carrying it",
+        formatter_class=_WlHelpFormatter,
+        epilog="Cross-node companion to `wl tag <id>`. Most-used first; `-o json` too. List a tag's nodes: `wl ls -t <tag>`.")
+    sub.add_parser("props", parents=[output_parent],
+        help="list every prop key in use + a count (namespaces like github.*/linear.* group)",
+        formatter_class=_WlHelpFormatter,
+        epilog="Cross-node companion to `wl prop ls <id>`. Alphabetical; `-o json` too. Reverse-query a key: `wl ls --prop <key>`.")
+    sub.add_parser("metrics", parents=[output_parent],
+        help="list every metric tag in use + a count of datapoints",
+        formatter_class=_WlHelpFormatter,
+        epilog="Cross-node companion to `wl metric ls <id>`. Most-used first; `-o json` too.")
+
     sub.add_parser("themes",
         help="list all color themes (one-line preview per theme)",
         formatter_class=_WlHelpFormatter,
@@ -1632,6 +1646,9 @@ from .commands import (
     cmd_ls,
     cmd_projects,
     cmd_kinds,
+    cmd_tags,
+    cmd_props,
+    cmd_metrics,
     _tree_by,
     cmd_tree,
     cmd_focus,
@@ -1730,6 +1747,9 @@ HANDLERS = {
     "tree": cmd_tree,
     "projects": cmd_projects,
     "kinds": cmd_kinds,
+    "tags": cmd_tags,
+    "props": cmd_props,
+    "metrics": cmd_metrics,
     "changes": cmd_changes,
     "summary": cmd_summary,
     "focus": cmd_focus,

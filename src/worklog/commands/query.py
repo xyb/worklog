@@ -601,6 +601,45 @@ def cmd_kinds(args, con):
         out(_c(f"{r['kind']:9}", "kind") + " " + _c(str(r["c"]), "meta"))
 
 
+def _list_vocab(con, table, col, *, output, style, sort_by_count=True):
+    """List the distinct `col` values in use (live rows) + a count of each — the shared engine for
+    the `kinds`/`tags`/`props`/`metrics` "what vocabulary is in use" lists. `table`/`col` are
+    code-controlled (never user input). JSON: `[{<col>: value, "count": n}]`."""
+    rows = con.execute(
+        f"SELECT {col} AS v, COUNT(*) c FROM {table} WHERE deleted_at IS NULL GROUP BY {col}"
+    ).fetchall()
+    key = (lambda r: (-r["c"], str(r["v"]))) if sort_by_count else (lambda r: str(r["v"]))
+    rows = sorted(rows, key=key)
+    if output == "json":
+        import json
+        print(json.dumps([{col: r["v"], "count": r["c"]} for r in rows], ensure_ascii=False, indent=2))
+        return
+    if not rows:
+        print("(none)")
+        return
+    w = max((len(str(r["v"])) for r in rows), default=0)
+    for r in rows:
+        out(_c(f"{str(r['v']):{w}}", style) + "  " + _c(str(r["c"]), "meta"))
+
+
+def cmd_tags(args, con):
+    """List every tag in use + a count of nodes carrying it (most-used first). The cross-node
+    companion to `wl tag <id>`; pair with `wl ls -t <tag>` to list a tag's nodes."""
+    _list_vocab(con, "tag", "tag", output=getattr(args, "output", "text"), style="tag")
+
+
+def cmd_props(args, con):
+    """List every prop key in use + a count (alphabetical, so namespaces like github.* / linear.*
+    group). The cross-node companion to `wl prop ls <id>`; pair with `wl ls --prop <key>`."""
+    _list_vocab(con, "prop", "key", output=getattr(args, "output", "text"), style="meta", sort_by_count=False)
+
+
+def cmd_metrics(args, con):
+    """List every metric tag in use + a count of datapoints (most-used first). The cross-node
+    companion to `wl metric ls <id>`."""
+    _list_vocab(con, "metric", "tag", output=getattr(args, "output", "text"), style="tag")
+
+
 def cmd_changes(args, con):
     """Per-project changes in a time window: closed / added / log activity (input for weekly reports / Linear update)."""
     since, until = _resolve_window(args)
