@@ -67,6 +67,7 @@ from ..render import (
     THEMES,
     _c,
     _hl,
+    _pri_marker,
     _node_line,
     _print_truncation_hint,
     _snippet,
@@ -742,7 +743,7 @@ def cmd_active(args, con):
     for r in rows:
         started = _dt.fromisoformat(r["start_at"])
         mins = int((now - started).total_seconds() / 60)
-        pri = (_c(f"[#{r['priority']}]", _PRI_STYLE.get(r["priority"])) + " ") if r["priority"] else ""
+        pri = _pri_marker(r["priority"]) + " "
         # head: id + priority + title + current session
         head_tail = "" if brief else " " + _c(f"({mins}min, since {_tu.utc_to_local(r['start_at'])[11:16]})", "meta")
         out(_c("⏱", "clock") + " " + _c(f"#{r['node_id']}", "id") + " " + pri + _c(r["title"]) + head_tail)

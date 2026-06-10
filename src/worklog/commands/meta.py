@@ -734,7 +734,7 @@ def _checkin_per_item(con, rows):
     done_now = skipped = 0
     for r in rows:
         nid = r["id"]
-        pri = f"[#{r['priority']}]" if r["priority"] else ""
+        pri = f"[#{r['priority']}]" if r["priority"] else "[# ]"   # unset priority marker (aligned)
         head = f"#{nid} {pri} {r['title']}".strip()
         if r["already"]:
             out(_c(f"  ✓ {head} (already done today)", "done"))

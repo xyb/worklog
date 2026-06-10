@@ -65,6 +65,7 @@ from ..render import (
     THEMES,
     _c,
     _hl,
+    _pri_marker,
     _node_line,
     _print_truncation_hint,
     _snippet,
@@ -379,7 +380,7 @@ def _tree_by(con, by, nf=None):
                 # drop every project because no member is itself a project.
                 if not ids and not nf(proj["id"]):
                     continue
-            pri = (" " + _c(f"[#{proj['priority']}]", _PRI_STYLE.get(proj["priority"]))) if proj["priority"] else ""
+            pri = " " + _pri_marker(proj["priority"])
             out("▸ " + _c(f"#{proj['id']}", "id") + pri + " " + _c(proj["title"], "header") + "  " + _c(f"({len(ids)})", "meta"))
             for nid in sorted(ids):
                 n = _db.get(con, "node", nid)
@@ -560,7 +561,7 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
             mk = _c("[x]", "done")
         else:
             mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
-        pri = (_c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"])) + " ") if n["priority"] else ""
+        pri = _pri_marker(n["priority"]) + " "
         mh = ""
         if n["kind"] == "habit":
             prog = _habit_month_progress(con, nid, target)
@@ -666,7 +667,7 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                     mk = _c("[x]", "done")
                 else:
                     mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
-                pri = (_c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"])) + " ") if n["priority"] else ""
+                pri = _pri_marker(n["priority"]) + " "
                 hint = ""
                 if not logs and n["status"] not in ("DONE", "CANCELED") and by != "plan":
                     # only "not-done" if the task is still open; a terminal-status task

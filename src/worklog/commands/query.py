@@ -62,6 +62,7 @@ from ..render import (
     THEMES,
     _c,
     _hl,
+    _pri_marker,
     _node_line,
     _print_truncation_hint,
     _snippet,
@@ -359,7 +360,7 @@ def cmd_focus(args, con):
 
     # self
     mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
-    pri = (_c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"])) + " ") if n["priority"] else ""
+    pri = _pri_marker(n["priority"]) + " "
     out("▶ focus " + mk + " " + _c(f"#{n['id']}", "id") + " " + pri + _c(f"[{n['kind']}]", "kind") + " " + _c(n["title"], "header"))
 
     # downstream subtree. A day node has no real parent_id children — its
@@ -566,7 +567,7 @@ def cmd_projects(args, con):
 
     _print_truncation_hint(len(items), total_items)
     for proj, done, doing, pending, total, recent in items:
-        pri = _c(f"[#{proj['priority']}]", _PRI_STYLE.get(proj["priority"])) if proj["priority"] else _c("[ ]", "todo")
+        pri = _pri_marker(proj["priority"])
         parts = [f"done {done}/{total}"]
         if doing:
             parts.append(f"doing {doing}")
@@ -607,7 +608,7 @@ def cmd_changes(args, con):
         if not (done or added_open or logged):
             continue
         any_output = True
-        pri = (_c(f"[#{proj['priority']}]", _PRI_STYLE.get(proj["priority"])) + " ") if proj["priority"] else ""
+        pri = _pri_marker(proj["priority"]) + " "
         out("\n▸ " + pri + _c(proj["title"], "header"))
         if done:
             out("  " + _c("✓ done", "done") + f" {len(done)}: " + _c(", ".join(f"#{n['id']} {n['title']}" for n in done)))
@@ -778,7 +779,7 @@ def cmd_summary(args, con):
             plan.sort(key=lambda x: (len(x[1]) + len(x[2])), reverse=True)
             plan = plan[:top_n]
         for proj, pd, pp in plan:
-            pri = (_c(f"[#{proj['priority']}]", _PRI_STYLE.get(proj["priority"])) + " ") if proj["priority"] else ""
+            pri = _pri_marker(proj["priority"]) + " "
             out("\n▸ " + pri + _c(proj["title"], "header") + _c(f"  (done {len(pd)} / pending {len(pp)})", "meta"))
             if not projects_only:
                 _print_block(pd, pp)
@@ -992,7 +993,7 @@ def _show_one(args, con):
     out(_c(f"#{n['id']}", "id") + " " + _c(f"[{n['kind']}]", "kind") + " " + _c(n["title"], "header"))
     if n["status"]:
         st = _c(n["status"], _STATUS_STYLE.get(n["status"], "todo"))
-        pr = (" " + _c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"]))) if n["priority"] else ""
+        pr = " " + (_pri_marker(n["priority"]))
         out("  " + _c("status:", "meta") + "   " + st + pr)
     chain = _ancestors_chain(con, args.id)
     if len(chain) > 1:

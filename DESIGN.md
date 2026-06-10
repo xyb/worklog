@@ -226,6 +226,7 @@ Anywhere "list a node" — use the uniform line format (`_fmt_node` / summary's 
 - `⏱<N>min`: CLOCK time accumulated on the node (`_node_clock_min`), shown when > 0
 - Completion lists use `✓` in place of the marker
 - **The only renderer is `_node_line`**, which threads through `_c` for coloring (see §19). Any place listing nodes reuses it and gets highlighting for free; do not hand-roll the string elsewhere.
+- **The priority slot always shows a 4-column marker via `_pri_marker` (single source).** Set → `[#A]`/`[#B]`/`[#C]` (priority-colored); **unset → a muted `[# ]`**, never blank and never `[ ]`. Blank spaces (the old placeholder) were 3 columns — one short of `[#A]` — so unset rows mis-aligned; `[ ]` collides with the TODO status marker and reads as a checkbox. `[# ]` keeps every row's columns aligned and says "priority not set" unambiguously. Every list/header that shows priority (`ls`/`day`/`tree`/`projects`/`summary`/`focus`/`show`/running-clock/check-in) routes through `_pri_marker` — do not re-derive the blank/`[ ]` form anywhere.
 
 ## 7. Timeline / changes / CLOCK (`wl show`)
 

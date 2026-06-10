@@ -371,3 +371,30 @@ class TestWidthCap:
             assert helpers._term_width() == 200          # cap above terminal = no-op
         finally:
             helpers._set_width_cap(None)                 # reset module global for isolation
+
+
+class TestPriorityMarker:
+    """unset priority renders [# ] (aligned, muted) — never blank, never [ ] (the TODO marker)."""
+
+    def test_unset_priority_shows_hash_space_marker(self, cli):
+        cli("add", "no-pri task", "-k", "task")     # no -p
+        _, out, _ = cli("--color", "never", "ls")
+        line = next(l for l in out.splitlines() if "no-pri task" in l)
+        assert "[# ]" in line                         # priority slot present + unset
+        # the TODO status marker [ ] and the priority slot [# ] both appear, distinct
+        assert line.count("[ ]") == 1 and "[# ]" in line
+
+    def test_set_and_unset_priority_columns_align(self, cli):
+        cli("add", "has A", "-k", "task", "-p", "A")
+        cli("add", "no pri", "-k", "task")
+        _, out, _ = cli("--color", "never", "ls")
+        a_line = next(l for l in out.splitlines() if "has A" in l)
+        u_line = next(l for l in out.splitlines() if "no pri" in l)
+        # the #id starts at the same column on both rows (4-col priority slot either way)
+        assert a_line.index("#") == u_line.index("#")
+
+    def test_pri_marker_helper(self):
+        from worklog.render import _pri_marker
+        # plain mode (no console) returns the bare markers
+        assert _pri_marker("A") == "[#A]"
+        assert _pri_marker(None) == "[# ]"

@@ -197,6 +197,17 @@ from .helpers import (
 )
 from .queries import _has_tag, _node_clock_min, _node_tags
 
+
+def _pri_marker(priority):
+    """The 4-col priority marker — `[#A]`/`[#B]`/`[#C]` styled by priority, or a muted `[# ]`
+    when unset. The single source for priority display (DESIGN §6/§19): never blank (blanks
+    mis-aligned by one column against `[#A]`) and never `[ ]` (that's the TODO status marker).
+    Every list/header that shows a node's priority routes through this — do not roll your own."""
+    if priority:
+        return _c(f"[#{priority}]", _PRI_STYLE.get(priority))
+    return _c("[# ]", "meta")
+
+
 def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, planned=False, clock=True, sched=False, hl=None):
     """Unified node-line rendering (sole source per DESIGN.md §6).
 
@@ -206,11 +217,8 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
     """
     mk = "✓" if done else _status_marker(n["status"])
     marker = _c(mk, "done" if done else _STATUS_STYLE.get(n["status"], "todo"))
-    if n["priority"]:
-        pri = _c(f"[#{n['priority']}]", _PRI_STYLE.get(n["priority"]))
-        pri_plain = f"[#{n['priority']}]"
-    else:
-        pri = pri_plain = "   "  # no priority: spaces as placeholder to align with [#A], no collision with marker
+    pri = _pri_marker(n["priority"])
+    pri_plain = f"[#{n['priority']}]" if n["priority"] else "[# ]"
     kind_plain = f"[{n['kind']}] " if (show_kind and n["kind"] != "task") else ""
     kind = (_c(kind_plain.rstrip(), "kind") + " ") if kind_plain else ""
     nid = _c(f"#{n['id']}", "id")
