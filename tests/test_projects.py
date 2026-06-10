@@ -68,3 +68,21 @@ class TestProjectsJson:
         import json
         _, out, _ = cli("projects", "-o", "json")
         assert json.loads(out) == []
+
+
+class TestKinds:
+    def test_kinds_lists_with_counts_in_canonical_order(self, cli):
+        cli("add", "t1", "-k", "task"); cli("add", "t2", "-k", "task")
+        cli("add", "p", "-k", "project"); cli("add", "a", "-k", "area")
+        code, out, _ = cli("kinds")
+        assert code == 0
+        assert "task" in out and "2" in out and "project" in out and "area" in out
+        # canonical order: area (container) before task (leaf)
+        assert out.index("area") < out.index("task")
+
+    def test_kinds_json(self, cli):
+        cli("add", "t", "-k", "task")
+        import json
+        _, out, _ = cli("kinds", "-o", "json")
+        d = json.loads(out)
+        assert {"kind": "task", "count": 1} in d

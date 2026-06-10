@@ -1546,6 +1546,11 @@ More: `wl help logs` (vs `wl day` structured view / `wl show <id>` single-node t
     lg.add_argument("--limit", type=int, metavar="N",
                     help="show only the first N logs (for non --by-task cases, to prevent flooding)")
 
+    sub.add_parser("kinds", parents=[output_parent],
+        help="list the node kinds in use + a count of each (overview of what's in the DB)",
+        formatter_class=_WlHelpFormatter,
+        epilog="Like `wl projects` but for kinds. `-o json` for the machine list. Filter a kind with `wl ls --kind <k>` / `wl tree --kind <k>`.")
+
     sub.add_parser("themes",
         help="list all color themes (one-line preview per theme)",
         formatter_class=_WlHelpFormatter,
@@ -1626,6 +1631,7 @@ from .commands import (
     _show_one,
     cmd_ls,
     cmd_projects,
+    cmd_kinds,
     _tree_by,
     cmd_tree,
     cmd_focus,
@@ -1723,6 +1729,7 @@ HANDLERS = {
     "ls": cmd_ls,
     "tree": cmd_tree,
     "projects": cmd_projects,
+    "kinds": cmd_kinds,
     "changes": cmd_changes,
     "summary": cmd_summary,
     "focus": cmd_focus,

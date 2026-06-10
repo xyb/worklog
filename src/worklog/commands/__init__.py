@@ -60,6 +60,7 @@ from .query import (
     cmd_descendants,
     cmd_agenda,
     cmd_projects,
+    cmd_kinds,
     cmd_changes,
     cmd_summary,
     cmd_logs,

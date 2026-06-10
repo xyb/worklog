@@ -578,6 +578,29 @@ def cmd_projects(args, con):
             stat += f" · latest {_tu.utc_to_local(recent)[:16]}"
         out(_c(f"#{proj['id']:<3d}", "id") + " " + pri + " " + _c(proj["title"], "header") + " — " + _c(stat, "meta"))
 
+
+# canonical display order for `wl kinds` (time hierarchy first, then containers, then leaves)
+_KIND_DISPLAY_ORDER = ["lifetime", "decade", "year", "quarter", "month", "week", "day",
+                       "area", "project", "task", "meetlog", "habit", "signal"]
+
+
+def cmd_kinds(args, con):
+    """List the node kinds in use + a live-node count for each — an overview of what's in the DB
+    (the `projects`-style list, but for kinds). Custom kinds sort after the known ones."""
+    rows = con.execute("SELECT kind, COUNT(*) c FROM node WHERE deleted_at IS NULL GROUP BY kind").fetchall()
+    order = {k: i for i, k in enumerate(_KIND_DISPLAY_ORDER)}
+    rows = sorted(rows, key=lambda r: (order.get(r["kind"], len(order)), r["kind"]))
+    if getattr(args, "output", "text") == "json":
+        import json
+        print(json.dumps([{"kind": r["kind"], "count": r["c"]} for r in rows], ensure_ascii=False, indent=2))
+        return
+    if not rows:
+        print("(no nodes yet)")
+        return
+    for r in rows:
+        out(_c(f"{r['kind']:9}", "kind") + " " + _c(str(r["c"]), "meta"))
+
+
 def cmd_changes(args, con):
     """Per-project changes in a time window: closed / added / log activity (input for weekly reports / Linear update)."""
     since, until = _resolve_window(args)
