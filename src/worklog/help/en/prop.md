@@ -30,3 +30,7 @@ system, `ext.linear`, `ext.github`. Each full key is still its own single-value 
 The point is prefix lookup — one `key LIKE 'agent_session.%'` finds every member across nodes —
 so prop queries / stats can filter or group by a whole namespace, not just an exact key. Use it
 when one logical dimension has several named slots; keep flat keys (`owner`, `release`) flat.
+
+**Reverse-query by prop**: `wl ls --prop K=V` (exact, comma-member aware) / `--prop K` (key
+exists) / `--prop GROUP.` (namespace prefix); repeat `--prop` for AND. So "which tasks shipped in
+v0.7.0" = `wl ls --prop release=v0.7.0 --all`. (Also on tree/day/logs/agenda — the shared filter.)

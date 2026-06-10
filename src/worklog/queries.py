@@ -208,13 +208,32 @@ def _parse_priority_filter(spec):
     return out
 
 
+def _parse_prop_cond(spec):
+    """Parse one `--prop` spec into `(mode, key, value)`:
+    - `key=value`           → ("exact",  key, value)  — node's prop key equals value (or value is
+                              one of its comma-joined members, so `github.pr=164` hits `164,165`).
+    - `group.` / `group.*`  → ("prefix", "group.", None) — node has any prop key in that namespace.
+    - `key`                 → ("exists", key, None)   — node has that prop key (any value).
+    """
+    spec = spec.strip()
+    if spec.endswith(".*"):
+        return ("prefix", spec[:-1], None)        # group.* → prefix "group."
+    if spec.endswith("."):
+        return ("prefix", spec, None)             # group.  → prefix "group."
+    if "=" in spec:
+        k, _, v = spec.partition("=")
+        return ("exact", k.strip(), v.strip())
+    return ("exists", spec, None)
+
+
 def make_node_filter(con, args):
-    """Shared --tag / --kind / --status / --priority filter, used by ls/tree/day/logs/agenda so
-    every list/view command filters the same way (one definition, DESIGN §12 single entry point).
+    """Shared --tag / --kind / --status / --priority / --prop filter, used by ls/tree/day/logs/agenda
+    so every list/view command filters the same way (one definition, DESIGN §12 single entry point).
     Returns a memoized predicate `node_id -> bool`, or **None** when no filter flag is set —
     callers treat None as "no filtering", keeping unfiltered behavior byte-identical.
     `--tag` is comma-separated AND (node must carry every tag); `--status` / `--priority` are
-    comma-separated OR (node matches any listed value)."""
+    comma-separated OR; `--prop` is repeatable, AND across conditions (exact key=value / key
+    existence / `group.` namespace prefix)."""
     tag = getattr(args, "tag", None)
     kind = getattr(args, "kind", None)
     status = getattr(args, "status", None)
@@ -225,7 +244,8 @@ def make_node_filter(con, args):
     wanted = {t.strip() for t in tag.split(",") if t.strip()} if tag else set()
     statuses = {s.strip().upper() for s in status.split(",") if s.strip()} if status else set()
     pris = _parse_priority_filter(priority) if priority else set()
-    if not wanted and not kind and not statuses and not pris:
+    prop_conds = [_parse_prop_cond(s) for s in (getattr(args, "prop", None) or []) if s and s.strip()]
+    if not wanted and not kind and not statuses and not pris and not prop_conds:
         return None
 
     cache = {}
@@ -244,6 +264,19 @@ def make_node_filter(con, args):
         if res and wanted:
             have = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)}
             res = wanted <= have
+        if res and prop_conds:
+            props = {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)}
+            for mode, k, v in prop_conds:
+                if mode == "exists":
+                    if k not in props:
+                        res = False; break
+                elif mode == "prefix":
+                    if not any(key.startswith(k) for key in props):
+                        res = False; break
+                else:  # exact: equals, or a member of the comma-joined value
+                    pv = props.get(k)
+                    if pv is None or (pv != v and v not in [x.strip() for x in pv.split(",")]):
+                        res = False; break
         cache[nid] = res
         return res
 

@@ -529,6 +529,8 @@ Good to know:
     filters.add_argument("--kind", help="filter by kind (task/habit/meetlog/project/area/...)")
     filters.add_argument("--status", help="filter by status, comma = any-of (TODO/DOING/DONE/WAIT/LATER/CANCELED)")
     filters.add_argument("-p", "--priority", help="filter by priority, comma = any-of (A/B/C or P0/P1/P2)")
+    filters.add_argument("--prop", action="append", metavar="K=V|K|GROUP.", default=None,
+                         help="filter by prop: K=V (exact; matches a member of a comma-joined value) / K (key exists) / GROUP. or GROUP.* (namespace prefix). Repeat for AND, e.g. --prop github.repo=xyb/worklog --prop linear.id")
 
     # structured-output parent (reused by show/ls/logs so `-o json` means the same everywhere):
     # text = the rich rendering (default), json = machine-readable. A command gains `-o` only

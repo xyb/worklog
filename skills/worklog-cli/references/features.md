@@ -135,6 +135,7 @@ wl ls --parent 45                     # children of #45
 wl ls --tag work,dev                  # multi-tag AND
 wl ls -p A                            # priority A (P0); -p A,B = any-of; -p P0 == -p A
 wl ls --status TODO,DOING             # status, comma = any-of
+wl ls --prop release=v0.7.0 --all     # reverse-query by prop: K=V / K (exists) / GROUP. (prefix); repeat=AND
 wl ls --unscheduled --kind task       # backlog needing schedule
 wl ls --sort created -r --limit 5     # last-5 created (like ls -tr -5)
 wl ls --sort updated --limit 10       # last-10 with new logs (like ls -t)

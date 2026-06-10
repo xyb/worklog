@@ -239,3 +239,58 @@ class TestPriorityFilter:
         self._seed(cli)
         _, out, _ = cli("tree", "-p", "A", "--kind", "task")
         assert "alpha" in out and "bravo" not in out
+
+
+class TestPropFilter:
+    """--prop on the shared filter: exact K=V (comma-member aware) / K existence / GROUP. prefix; repeat = AND."""
+
+    def _seed(self, cli):
+        cli("add", "a", "-k", "task")                          # 1
+        cli("set", "1", "github.repo", "xyb/worklog")
+        cli("set", "1", "github.pr", "10,11")
+        cli("add", "b", "-k", "task")                          # 2
+        cli("set", "2", "github.repo", "xyb/worklog")
+        cli("set", "2", "linear.id", "LUM-5")
+        cli("add", "c", "-k", "task")                          # 3 (no props)
+
+    def test_exact(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "--prop", "github.repo=xyb/worklog", "--all")
+        assert " #1 " in out and " #2 " in out and " #3 " not in out
+
+    def test_exact_comma_member(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "--prop", "github.pr=11", "--all")   # value stored as "10,11"
+        assert " #1 " in out and " #2 " not in out
+
+    def test_key_existence(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "--prop", "linear.id", "--all")
+        assert " #2 " in out and " #1 " not in out
+
+    def test_namespace_prefix(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "--prop", "github.", "--all")        # any github.* prop
+        assert " #1 " in out and " #2 " in out and " #3 " not in out
+
+    def test_namespace_prefix_star(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "--prop", "github.*", "--all")
+        assert " #1 " in out and " #2 " in out
+
+    def test_repeat_is_and(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "--prop", "github.repo=xyb/worklog", "--prop", "linear.id", "--all")
+        assert " #2 " in out and " #1 " not in out                  # only #2 has both
+
+    def test_no_match(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "--prop", "github.repo=nope/nope", "--all")
+        assert "(no nodes)" in out
+
+    def test_parse_prop_cond_unit(self):
+        from worklog.queries import _parse_prop_cond
+        assert _parse_prop_cond("k=v") == ("exact", "k", "v")
+        assert _parse_prop_cond("k") == ("exists", "k", None)
+        assert _parse_prop_cond("g.") == ("prefix", "g.", None)
+        assert _parse_prop_cond("g.*") == ("prefix", "g.", None)
