@@ -273,8 +273,6 @@ def _args_node_show(p):
     p.add_argument("--timeline-tail", type=int, metavar="N",
                    help="only show the latest N timeline entries (default 5, with middle elided)")
     p.add_argument("--all-timelines", action="store_true", help="full timeline, no elision")
-    p.add_argument("-o", "--output", choices=["text", "json"], default="text",
-                   help="output format: text (default, rich) or json (machine-readable, full node + relations; one object per id, an array for several)")
     return p
 
 
@@ -531,6 +529,13 @@ Good to know:
     filters.add_argument("--kind", help="filter by kind (task/habit/meetlog/project/area/...)")
     filters.add_argument("--status", help="filter by status, comma = any-of (TODO/DOING/DONE/WAIT/LATER/CANCELED)")
     filters.add_argument("-p", "--priority", help="filter by priority, comma = any-of (A/B/C or P0/P1/P2)")
+
+    # structured-output parent (reused by show/ls/logs so `-o json` means the same everywhere):
+    # text = the rich rendering (default), json = machine-readable. A command gains `-o` only
+    # when it serializes to json; others don't accept the flag (no silent text fallback).
+    output_parent = argparse.ArgumentParser(add_help=False)
+    output_parent.add_argument("-o", "--output", choices=["text", "json"], default="text",
+                               help="output format: text (default) or json (machine-readable)")
 
     _real_sub = p.add_subparsers(dest="cmd", required=False, metavar="<command>")
 
@@ -960,15 +965,16 @@ More: `wl help tag`.""")
     _tgr.add_argument("tags", nargs="+", metavar="tag",
                       help="tag name(s) to remove (plain name; to use a - prefix use wl tag <id> -tag)")
 
-    sh = sub.add_parser("show",
+    sh = sub.add_parser("show", parents=[output_parent],
         help="full detail + timeline for a node (accepts multiple ids)",
-        description="All info on a node: metadata (status/priority/parents/tags/links/props) + timeline (created/scheduled/closed/log merged by time). Timeline defaults to the last 5; use --all-timelines for full expansion. Canonical form: `wl node show` (this is the shortcut; see `wl node -h`).",
+        description="All info on a node: metadata (status/priority/parents/tags/links/props) + timeline (created/scheduled/closed/log merged by time). Timeline defaults to the last 5; use --all-timelines for full expansion. `-o json` for the full machine-readable node. Canonical form: `wl node show` (this is the shortcut; see `wl node -h`).",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl show 42                   # full detail + last 5 timeline entries
   wl show 42 -q                # brief: skip timeline
   wl show 42 --all-timelines   # full timeline (--timeline-tail N for a set length)
+  wl show 42 -o json           # machine-readable node + relations (pipe to jq)
 
 More: `wl help show` (vs `wl focus` up/down context / `wl logs --id` log stream only).""")
     _args_node_show(sh)
@@ -993,9 +999,9 @@ More: `wl help node`.""")
     _ndsub = nd.add_subparsers(dest="node_sub")
     _args_node_add(_ndsub.add_parser("add", help="create a node (= wl add)",
         description="Create a node — the canonical primitive. Also: the top-level shortcut `wl add` (identical, same handler)."))
-    _args_node_ls(_ndsub.add_parser("ls", parents=[filters], help="list nodes (= wl ls)",
+    _args_node_ls(_ndsub.add_parser("ls", parents=[filters, output_parent], help="list nodes (= wl ls)",
         description="List nodes. Also: the top-level shortcut `wl ls` (identical, same handler)."))
-    _args_node_show(_ndsub.add_parser("show", help="show a node + timeline (= wl show)",
+    _args_node_show(_ndsub.add_parser("show", parents=[output_parent], help="show a node + timeline (= wl show)",
         description="Show a node's detail + timeline. Also: the top-level shortcut `wl show` (identical, same handler)."))
     _nde = _ndsub.add_parser("edit", help="edit a node's own fields (title/priority/kind/body/scheduled/deadline)")
     _nde.add_argument("id", type=int)
@@ -1011,7 +1017,7 @@ More: `wl help node`.""")
     _ndrp.add_argument("id", type=int)
     _ndrp.add_argument("parent", help="new parent node id, or 'none'/'root' to detach to the top level")
 
-    ls = sub.add_parser("ls", parents=[filters],
+    ls = sub.add_parser("ls", parents=[filters, output_parent],
                         help="list nodes (default limit 20; see shell ls -t / -S / -r-style dimensions)",
                         description="List nodes (multi-dimensional, shell-ls style). Canonical form: `wl node ls` (this is the shortcut; see `wl node -h`).",
                         formatter_class=_WlHelpFormatter,
@@ -1499,7 +1505,7 @@ More: `wl help find` (vs `wl ls --tag` precise filter / `wl ls --recent` by time
     fd.add_argument("--limit", type=int, metavar="N", help="show only the first N (default 20; use 0 or --all for no cap)")
     fd.add_argument("--all", action="store_true", help="no row limit")
 
-    lg = sub.add_parser("logs", parents=[window, filters],
+    lg = sub.add_parser("logs", parents=[window, filters, output_parent],
         help="list log entries (default last 7 days; preset today/yesterday/week/recent)",
         formatter_class=_WlHelpFormatter,
         epilog="""\

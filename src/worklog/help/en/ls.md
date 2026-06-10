@@ -17,6 +17,7 @@ the `ls -t`/`-S`/`-r`-style view of your work.
   wl ls --status TODO,DOING    # status, comma = any-of
   wl ls --recent 7             # only items touched in the last 7 days
   wl ls --unscheduled          # open items with no schedule
+  wl ls -o json                # machine-readable array (filters apply; no 20-cap; pipe to jq)
 
 Sort dimensions: pri (default) / created / updated (last log) / closed / scheduled / title /
 id. For tree structure use `wl tree`; to search text use `wl find`.

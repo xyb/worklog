@@ -117,3 +117,20 @@ class TestLogsCoverageGaps:
         assert "t1" in out
         assert today in out  # date string should appear
         assert "aaaa-body" not in out and "bbbb-body" not in out
+
+
+class TestLogsJson:
+    def test_logs_json_array(self, cli):
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "first"); cli("log", "1", "second")
+        import json
+        code, out, _ = cli("logs", "--id", "1", "-o", "json")
+        d = json.loads(out)
+        assert code == 0 and [l["body"] for l in d] == ["first", "second"]
+        assert set(d[0].keys()) >= {"id", "node_id", "logged_at", "tag", "body", "node_title"}
+
+    def test_logs_json_empty_is_array(self, cli):
+        cli("add", "t", "-k", "task")
+        import json
+        _, out, _ = cli("logs", "--id", "1", "-o", "json")
+        assert json.loads(out) == []

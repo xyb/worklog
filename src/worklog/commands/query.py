@@ -121,6 +121,24 @@ def _node_to_dict(con, n):
     }
 
 
+def _node_summary_dict(con, n):
+    """Compact node form for list output (`wl ls -o json`): identity + the fields you filter /
+    sort by + tags. Full detail (props/links/logs/metrics/timeline) is `wl show -o json`.
+    Same stable field names + timestamp convention (`*_at` UTC, `*_date` local)."""
+    return {
+        "id": n["id"], "kind": n["kind"], "title": n["title"],
+        "status": n["status"], "priority": n["priority"], "parent_id": n["parent_id"],
+        "scheduled_date": n["scheduled_date"], "deadline_date": n["deadline_date"],
+        "created_at": n["created_at"], "closed_at": n["closed_at"],
+        "tags": _node_tags(con, n["id"]),
+    }
+
+
+def _emit_nodes_json(con, rows):
+    import json
+    print(json.dumps([_node_summary_dict(con, n) for n in rows], ensure_ascii=False, indent=2))
+
+
 def cmd_show(args, con):
     ids = _ids_list(args)
     if getattr(args, "output", "text") == "json":
@@ -159,6 +177,9 @@ def cmd_ls(args, con):
             r = _db.get(con, "node", nid)
             if r:
                 rows.append(r)
+        if getattr(args, "output", "text") == "json":
+            _emit_nodes_json(con, rows)   # empty list → [] (valid machine output)
+            return
         if not rows:
             print("(no nodes matched given ids)")
             return
@@ -220,6 +241,12 @@ def cmd_ls(args, con):
     nf = make_node_filter(con, args)
     if nf:
         rows = [n for n in rows if nf(n["id"])]
+    if getattr(args, "output", "text") == "json":
+        # machine output: honor an explicit --limit/--top, but skip the display-only default 20-cap
+        if getattr(args, "limit", None) or getattr(args, "top", None):
+            rows, _ = _apply_top_limit(rows, args)
+        _emit_nodes_json(con, rows)
+        return
     if not rows:
         print("(no nodes)")
         return
@@ -794,7 +821,7 @@ def cmd_logs(args, con):
     where.append("log.deleted_at IS NULL")
     where.append("node.deleted_at IS NULL")
     grouped = getattr(args, "group", "none") == "day"
-    cols = "log.id, log.node_id, log.logged_at, log.body, node.title"
+    cols = "log.id, log.node_id, log.logged_at, log.tag, log.body, node.title"
     if grouped:
         cols += ", node.status, node.priority, node.kind"
     sql = f"SELECT {cols} FROM log JOIN node ON log.node_id = node.id"
@@ -806,6 +833,14 @@ def cmd_logs(args, con):
     nf = make_node_filter(con, args)
     if nf:
         rows = [r for r in rows if nf(r["node_id"])]
+
+    if getattr(args, "output", "text") == "json":
+        import json
+        print(json.dumps([
+            {"id": r["id"], "node_id": r["node_id"], "logged_at": r["logged_at"],
+             "tag": r["tag"], "body": r["body"], "node_title": r["title"]}
+            for r in rows], ensure_ascii=False, indent=2))   # empty window → [] (valid output)
+        return
 
     if not rows:
         # provide a useful hint explaining why empty

@@ -201,3 +201,42 @@ class TestLsSortUpdated:
         idx_new = out.find("new-task")
         idx_old = out.find("old-task")
         assert 0 <= idx_old < idx_new
+
+
+class TestLsJson:
+    """`wl ls -o json` — array of compact node summaries (filters apply, empty → [])."""
+
+    def test_ls_json_array(self, cli):
+        cli("add", "alpha", "-k", "task", "-p", "A", "-t", "work")
+        cli("add", "bravo", "-k", "task", "-p", "B")
+        import json
+        code, out, _ = cli("ls", "-o", "json")
+        d = json.loads(out)
+        assert code == 0 and isinstance(d, list) and len(d) == 2
+        assert set(d[0].keys()) >= {"id", "kind", "title", "status", "priority", "tags"}
+
+    def test_ls_json_respects_filter(self, cli):
+        cli("add", "a", "-k", "task", "-p", "A")
+        cli("add", "b", "-k", "task", "-p", "B")
+        import json
+        _, out, _ = cli("ls", "-p", "A", "-o", "json")
+        d = json.loads(out)
+        assert [n["title"] for n in d] == ["a"]
+
+    def test_ls_json_ids_mode(self, cli):
+        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")
+        import json
+        _, out, _ = cli("ls", "--ids", "2", "-o", "json")
+        assert [n["id"] for n in json.loads(out)] == [2]
+
+    def test_ls_json_empty_is_array(self, cli):
+        import json
+        _, out, _ = cli("ls", "-p", "C", "-o", "json")   # nothing matches
+        assert json.loads(out) == []
+
+    def test_ls_json_no_default_cap(self, cli):
+        for i in range(25):
+            cli("add", f"t{i}", "-k", "task")
+        import json
+        _, out, _ = cli("ls", "-o", "json")
+        assert len(json.loads(out)) == 25   # machine output isn't capped at the display default 20
