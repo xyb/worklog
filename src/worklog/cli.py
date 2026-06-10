@@ -527,7 +527,8 @@ Good to know:
     filters = argparse.ArgumentParser(add_help=False)
     filters.add_argument("-t", "--tag", help="comma-separated tags, AND filter (e.g. -t work)")
     filters.add_argument("--kind", help="filter by kind (task/habit/meetlog/project/area/...)")
-    filters.add_argument("--status", help="filter by status (TODO/DOING/DONE/WAIT/LATER/CANCELED)")
+    filters.add_argument("--status", help="filter by status, comma = any-of (TODO/DOING/DONE/WAIT/LATER/CANCELED)")
+    filters.add_argument("-p", "--priority", help="filter by priority, comma = any-of (A/B/C or P0/P1/P2)")
 
     _real_sub = p.add_subparsers(dest="cmd", required=False, metavar="<command>")
 
@@ -1015,7 +1016,8 @@ More: `wl help node`.""")
                         epilog="""\
 Common examples (shell-ls multi-dimensional):
   wl ls --parent 45                  children of #45 (like ls dir/)
-  wl ls --kind project               only projects · --tag work,dev (AND) · --status WAIT
+  wl ls --kind project               only projects · --tag work,dev (AND) · --status WAIT,LATER (any-of)
+  wl ls -p A                         only P0 (A); -p A,B = any-of; -p P0 == -p A
   wl ls --unscheduled --kind task    unscheduled tasks (inbox)
   wl ls --sort updated --limit 10    10 most-recently-logged (like ls -t; --sort created -r for newest)
   wl ls --ids 39 41 270              specific ids directly (like ls f1 f2)

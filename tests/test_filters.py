@@ -184,3 +184,58 @@ class TestFilterEdgeCases:
         self._seed(cli)
         _, out, _ = cli("tree", "--by", "project", "--kind", "project")
         assert "project A" in out
+
+
+class TestPriorityFilter:
+    """--priority / -p on the shared filter (A/B/C or P0/P1/P2; comma = any-of) + --status comma-OR."""
+
+    def _seed(self, cli):
+        cli("add", "alpha", "-k", "task", "-p", "A")   # 1
+        cli("add", "bravo", "-k", "task", "-p", "B")   # 2
+        cli("add", "charlie", "-k", "task", "-p", "C")  # 3
+        cli("add", "delta", "-k", "task")               # 4 (no priority)
+
+    def test_priority_exact(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "--priority", "A")
+        assert "alpha" in out
+        assert "bravo" not in out and "charlie" not in out and "delta" not in out
+
+    def test_priority_short_flag(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "-p", "B")
+        assert "bravo" in out and "alpha" not in out
+
+    def test_priority_comma_any_of(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "-p", "A,B")
+        assert "alpha" in out and "bravo" in out
+        assert "charlie" not in out and "delta" not in out
+
+    def test_priority_p0_synonym(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("ls", "-p", "p0")   # P0 == A, case-insensitive
+        assert "alpha" in out and "bravo" not in out
+
+    def test_priority_invalid_value_errors(self, cli):
+        self._seed(cli)
+        code, _, err = cli("ls", "-p", "X")
+        assert code != 0 and "invalid --priority" in err
+
+    def test_priority_combines_with_tag(self, cli):
+        cli("add", "work-a", "-k", "task", "-p", "A", "-t", "work")
+        cli("add", "personal-a", "-k", "task", "-p", "A", "-t", "personal")
+        _, out, _ = cli("ls", "-p", "A", "-t", "work")
+        assert "work-a" in out and "personal-a" not in out
+
+    def test_status_comma_or(self, cli):
+        cli("add", "todo-task", "-k", "task")
+        cli("add", "doing-task", "-k", "task")
+        cli("start", "2")   # doing-task → DOING
+        _, out, _ = cli("ls", "--status", "TODO,DOING")
+        assert "todo-task" in out and "doing-task" in out
+
+    def test_priority_filter_on_tree(self, cli):
+        self._seed(cli)
+        _, out, _ = cli("tree", "-p", "A", "--kind", "task")
+        assert "alpha" in out and "bravo" not in out

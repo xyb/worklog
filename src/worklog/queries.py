@@ -190,20 +190,42 @@ def soft_delete_log(con, log_id):
     return n
 
 
+_PRI_FILTER_ALIASES = {"P0": "A", "P1": "B", "P2": "C", "A": "A", "B": "B", "C": "C"}
+
+
+def _parse_priority_filter(spec):
+    """Parse a `--priority` value into a set of canonical letters. Accepts A/B/C and the
+    P0/P1/P2 synonyms, case-insensitive, comma = any-of (`--priority A,B` → {A, B}). Exits with
+    a hint on an unrecognized token (a silent no-match would hide a typo)."""
+    out = set()
+    for tok in spec.split(","):
+        t = tok.strip().upper()
+        if not t:
+            continue
+        if t not in _PRI_FILTER_ALIASES:
+            sys.exit(f"✗ invalid --priority '{tok}' (use A/B/C or P0/P1/P2; comma for any-of)")
+        out.add(_PRI_FILTER_ALIASES[t])
+    return out
+
+
 def make_node_filter(con, args):
-    """Shared --tag / --kind / --status filter, used by ls/tree/day/logs/agenda so every
-    list/view command filters the same way (one definition, DESIGN §12 single entry point).
+    """Shared --tag / --kind / --status / --priority filter, used by ls/tree/day/logs/agenda so
+    every list/view command filters the same way (one definition, DESIGN §12 single entry point).
     Returns a memoized predicate `node_id -> bool`, or **None** when no filter flag is set —
     callers treat None as "no filtering", keeping unfiltered behavior byte-identical.
-    `--tag` is comma-separated AND: the node must carry every listed tag."""
+    `--tag` is comma-separated AND (node must carry every tag); `--status` / `--priority` are
+    comma-separated OR (node matches any listed value)."""
     tag = getattr(args, "tag", None)
     kind = getattr(args, "kind", None)
     status = getattr(args, "status", None)
+    priority = getattr(args, "priority", None)
     # parse tags first so an effective-empty tag (--tag "" / "," / ",,") collapses to
     # "no tag filter" rather than an all-pass predicate (which would still route tree to
     # the filtered path); if nothing real is left to filter on, return None.
     wanted = {t.strip() for t in tag.split(",") if t.strip()} if tag else set()
-    if not wanted and not kind and not status:
+    statuses = {s.strip().upper() for s in status.split(",") if s.strip()} if status else set()
+    pris = _parse_priority_filter(priority) if priority else set()
+    if not wanted and not kind and not statuses and not pris:
         return None
 
     cache = {}
@@ -215,7 +237,9 @@ def make_node_filter(con, args):
         res = n is not None
         if res and kind and n["kind"] != kind:
             res = False
-        if res and status and n["status"] != status:
+        if res and statuses and n["status"] not in statuses:
+            res = False
+        if res and pris and n["priority"] not in pris:
             res = False
         if res and wanted:
             have = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)}

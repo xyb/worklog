@@ -134,7 +134,7 @@ metric + done), and the compound `add --log/--done/--at/--link/--sched/--metric`
 **C. View** — read-only cross-entity rendering, no single-row CRUD: `ls` / `tree` /
 `day` / `agenda` / `projects` / `changes` / `summary` / `focus` / `ancestors` /
 `descendants` / `find` / `logs` / `show`. These share the unified filter (§ shared
-`--tag/--kind/--status`), time-window (§8) and `--by` (§9) conventions.
+`--tag/--kind/--status/--priority`), time-window (§8) and `--by` (§9) conventions.
 
 System commands (`migrate` / `config` / `init` / `import` / `apply` / `themes` /
 `print-completion`) sit outside the three buckets.

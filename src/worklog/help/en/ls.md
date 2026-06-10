@@ -12,7 +12,9 @@ the `ls -t`/`-S`/`-r`-style view of your work.
   wl ls --sort updated --limit 10   # 10 most-recently-logged (like ls -t)
   wl ls --sort created -r --limit 5 # 5 newest
   wl ls --all                  # include DONE/CANCELED, no cap
-  wl ls -t work --kind task    # filter by tag / kind / status (e.g. --status WAIT)
+  wl ls -t work --kind task    # filter by tag / kind / status / priority (shared across views)
+  wl ls -p A                   # only P0 (A); -p A,B = A or B; -p P0 == -p A
+  wl ls --status TODO,DOING    # status, comma = any-of
   wl ls --recent 7             # only items touched in the last 7 days
   wl ls --unscheduled          # open items with no schedule
 
