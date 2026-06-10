@@ -16,10 +16,19 @@ def _bound_value(tmp_db, nid):
 
 
 def _history_metrics(tmp_db, nid):
-    """The append-only bind-history metrics on a node (--record)."""
+    """The bind-history `agent_session` metrics on a node (--record): value_text = session id."""
     con = tmp_db.db_connect()
     return con.execute(
         "SELECT value_text, note FROM metric WHERE node_id=? AND tag='agent_session' "
+        "AND deleted_at IS NULL ORDER BY id", (nid,)
+    ).fetchall()
+
+
+def _agent_metrics(tmp_db, nid):
+    """The bind-history `agent` metrics on a node: value_text = the runtime name (claude/codex/…)."""
+    con = tmp_db.db_connect()
+    return con.execute(
+        "SELECT value_text FROM metric WHERE node_id=? AND tag='agent' "
         "AND deleted_at IS NULL ORDER BY id", (nid,)
     ).fetchall()
 
@@ -139,24 +148,25 @@ class TestAgent:
         cli("agent", "1")                          # and again → no duplicate
         assert len(_history_metrics(tmp_db, 1)) == 1
 
-    def test_record_writes_one_history_metric(self, cli, tmp_db, monkeypatch):
+    def test_record_writes_session_and_agent_metrics(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-full-1234-xyz")
         cli("add", "t", "-k", "task")
         code, out, _ = cli("agent", "1", "--record")
         assert code == 0 and "history" in out
-        rows = _history_metrics(tmp_db, 1)
-        assert len(rows) == 1
-        assert rows[0]["value_text"] == "sess-full-1234-xyz"   # FULL sid stored, not truncated
-        assert rows[0]["note"] == "claude"
+        sess = _history_metrics(tmp_db, 1)
+        assert len(sess) == 1
+        assert sess[0]["value_text"] == "sess-full-1234-xyz"   # session metric: FULL sid, not truncated
+        agent = _agent_metrics(tmp_db, 1)
+        assert len(agent) == 1
+        assert agent[0]["value_text"] == "claude"              # agent metric: the runtime name (default)
 
-    def test_agent_env_recorded_in_metric_note(self, cli, tmp_db, monkeypatch):
-        """$WL_AGENT names the runtime → stored as the metric note + the prop key suffix."""
+    def test_agent_recorded_as_its_own_metric(self, cli, tmp_db, monkeypatch):
+        """$WL_AGENT names the runtime → its own `agent` metric (value) + the prop key suffix."""
         self._sess(monkeypatch, "sess-codex-1")
         monkeypatch.setenv("WL_AGENT", "codex")
         cli("add", "t", "-k", "task")
         cli("agent", "1", "--record")
-        rows = _history_metrics(tmp_db, 1)
-        assert rows[0]["note"] == "codex"                       # the agent value, not hardcoded claude
+        assert _agent_metrics(tmp_db, 1)[0]["value_text"] == "codex"   # the agent value, not hardcoded claude
         con = tmp_db.db_connect()
         keys = [r["key"] for r in con.execute(
             "SELECT key FROM prop WHERE node_id=1 AND deleted_at IS NULL").fetchall()]
@@ -167,14 +177,14 @@ class TestAgent:
         monkeypatch.setenv("WL_AGENT", "codex")
         cli("add", "t", "-k", "task")
         cli("agent", "1", "--record", "--agent", "cursor")     # flag beats env
-        assert _history_metrics(tmp_db, 1)[0]["note"] == "cursor"
+        assert _agent_metrics(tmp_db, 1)[0]["value_text"] == "cursor"
 
     def test_agent_name_normalized_lowercase(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-up-1")
         monkeypatch.setenv("WL_AGENT", "  Cursor  ")
         cli("add", "t", "-k", "task")
         cli("agent", "1", "--record")
-        assert _history_metrics(tmp_db, 1)[0]["note"] == "cursor"   # trimmed + lowercased
+        assert _agent_metrics(tmp_db, 1)[0]["value_text"] == "cursor"   # trimmed + lowercased
 
     def test_record_rebind_same_pair_no_duplicate(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")

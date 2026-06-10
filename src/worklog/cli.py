@@ -876,10 +876,10 @@ Common examples:
 Two stores, two jobs:
   * the `agent_session.<agent>` prop is the LIVE pointer — one session → one node, it MOVES on
     rebind, so it always names the node a session is currently on;
-  * a HISTORY trail (one log + an `agent_session` metric carrying the full session id, its `note`
-    the agent) stays on the node forever. `wl agent <id>` writes it BY DEFAULT (so auto-binds
-    capture lineage with no flag to remember); `--no-record` skips it. Recover it with
-    `wl metric ls <id> --tag agent_session --all` (or read `wl show <id>`'s timeline).
+  * a HISTORY trail (one log carrying TWO metrics — `agent_session` = the full session id, and
+    `agent` = the runtime name) stays on the node forever. `wl agent <id>` writes it BY DEFAULT
+    (so auto-binds capture lineage with no flag to remember); `--no-record` skips it. Recover it
+    with `wl metric ls <id> --tag agent_session --all` (or read `wl show <id>`'s timeline).
 
 Only the bind event is recorded — later logs don't each carry the session, so it costs one row
 per binding, not per write; rebinding the same pair doesn't duplicate it.
@@ -891,7 +891,7 @@ More: `wl help agent`.""")
     _ags = _agsub.add_parser("set", help="bind current session to <id>")
     _ags.add_argument("id", type=int)
     _ags.add_argument("--record", action=argparse.BooleanOptionalAction, default=True,
-        help="append a one-off history log + `agent_session` metric on the node so `wl metric ls <id> --tag agent_session --all` recovers every session it was worked under (default on; `--no-record` for a pointer-only bind)")
+        help="append a one-off history log carrying an `agent_session` metric (session id) + an `agent` metric (runtime name), so `wl metric ls <id> --tag agent_session --all` recovers every session it was worked under (default on; `--no-record` for a pointer-only bind)")
     _ags.add_argument("--agent", default=None, metavar="NAME",
         help="which agent runtime this is (claude / cursor / codex / …); recorded with the session so the history shows what worked the node. Default: $WL_AGENT, else 'claude'")
     _agsub.add_parser("ls", help="list all session→task bindings")

@@ -966,7 +966,8 @@ def cmd_prop(args, con):
 _AGENT_APP = "claude"                       # default agent runtime this CLI ships for
 _AGENT_PREFIX = "agent_session."            # cross-app prefix: prop key is agent_session.<agent>
 _AGENT_KEY = _AGENT_PREFIX + _AGENT_APP       # default key (agent_session.claude)
-_AGENT_METRIC_TAG = "agent_session"          # metric tag for the bind-history trail (mirrors the prop)
+_SESSION_METRIC_TAG = "agent_session"        # bind-history metric: the session id (value_text = sid); tag string mirrors the prop namespace
+_AGENT_METRIC_TAG = "agent"                  # bind-history metric: the runtime name (value_text = prop-key suffix, e.g. claude)
 
 def _current_agent():
     """Which agent runtime drives this `wl` — recorded with the session so the bind history
@@ -1023,11 +1024,11 @@ def _agent_hook_json(con, sid):
         "hookEventName": "UserPromptSubmit", "additionalContext": msg}}, ensure_ascii=False)
 
 def _has_agent_history(con, nid, sid):
-    """Whether the (node, session) bind is already in the history trail — dedup by the actual
-    `agent_session` metric, so re-binding the same pair never duplicates it, yet a pair that
-    was bound without a history record still gets one on a later bind."""
+    """Whether the (node, session) bind is already in the history trail — dedup by the
+    `session` metric, so re-binding the same pair never duplicates it, yet a pair that was
+    bound without a history record still gets one on a later bind."""
     return _db.query_one(con, "metric", cols="id", node_id=nid,
-                         tag=_AGENT_METRIC_TAG, value_text=sid) is not None
+                         tag=_SESSION_METRIC_TAG, value_text=sid) is not None
 
 def _record_bind_history(con, nid, sid, agent):
     """Append-only record that session `sid` (run by `agent`) was bound to node `nid`.
@@ -1035,22 +1036,31 @@ def _record_bind_history(con, nid, sid, agent):
     Two stores with different jobs:
       * the prop `agent_session.<agent>` is the *live* pointer — one session → one node, and it
         MOVES on rebind, so it always names the node a session is currently on;
-      * this log + metric is the *history* — it stays on the node forever, so
-        `wl metric ls <id> --tag agent_session --all` / `wl show <id>` recover every session a
-        node was ever worked under. The metric's `note` carries the agent (claude / cursor / …),
-        so the trail shows *what* worked the node, not just the sid.
+      * this log + its two metrics are the *history* — they stay on the node forever, so
+        `wl show <id>` / `wl metric ls <id> --tag session` recover every session a node was worked
+        under. The bind carries **two separate metrics** on one carrier log: `session` (value =
+        the full session id) and `agent` (value = the runtime name — claude / cursor / …, the
+        `agent_session.<agent>` prop-key suffix), so each is its own queryable datapoint.
 
     Written once per (node, session) bind, NOT stamped onto every later log — one row per
     association instead of tagging every write, which is the whole point of the light design."""
+    now = _tu.utc_now()
     log_id = _db.insert(con, "log", {
-        "node_id": nid, "logged_at": _tu.utc_now(),
+        "node_id": nid, "logged_at": now,
         "body": f"agent session bound · {agent}:{sid[:8]}…",
         "tag": "metric",   # auto metric-carrier log (same convention as `wl metric add`)
     })
+    # the session id, as its own metric
+    _db.insert(con, "metric", {
+        "log_id": log_id, "node_id": nid, "tag": _SESSION_METRIC_TAG,
+        "value_num": None, "value_text": sid, "unit": None,
+        "note": None, "at": now,
+    })
+    # the agent runtime name, as its own metric (value = the prop-key suffix)
     _db.insert(con, "metric", {
         "log_id": log_id, "node_id": nid, "tag": _AGENT_METRIC_TAG,
-        "value_num": None, "value_text": sid, "unit": None,
-        "note": agent, "at": _tu.utc_now(),
+        "value_num": None, "value_text": agent, "unit": None,
+        "note": None, "at": now,
     })
 
 def _short(s, n=50):

@@ -34,13 +34,14 @@ The binding splits into two stores with different jobs:
 - The `agent_session.<agent>` **prop is the live pointer** — exactly one session → one node, and
   it *moves* on rebind. It answers "what is this session on right now?" and powers the status
   line / hook.
-- A **history trail** — one log + an `agent_session` metric carrying the *full* session id (its
-  `note` the agent name), which stays on the node forever. It answers "which sessions, run by
-  which agent, has this node ever been worked under?"
+- A **history trail** — one log carrying *two* metrics: `agent_session` (the *full* session id)
+  and `agent` (the runtime name — claude / cursor / …), which stays on the node forever. It
+  answers "which sessions, run by which agent, has this node ever been worked under?"
   **`wl agent <id>` writes it by default** (so auto-binds capture the lineage without anyone
   remembering a flag); `wl agent <id> --no-record` skips it for a pointer-only bind. Recover it:
 
       wl metric ls <id> --tag agent_session --all   # every session that bound this node
+      wl metric ls <id> --tag agent --all           # which agent runtime worked it
       wl show <id>                                   # the bind events appear in the timeline
 
 Only the bind *event* is recorded — later logs don't each carry the session id, so the cost is
