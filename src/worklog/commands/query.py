@@ -511,11 +511,11 @@ def cmd_projects(args, con):
         proj_params,
     ).fetchall()
     if not projects:
-        print("(no active projects)")
+        print("[]" if getattr(args, "output", "text") == "json" else "(no active projects)")
         return
 
-    # collect lines -> apply --since/--top/--limit truncation -> print
-    lines = []
+    # collect per-project stats -> apply --since/--top/--limit -> render (text or json)
+    items = []   # (proj_row, done, doing, pending, total, recent)
     for proj in projects:
         ids = _project_members(con, proj["id"])
         done = doing = pending = total = 0
@@ -550,7 +550,22 @@ def cmd_projects(args, con):
             activity = max([x for x in (r_log, r_closed) if x], default=None)
             if not activity or _tu.local_day_of(activity) < since:
                 continue
+        items.append((proj, done, doing, pending, total, recent))
 
+    items, total_items = _apply_top_limit(items, args)
+
+    if getattr(args, "output", "text") == "json":
+        import json
+        print(json.dumps([
+            {**_node_summary_dict(con, proj),
+             "counts": {"done": done, "doing": doing, "pending": pending, "total": total},
+             "latest_activity": recent}   # UTC instant (latest log / closed / created)
+            for proj, done, doing, pending, total, recent in items
+        ], ensure_ascii=False, indent=2))
+        return
+
+    _print_truncation_hint(len(items), total_items)
+    for proj, done, doing, pending, total, recent in items:
         pri = _c(f"[#{proj['priority']}]", _PRI_STYLE.get(proj["priority"])) if proj["priority"] else _c("[ ]", "todo")
         parts = [f"done {done}/{total}"]
         if doing:
@@ -560,12 +575,7 @@ def cmd_projects(args, con):
         stat = " · ".join(parts)
         if recent and not brief:
             stat += f" · latest {_tu.utc_to_local(recent)[:16]}"
-        lines.append(_c(f"#{proj['id']:<3d}", "id") + " " + pri + " " + _c(proj["title"], "header") + " — " + _c(stat, "meta"))
-
-    lines, total_lines = _apply_top_limit(lines, args)
-    _print_truncation_hint(len(lines), total_lines)
-    for line in lines:
-        out(line)
+        out(_c(f"#{proj['id']:<3d}", "id") + " " + pri + " " + _c(proj["title"], "header") + " — " + _c(stat, "meta"))
 
 def cmd_changes(args, con):
     """Per-project changes in a time window: closed / added / log activity (input for weekly reports / Linear update)."""

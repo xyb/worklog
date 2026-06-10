@@ -1102,7 +1102,7 @@ tree view misses month/week/someday-pinned items.
     ag.add_argument("--someday", action="store_true", help="also list someday / fuzzy-scheduled nodes at the end")
     ag.add_argument("--all", action="store_true", help="include DONE/CANCELED (default hides terminal-status)")
 
-    pj = sub.add_parser("projects", parents=[window],
+    pj = sub.add_parser("projects", parents=[window, output_parent],
         help="list active projects + subtask counts + recent activity",
         description="List all active projects (kind=project, status not DONE/CANCELED) with subtask counts + last log time. --since filters to projects with activity after that date.",
         formatter_class=_WlHelpFormatter,

@@ -7,6 +7,7 @@ see_also: para, tree, summary
 quick "what am I actually working on?" across areas.
 
   wl projects
+  wl projects -o json   # machine-readable: each project + counts (done/doing/pending/total)
 
 A project (kind `project`) is an outcome with an end, usually living under an area (see
 `wl help para`). To see a project's subtree use `wl tree --root <id>`; for time-window

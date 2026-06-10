@@ -47,3 +47,24 @@ class TestProjectFilters:
         cli("log", "2", "p")
         _, out, _ = cli("projects", "--since", "2020-01-01")
         assert "P1" in out
+
+
+class TestProjectsJson:
+    def test_projects_json_array_with_counts(self, cli):
+        cli("add", "proj", "-k", "project", "-p", "A")          # 1
+        cli("add", "t1", "-k", "task", "--parent", "1")          # 2
+        cli("add", "t2", "-k", "task", "--parent", "1")          # 3
+        cli("done", "2")
+        import json
+        code, out, _ = cli("projects", "-o", "json")
+        d = json.loads(out)
+        assert code == 0 and isinstance(d, list) and len(d) == 1
+        p = d[0]
+        assert p["id"] == 1 and p["title"] == "proj"
+        assert p["counts"]["done"] == 1 and p["counts"]["total"] == 2
+        assert "latest_activity" in p
+
+    def test_projects_json_empty_is_array(self, cli):
+        import json
+        _, out, _ = cli("projects", "-o", "json")
+        assert json.loads(out) == []
