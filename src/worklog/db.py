@@ -10,8 +10,34 @@ that already has a path, without depending on cli.py's module state.
 """
 from __future__ import annotations
 
+import os
+import shutil
 import sqlite3
 from pathlib import Path
+
+
+def _db_file_path(con: sqlite3.Connection):
+    """The on-disk file backing the 'main' database, or None for an in-memory / temp DB."""
+    for _seq, name, file in con.execute("PRAGMA database_list"):
+        if name == "main":
+            return file or None
+    return None
+
+
+def _backup_before_migrate(con: sqlite3.Connection, current: int, pending: int):
+    """Copy the DB file to a same-dir backup BEFORE applying migrations, so a bad migration can't
+    lose data irrecoverably (#651). Only for an EXISTING db (`user_version` > 0 — a fresh init has
+    no data to protect) backed by a real file, and only when migrations are actually pending.
+    Backup name carries the source version: `<db>.pre-v<current>.bak`. Returns the backup path,
+    or None when skipped. A copy failure raises (we must NOT migrate an unbackuppable real db)."""
+    if current <= 0 or pending <= 0:
+        return None
+    path = _db_file_path(con)
+    if not path or not os.path.exists(path):
+        return None   # in-memory / temp / not-yet-on-disk: nothing to snapshot
+    bak = f"{path}.pre-v{current}.bak"
+    shutil.copy2(path, bak)   # no write txn is open yet, so this is a clean rollback-journal snapshot
+    return bak
 
 
 def db_connect(db_path: Path) -> sqlite3.Connection:
@@ -74,6 +100,11 @@ def run_migrations(con: sqlite3.Connection, migrations_dir: Path, verbose: bool 
             f"migrations up to {max_n}. The DB was written by a newer version; "
             f"upgrade worklog (e.g. `pip install --upgrade pyworklog`) and retry."
         )
+    pending = [p for p in files if int(p.stem.split("_", 1)[0]) > current]
+    # safety: snapshot an existing DB before touching it, so a bad migration is recoverable (#651)
+    bak = _backup_before_migrate(con, current, len(pending))
+    if bak:
+        print(f"↳ backed up DB → {os.path.basename(bak)} before applying {len(pending)} migration(s)")
     applied = []
     for path in files:
         n = int(path.stem.split("_", 1)[0])

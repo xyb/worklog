@@ -161,7 +161,7 @@ two ways to invoke the same operation never drift in discoverability, only in ke
 
 ## 2. Data model (`src/worklog/migrations/`)
 
-A single `node` table carries everything; the `kind` field discriminates type; `parent_id` self-reference builds the tree. The schema is delivered as numbered SQL migrations under `src/worklog/migrations/NNNN_*.sql`; `PRAGMA user_version` tracks the highest applied migration. `ensure_db()` auto-applies pending migrations on every command; `wl migrate` is the explicit form. See `src/worklog/migrations/0001_initial_schema.sql` for the initial layout and `README.md` for the high-level picture.
+A single `node` table carries everything; the `kind` field discriminates type; `parent_id` self-reference builds the tree. The schema is delivered as numbered SQL migrations under `src/worklog/migrations/NNNN_*.sql`; `PRAGMA user_version` tracks the highest applied migration. `ensure_db()` auto-applies pending migrations on every command; `wl migrate` is the explicit form. Before applying, `run_migrations` snapshots an **existing** DB (`user_version` > 0) to a same-dir `<db>.pre-v<N>.bak` so a bad migration is recoverable (a fresh init at v0 has no data to protect, so it's skipped); a backup that can't be written aborts the migration rather than risking unrecoverable loss. See `src/worklog/migrations/0001_initial_schema.sql` for the initial layout and `README.md` for the high-level picture.
 
 > **Migration-authoring rule**: the runner wraps each file in one `BEGIN/COMMIT` (so a mid-script failure rolls the whole file back). Migration files must therefore **not** contain their own `BEGIN`/`COMMIT`.
 

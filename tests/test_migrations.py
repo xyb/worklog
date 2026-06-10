@@ -13,6 +13,37 @@ class TestMigrations:
         highest = max(int(p.stem.split("_", 1)[0]) for p in tmp_db._migration_files())
         assert con.execute("PRAGMA user_version").fetchone()[0] == highest
 
+    def test_backs_up_existing_db_before_migrating(self, tmp_path):
+        """An existing DB (user_version > 0) is snapshotted to <db>.pre-v<N>.bak before pending
+        migrations apply — so a bad migration is recoverable (#651)."""
+        from worklog import db
+        import sqlite3
+        mig = tmp_path / "migs"; mig.mkdir()
+        (mig / "0001_init.sql").write_text("CREATE TABLE t (x);")
+        dbf = tmp_path / "x.db"
+        con = db.db_connect(dbf); db.run_migrations(con, mig)
+        con.execute("INSERT INTO t VALUES (1)"); con.commit(); con.close()
+        assert not list(tmp_path.glob("*.bak"))          # fresh v0→1 init: no data to protect
+        (mig / "0002_more.sql").write_text("CREATE TABLE t2 (y);")
+        con = db.db_connect(dbf); db.run_migrations(con, mig); con.close()
+        baks = list(tmp_path.glob("*.bak"))
+        assert len(baks) == 1 and baks[0].name == "x.db.pre-v1.bak"
+        b = sqlite3.connect(baks[0])                      # snapshot is the OLD version + the data
+        assert b.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert b.execute("SELECT x FROM t").fetchone()[0] == 1
+        b.close()
+
+    def test_no_backup_on_fresh_init_or_noop(self, tmp_path):
+        from worklog import db
+        mig = tmp_path / "migs"; mig.mkdir()
+        (mig / "0001_init.sql").write_text("CREATE TABLE t (x);")
+        dbf = tmp_path / "x.db"
+        con = db.db_connect(dbf); db.run_migrations(con, mig)      # fresh: v0 → no backup
+        con.close()
+        con = db.db_connect(dbf); db.run_migrations(con, mig)      # no pending → no backup
+        con.close()
+        assert not list(tmp_path.glob("*.bak"))
+
     def test_run_migrations_idempotent(self, cli, tmp_db):
         """Running ensure_db twice does not re-apply migrations."""
         cli("init")

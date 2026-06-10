@@ -586,7 +586,11 @@ own transaction, then user_version is bumped.
 
 Migrations are auto-applied by `ensure_db()` on every command, so you
 rarely need to invoke this explicitly. Use it to see what's pending or
-to retry after a failed migration.""")
+to retry after a failed migration.
+
+Before applying to an existing DB, the runner snapshots it to a same-dir
+`<db>.pre-v<N>.bak` (N = the version before migrating), so a bad migration
+is recoverable. A fresh init (no data yet) is not backed up.""")
 
     sub.add_parser("config",
         help="print resolved configuration: DB path, aliases path, XDG dirs, env vars",
