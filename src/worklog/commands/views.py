@@ -31,6 +31,8 @@ from ..helpers import (
     _status_marker,
     _term_width,
     _truncate_log_body,
+    _wrap_display,
+    _display_width,
     GENERIC_TAGS,
 )
 from ..queries import (
@@ -128,6 +130,55 @@ def cmd_tree(args, con):
         _print_tree(con, root, depth=0, max_depth=max_depth,
                     include_canceled=inc_cancel, log_tail=log_tail, full=full)
 
+# wl day header meta fields, each with a distinct marker: one glance tells goal from
+# recap from week-overview from month-top5. (label is "" when the marker alone reads clearly.)
+_DAY_META = {
+    "goal":     "🎯 ",
+    "summary":  "📝 Recap: ",
+    "top5":     "⭐ Top5: ",
+    "overview": "📅 This week: ",
+}
+
+
+def _meta_blockquote(body, marker, indent="  "):
+    """Render a day-header meta field as a *continued* blockquote: every line — both
+    soft-wrapped continuations and embedded newlines — carries the `<indent>> ` prefix, so a long
+    or multi-line recap reads as one quote block instead of breaking flush-left after line 1.
+    The marker (🎯 / Recap: / …) rides on the first line. Soft-wraps by display width (CJK-aware)."""
+    qp = f"{indent}> "
+    avail = max(8, _term_width() - _display_width(qp))
+    paras = (marker + (body or "")).split("\n")
+    lines = []
+    for para in paras:
+        for chunk in _wrap_display(para, avail):
+            lines.append(qp + chunk)
+    return "\n".join(lines)
+
+
+def _goal_progress(con, body):
+    """Structured goal achievement from the `#<id>` (or `WL#<id>`) task references a goal
+    already names: resolve them, count settled (DONE/CANCELED), return ` [done/total] <emoji>` or
+    "" if the goal references no tasks. Zero-schema: progress rides on the ids you write in the goal
+    (`wl goal "ship #12 and #13"`); no ids → no indicator. ✅ all done · 🟡 partial · ⬜ none."""
+    import re
+    ids = [int(m) for m in re.findall(r"(?:WL)?#(\d+)", body or "")]
+    seen, total, done = set(), 0, 0
+    for nid in ids:
+        if nid in seen:
+            continue
+        seen.add(nid)
+        n = _db.get(con, "node", nid)
+        if not n:
+            continue
+        total += 1
+        if (n["status"] or "TODO") in ("DONE", "CANCELED"):
+            done += 1
+    if not total:
+        return ""
+    emoji = "✅" if done == total else ("⬜" if done == 0 else "🟡")
+    return f" [{done}/{total}] {emoji}"
+
+
 def cmd_day(args, con):
     """Reproduce a single day's progress (default today): bucket by work/personal -> project -> task -> that day's logs.
     Driven by log dates (not the day node), so it works for historical days too."""
@@ -152,12 +203,14 @@ def cmd_day(args, con):
     if day:
         g = _latest_typed_log(con, day["id"], "goal")
         if g and g["body"]:
-            out(_c("  > 🎯 " + g["body"], "meta"))
+            # goal carries its own achievement [done/total] from the #ids it names
+            out(_c(_meta_blockquote(g["body"], _DAY_META["goal"]), "meta")
+                + _c(_goal_progress(con, g["body"]), "meta"))
         s = _latest_typed_log(con, day["id"], "summary")
         if s and s["body"]:
             at = s["logged_at"]
             when = _c(f" (written at {_tu.utc_to_local(at)[5:16]})", "meta") if at else ""
-            out(_c("  > Recap: " + s["body"], "meta") + when)
+            out(_c(_meta_blockquote(s["body"], _DAY_META["summary"]), "meta") + when)
             # stale check: count plain-note logs (tag IS NULL) added after the recap;
             # meta logs (goal/summary/…) and metric carriers (type='metric') don't count.
             if at:
@@ -170,12 +223,12 @@ def cmd_day(args, con):
                     out(_c(f"  > ⚠ {newer} change(s) after recap; consider rewriting via wl recap", "doing"))
         t5 = _latest_typed_log(con, day["id"], "top5")
         if t5 and t5["body"]:
-            out(_c("  > Top5: " + t5["body"], "meta"))
+            out(_c(_meta_blockquote(t5["body"], _DAY_META["top5"]), "meta"))
         wk = _db.query_one(con, "node", cols="id", id=day["parent_id"], kind="week")
         if wk:
             ov = _latest_typed_log(con, wk["id"], "overview")
             if ov and ov["body"]:
-                out(_c("  > This week: " + ov["body"], "meta"))
+                out(_c(_meta_blockquote(ov["body"], _DAY_META["overview"]), "meta"))
 
     # an explicit --status filter (applied below via make_node_filter) must override the
     # default CANCELED hide, else `day --status CANCELED` would drop its own matches.

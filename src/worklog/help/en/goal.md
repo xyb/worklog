@@ -8,7 +8,13 @@ see_also: recap, planning, meta
 each write appends, the latest is current).
 
   wl goal "ship the Q3 report draft"
+  wl goal "finish #12 and #13"   # naming task #ids makes `wl day` show progress
   wl goal
 
-The morning counterpart to `wl recap` (evening). `wl day` shows it at the top. For the full
-rhythm (week `overview`, month `top5`) see `wl help planning`.
+**Achievement tracking**: if the goal names task ids (`#12`, or `WL#12`), `wl day` resolves them
+and appends ` [done/total]` with a status emoji — `✅` all done, `🟡` partial, `⬜` none — so the
+goal line shows its own progress. No ids → no indicator (plain free-text goal).
+
+The morning counterpart to `wl recap` (evening). `wl day` shows it at the top, each header field
+with its own marker (🎯 goal · 📝 recap · ⭐ top5 · 📅 week). For the full rhythm (week `overview`,
+month `top5`) see `wl help planning`.

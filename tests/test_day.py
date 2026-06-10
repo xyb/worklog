@@ -246,3 +246,73 @@ class TestDayNature:
         cli("dateinfo", "2026-06-13", "swap meet")  # a Saturday
         _, out, _ = cli("day", "2026-06-13")
         assert "weekend (swap meet)" in out
+
+
+class TestDayMetaMarkersAndGoalProgress:
+    """distinct meta markers · continued blockquote · goal achievement [done/total]."""
+
+    def _day(self, cli, **props):
+        from datetime import date
+        today = date.today().isoformat()
+        cli("add", today, "-k", "day")        # id 1
+        for k, v in props.items():
+            cli("set", "1", k, v)
+        return today
+
+    def test_distinct_markers(self, cli):
+        from datetime import date
+        today = date.today().isoformat()
+        cli("add", "2026-W99", "-k", "week")              # 1
+        cli("add", today, "-k", "day", "--parent", "1")   # 2
+        cli("set", "2", "goal", "G")
+        cli("set", "2", "summary", "S")
+        cli("set", "2", "top5", "T")
+        cli("set", "1", "overview", "O")
+        _, out, _ = cli("day", today)
+        assert "🎯 G" in out          # goal
+        assert "📝 Recap: S" in out   # summary distinct from goal
+        assert "⭐ Top5: T" in out
+        assert "📅 This week: O" in out
+
+    def test_recap_blockquote_continuation(self, cli):
+        """a multi-line recap keeps the `> ` prefix on every line (no flush-left break)."""
+        today = self._day(cli, summary="line one\nline two\nline three")
+        _, out, _ = cli("day", today)
+        meta_lines = [ln for ln in out.splitlines() if "line one" in ln or "line two" in ln or "line three" in ln]
+        assert len(meta_lines) == 3
+        for ln in meta_lines:
+            assert ln.lstrip().startswith(">")   # every continuation line is quoted, not flush-left
+
+    def test_goal_progress_partial(self, cli):
+        cli("add", "a", "-k", "task")   # 1
+        cli("add", "b", "-k", "task")   # 2
+        cli("add", "c", "-k", "task")   # 3
+        cli("done", "1")
+        today = self._day_after(cli)
+        cli("set", str(self._day_id), "goal", "ship #1 #2 #3")
+        _, out, _ = cli("day", today)
+        assert "[1/3]" in out and "🟡" in out
+
+    def test_goal_progress_all_done(self, cli):
+        cli("add", "a", "-k", "task")   # 1
+        cli("add", "b", "-k", "task")   # 2
+        cli("done", "1"); cli("done", "2")
+        today = self._day_after(cli)
+        cli("set", str(self._day_id), "goal", "do #1 and #2")
+        _, out, _ = cli("day", today)
+        assert "[2/2]" in out and "✅" in out
+
+    def test_goal_no_ids_no_indicator(self, cli):
+        today = self._day(cli, goal="just a free-text goal, no ids")
+        _, out, _ = cli("day", today)
+        assert "🎯" in out
+        assert "[" not in out.split("🎯")[1].split("\n")[0]   # no [n/m] on the goal line
+
+    # helper: create the day node AFTER some tasks exist, tracking its id
+    def _day_after(self, cli):
+        from datetime import date
+        today = date.today().isoformat()
+        code, out, _ = cli("add", today, "-k", "day")
+        import re
+        self._day_id = int(re.search(r"#(\d+)", out).group(1))
+        return today
