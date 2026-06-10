@@ -24,6 +24,11 @@ def tmp_db(tmp_path, monkeypatch):
     """One temp DB per test; cleaned automatically when the test ends."""
     db_file = tmp_path / "wl-test.db"
     monkeypatch.setenv("WORKLOG_DB", str(db_file))
+    # isolate config (aliases.ini) to a tmp dir so the real ~/.config/worklog/aliases.ini never
+    # leaks into tests — a user alias would otherwise alter parser/completion output (e.g. a
+    # `w = day` alias makes `day`'s completion condition `day w`). Tests that need aliases set
+    # their own XDG_CONFIG_HOME / HOME after this.
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
     # reload the wl module so DB_PATH re-reads the env
     import importlib
     from worklog import cli as wl

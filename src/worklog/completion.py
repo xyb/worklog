@@ -186,15 +186,19 @@ def _help_topics():
         return []
 
 
-def _fish_positional_complete(parser, sub_cmd):
-    """Positional argument completion for a subcommand (mostly node id / date)."""
+def _fish_positional_complete(parser, sub_cmd, cond_names=None):
+    """Positional argument completion for a subcommand (mostly node id / date).
+    `cond_names` (space-joined name + aliases) sets the `seen_subcommand_from` condition so an
+    alias like `w` (= `day -t work`) also offers the date/node positional; helper lookups still
+    key off the primary `sub_cmd`."""
+    cond = cond_names or sub_cmd
     lines = []
     for a in parser._actions:
         if a.option_strings or isinstance(a, (argparse._SubParsersAction,
                                               argparse._HelpAction, argparse._VersionAction)):
             continue
         # positional. Look up dest -> helper
-        prefix = f'complete -c wl -n "__fish_seen_subcommand_from {sub_cmd}"'
+        prefix = f'complete -c wl -n "__fish_seen_subcommand_from {cond}"'
         val_src = None
         # explicit helper
         for key in [(sub_cmd, a.dest), (sub_cmd, None)]:
@@ -261,14 +265,14 @@ def _generate_fish_completion(parser):
         section = [f"\n# {name}"]
         for a in _completion_iter_actions(sub):
             section += _fish_one_complete(prefix, a, sub_cmd=name)
-        section += _fish_positional_complete(sub, name)
+        section += _fish_positional_complete(sub, name, all_names)
         # default-verb groups (sched/log/tag/link): surface the default leaf's args under
         # the bare group name, since `wl sched <id> --recur` omits the `add` verb
         leaf = _default_verb_leaf(name, sub)
         if leaf is not None:
             for a in _completion_iter_actions(leaf):
                 section += _fish_one_complete(prefix, a, sub_cmd=name)
-            section += _fish_positional_complete(leaf, name)
+            section += _fish_positional_complete(leaf, name, all_names)
         if len(section) > 1:
             lines += section
 

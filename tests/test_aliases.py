@@ -79,6 +79,14 @@ class TestUserAliasesIni:
         assert ' -d "' not in out                       # every description is single-quoted
         assert 'wl alias add w "day -t work"' in out      # the quote-bearing help is preserved
 
+    def test_fish_alias_completes_target_positional(self, tmp_path, monkeypatch):
+        """`wl w <TAB>` (w = day -t work) must offer day's POSITIONAL completions (the date
+        suggestions), not just its flags — the positional condition includes the alias name."""
+        wl = self._setup_aliases(tmp_path, monkeypatch, "[aliases]\nw = day -t work\n")
+        out = wl._generate_fish_completion(wl.build_parser())
+        # the date-suggestion positional for `day` must also fire under the alias `w`
+        assert 'seen_subcommand_from day w" -f -a "(__wl_date_suggestions)"' in out
+
     def test_alias_in_bash_completion(self, tmp_path, monkeypatch):
         wl = self._setup_aliases(tmp_path, monkeypatch,
                                   "[aliases]\nd = day\n")
