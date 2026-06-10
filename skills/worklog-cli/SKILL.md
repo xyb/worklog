@@ -91,6 +91,7 @@ Ask *"will I filter/stat over it across nodes?"* + cardinality (full rule: `DESI
 - **`log`** — the process record (a dev task's many commits).
 - **`metric`** — those records made queryable per node: `wl metric add <id> commit <hash>`, then `wl metric ls <id> --tag commit`. Many-per-node, not a cross-node filter.
 - commit/PR/release: many commits → log (+ a `commit` metric for structure); a single identifying PR/commit or the release → prop.
+- **Namespaced prop keys** — dot-group related single-value props under a prefix (`agent_session.claude`, `ext.linear`); each full key stays single-value, but `key LIKE 'group.%'` finds the whole namespace, so prop filters/stats can target a namespace, not just an exact key. Flat keys (`owner`/`release`) stay flat.
 
 ## Vault link (knowledge ⇄ execution decoupling)
 

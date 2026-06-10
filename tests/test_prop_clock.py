@@ -19,6 +19,21 @@ class TestPropGroup:
         _, out, _ = cli("prop", "ls", "1")
         assert "owner=xyb" in out
 
+    def test_namespaced_dotted_keys_supported(self, cli, tmp_db):
+        """dotted `group.member` keys are first-class props: they round-trip and a `key LIKE
+        'group.%'` prefix finds the whole namespace (the convention prop filters/stats rely on)."""
+        cli("add", "t", "-k", "task")
+        cli("set", "1", "agent_session.claude", "sess-a")
+        cli("set", "1", "agent_session.cursor", "sess-c")
+        cli("set", "1", "ext.linear", "LUM-1")          # a different namespace, unaffected
+        con = tmp_db.db_connect()
+        ns = {r["key"]: r["value"] for r in con.execute(
+            "SELECT key,value FROM prop WHERE node_id=1 AND key LIKE 'agent_session.%' "
+            "AND deleted_at IS NULL")}
+        assert ns == {"agent_session.claude": "sess-a", "agent_session.cursor": "sess-c"}
+        _, out, _ = cli("prop", "ls", "1")
+        assert "agent_session.claude=sess-a" in out and "ext.linear=LUM-1" in out
+
     def test_reserved_field_names_rejected_as_props(self, cli, tmp_db):
         """a core node field must NOT become a UDA prop (it would shadow the real
         column — e.g. a `status` prop next to the real status). Both `wl set` and `wl prop set`

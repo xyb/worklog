@@ -773,6 +773,10 @@ More: `wl help set`.""")
 Shortcuts: set → `wl set`, rm → `wl unset` (same handlers); `ls` has none (props also show
 inline in `wl show`).
 
+A key may be namespaced with a dot — `agent_session.claude`, `ext.linear` — to group related
+single-value props under a shared prefix; each full key is still one value, but `key LIKE
+'group.%'` finds the whole namespace (prop filters / stats honor the prefix). See `wl help prop`.
+
 More: `wl help prop`.""")
     _prsub = pr.add_subparsers(dest="prop_sub")
     _args_prop_set(_prsub.add_parser("set", help="set/update a prop (= wl set)",

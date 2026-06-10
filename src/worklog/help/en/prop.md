@@ -22,3 +22,11 @@ identifying ref a task maps to, the `release` it shipped in). It is NOT for many
 records: a dev task's many commits go in `log` (add a `commit` **metric** if you want them
 structured) — don't flood the key-space with process noise. Rule of thumb: *"will I filter or
 stat over it across nodes?"* → prop; *"is it a per-event process trail?"* → log / metric.
+
+**Namespaced keys (`group.member`)**: a key may use a dot to group related single-value props
+under a shared prefix — `agent_session.claude`, `agent_session.cursor`; or external ids per
+system, `ext.linear`, `ext.github`. Each full key is still its own single-value prop (the PK is
+`(node_id, key)`); the namespace groups *sibling* keys, it does **not** make one key multi-valued.
+The point is prefix lookup — one `key LIKE 'agent_session.%'` finds every member across nodes —
+so prop queries / stats can filter or group by a whole namespace, not just an exact key. Use it
+when one logical dimension has several named slots; keep flat keys (`owner`, `release`) flat.
