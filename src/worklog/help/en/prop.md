@@ -32,5 +32,6 @@ so prop queries / stats can filter or group by a whole namespace, not just an ex
 when one logical dimension has several named slots; keep flat keys (`owner`, `release`) flat.
 
 **Reverse-query by prop**: `wl ls --prop K=V` (exact, comma-member aware) / `--prop K` (key
-exists) / `--prop GROUP.` (namespace prefix); repeat `--prop` for AND. So "which tasks shipped in
-v0.7.0" = `wl ls --prop release=v0.7.0 --all`. (Also on tree/day/logs/agenda — the shared filter.)
+exists) / `--prop GROUP.` (namespace prefix); repeat `--prop` for AND. E.g. `wl ls --prop github.pr`
+(tasks carrying a PR) or `wl ls --prop github.pr=164 --all`. (Also on tree/day/logs/agenda — the
+shared filter.)
