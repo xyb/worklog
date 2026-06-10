@@ -962,10 +962,22 @@ def cmd_prop(args, con):
 # `agent_session.<app>` prop on that node (no new table). The prefix `agent_session.` finds a
 # node's bindings across apps; the suffix is the app (claude / cursor / …). CRUD:
 #   wl agent <id> (set) · wl agent (show current) · wl agent ls (list all) · wl agent rm (unbind).
-_AGENT_APP = "claude"                       # this CLI binds the Claude Code session
-_AGENT_PREFIX = "agent_session."            # cross-app prefix
-_AGENT_KEY = _AGENT_PREFIX + _AGENT_APP       # agent_session.claude
+_AGENT_APP = "claude"                       # default agent runtime this CLI ships for
+_AGENT_PREFIX = "agent_session."            # cross-app prefix: prop key is agent_session.<agent>
+_AGENT_KEY = _AGENT_PREFIX + _AGENT_APP       # default key (agent_session.claude)
 _AGENT_METRIC_TAG = "agent_session"          # metric tag for the bind-history trail (mirrors the prop)
+
+def _current_agent():
+    """Which agent runtime drives this `wl` — recorded with the session so the bind history
+    shows *what* worked the node (claude / cursor / codex / …), not just an opaque sid.
+    `$WL_AGENT` (a per-agent SessionStart hook can set it) wins; otherwise `claude`, the runtime
+    this CLI ships for. Lowercased + trimmed so the prop key / metric note stay tidy."""
+    import os
+    return (os.environ.get("WL_AGENT") or "").strip().lower() or _AGENT_APP
+
+def _agent_key(agent):
+    """Prop key for an agent's live binding: `agent_session.<agent>` (the cross-app convention)."""
+    return _AGENT_PREFIX + agent
 
 def _agent_cache_dir():
     """Where integrations cache a session's binding: `$XDG_STATE_HOME/worklog/agent/`."""
@@ -987,7 +999,8 @@ def _agent_context_line(con, sid):
     SQL and never reads the DB on its hot path; it caches this and invalidates on rebind."""
     if not sid:
         return ""
-    row = _db.query_one(con, "prop", cols="node_id", key=_AGENT_KEY, value=sid)
+    # by sid alone (unique) across any agent's key — the live pointer regardless of runtime
+    row = _db.query_one(con, "prop", cols="node_id", key__like=_AGENT_PREFIX + "%", value=sid)
     if not row:
         return ""
     node = _db.get(con, "node", row["node_id"])
@@ -1015,27 +1028,28 @@ def _has_agent_history(con, nid, sid):
     return _db.query_one(con, "metric", cols="id", node_id=nid,
                          tag=_AGENT_METRIC_TAG, value_text=sid) is not None
 
-def _record_bind_history(con, nid, sid):
-    """Append-only record that session `sid` was bound to node `nid` (light design).
+def _record_bind_history(con, nid, sid, agent):
+    """Append-only record that session `sid` (run by `agent`) was bound to node `nid`.
 
     Two stores with different jobs:
-      * the prop `agent_session.claude` is the *live* pointer — one session → one node, and it
+      * the prop `agent_session.<agent>` is the *live* pointer — one session → one node, and it
         MOVES on rebind, so it always names the node a session is currently on;
       * this log + metric is the *history* — it stays on the node forever, so
         `wl metric ls <id> --tag agent_session --all` / `wl show <id>` recover every session a
-        node was ever worked under.
+        node was ever worked under. The metric's `note` carries the agent (claude / cursor / …),
+        so the trail shows *what* worked the node, not just the sid.
 
     Written once per (node, session) bind, NOT stamped onto every later log — one row per
     association instead of tagging every write, which is the whole point of the light design."""
     log_id = _db.insert(con, "log", {
         "node_id": nid, "logged_at": _tu.utc_now(),
-        "body": f"agent session bound · {_AGENT_APP}:{sid[:8]}…",
+        "body": f"agent session bound · {agent}:{sid[:8]}…",
         "tag": "metric",   # auto metric-carrier log (same convention as `wl metric add`)
     })
     _db.insert(con, "metric", {
         "log_id": log_id, "node_id": nid, "tag": _AGENT_METRIC_TAG,
         "value_num": None, "value_text": sid, "unit": None,
-        "note": _AGENT_APP, "at": _tu.utc_now(),
+        "note": agent, "at": _tu.utc_now(),
     })
 
 def _short(s, n=50):
@@ -1062,24 +1076,27 @@ def cmd_agent(args, con):
     sub = getattr(args, "agent_sub", None)
     if sub == "set":
         sid = _agent_need_sid()
+        agent = (getattr(args, "agent", None) or _current_agent())
+        key = _agent_key(agent)
         nid = args.id
         if not _node_exists(con, nid):
             sys.exit(f"✗ node #{nid} not found")
-        cur = _db.query_one(con, "prop", cols="value", node_id=nid, key=_AGENT_KEY)
+        cur = _db.query_one(con, "prop", cols="value", node_id=nid, key=key)
         if cur and cur["value"] != sid:
             out(_c(f"⚠ #{nid} 已被 session {cur['value'][:8]}… 绑定,将被覆盖", "later"))
         # Record the history trail unless told not to AND it isn't already recorded — dedup by the
         # actual metric (not "is the prop already set"), so a pair bound before history existed
         # (an early auto-bind, or a --no-record bind) still gets recorded on a later bind.
         do_record = getattr(args, "record", True) and not _has_agent_history(con, nid, sid)
-        _db.delete(con, "prop", key=_AGENT_KEY, value=sid)   # one session → one node (live pointer)
-        _upsert_prop(con, nid, _AGENT_KEY, sid)
+        # one session → one node: drop this sid's live pointer under ANY agent key before re-binding
+        _db.delete(con, "prop", key__like=_AGENT_PREFIX + "%", value=sid)
+        _upsert_prop(con, nid, key, sid)
         if do_record:
-            _record_bind_history(con, nid, sid)   # append-only history trail
+            _record_bind_history(con, nid, sid, agent)   # append-only history trail
         con.commit()
         _invalidate_agent_cache(sid)   # binding changed → integrations re-fetch via `wl agent context`
         title = (_db.get(con, "node", nid) or {})["title"]
-        line = _c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{_AGENT_APP}:{sid[:8]}…", "meta") + " · " + _short(title)
+        line = _c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{agent}:{sid[:8]}…", "meta") + " · " + _short(title)
         if do_record:
             line += _c("  +history", "meta")
         out(line)
@@ -1096,7 +1113,7 @@ def cmd_agent(args, con):
         return
     if sub == "rm":
         sid = _agent_need_sid()
-        n = _db.delete(con, "prop", key=_AGENT_KEY, value=sid)
+        n = _db.delete(con, "prop", key__like=_AGENT_PREFIX + "%", value=sid)   # any agent's key
         con.commit()
         _invalidate_agent_cache(sid)   # drop cached binding so the hook stops injecting
         out(_c(f"✓ unbound (session {sid[:8]}…)" if n else f"(session {sid[:8]}… 本来就没绑定)", "meta"))
@@ -1108,14 +1125,15 @@ def cmd_agent(args, con):
         sid = _current_session_id()
         print(_agent_hook_json(con, sid) if getattr(args, "hook", False) else _agent_context_line(con, sid))
         return
-    # bare `wl agent` → show the current session's binding
+    # bare `wl agent` → show the current session's binding (under whichever agent key it lives)
     sid = _agent_need_sid()
-    row = _db.query_one(con, "prop", cols="node_id", key=_AGENT_KEY, value=sid)
+    row = _db.query_one(con, "prop", cols="node_id, key", key__like=_AGENT_PREFIX + "%", value=sid)
     if not row:
         out(_c(f"(session {sid[:8]}… 未绑定任何任务)", "meta"))
         return
+    agent = row["key"][len(_AGENT_PREFIX):]
     title = (_db.get(con, "node", row["node_id"]) or {})["title"]
-    out(_c(f"#{row['node_id']}", "id") + " ← " + _c(f"{_AGENT_APP}:{sid[:8]}…", "meta") + " · " + _short(title))
+    out(_c(f"#{row['node_id']}", "id") + " ← " + _c(f"{agent}:{sid[:8]}…", "meta") + " · " + _short(title))
 
 
 # --- clock entity group: ls / edit / rm (create = start/stop/spent) ---

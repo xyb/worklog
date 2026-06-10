@@ -783,28 +783,29 @@ More: `wl help prop`.""")
 
     ag = sub.add_parser("agent",
         help="bind the current AI agent session to a task: wl agent <id> (set) / wl agent (show) / wl agent ls / wl agent rm",
-        description="Bind the current AI agent (Claude Code) session to a node so the agent knows which task it's on and the status line / hook context can surface it. Stored as the `agent_session.claude` prop on the node — no new table. `wl agent <id>` is the set shortcut (default verb).",
+        description="Bind the current AI agent session to a node so the agent knows which task it's on and the status line / hook context can surface it. Stored as an `agent_session.<agent>` prop on the node (agent = claude / cursor / codex / …, from $WL_AGENT or --agent, default claude) — no new table. `wl agent <id>` is the set shortcut (default verb).",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl agent 42             # bind this session to task #42 (default verb: set) — records history
   wl agent 42 --no-record # bind without leaving a history mark (pointer only)
+  wl agent 42 --agent codex   # record a non-default runtime (else $WL_AGENT, else claude)
   wl agent                # show what this session is bound to
   wl agent ls             # list all session→task bindings
   wl agent rm             # unbind this session
 
 Two stores, two jobs:
-  * the `agent_session.claude` prop is the LIVE pointer — one session → one node, it MOVES on
+  * the `agent_session.<agent>` prop is the LIVE pointer — one session → one node, it MOVES on
     rebind, so it always names the node a session is currently on;
-  * a HISTORY trail (one log + an `agent_session` metric carrying the full session id) stays on
-    the node forever. `wl agent <id>` writes it BY DEFAULT (so auto-binds capture lineage with no
-    flag to remember); `--no-record` skips it. Recover it with
+  * a HISTORY trail (one log + an `agent_session` metric carrying the full session id, its `note`
+    the agent) stays on the node forever. `wl agent <id>` writes it BY DEFAULT (so auto-binds
+    capture lineage with no flag to remember); `--no-record` skips it. Recover it with
     `wl metric ls <id> --tag agent_session --all` (or read `wl show <id>`'s timeline).
 
 Only the bind event is recorded — later logs don't each carry the session, so it costs one row
 per binding, not per write; rebinding the same pair doesn't duplicate it.
 
-Reads $WL_SESSION_ID / $CLAUDE_CODE_SESSION_ID for the current session.
+Reads $WL_SESSION_ID / $CLAUDE_CODE_SESSION_ID for the session, $WL_AGENT for the runtime name.
 
 More: `wl help agent`.""")
     _agsub = ag.add_subparsers(dest="agent_sub")
@@ -812,6 +813,8 @@ More: `wl help agent`.""")
     _ags.add_argument("id", type=int)
     _ags.add_argument("--record", action=argparse.BooleanOptionalAction, default=True,
         help="append a one-off history log + `agent_session` metric on the node so `wl metric ls <id> --tag agent_session --all` recovers every session it was worked under (default on; `--no-record` for a pointer-only bind)")
+    _ags.add_argument("--agent", default=None, metavar="NAME",
+        help="which agent runtime this is (claude / cursor / codex / …); recorded with the session so the history shows what worked the node. Default: $WL_AGENT, else 'claude'")
     _agsub.add_parser("ls", help="list all session→task bindings")
     _agsub.add_parser("rm", help="unbind the current session")
     _agctx = _agsub.add_parser("context", help="machine line `<id>\\t<title>` of the current session's binding (for hooks; empty if unbound)")

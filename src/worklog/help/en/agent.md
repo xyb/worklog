@@ -3,34 +3,40 @@ title: agent — bind this AI session to a task
 category: command
 see_also: prop, show, ls
 ---
-`wl agent` ties the current Claude Code session to a node, so the AI knows which task it is
-working on and the status line / hook context can surface it. It is stored as the
-`agent_session.claude` prop on the node — no new table.
+`wl agent` ties the current AI session to a node, so the AI knows which task it is working on
+and the status line / hook context can surface it. It is stored as an `agent_session.<agent>`
+prop on the node — no new table.
 
-  wl agent 42          # bind this session to task #42 (default verb: set)
-  wl agent 42 --record # bind + leave a permanent history mark on the node
-  wl agent             # show what this session is bound to
-  wl agent ls          # list all session→task bindings
-  wl agent rm          # unbind this session
+  wl agent 42              # bind this session to task #42 (default verb: set)
+  wl agent 42 --record     # bind + leave a permanent history mark on the node
+  wl agent 42 --agent codex # record a non-default runtime (else $WL_AGENT, else claude)
+  wl agent                 # show what this session is bound to
+  wl agent ls              # list all session→task bindings
+  wl agent rm              # unbind this session
 
 The session id comes from `$WL_SESSION_ID` (preferred — a SessionStart hook can freeze the
 official session_id under this stable name) or the undocumented `$CLAUDE_CODE_SESSION_ID`; if
 neither is set, `wl agent` fails closed instead of guessing.
 
-One session maps to one node: rebinding moves the prop off the old node. Binding a node that
-another session already holds prints a conflict warning but still binds. The key prefix
-`agent_session.` is shared across apps (a future `agent_session.cursor` etc.), so one query
-finds all of a node's session bindings.
+**Which agent** is recorded too, so the history shows *what* worked the node, not just an opaque
+sid: `--agent NAME` wins, else `$WL_AGENT` (a per-agent SessionStart hook can set it), else
+`claude` (the runtime this CLI ships for). The name is the prop key suffix and the metric note.
+
+One session maps to one node: rebinding moves the prop off the old node (under any agent key).
+Binding a node that another session already holds prints a conflict warning but still binds. The
+key prefix `agent_session.` is shared across apps (`agent_session.codex`, `agent_session.cursor`,
+…), so one query finds all of a node's session bindings.
 
 ## Live pointer vs. history (records by default)
 
 The binding splits into two stores with different jobs:
 
-- The `agent_session.claude` **prop is the live pointer** — exactly one session → one node, and
+- The `agent_session.<agent>` **prop is the live pointer** — exactly one session → one node, and
   it *moves* on rebind. It answers "what is this session on right now?" and powers the status
   line / hook.
-- A **history trail** — one log + an `agent_session` metric carrying the *full* session id, which
-  stays on the node forever. It answers "which sessions has this node ever been worked under?"
+- A **history trail** — one log + an `agent_session` metric carrying the *full* session id (its
+  `note` the agent name), which stays on the node forever. It answers "which sessions, run by
+  which agent, has this node ever been worked under?"
   **`wl agent <id>` writes it by default** (so auto-binds capture the lineage without anyone
   remembering a flag); `wl agent <id> --no-record` skips it for a pointer-only bind. Recover it:
 
@@ -74,5 +80,5 @@ the next prompt re-fetches and re-injects. On the common (cached) path it spawns
 
 **Status line.** Pipe your status-line command's stdin JSON through `statusline-wl.sh`; it appends
 ` 📌WL#<id>`. It calls `wl` per refresh (simple, dependency-light). For a faster segment, query
-the DB directly instead: `sqlite3 "$DB" "SELECT node_id FROM prop WHERE key='agent_session.claude'
+the DB directly instead: `sqlite3 "$DB" "SELECT node_id FROM prop WHERE key LIKE 'agent_session.%'
 AND value='$sid' AND deleted_at IS NULL LIMIT 1;"` (needs `sqlite3` + a way to read `session_id`).

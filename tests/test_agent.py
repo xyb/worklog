@@ -28,6 +28,7 @@ class TestAgent:
     def _sess(self, monkeypatch, sid="sess-aaa"):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", sid)
         monkeypatch.delenv("WL_SESSION_ID", raising=False)
+        monkeypatch.delenv("WL_AGENT", raising=False)   # default agent = claude unless a test sets it
 
     def test_set_show_roundtrip(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")
@@ -130,6 +131,33 @@ class TestAgent:
         assert len(rows) == 1
         assert rows[0]["value_text"] == "sess-full-1234-xyz"   # FULL sid stored, not truncated
         assert rows[0]["note"] == "claude"
+
+    def test_agent_env_recorded_in_metric_note(self, cli, tmp_db, monkeypatch):
+        """$WL_AGENT names the runtime → stored as the metric note + the prop key suffix."""
+        self._sess(monkeypatch, "sess-codex-1")
+        monkeypatch.setenv("WL_AGENT", "codex")
+        cli("add", "t", "-k", "task")
+        cli("agent", "1", "--record")
+        rows = _history_metrics(tmp_db, 1)
+        assert rows[0]["note"] == "codex"                       # the agent value, not hardcoded claude
+        con = tmp_db.db_connect()
+        keys = [r["key"] for r in con.execute(
+            "SELECT key FROM prop WHERE node_id=1 AND deleted_at IS NULL").fetchall()]
+        assert "agent_session.codex" in keys                   # prop key carries the agent too
+
+    def test_agent_flag_overrides_env(self, cli, tmp_db, monkeypatch):
+        self._sess(monkeypatch, "sess-cursor-1")
+        monkeypatch.setenv("WL_AGENT", "codex")
+        cli("add", "t", "-k", "task")
+        cli("agent", "1", "--record", "--agent", "cursor")     # flag beats env
+        assert _history_metrics(tmp_db, 1)[0]["note"] == "cursor"
+
+    def test_agent_name_normalized_lowercase(self, cli, tmp_db, monkeypatch):
+        self._sess(monkeypatch, "sess-up-1")
+        monkeypatch.setenv("WL_AGENT", "  Cursor  ")
+        cli("add", "t", "-k", "task")
+        cli("agent", "1", "--record")
+        assert _history_metrics(tmp_db, 1)[0]["note"] == "cursor"   # trimmed + lowercased
 
     def test_record_rebind_same_pair_no_duplicate(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")
