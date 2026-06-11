@@ -419,6 +419,114 @@ def _upsert_prop(con, nid, key, value):
     _db.upsert(con, "prop", {"node_id": nid, "key": key, "value": value}, key=("node_id", "key"))
 
 
+# --- task↔task relations (relation.* props) ---------------------------------
+# Relations between tasks (split-from / split-into / related) are stored as
+# `relation.<type>` UDA props whose value is a comma-separated id list. Unlike
+# ancestors (the parent/child hierarchy) they express derivation / association
+# *across* the tree: this task was split out of / split into / relates to that one.
+# `split-from` ↔ `split-into` are inverses; `related` is symmetric. `wl relation`
+# writes BOTH sides; the view below ALSO derives the reverse from other nodes' props,
+# so even a hand-set one-sided prop still renders bidirectionally.
+_RELATION_TYPES = {
+    # type arg -> (own key on this node, inverse key written on the other node)
+    "split-from": ("relation.split_from", "relation.split_into"),
+    "split-into": ("relation.split_into", "relation.split_from"),
+    "related":    ("relation.related",    "relation.related"),
+}
+# own prop key -> display label (also fixes display order)
+_RELATION_KEY_LABEL = {
+    "relation.split_from": "split-from",
+    "relation.split_into": "split-into",
+    "relation.related":    "related",
+}
+# the other node's key -> the label it implies FOR nid (A.split_from ∋ nid ⇒ nid.split-into ∋ A)
+_RELATION_REVERSE_LABEL = {
+    "relation.split_from": "split-into",
+    "relation.split_into": "split-from",
+    "relation.related":    "related",
+}
+
+
+def _parse_id_list(value):
+    """Parse a comma-separated id-list prop value into list[int] — order-preserving,
+    deduped, skipping blanks / non-ints."""
+    out, seen = [], set()
+    for tok in (value or "").split(","):
+        tok = tok.strip()
+        if not tok:
+            continue
+        try:
+            i = int(tok)
+        except ValueError:
+            continue
+        if i not in seen:
+            seen.add(i)
+            out.append(i)
+    return out
+
+
+def _prop_value(con, nid, key):
+    """The live value of prop (nid, key), or None."""
+    r = _db.query_one(con, "prop", cols="value", node_id=nid, key=key)
+    return r["value"] if r else None
+
+
+def _add_id_to_prop_list(con, nid, key, add_id):
+    """Add `add_id` to the comma-list prop (nid, key); no-op if already present.
+    No commit. Returns True if it was added."""
+    ids = _parse_id_list(_prop_value(con, nid, key))
+    if add_id in ids:
+        return False
+    ids.append(add_id)
+    _upsert_prop(con, nid, key, ",".join(str(i) for i in ids))
+    return True
+
+
+def _remove_id_from_prop_list(con, nid, key, rm_id):
+    """Remove `rm_id` from the comma-list prop (nid, key); soft-delete the prop when it
+    becomes empty (rather than leave an empty-string value). No commit. Returns True if
+    something was removed."""
+    ids = _parse_id_list(_prop_value(con, nid, key))
+    if rm_id not in ids:
+        return False
+    ids = [i for i in ids if i != rm_id]
+    if ids:
+        _upsert_prop(con, nid, key, ",".join(str(i) for i in ids))
+    else:
+        _db.delete(con, "prop", node_id=nid, key=key)
+    return True
+
+
+def relation_view(con, nid):
+    """Resolved bidirectional relations for a node: an ordered dict
+    {'split-from': [ids], 'split-into': [ids], 'related': [ids]}. Unions the node's own
+    relation.* props with the reverse derived from every other node's props
+    (A.split_into ∋ nid ⇒ nid.split-from ∋ A), so one-sided data still shows both ways.
+    Each list is order-preserving + deduped, excludes nid itself, and only includes live
+    nodes (a relation to a soft-deleted node is dropped from the view)."""
+    merged = {t: [] for t in _RELATION_TYPES}
+    seen = {t: set() for t in _RELATION_TYPES}
+
+    def _add(label, i):
+        if i == nid or i in seen[label] or not _node_exists(con, i):
+            return
+        seen[label].add(i)
+        merged[label].append(i)
+
+    # own props
+    for r in _db.query(con, "prop", cols="key, value", node_id=nid):
+        lbl = _RELATION_KEY_LABEL.get(r["key"])
+        if lbl:
+            for i in _parse_id_list(r["value"]):
+                _add(lbl, i)
+    # reverse: any other node whose relation.* list points at nid
+    for r in _db.query(con, "prop", cols="node_id, key, value", key__like="relation.%"):
+        lbl = _RELATION_REVERSE_LABEL.get(r["key"])
+        if lbl and nid in _parse_id_list(r["value"]):
+            _add(lbl, r["node_id"])
+    return merged
+
+
 def _strip_wikilink(doc):
     """Strip an outer ``[[ ... ]]`` wrapper (repeatedly) plus surrounding whitespace from a
     vault-doc name, so ``[[X]]`` and ``X`` store identically and an already-wrapped value

@@ -831,6 +831,30 @@ Removes a single link; the rest of the node's links are untouched (unlike cleari
 them all). No-op with a notice if that link wasn't present.""")
     _args_link(ul)
 
+    rel = sub.add_parser("relation",
+        help="task↔task relations: split-from / split-into / related (writes both sides)",
+        description="Record or list relations between tasks — split-from / split-into / related — stored as relation.* props (comma-separated id lists). Distinct from ancestors (the parent/child hierarchy): relations express derivation / association across the tree. Adding writes BOTH sides (split-from on A also sets split-into on B; related is symmetric); the view also derives the reverse from other nodes, so it always reads bidirectionally.",
+        formatter_class=_WlHelpFormatter,
+        epilog="""\
+Common examples:
+  wl relation 42                        # list #42's relations
+  wl relation 42 split-from 17          # #42 was split out of #17 (sets #17 split-into 42 too)
+  wl relation 17 split-into 42 43       # #17 split into #42 and #43
+  wl relation 42 related 7 9            # #42 relates to #7 and #9 (symmetric)
+  wl relation 42 split-from 17 --rm     # remove that relation (both sides)
+
+Types: split-from / split-into (inverses) · related (symmetric).
+
+More: `wl help relation`.""")
+    rel.add_argument("id", type=int, help="the node whose relations to set / list")
+    rel.add_argument("rtype", nargs="?",
+        type=lambda s: s.replace("_", "-").lower(),   # accept split_from / SPLIT-FROM too
+        choices=["split-from", "split-into", "related"],
+        help="relation type; omit to list this node's relations")
+    rel.add_argument("others", nargs="*", metavar="other_id",
+        help="the related node id(s)")
+    rel.add_argument("--rm", action="store_true", help="remove the relation (from both sides)")
+
     se = sub.add_parser("set",
         help="set a value on a node — key-routed shortcut: a prop (= wl prop set) or a meta field (= wl meta set)",
         description="Set a value on a node — a key-routed shortcut. A meta key (goal/summary/overview/top5) routes to `wl meta set` (history-preserving typed log); any other key routes to `wl prop set` (static single-value UDA prop). So `wl set` is to `prop set` / `meta set` what `wl add` is to `node add`.",
@@ -1623,6 +1647,7 @@ from .commands import (
     cmd_spent,
     cmd_link,
     cmd_unlink,
+    cmd_relation,
     cmd_set,
     cmd_tag,
     cmd_tag_group,
@@ -1734,6 +1759,7 @@ HANDLERS = {
     "cancel": cmd_cancel,
     "link": cmd_link_group,
     "unlink": cmd_unlink,
+    "relation": cmd_relation,
     "set": cmd_set,
     "unset": cmd_prop_rm,
     "tag": cmd_tag_group,

@@ -53,6 +53,8 @@ from ..queries import (
     _sec_group,
     _status_filter_sql,
     _upsert_prop,
+    relation_view,
+    _RELATION_KEY_LABEL,
 )
 from ..render import (
     _PRI_STYLE,
@@ -102,7 +104,10 @@ def _node_to_dict(con, n):
         "tags": _node_tags(con, nid),
         "ancestors": [{"id": p["id"], "title": p["title"], "kind": p["kind"]}
                       for p in _ancestors_chain(con, nid)[:-1]],
-        "props": {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)},
+        # relation.* props surface under "relations" (resolved bidirectionally), not here
+        "props": {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)
+                  if r["key"] not in _RELATION_KEY_LABEL},
+        "relations": {k.replace("-", "_"): v for k, v in relation_view(con, nid).items()},
         "links": [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid)],
         "schedule": {
             "dates": list(dict.fromkeys(r["on_date"] for r in sched_rows if r["on_date"])),
@@ -1085,7 +1090,9 @@ def _show_one(args, con):
     tags = _node_tags(con, args.id)
     if tags:
         out("  " + _c("tags:", "meta") + "     " + _c(f":{':'.join(tags)}:", "tag"))
-    props = _db.query(con, "prop", cols="key, value", node_id=args.id)
+    # relation.* props render in their own bidirectional block below, not as raw props
+    props = [r for r in _db.query(con, "prop", cols="key, value", node_id=args.id)
+             if r["key"] not in _RELATION_KEY_LABEL]
     if props:
         out("  " + _c("props:", "meta"))
         for r in props:
@@ -1093,6 +1100,23 @@ def _show_one(args, con):
     links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=args.id)]
     if links:
         out("  " + _c("links:", "meta") + "    " + _c(", ".join(f"[[{d}]]" for d in links)))
+    # task↔task relations (split-from / split-into / related): own props + reverse derived
+    # from other nodes, shown bidirectionally. Distinct from ancestors (the hierarchy above).
+    rel = relation_view(con, args.id)
+    if any(rel.values()):
+        out("  " + _c("relations:", "meta"))
+        for t in ("split-from", "split-into", "related"):
+            ids = rel[t]
+            if not ids:
+                continue
+            items = []
+            for i in ids:
+                rn = _db.get(con, "node", i)
+                title = (rn["title"] if rn else "?")
+                if len(title) > 50:
+                    title = title[:49] + "…"
+                items.append(_c(f"#{i}", "id") + " " + _c(title))
+            out("    " + _c(f"{t + ':':11s}", "meta") + " " + ", ".join(items))
     # schedule (sched table): one-off dates + recurring rules. First-hand info for debugging
     # recurring tasks (e.g. why a task shows on multiple days); previously only visible via raw SQL.
     sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id, order="on_date NULLS LAST, rrule")

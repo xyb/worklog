@@ -57,6 +57,10 @@ from ..queries import (
     _set_typed_log,
     _META_LOG_TYPES,
     _reserved_prop_hint,
+    _RELATION_TYPES,
+    _add_id_to_prop_list,
+    _remove_id_from_prop_list,
+    relation_view,
 )
 from .metric import attach_metric_specs, checkin_metric, _CARRIER_TYPE
 from ..render import (
@@ -403,6 +407,79 @@ def cmd_unlink(args, con):
         else:
             out(_c(f"#{nid} had no link to [[{doc}]]", "meta"))
     con.commit()
+
+def _rel_item(con, i):
+    """`#<id> <title>` for the relations view (title clipped to keep the line tidy)."""
+    n = _db.get(con, "node", i)
+    title = (n["title"] if n else "?")
+    if len(title) > 50:
+        title = title[:49] + "…"
+    return _c(f"#{i}", "id") + " " + _c(title)
+
+
+def _print_relations(con, nid):
+    """Render a node's resolved relations block (own + derived reverse). Shared by
+    `wl relation <id>` (list mode) and `wl show`."""
+    rel = relation_view(con, nid)
+    if not any(rel.values()):
+        out(_c(f"#{nid} has no relations", "meta"))
+        return
+    out("  " + _c("relations:", "meta"))
+    for t in ("split-from", "split-into", "related"):
+        ids = rel[t]
+        if ids:
+            out("    " + _c(f"{t + ':':11s}", "meta") + " "
+                + ", ".join(_rel_item(con, i) for i in ids))
+
+
+def cmd_relation(args, con):
+    """Record / list task↔task relations (relation.* props). `wl relation <id>` lists a
+    node's relations; `wl relation <id> <type> <other…>` adds them — writing BOTH sides
+    (split-from also sets the other node's split-into, related is symmetric); `--rm`
+    removes from both sides. Types: split-from / split-into / related. Distinct from
+    ancestors (parent/child hierarchy) — these express derivation / association (this task
+    was split out of / into / relates to that one)."""
+    if not _node_exists(con, args.id):
+        sys.exit(f"✗ node #{args.id} not found")
+    rtype = getattr(args, "rtype", None)
+    if not rtype:
+        _print_relations(con, args.id)
+        return
+    rtype = rtype.strip().lower().replace("_", "-")
+    if rtype not in _RELATION_TYPES:
+        sys.exit(f"✗ unknown relation type '{rtype}' — use one of: "
+                 + ", ".join(_RELATION_TYPES))
+    key, inv = _RELATION_TYPES[rtype]
+    others = []
+    for raw in (args.others or []):
+        s = str(raw).lstrip("#").strip()
+        try:
+            others.append(int(s))
+        except ValueError:
+            sys.exit(f"✗ '{raw}' is not a node id")
+    if not others:
+        sys.exit(f"✗ give at least one related node id, e.g. `wl relation {args.id} {rtype} 42`")
+    _check_ids_exist(con, others)
+    rm = getattr(args, "rm", False)
+    done = []
+    for o in others:
+        if o == args.id:
+            out(_c(f"(skip #{o}: a node can't relate to itself)", "meta"))
+            continue
+        if rm:
+            _remove_id_from_prop_list(con, args.id, key, o)
+            _remove_id_from_prop_list(con, o, inv, args.id)
+        else:
+            _add_id_to_prop_list(con, args.id, key, o)
+            _add_id_to_prop_list(con, o, inv, args.id)
+        done.append(o)
+    con.commit()
+    if done:
+        verb = "removed" if rm else "set"
+        out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + f" {rtype} {verb}: "
+            + _c(", ".join(f"#{o}" for o in done)))
+    _print_relations(con, args.id)
+
 
 def cmd_set(args, con):
     if not _node_exists(con, args.id):

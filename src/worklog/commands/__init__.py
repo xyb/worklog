@@ -16,6 +16,7 @@ from .state import (
     cmd_spent,
     cmd_link,
     cmd_unlink,
+    cmd_relation,
     cmd_set,
     cmd_tag,
     cmd_tick,
