@@ -168,3 +168,25 @@ class TestRelationShow:
         assert "split-from:" in out
         # the raw relation.* prop is NOT shown in the props block
         assert "relation.split_from" not in out
+
+    def test_one_related_node_per_line(self, cli):
+        # multiple related ids render one-per-line (like children), not comma-joined on one line
+        _mk(cli, 3)
+        cli("relation", "1", "related", "2", "3")
+        _, out, _ = cli("relation", "1")
+        body = [l for l in out.splitlines() if "task 2" in l or "task 3" in l]
+        assert len(body) == 2  # each on its own line
+        assert not any("task 2" in l and "task 3" in l for l in out.splitlines())
+
+    def test_long_title_does_not_overflow_width(self, cli, monkeypatch):
+        # a long related title wraps with hang-indent (like children/_node_line) instead of
+        # overflowing the terminal width — the whole point of routing through _hang_wrap
+        monkeypatch.setenv("COLUMNS", "60")
+        cli("add", "x" * 200, "-k", "task")  # #1 long title (ASCII so len == display width)
+        cli("add", "src", "-k", "task")      # #2
+        cli("relation", "2", "related", "1")
+        _, out, _ = cli("relation", "2")
+        assert all(len(l) <= 60 for l in out.splitlines())   # nothing overflows
+        # the title wrapped to a continuation line aligned under the title column
+        title_lines = [l for l in out.splitlines() if set(l.strip()) == {"x"}]
+        assert title_lines and all(l.startswith(" " * 18) for l in title_lines)

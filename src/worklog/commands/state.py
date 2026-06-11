@@ -408,28 +408,16 @@ def cmd_unlink(args, con):
             out(_c(f"#{nid} had no link to [[{doc}]]", "meta"))
     con.commit()
 
-def _rel_item(con, i):
-    """`#<id> <title>` for the relations view (title clipped to keep the line tidy)."""
-    n = _db.get(con, "node", i)
-    title = (n["title"] if n else "?")
-    if len(title) > 50:
-        title = title[:49] + "…"
-    return _c(f"#{i}", "id") + " " + _c(title)
-
-
 def _print_relations(con, nid):
     """Render a node's resolved relations block (own + derived reverse). Shared by
-    `wl relation <id>` (list mode) and `wl show`."""
-    rel = relation_view(con, nid)
-    if not any(rel.values()):
+    `wl relation <id>` (list mode) and `wl show`; one node per line, width-aware
+    (see render._relations_lines)."""
+    lines = render._relations_lines(con, relation_view(con, nid))
+    if not lines:
         out(_c(f"#{nid} has no relations", "meta"))
         return
-    out("  " + _c("relations:", "meta"))
-    for t in ("split-from", "split-into", "related"):
-        ids = rel[t]
-        if ids:
-            out("    " + _c(f"{t + ':':11s}", "meta") + " "
-                + ", ".join(_rel_item(con, i) for i in ids))
+    for ln in lines:
+        out(ln)
 
 
 def cmd_relation(args, con):

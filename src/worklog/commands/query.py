@@ -1102,21 +1102,9 @@ def _show_one(args, con):
         out("  " + _c("links:", "meta") + "    " + _c(", ".join(f"[[{d}]]" for d in links)))
     # task↔task relations (split-from / split-into / related): own props + reverse derived
     # from other nodes, shown bidirectionally. Distinct from ancestors (the hierarchy above).
-    rel = relation_view(con, args.id)
-    if any(rel.values()):
-        out("  " + _c("relations:", "meta"))
-        for t in ("split-from", "split-into", "related"):
-            ids = rel[t]
-            if not ids:
-                continue
-            items = []
-            for i in ids:
-                rn = _db.get(con, "node", i)
-                title = (rn["title"] if rn else "?")
-                if len(title) > 50:
-                    title = title[:49] + "…"
-                items.append(_c(f"#{i}", "id") + " " + _c(title))
-            out("    " + _c(f"{t + ':':11s}", "meta") + " " + ", ".join(items))
+    # One node per line, width-aware (titles clip/wrap like children) — see render._relations_lines.
+    for ln in render._relations_lines(con, relation_view(con, args.id)):
+        out(ln)
     # schedule (sched table): one-off dates + recurring rules. First-hand info for debugging
     # recurring tasks (e.g. why a task shows on multiple days); previously only visible via raw SQL.
     sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id, order="on_date NULLS LAST, rrule")

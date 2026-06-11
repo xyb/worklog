@@ -259,6 +259,32 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
             s += "  " + _c(f":{':'.join(tl)}:", "tag")
     return s
 
+_RELATION_LABEL_W = 11  # widest label is "split-into:"; keeps the type column aligned
+
+
+def _relations_lines(con, rel):
+    """Render a node's resolved relations (a relation_view dict {label: [ids]}) as output
+    lines — ONE related node per line, width-aware: each title clips (`--title clip`) or
+    wraps with hang-indent (`wrap`) per the same `_hang_wrap` machinery as `_node_line`, so a
+    long title stays on its line / folds under the title column instead of overflowing. The
+    type label is shown once per group and blank-aligned on the group's later rows. Returns []
+    when the node has no relations. Shared by `wl relation <id>` and `wl show`."""
+    from . import db_table as _db
+    if not any(rel.values()):
+        return []
+    lines = ["  " + _c("relations:", "meta")]
+    for t in ("split-from", "split-into", "related"):
+        for k, i in enumerate(rel.get(t) or []):
+            n = _db.get(con, "node", i)
+            title = n["title"] if n else "?"
+            label = f"{t + ':':{_RELATION_LABEL_W}}" if k == 0 else " " * _RELATION_LABEL_W
+            nid = f"#{i}"
+            prefix = "    " + _c(label, "meta") + " " + _c(nid, "id") + " "
+            prefix_cols = _display_width("    " + label + " " + nid + " ")
+            lines.append(_hang_wrap(prefix, prefix_cols, title))
+    return lines
+
+
 def _snippet(text, q, ctx=30):
     """Extract a snippet around the query, with the match highlighted (styled) / *…* marked (plain)."""
     i = text.lower().find(q.lower())
