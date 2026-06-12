@@ -61,6 +61,7 @@ from ..queries import (
     _add_id_to_prop_list,
     _remove_id_from_prop_list,
     relation_view,
+    _backrels,
 )
 from .metric import attach_metric_specs, checkin_metric, _CARRIER_TYPE
 from ..render import (
@@ -425,7 +426,7 @@ def _print_relations(con, nid):
     """Render a node's resolved relations block (own + derived reverse). Shared by
     `wl relation <id>` (list mode) and `wl show`; one node per line, width-aware
     (see render._relations_lines)."""
-    lines = render._relations_lines(con, relation_view(con, nid))
+    lines = render._relations_lines(con, relation_view(con, nid), backrels=_backrels(con, nid))
     if not lines:
         out(_c(f"#{nid} has no relations", "meta"))
         return

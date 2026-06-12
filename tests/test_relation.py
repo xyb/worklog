@@ -166,6 +166,44 @@ class TestRelationList:
         assert "task 1" in out  # the related node's title
 
 
+class TestBacklinks:
+    def test_text_mention_shows_linked_from(self, cli):
+        cli("add", "target", "-k", "task")          # #1
+        cli("add", "depends on it", "-k", "task")    # #2
+        cli("log", "2", "blocked on #1 result")      # #2's log mentions #1
+        _, out, _ = cli("show", "1")
+        assert "=backrels" in out and "#2" in out
+
+    def test_wl_prefix_counts(self, cli):
+        cli("add", "target", "-k", "task")           # #1
+        cli("add", "other", "-k", "task")            # #2
+        cli("log", "2", "see WL#1 for context")
+        _, out, _ = cli("show", "1")
+        assert "=backrels" in out and "#2" in out
+
+    def test_pr_ref_and_self_excluded(self, cli):
+        cli("add", "target", "-k", "task")           # #1
+        cli("add", "other", "-k", "task")            # #2
+        cli("log", "2", "merged PR#1, not a node ref")   # PR#1 must NOT backlink #1
+        cli("log", "1", "self mention #1")               # self excluded
+        _, out, _ = cli("show", "1")
+        assert "=backrels" not in out
+
+    def test_no_substring_false_match(self, cli):
+        cli("add", "target", "-k", "task")           # #1
+        cli("add", "other", "-k", "task")            # #2
+        cli("log", "2", "see #12 and #100")          # neither is #1
+        _, out, _ = cli("show", "1")
+        assert "=backrels" not in out
+
+    def test_backlinks_in_json(self, cli):
+        cli("add", "target", "-k", "task")           # #1
+        cli("add", "other", "-k", "task")            # #2
+        cli("log", "2", "ref #1")
+        _, j, _ = cli("show", "1", "-o", "json")
+        assert json.loads(j)["backrels"] == [2]
+
+
 class TestRelationErrors:
     def test_unknown_type_rejected(self, cli):
         _mk(cli, 2)

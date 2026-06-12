@@ -55,6 +55,7 @@ from ..queries import (
     _upsert_prop,
     relation_view,
     _RELATION_KEY_LABEL,
+    _backrels,
 )
 from ..render import (
     _PRI_STYLE,
@@ -108,6 +109,7 @@ def _node_to_dict(con, n):
         "props": {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)
                   if r["key"] not in _RELATION_KEY_LABEL},
         "relations": {k.replace("-", "_"): v for k, v in relation_view(con, nid).items()},
+        "backrels": _backrels(con, nid),   # node ids whose text references this node
         "links": [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid)],
         "schedule": {
             "dates": list(dict.fromkeys(r["on_date"] for r in sched_rows if r["on_date"])),
@@ -361,7 +363,7 @@ def cmd_focus(args, con):
     # upstream path (excludes self)
     upstream = chain[:-1]
     if upstream:
-        out(_c("upstream:", "meta") + " " + _c(" / ".join(f"#{p['id']} {p['title']}" for p in upstream)))
+        out(_c("upstream:", "meta") + " " + " / ".join(_c(f"#{p['id']}", "id") + " " + _c(p['title']) for p in upstream))
 
     # self
     mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
@@ -1079,7 +1081,7 @@ def _show_one(args, con):
         out("  " + _c("status:", "meta") + "   " + st + pr)
     chain = _ancestors_chain(con, args.id)
     if len(chain) > 1:
-        out("  " + _c("ancestors:", "meta") + " " + _c(" / ".join(f"#{p['id']} {p['title']}" for p in chain[:-1])))
+        out("  " + _c("ancestors:", "meta") + " " + " / ".join(_c(f"#{p['id']}", "id") + " " + _c(p['title']) for p in chain[:-1]))
     for k in ("created_at", "scheduled_date", "deadline_date", "closed_at"):
         if n[k]:
             # *_at are UTC instants -> render local; *_date / scheduled / deadline are literal dates
@@ -1103,7 +1105,8 @@ def _show_one(args, con):
     # task↔task relations (split-from / split-into / related): own props + reverse derived
     # from other nodes, shown bidirectionally. Distinct from ancestors (the hierarchy above).
     # One node per line, width-aware (titles clip/wrap like children) — see render._relations_lines.
-    for ln in render._relations_lines(con, relation_view(con, args.id)):
+    for ln in render._relations_lines(con, relation_view(con, args.id),
+                                      backrels=_backrels(con, args.id)):
         out(ln)
     # schedule (sched table): one-off dates + recurring rules. First-hand info for debugging
     # recurring tasks (e.g. why a task shows on multiple days); previously only visible via raw SQL.

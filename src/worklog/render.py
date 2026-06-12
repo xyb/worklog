@@ -22,33 +22,36 @@ except ImportError:
     _RICH_AVAIL = False
 
 # theme = semantic element -> rich style. No "default" theme; default is auto, probes terminal bg and resolves to dark/light/mono.
-_THEME_KEYS = "done doing later wait todo canceled pri_a pri_b pri_c id kind tag hit header meta planned clock body title italic underline".split()
+_THEME_KEYS = "done doing later wait todo canceled pri_a pri_b pri_c id kind tag hit header meta planned clock body title italic underline derived".split()
 THEMES = {
     # dark: dark background, use bright_* for contrast
     "dark": {
         "done": "bright_green", "doing": "bright_yellow", "later": "bright_cyan", "wait": "grey50",
         "todo": "default", "canceled": "strike grey50",
         "pri_a": "bold bright_red", "pri_b": "bright_yellow", "pri_c": "grey50",
-        "id": "grey50", "kind": "bright_cyan", "tag": "bright_magenta", "hit": "bold black on bright_yellow",
+        "id": "green", "kind": "bright_cyan", "tag": "bright_magenta", "hit": "bold black on bright_yellow",
         "header": "bold bright_white", "meta": "grey50", "planned": "bright_blue", "clock": "bright_green",
         "body": "grey70",   # help prose: slightly grey so bold-white + colored refs stand out
         "title": "bold bright_white underline",   # wl help topic title (underline replaces the ─ rule)
         "italic": "italic", "underline": "underline",   # md *italic* / [links]; mono→default (plain)
+        "derived": "italic grey50",   # machine-derived/computed rows (e.g. =backrels) — italic + dim, set apart from stored props
     },
     # light: light background, use deep saturated colors (avoid bright/white getting lost on white bg)
     "light": {
         "done": "green4", "doing": "dark_orange3", "later": "blue", "wait": "grey42",
         "todo": "default", "canceled": "strike grey42",
         "pri_a": "bold red3", "pri_b": "dark_orange3", "pri_c": "grey42",
-        "id": "grey42", "kind": "dark_cyan", "tag": "purple", "hit": "bold black on yellow3",
+        "id": "dark_green", "kind": "dark_cyan", "tag": "purple", "hit": "bold black on yellow3",
         "header": "bold grey15", "meta": "grey42", "planned": "blue", "clock": "green4",
         "body": "grey30",   # help prose: slightly grey so bold + colored refs stand out
         "title": "bold grey15 underline",   # wl help topic title (underline replaces the ─ rule)
         "italic": "italic", "underline": "underline",   # md *italic* / [links]; mono→default (plain)
+        "derived": "italic grey42",   # machine-derived/computed rows (=backrels) — italic + dim
     },
     # mono: no color (want rich layout but no color)
     "mono": {k: "default" for k in _THEME_KEYS},
 }
+THEMES["mono"]["derived"] = "italic"   # mono keeps italic (no color) so derived rows still read apart
 _STATUS_STYLE = {"DONE": "done", "DOING": "doing", "LATER": "later", "WAIT": "wait",
                  "TODO": "todo", "DEFERRED": "later", "CANCELED": "canceled", None: "todo"}
 _PRI_STYLE = {"A": "pri_a", "B": "pri_b", "C": "pri_c"}
@@ -262,15 +265,16 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
 _RELATION_LABEL_W = 11  # widest label is "split-into:"; keeps the type column aligned
 
 
-def _relations_lines(con, rel):
-    """Render a node's resolved relations (a relation_view dict {label: [ids]}) as output
-    lines — ONE related node per line, width-aware: each title clips (`--title clip`) or
-    wraps with hang-indent (`wrap`) per the same `_hang_wrap` machinery as `_node_line`, so a
-    long title stays on its line / folds under the title column instead of overflowing. The
-    type label is shown once per group and blank-aligned on the group's later rows. Returns []
-    when the node has no relations. Shared by `wl relation <id>` and `wl show`."""
+def _relations_lines(con, rel, backrels=None):
+    """Render a node's connections under one `relations:` block. First the STORED relation.*
+    props (split-from / split-into / related), each node-per-line with title (width-aware via
+    `_hang_wrap`). Then, set apart, the `=backrels` row: ids of other nodes whose text references
+    this one (inbound). These are MACHINE-DERIVED (computed by scanning text, not a stored prop),
+    so the row is marked with a leading `=` and rendered italic+dim to distinguish it from the
+    real relations above. Returns [] when there are neither. Shared by `wl relation` / `wl show`."""
     from . import db_table as _db
-    if not any(rel.values()):
+    backrels = backrels or []
+    if not any(rel.values()) and not backrels:
         return []
     lines = ["  " + _c("relations:", "meta")]
     for t in ("split-from", "split-into", "related"):
@@ -282,6 +286,11 @@ def _relations_lines(con, rel):
             prefix = "    " + _c(label, "meta") + " " + _c(nid, "id") + " "
             prefix_cols = _display_width("    " + label + " " + nid + " ")
             lines.append(_hang_wrap(prefix, prefix_cols, title))
+    if backrels:
+        # leading '=' + italic/dim marks this as a derived (computed) row, not a stored prop
+        label = f"{'=backrels':{_RELATION_LABEL_W}}"
+        lines.append("    " + _c(label, "derived") + " "
+                     + " ".join(_c(f"#{i}", "id") for i in backrels))
     return lines
 
 

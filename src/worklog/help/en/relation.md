@@ -34,3 +34,21 @@ and the `relation.` namespace prefix work like any other prop (see `wl help prop
 `wl relation` over editing the props by hand: it keeps both sides consistent and validates
 the ids. The block shows in `wl show`, and `wl show -o json` carries a resolved `relations`
 object.
+
+## =backrels — who references this node (derived, not stored)
+
+The `relations:` block in `wl show` ends with a `=backrels` row — the ids of OTHER nodes
+whose text mentions this one (a `#<id>` or `WL#<id>` reference in their log/body), i.e.
+"what links here" / backlinks:
+
+    relations:
+      related:    #7 some related task
+      =backrels   #12 #34            # nodes whose text references this one
+
+This row is **machine-derived**, not a stored property: it is computed on the fly by
+scanning text (a `PR#`/`LUM-` run does NOT count, so a GitHub PR / Linear ref isn't
+mistaken for a node ref). To set it apart from the real stored relations above, derived
+rows are marked with a leading `=` and rendered italic + dim. (General wl convention: a
+leading `=` + italic means "computed / read-only / not a stored field".) In `wl show -o
+json` it is the `backrels` array. There's no command to edit it — write a `#id` in a log
+and the backlink appears.

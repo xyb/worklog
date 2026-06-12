@@ -527,6 +527,29 @@ def relation_view(con, nid):
     return merged
 
 
+def _backrels(con, nid):
+    """Back-relations ('what links here' / 维基百科链入): other nodes whose TEXT mentions this
+    node's id — a `#<nid>` or `WL#<nid>` reference in a log body or a node body. Returns sorted
+    distinct node ids, excluding self. A bare `#` or a `WL#` prefix counts; a letter run like
+    `PR#`/`LUM-` does NOT (so a GitHub PR / Linear ref isn't mistaken for a node ref). Unlike the
+    stored relation.* props, these are MACHINE-DERIVED (computed by scanning text), so the show
+    view marks the row with a leading `=` + italic to set it apart from the real relations."""
+    import re
+    # candidates via a cheap LIKE, then a word-boundary regex confirms it's a real node ref
+    pat = re.compile(rf"(?<![A-Za-z0-9])(?:WL)?#0*{nid}(?!\d)")
+    found = set()
+    like = f"%#{nid}%"
+    for src_id, body in con.execute(
+        "SELECT DISTINCT node_id, body FROM log WHERE deleted_at IS NULL AND body LIKE ?", (like,)):
+        if src_id != nid and pat.search(body or ""):
+            found.add(src_id)
+    for src_id, body in con.execute(
+        "SELECT id, body FROM node WHERE deleted_at IS NULL AND body LIKE ?", (like,)):
+        if src_id != nid and pat.search(body or ""):
+            found.add(src_id)
+    return sorted(found)
+
+
 def _strip_wikilink(doc):
     """Strip an outer ``[[ ... ]]`` wrapper (repeatedly) plus surrounding whitespace from a
     vault-doc name, so ``[[X]]`` and ``X`` store identically and an already-wrapped value
