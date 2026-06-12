@@ -1101,7 +1101,8 @@ def _show_one(args, con):
     if props or rel_lines:
         out("  " + _c("props:", "meta"))
         for r in props:
-            out("    " + _c(f"{r['key']:12s} = {r['value']}"))
+            # prop key (the attribute name) renders grey like every other field label; value default
+            out("    " + _c(f"{r['key']:12s} =", "meta") + " " + _c(r["value"]))
         for ln in rel_lines:   # nested relation: sub-block (split/related + =backrels)
             out(ln)
     links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=args.id)]
@@ -1129,7 +1130,7 @@ def _show_one(args, con):
     # children (direct only)
     children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
     if children:
-        out("  " + _c(f"children ({len(children)}):", "header"))
+        out("  " + _c(f"children ({len(children)}):", "meta"))
         for c in children:
             out(_node_line(con, c, indent="    "))
 
@@ -1179,7 +1180,7 @@ def _show_one(args, con):
         title = f"timeline / changes ({len(events)})"
         if tail is not None and len(events) > tail:
             title += f", showing last {tail}"
-        out("  " + _c(title + ":", "header"))
+        out("  " + _c(title + ":", "meta"))
         if tail is not None and len(events) > tail:
             out("    " + _c(f"… ({len(events) - tail} earlier elided; use --all-timelines for full)", "meta"))
         # log.id used for operations (wl unlog #L<id>); meta events have no id, just a placeholder for alignment
