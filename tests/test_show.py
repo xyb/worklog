@@ -23,6 +23,19 @@ class TestShow:
         assert "5/19 breakdown" in out
         assert "timeline / changes" in out  # logs upgraded to timeline
 
+    def test_show_timeline_marks_log_tag(self, cli):
+        # a tagged log (meta field goal/summary/… or custom) shows its tag in the timeline,
+        # distinguishable from a plain untagged "✎ log"
+        import json
+        cli("goal", "today's aim")   # writes a tag=goal log on today's day node
+        day = json.loads(cli("day", "-o", "json")[1])["day_node_id"]
+        _, out, _ = cli("show", str(day))
+        assert "✎ goal" in out
+        cli("add", "t", "-k", "task")
+        cli("log", "2", "plain note", "--keep-status")
+        _, out2, _ = cli("show", "2")
+        assert "✎ log" in out2       # untagged log still reads "✎ log"
+
     def test_show_timeline_log_line_fits_width(self, cli, monkeypatch):
         # a long log body in the timeline must truncate to the terminal width (budget against the
         # real prefix `    <ts>  #L<id>  ✎ log  `, not a fixed guess), not overflow to a 2nd line.
