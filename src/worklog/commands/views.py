@@ -299,7 +299,9 @@ def cmd_day(args, con):
     head = target + (f" {wd}" if wd else "") + (f" · {nature}" if nature else "")
     is_json = getattr(args, "output", "text") == "json"
     if not is_json:
-        out(_c(head, "header"))
+        # lead with the day node id so `wl goal`/`wl show <id>`/`wl meta` have it to hand
+        nid = (_c(f"#{day['id']}", "id") + " ") if day else ""
+        out(nid + _c(head, "header"))
     # meta (history-preserving typed logs on the day node): goal / recap(summary) / Top5;
     # plus the parent week node's overview. Each is the latest log of that type. (json mode
     # gathers these into a dict via _day_meta_dict instead of rendering text.)

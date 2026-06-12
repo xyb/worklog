@@ -51,6 +51,14 @@ class TestDay:
         assert today in out
         assert "aggregated progress" in out
 
+    def test_day_header_shows_node_id(self, cli):
+        import json
+        cli("goal", "ship it")          # creates today's day node + a goal
+        nid = json.loads(cli("day", "-o", "json")[1])["day_node_id"]
+        assert nid
+        _, out, _ = cli("day")
+        assert f"#{nid}" in out.splitlines()[0]   # day node id leads the header
+
     def test_day_empty_no_fail(self, cli):
         self._seed(cli)
         code, out, _ = cli("day", "2099-01-01")  # a date with no logs
