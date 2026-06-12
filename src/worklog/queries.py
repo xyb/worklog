@@ -283,7 +283,7 @@ def make_node_filter(con, args):
     return ok
 
 
-_META_LOG_TYPES = ("goal", "summary", "overview", "top5")  # meta fields stored as typed logs
+_RESERVED_LOG_TAGS = ("goal", "summary", "overview", "top5")  # meta fields stored as typed logs
 
 
 def _latest_typed_log(con, node_id, log_type):
@@ -295,12 +295,45 @@ def _latest_typed_log(con, node_id, log_type):
                         order="logged_at DESC, id DESC")
 
 
+# the reserved-tag logs whose body names the task/project nodes it plans (goal = today's
+# deliverables; top5 = the month's priorities). On each write we extract those #ids into a
+# `plan.<tag>` prop so the plan↔node link is queryable (wl ls --prop plan.goal) instead of
+# living only in free text. summary/overview are prose recaps, not plans — not structured here.
+_PLAN_REF_TAGS = ("goal", "top5")
+
+
+def _extract_node_refs(con, text):
+    """The live node ids a piece of text names as `#NNN` / `WL#NNN` (a `PR#`/`LUM-` run does
+    NOT count). Order-preserving + deduped; only ids that are real live nodes. Used to structure
+    a goal/top5 log's targets into a `plan.*` prop."""
+    import re
+    pat = re.compile(r"(?<![A-Za-z0-9])(?:WL)?#0*(\d+)(?!\d)")
+    out, seen = [], set()
+    for m in pat.finditer(text or ""):
+        i = int(m.group(1))
+        if i not in seen and _node_exists(con, i):
+            seen.add(i)
+            out.append(i)
+    return out
+
+
 def _set_typed_log(con, node_id, log_type, body):
-    """Append a new typed log (history-preserving write of a meta field). No commit;
-    caller controls the transaction. Returns the new log id."""
-    return _db.insert(con, "log", {
+    """Append a reserved-tag log (a `log` row whose `tag` is one of goal/summary/overview/top5;
+    history-preserving — each write appends, the latest is current). No commit; caller owns the
+    transaction. For a plan tag (goal/top5) also (re)writes the `plan.<tag>` prop from the #ids
+    named in `body`, so the structured plan↔node link tracks the current text. Returns the log id."""
+    log_id = _db.insert(con, "log", {
         "node_id": node_id, "tag": log_type, "body": body, "logged_at": _tu.utc_now(),
     })
+    if log_type in _PLAN_REF_TAGS:
+        refs = _extract_node_refs(con, body)
+        key = f"plan.{log_type}"
+        if refs:   # write the structured prop directly (bypass the user-facing reserved guard)
+            _db.upsert(con, "prop", {"node_id": node_id, "key": key, "value": ",".join(map(str, refs))},
+                       key=("node_id", "key"))
+        else:      # goal text names no node → clear any stale plan.<tag> prop
+            _db.delete(con, "prop", node_id=node_id, key=key)
+    return log_id
 
 
 def _has_checkin(con, node_id, day):
@@ -401,9 +434,14 @@ _RESERVED_PROP_KEYS = {
 
 def _reserved_prop_hint(key):
     """If `key` collides with a core node field (so storing it as a UDA prop would shadow the
-    real field), return the corrective hint; else None. Single source of truth for the guard
-    shared by cmd_set (wl set / wl prop set) and the importers."""
-    return _RESERVED_PROP_KEYS.get((key or "").strip().lower())
+    real field) OR is a system-managed prop, return the corrective hint; else None. Single source
+    of truth for the guard shared by cmd_set (wl set / wl prop set) and the importers."""
+    k = (key or "").strip().lower()
+    if k.startswith("plan."):
+        # plan.goal / plan.top5 are derived from the goal/top5 log text — set via `wl goal`
+        # (write a goal naming #ids), not by hand, so the prop and the text can't disagree
+        return "a structured plan prop, derived from the goal/top5 text — write `wl goal \"… #id …\"`, don't set it directly"
+    return _RESERVED_PROP_KEYS.get(k)
 
 
 def _upsert_prop(con, nid, key, value):
@@ -414,7 +452,7 @@ def _upsert_prop(con, nid, key, value):
     hint = _reserved_prop_hint(key)
     if hint:
         raise ValueError(
-            f"'{key}' is a reserved node field, not a UDA prop — {hint} "
+            f"'{key}' is reserved, not a free UDA prop — {hint} "
             f"(storing it as a prop would create a misleading shadow of the real field)")
     _db.upsert(con, "prop", {"node_id": nid, "key": key, "value": value}, key=("node_id", "key"))
 

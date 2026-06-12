@@ -43,9 +43,9 @@ class TestPropGroup:
                          ("title", "x"), ("parent", "3"), ("scheduled", "today"),
                          ("deadline", "2026-06-09"), ("kind", "habit")]:
             code, _, err = cli("set", "1", key, val)
-            assert code != 0 and "reserved node field" in err, f"{key} not rejected"
+            assert code != 0 and "reserved" in err, f"{key} not rejected"
             code, _, err = cli("prop", "set", "1", key, val)   # same guard via prop set
-            assert code != 0 and "reserved node field" in err, f"prop set {key} not rejected"
+            assert code != 0 and "reserved" in err, f"prop set {key} not rejected"
         con = tmp_db.db_connect()
         rows = con.execute("SELECT key FROM prop WHERE node_id=1 AND deleted_at IS NULL").fetchall()
         assert rows == [], "a reserved key leaked into the prop table"
@@ -79,7 +79,7 @@ class TestPropGroup:
         json.dump(spec, f); f.close()
         code, _, err = cli("import", f.name)
         os.unlink(f.name)
-        assert code != 0 and ("reserved node field" in err or "shadow" in err)
+        assert code != 0 and ("reserved" in err or "shadow" in err)
 
     def test_prop_rm_and_unset_shortcut(self, cli, tmp_db):
         cli("add", "t", "-k", "task")

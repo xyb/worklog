@@ -55,7 +55,7 @@ from ..queries import (
     _upsert_link,
     _delete_link,
     _set_typed_log,
-    _META_LOG_TYPES,
+    _RESERVED_LOG_TAGS,
     _reserved_prop_hint,
     _RELATION_TYPES,
     _add_id_to_prop_list,
@@ -525,11 +525,10 @@ def cmd_set(args, con):
     args.key = args.key.strip()
     hint = _reserved_prop_hint(args.key)
     if hint:
-        # a core node field (status/priority/tags/title/…) must not become a UDA
-        # prop — that would shadow the real field. Reject with a pointer to the right command.
-        sys.exit(f"✗ '{args.key}' is a reserved node field, not a UDA prop — {hint}\n"
-                 f"  (plain `wl set` / `wl prop set` would silently create a misleading shadow prop)")
-    if args.key in _META_LOG_TYPES:
+        # a reserved key: either a core node field (status/priority/title/…) that a prop would
+        # shadow, or a system-managed prop (plan.*). Reject with a pointer to the right command.
+        sys.exit(f"✗ '{args.key}' is reserved, not a free UDA prop — {hint}")
+    if args.key in _RESERVED_LOG_TAGS:
         # goal/summary/overview/top5 are history-preserving meta fields, stored as typed
         # logs (not single-value props): each write appends a log, the latest is current.
         # This is the key-routed shortcut for `wl meta set` — keep the output identical.
@@ -1051,7 +1050,7 @@ def cmd_prop_rm(args, con):
     key = (args.key or "").strip()
     if not key:
         sys.exit("✗ prop key cannot be empty")
-    if key in _META_LOG_TYPES:
+    if key in _RESERVED_LOG_TAGS:
         # key-routed shortcut, symmetric with `wl set`: a meta field lives in the log table
         # as a typed log, not a prop — clear it there (= wl meta rm).
         n = _db.delete(con, "log", node_id=args.id, tag=key)

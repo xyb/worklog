@@ -14,7 +14,7 @@ from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
 from .metric import checkin_metric
-from ..queries import _has_checkin, _latest_typed_log, _set_typed_log, _META_LOG_TYPES
+from ..queries import _has_checkin, _latest_typed_log, _set_typed_log, _RESERVED_LOG_TAGS
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -328,7 +328,7 @@ def cmd_meta_ls(args, con):
     if not _node_exists(con, args.id):
         sys.exit(f"✗ node #{args.id} not found")
     shown = False
-    for field in _META_LOG_TYPES:
+    for field in _RESERVED_LOG_TAGS:
         row = _latest_typed_log(con, args.id, field)
         if row and row["body"]:
             shown = True

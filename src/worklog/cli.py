@@ -49,7 +49,7 @@ from .completion import (
     _generate_zsh_completion,
 )
 from .queries import (
-    _META_LOG_TYPES,
+    _RESERVED_LOG_TAGS,
     _insert_log,
     _node_tags,
     _check_ids_exist,
@@ -1463,12 +1463,12 @@ Common examples:
     _mesub = me.add_subparsers(dest="meta_sub")
     _mset = _mesub.add_parser("set", help="set/append a meta field (= the wl set <node> <field> shortcut)")
     _mset.add_argument("id", type=int)
-    _mset.add_argument("field", choices=list(_META_LOG_TYPES))
+    _mset.add_argument("field", choices=list(_RESERVED_LOG_TAGS))
     _mset.add_argument("value")
     _mesub.add_parser("ls", help="list a node's current meta fields").add_argument("id", type=int)
     _mrm = _mesub.add_parser("rm", help="clear a meta field (= wl unset <node> <field>)")
     _mrm.add_argument("id", type=int)
-    _mrm.add_argument("field", choices=list(_META_LOG_TYPES))
+    _mrm.add_argument("field", choices=list(_RESERVED_LOG_TAGS))
 
     # alias command: manage ~/.config/worklog/aliases.ini (wired into the parser at startup)
     al = sub.add_parser("alias",
