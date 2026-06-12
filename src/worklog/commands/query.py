@@ -1092,22 +1092,21 @@ def _show_one(args, con):
     tags = _node_tags(con, args.id)
     if tags:
         out("  " + _c("tags:", "meta") + "     " + _c(f":{':'.join(tags)}:", "tag"))
-    # relation.* props render in their own bidirectional block below, not as raw props
+    # props block. relation.* props ARE props but get their own richer display, nested
+    # under `props:` as a `relation:` sub-block (the flat key=value rows show the rest).
     props = [r for r in _db.query(con, "prop", cols="key, value", node_id=args.id)
              if r["key"] not in _RELATION_KEY_LABEL]
-    if props:
+    rel_lines = render._relations_lines(con, relation_view(con, args.id),
+                                        backrels=_backrels(con, args.id), indent=4)
+    if props or rel_lines:
         out("  " + _c("props:", "meta"))
         for r in props:
             out("    " + _c(f"{r['key']:12s} = {r['value']}"))
+        for ln in rel_lines:   # nested relation: sub-block (split/related + =backrels)
+            out(ln)
     links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=args.id)]
     if links:
         out("  " + _c("links:", "meta") + "    " + _c(", ".join(f"[[{d}]]" for d in links)))
-    # task↔task relations (split-from / split-into / related): own props + reverse derived
-    # from other nodes, shown bidirectionally. Distinct from ancestors (the hierarchy above).
-    # One node per line, width-aware (titles clip/wrap like children) — see render._relations_lines.
-    for ln in render._relations_lines(con, relation_view(con, args.id),
-                                      backrels=_backrels(con, args.id)):
-        out(ln)
     # schedule (sched table): one-off dates + recurring rules. First-hand info for debugging
     # recurring tasks (e.g. why a task shows on multiple days); previously only visible via raw SQL.
     sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id, order="on_date NULLS LAST, rrule")

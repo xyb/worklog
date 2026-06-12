@@ -265,31 +265,34 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
 _RELATION_LABEL_W = 11  # widest label is "split-into:"; keeps the type column aligned
 
 
-def _relations_lines(con, rel, backrels=None):
-    """Render a node's connections under one `relations:` block. First the STORED relation.*
-    props (split-from / split-into / related), each node-per-line with title (width-aware via
+def _relations_lines(con, rel, backrels=None, indent=2):
+    """Render a node's connections under a `relation:` sub-block (named for the `relation.*`
+    prop namespace they're stored in — in `wl show` this nests under `props:`, since relations
+    ARE props, just with their own richer display). First the STORED relation.* props
+    (split-from / split-into / related), each node-per-line with title (width-aware via
     `_hang_wrap`). Then, set apart, the `=backrels` row: ids of other nodes whose text references
-    this one (inbound). These are MACHINE-DERIVED (computed by scanning text, not a stored prop),
-    so the row is marked with a leading `=` and rendered italic+dim to distinguish it from the
-    real relations above. Returns [] when there are neither. Shared by `wl relation` / `wl show`."""
+    this one (inbound). Those are MACHINE-DERIVED (computed by scanning text, not a stored prop),
+    so the row is marked with a leading `=` + italic/dim. `indent` = column of the `relation:`
+    header (rows sit at indent+2). Returns [] when there are neither. Shared by `wl relation` / `wl show`."""
     from . import db_table as _db
     backrels = backrels or []
     if not any(rel.values()) and not backrels:
         return []
-    lines = ["  " + _c("relations:", "meta")]
+    pad, rowpad = " " * indent, " " * (indent + 2)
+    lines = [pad + _c("relation:", "meta")]
     for t in ("split-from", "split-into", "related"):
         for k, i in enumerate(rel.get(t) or []):
             n = _db.get(con, "node", i)
             title = n["title"] if n else "?"
             label = f"{t + ':':{_RELATION_LABEL_W}}" if k == 0 else " " * _RELATION_LABEL_W
             nid = f"#{i}"
-            prefix = "    " + _c(label, "meta") + " " + _c(nid, "id") + " "
-            prefix_cols = _display_width("    " + label + " " + nid + " ")
+            prefix = rowpad + _c(label, "meta") + " " + _c(nid, "id") + " "
+            prefix_cols = _display_width(rowpad + label + " " + nid + " ")
             lines.append(_hang_wrap(prefix, prefix_cols, title))
     if backrels:
         # leading '=' + italic/dim marks this as a derived (computed) row, not a stored prop
         label = f"{'=backrels':{_RELATION_LABEL_W}}"
-        lines.append("    " + _c(label, "derived") + " "
+        lines.append(rowpad + _c(label, "derived") + " "
                      + " ".join(_c(f"#{i}", "id") for i in backrels))
     return lines
 

@@ -247,9 +247,10 @@ class TestRelationShow:
         _mk(cli, 2)
         cli("relation", "2", "split-from", "1")
         code, out, _ = cli("show", "2")
-        assert "relations:" in out
+        # the relation block nests under props: as a `relation:` sub-block
+        assert "props:" in out and "relation:" in out
         assert "split-from:" in out
-        # the raw relation.* prop is NOT shown in the props block
+        # the raw relation.* prop key is NOT shown as a flat key=value row
         assert "relation.split_from" not in out
 
     def test_one_related_node_per_line(self, cli):

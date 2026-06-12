@@ -35,15 +35,18 @@ and the `relation.` namespace prefix work like any other prop (see `wl help prop
 the ids. The block shows in `wl show`, and `wl show -o json` carries a resolved `relations`
 object.
 
-## =backrels — who references this node (derived, not stored)
+## How the relation block displays (nested under props)
 
-The `relations:` block in `wl show` ends with a `=backrels` row — the ids of OTHER nodes
-whose text mentions this one (a `#<id>` or `WL#<id>` reference in their log/body), i.e.
-"what links here" / backlinks:
+Since relations ARE `relation.*` props, `wl show` nests them under `props:` as a `relation:`
+sub-block (named for the namespace) — with their own richer display, not flat key=value rows.
+The block ends with a `=backrels` row — the ids of OTHER nodes whose text mentions this one
+(a `#<id>` or `WL#<id>` reference in their log/body), i.e. "what links here" / backlinks:
 
-    relations:
-      related:    #7 some related task
-      =backrels   #12 #34            # nodes whose text references this one
+    props:
+      github.repo = owner/repo
+      relation:
+        related:   #7 some related task
+        =backrels  #12 #34          # nodes whose text references this one
 
 This row is **machine-derived**, not a stored property: it is computed on the fly by
 scanning text (a `PR#`/`LUM-` run does NOT count, so a GitHub PR / Linear ref isn't
