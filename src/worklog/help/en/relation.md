@@ -14,6 +14,9 @@ association between peers, not containment.
   wl relation 42 related 7 9         # #42 relates to #7 and #9
   wl relation 42 split-from 17 --rm  # remove (from both sides)
 
+At creation, `wl add` takes a compound `--relation` so a new node links up in one shot
+(repeatable, both sides): `wl add "split-out work" --relation 'split-from 17' --relation 'related 7 9'`.
+
 Three types. `split-from` and `split-into` are inverses; `related` is symmetric:
 
   split-from   this task was split out of the given task(s)

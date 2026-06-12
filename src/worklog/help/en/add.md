@@ -21,6 +21,7 @@ Key options (full list: `wl add -h`):
   -k kind · -p A/B/C priority · -t tags (comma, AND) · --parent <id> nest
   --sched <day> plan it (shows "planned" in wl day) · --deadline <date>
   --log "..." add a log now · --done (+ --at <ts>) close it now · --link "<doc>"
+  --relation '<type> <id>…' relate to an existing node (split-from/split-into/related; both sides)
   --metric 'tag value unit' attach a datapoint
 
 Related: `wl log <id>` adds to an existing node (doesn't create one); `wl tick <id>`

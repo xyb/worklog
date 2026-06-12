@@ -197,6 +197,19 @@ def cmd_add(args, con):
             _upsert_link(con, node_id, link_doc)
             link_hint = " → " + _c(f"[[{link_doc}]]", "meta")
 
+    # --relation: establish task↔task relation(s) at creation, writing both sides
+    # (e.g. --relation 'split-from 42'). Repeatable; reuses the wl relation core.
+    rel_hint = ""
+    rel_specs = getattr(args, "relation", None)
+    if rel_specs:
+        rel_n = 0
+        for spec in rel_specs:
+            rtype, ids = _parse_relation_spec(spec)
+            _check_ids_exist(con, ids)
+            rel_n += len(_apply_relation(con, node_id, rtype, ids))
+        if rel_n:
+            rel_hint = f" + {rel_n} relation(s)"
+
     # --log: insert a log (using at_ts if given, otherwise NOW)
     log_hint = ""
     created_log_id = None
@@ -228,7 +241,7 @@ def cmd_add(args, con):
     con.commit()
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
     out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{args.kind} '{args.title}'")
-        + st + sched_hint + link_hint + log_hint + metric_hint
+        + st + sched_hint + link_hint + rel_hint + log_hint + metric_hint
         + _c(f"  @{_tu.local_now()[:16]}", "meta"))   # stamp "now" so the caller (esp. an AI) sees the real current time
     if similar:
         out(_c(f"⚠ {len(similar)} similar open {args.kind}(s) already exist — reuse instead of duplicating?", "later"))
@@ -420,6 +433,52 @@ def _print_relations(con, nid):
         out(ln)
 
 
+def _norm_relation_type(rtype):
+    """Normalize a relation type token (`split_from` / `SPLIT-FROM` → `split-from`),
+    exiting with a clear message on an unknown type. Single source for cmd_relation +
+    the `wl add --relation` spec parser."""
+    rt = (rtype or "").strip().lower().replace("_", "-")
+    if rt not in _RELATION_TYPES:
+        sys.exit(f"✗ unknown relation type '{rtype}' — use one of: " + ", ".join(_RELATION_TYPES))
+    return rt
+
+
+def _apply_relation(con, nid, rtype, others, *, rm=False):
+    """Add (or with rm=True, remove) a relation between `nid` and each id in `others`,
+    writing BOTH sides (split-from ↔ split-into; related is symmetric). Self-relations are
+    skipped. No commit (caller owns the transaction). Returns the applied other-ids.
+    The shared core behind `wl relation` and `wl add --relation`."""
+    key, inv = _RELATION_TYPES[rtype]
+    done = []
+    for o in others:
+        if o == nid:
+            continue
+        if rm:
+            _remove_id_from_prop_list(con, nid, key, o)
+            _remove_id_from_prop_list(con, o, inv, nid)
+        else:
+            _add_id_to_prop_list(con, nid, key, o)
+            _add_id_to_prop_list(con, o, inv, nid)
+        done.append(o)
+    return done
+
+
+def _parse_relation_spec(spec):
+    """Parse a `wl add --relation` spec string '<type> <id> [<id>…]' → (rtype, [ids]).
+    e.g. 'split-from 42' or 'related 42 43'."""
+    parts = (spec or "").split()
+    if len(parts) < 2:
+        sys.exit(f"✗ --relation '{spec}': need '<type> <id>' (e.g. 'split-from 42' / 'related 42 43')")
+    rtype = _norm_relation_type(parts[0])
+    ids = []
+    for tok in parts[1:]:
+        try:
+            ids.append(int(tok.lstrip("#")))
+        except ValueError:
+            sys.exit(f"✗ --relation '{spec}': '{tok}' is not a node id")
+    return rtype, ids
+
+
 def cmd_relation(args, con):
     """Record / list task↔task relations (relation.* props). `wl relation <id>` lists a
     node's relations; `wl relation <id> <type> <other…>` adds them — writing BOTH sides
@@ -433,11 +492,7 @@ def cmd_relation(args, con):
     if not rtype:
         _print_relations(con, args.id)
         return
-    rtype = rtype.strip().lower().replace("_", "-")
-    if rtype not in _RELATION_TYPES:
-        sys.exit(f"✗ unknown relation type '{rtype}' — use one of: "
-                 + ", ".join(_RELATION_TYPES))
-    key, inv = _RELATION_TYPES[rtype]
+    rtype = _norm_relation_type(rtype)
     others = []
     for raw in (args.others or []):
         s = str(raw).lstrip("#").strip()
@@ -449,18 +504,10 @@ def cmd_relation(args, con):
         sys.exit(f"✗ give at least one related node id, e.g. `wl relation {args.id} {rtype} 42`")
     _check_ids_exist(con, others)
     rm = getattr(args, "rm", False)
-    done = []
     for o in others:
         if o == args.id:
             out(_c(f"(skip #{o}: a node can't relate to itself)", "meta"))
-            continue
-        if rm:
-            _remove_id_from_prop_list(con, args.id, key, o)
-            _remove_id_from_prop_list(con, o, inv, args.id)
-        else:
-            _add_id_to_prop_list(con, args.id, key, o)
-            _add_id_to_prop_list(con, o, inv, args.id)
-        done.append(o)
+    done = _apply_relation(con, args.id, rtype, others, rm=rm)
     con.commit()
     if done:
         verb = "removed" if rm else "set"

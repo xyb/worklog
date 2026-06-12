@@ -89,6 +89,51 @@ class TestRelationRemove:
         assert "relation.related" not in d["props"]
 
 
+class TestAddRelation:
+    def test_add_with_relation_writes_both_sides(self, cli):
+        _mk(cli, 2)  # #1 #2
+        code, out, _ = cli("add", "derived", "-k", "task",
+                           "--relation", "split-from 1", "--relation", "related 2")
+        assert code == 0
+        assert "relation(s)" in out  # the success hint mentions relations
+        _, j, _ = cli("show", "3", "-o", "json")
+        d = json.loads(j)
+        assert d["relations"]["split_from"] == [1]
+        assert d["relations"]["related"] == [2]
+        # both sides written on the existing nodes
+        assert json.loads(cli("show", "1", "-o", "json")[1])["relations"]["split_into"] == [3]
+        assert json.loads(cli("show", "2", "-o", "json")[1])["relations"]["related"] == [3]
+
+    def test_add_relation_multiple_ids(self, cli):
+        _mk(cli, 2)
+        cli("add", "x", "-k", "task", "--relation", "related 1 2")
+        _, j, _ = cli("show", "3", "-o", "json")
+        assert json.loads(j)["relations"]["related"] == [1, 2]
+
+    def test_add_relation_underscore_and_hash(self, cli):
+        _mk(cli, 1)
+        cli("add", "x", "-k", "task", "--relation", "split_from #1")
+        _, j, _ = cli("show", "2", "-o", "json")
+        assert json.loads(j)["relations"]["split_from"] == [1]
+
+    def test_add_relation_bad_type_errors(self, cli):
+        _mk(cli, 1)
+        code, _, err = cli("add", "x", "-k", "task", "--relation", "foo 1")
+        assert code != 0
+        assert "unknown relation type" in err
+
+    def test_add_relation_missing_id_errors(self, cli):
+        _mk(cli, 1)
+        code, _, err = cli("add", "x", "-k", "task", "--relation", "split-from")
+        assert code != 0
+        assert "need '<type> <id>'" in err
+
+    def test_add_relation_nonexistent_target_errors(self, cli):
+        code, _, err = cli("add", "x", "-k", "task", "--relation", "related 999")
+        assert code != 0
+        assert "not found" in err
+
+
 class TestRelationDerivation:
     def test_reverse_derived_from_one_sided_prop(self, cli):
         # set ONLY one side via raw `wl set`; the view must still surface the reverse

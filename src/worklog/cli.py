@@ -242,6 +242,9 @@ def _args_node_add(p):
     p.add_argument("--done", action="store_true", help="mark DONE + write closed_at immediately after creation (retrospective task in one shot)")
     p.add_argument("--at", help="timestamp for --log + (if --done) closed_at (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
     p.add_argument("--link", help="also attach a vault doc (no .md suffix, same semantics as wl link)")
+    p.add_argument("--relation", action="append", metavar="'<type> <id>…'",
+                   help="relate the new node to existing one(s), writing both sides (repeatable); "
+                        "type = split-from / split-into / related: --relation 'split-from 42' / --relation 'related 42 43'")
     p.add_argument("--metric", action="append", metavar="'tag [value] [unit]'",
                    help="attach a structured datapoint (repeatable); reuses the --log carrier or makes one: "
                         "--metric 'glucose 5.4 mmol/L' / --metric checkin")
@@ -618,8 +621,8 @@ DB path resolution:
 Config (aliases.ini) lives at $XDG_CONFIG_HOME/worklog/aliases.ini (default ~/.config/worklog/aliases.ini).""")
 
     a = sub.add_parser("add",
-        help="create a new node (task/project/area/meetlog/habit/day...); compound flags let you do add + log + done + sched + link in one shot",
-        description="Create a new node (task/project/area/meetlog/habit/day/...). Compound flags support add + log + done + sched + link in one step, replacing several separate commands. Canonical form: `wl node add` (this is the shortcut; see `wl node -h`).",
+        help="create a new node (task/project/area/meetlog/habit/day...); compound flags let you do add + log + done + sched + link + relation in one shot",
+        description="Create a new node (task/project/area/meetlog/habit/day/...). Compound flags support add + log + done + sched + link + relation in one step, replacing several separate commands. Canonical form: `wl node add` (this is the shortcut; see `wl node -h`).",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
@@ -627,6 +630,7 @@ Common examples:
   wl add "review the PR" -p B -t work --sched today    # priority, tag, plan for today
   wl add "Website revamp" -k project -p A -t work      # a project (→ e.g. #42)
   wl add "draft the homepage copy" --parent 42         # nest a task under it
+  wl add "split out of the big task" --relation 'split-from 42'   # relate to an existing node at creation (both sides)
   wl add "fixed the login bug" -p B --log "root cause: …" --done --at 14:30   # create + log + close
   wl add "[meetlog] 09:30 tech sync" -k meetlog --parent <day_id>             # a meeting note
 
