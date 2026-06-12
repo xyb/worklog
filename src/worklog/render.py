@@ -211,13 +211,14 @@ def _pri_marker(priority):
     return _c("[# ]", "meta")
 
 
-def _hang_wrap(prefix, prefix_cols, title, *, hl=None):
+def _hang_wrap(prefix, prefix_cols, title, *, hl=None, style=None):
     """Render `prefix` + a node `title` that wraps per the title mode (the single wrap utility,
     shared by `_node_line` and the day/tree custom renderers so they all behave the same).
     `prefix` is the styled left part of the line; `prefix_cols` is the display width of its PLAIN
     text. `wrap` (default): fold the title, continuation lines hang-indented to `prefix_cols`;
-    `clip`: one line truncated with `…`. Caller appends any trailing suffixes (clock/tags/…)."""
-    render = (lambda t: _hl(t, hl)) if hl else _c
+    `clip`: one line truncated with `…`. `style` themes the title text (e.g. `meta` to dim a
+    relation's title as auxiliary info); default = normal. Caller appends trailing suffixes."""
+    render = (lambda t: _hl(t, hl)) if hl else (lambda t: _c(t, style))
     if _title_mode() == "clip":
         return prefix + render(_truncate_log_body(title, indent_cols=prefix_cols))
     wlines = _wrap_display(title, _term_width() - prefix_cols)
@@ -288,7 +289,8 @@ def _relations_lines(con, rel, backrels=None, indent=2):
             nid = f"#{i}"
             prefix = rowpad + _c(label, "meta") + " " + _c(nid, "id") + " "
             prefix_cols = _display_width(rowpad + label + " " + nid + " ")
-            lines.append(_hang_wrap(prefix, prefix_cols, title))
+            # title is auxiliary (the #id is the reference) — dim it grey
+            lines.append(_hang_wrap(prefix, prefix_cols, title, style="meta"))
     if backrels:
         # leading '=' + italic/dim marks this as a derived (computed) row, not a stored prop
         label = f"{'=backrels':{_RELATION_LABEL_W}}"
