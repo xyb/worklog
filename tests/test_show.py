@@ -28,7 +28,7 @@ class TestShow:
         # distinguishable from a plain untagged "✎ log"
         import json
         cli("goal", "today's aim")   # writes a tag=goal log on today's day node
-        day = json.loads(cli("day", "-o", "json")[1])["day_node_id"]
+        day = json.loads(cli("day", "-o", "json")[1])["node_id"]
         _, out, _ = cli("show", str(day))
         assert "✎ goal" in out
         cli("add", "t", "-k", "task")

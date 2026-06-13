@@ -169,7 +169,7 @@ def cmd_tree(args, con):
 # wl day header reserved-tag logs, each with a distinct marker: one glance tells today's goal
 # from recap from the week's goal from the month's goal. Week/month goals are the same `goal`
 # tag on the ancestor week/month node — the level is the node's kind.
-_DAY_META = {
+_DAY_MARKERS = {
     "goal":    "🎯 ",
     "summary": "📝 Recap: ",
     "week":    "📅 This week: ",
@@ -177,7 +177,7 @@ _DAY_META = {
 }
 
 
-def _meta_blockquote(body, marker, indent="  "):
+def _header_blockquote(body, marker, indent="  "):
     """Render a day-header reserved-tag log: only the FIRST line carries the `<indent>> ` prefix; every
     continuation (soft-wrap or embedded newline) is indented with plain spaces to align under the
     text after `> ` — cleaner than repeating `> ` on every line. The marker (🎯 / Recap: / …) rides
@@ -225,7 +225,7 @@ def _goal_progress(con, body):
     return f" [{done}/{total}] {emoji}"
 
 
-def _day_meta_dict(con, day):
+def _day_goals_dict(con, day):
     """The day-header meta as a dict (for `wl day -o json`): goal (+ goal_progress {done,total}),
     summary (+ summary_at), week_goal, month_goal. Only present keys are included."""
     if not day:
@@ -275,8 +275,10 @@ def _emit_day_json(con, target, day, items, sched_ids):
         "date": target,
         "weekday": _cn_weekday(target),
         "nature": _day_nature(con, target),
-        "day_node_id": day["id"] if day else None,
-        "meta": _day_meta_dict(con, day),
+        "node_id": day["id"] if day else None,
+        # goal / goal_progress / summary / summary_at / week_goal / month_goal — flattened in
+        # (only the present keys), no wrapper: these ARE the day node's reserved-tag logs.
+        **_day_goals_dict(con, day),
         "tasks": tasks,
         "clock_min_total": int(clock_sec / 60),
     }, ensure_ascii=False, indent=2))
@@ -307,18 +309,18 @@ def cmd_day(args, con):
         out(nid + _c(head, "header"))
     # reserved-tag logs on the day node: goal / recap(summary); plus the ancestor week's and
     # month's goal. Each is the latest log of that tag. (json mode gathers these into a dict via
-    # _day_meta_dict instead of rendering text.)
+    # _day_goals_dict instead of rendering text.)
     if day and not is_json:
         g = _latest_typed_log(con, day["id"], "goal")
         if g and g["body"]:
             # goal carries its own achievement [done/total] from the #ids it names
-            out(_c(_meta_blockquote(g["body"], _DAY_META["goal"]), "meta")
+            out(_c(_header_blockquote(g["body"], _DAY_MARKERS["goal"]), "meta")
                 + _c(_goal_progress(con, g["body"]), "meta"))
         s = _latest_typed_log(con, day["id"], "summary")
         if s and s["body"]:
             at = s["logged_at"]
             when = _c(f" (written at {_tu.utc_to_local(at)[5:16]})", "meta") if at else ""
-            out(_c(_meta_blockquote(s["body"], _DAY_META["summary"]), "meta") + when)
+            out(_c(_header_blockquote(s["body"], _DAY_MARKERS["summary"]), "meta") + when)
             # stale check: count plain-note logs (tag IS NULL) added after the recap;
             # reserved-tag logs (goal/summary) and metric carriers (tag='metric') don't count.
             if at:
@@ -334,12 +336,12 @@ def cmd_day(args, con):
         if wk:
             wg = _latest_typed_log(con, wk["id"], "goal")
             if wg and wg["body"]:
-                out(_c(_meta_blockquote(wg["body"], _DAY_META["week"]), "meta"))
+                out(_c(_header_blockquote(wg["body"], _DAY_MARKERS["week"]), "meta"))
             mo = _db.query_one(con, "node", cols="id", id=wk["parent_id"], kind="month") if wk["parent_id"] else None
             if mo:
                 mg = _latest_typed_log(con, mo["id"], "goal")
                 if mg and mg["body"]:
-                    out(_c(_meta_blockquote(mg["body"], _DAY_META["month"]), "meta"))
+                    out(_c(_header_blockquote(mg["body"], _DAY_MARKERS["month"]), "meta"))
 
     # an explicit --status filter (applied below via make_node_filter) must override the
     # default CANCELED hide, else `day --status CANCELED` would drop its own matches.

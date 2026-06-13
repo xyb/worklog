@@ -54,7 +54,7 @@ class TestDay:
     def test_day_header_shows_node_id(self, cli):
         import json
         cli("goal", "ship it")          # creates today's day node + a goal
-        nid = json.loads(cli("day", "-o", "json")[1])["day_node_id"]
+        nid = json.loads(cli("day", "-o", "json")[1])["node_id"]
         assert nid
         _, out, _ = cli("day")
         assert f"#{nid}" in out.splitlines()[0]   # day node id leads the header
@@ -352,8 +352,8 @@ class TestDayJson:
         code, out, _ = cli("day", today, "-o", "json")
         d = json.loads(out)
         assert code == 0 and d["date"] == today
-        assert d["meta"]["goal"] == "do #2"
-        assert d["meta"]["goal_progress"] == {"done": 0, "total": 1}
+        assert d["goal"] == "do #2"
+        assert d["goal_progress"] == {"done": 0, "total": 1}
         t = next(t for t in d["tasks"] if t["id"] == 2)
         assert t["planned"] is True and t["logs"] == ["did it"]
 
