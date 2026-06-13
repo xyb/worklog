@@ -1,7 +1,7 @@
 ---
 title: wl — a local worklog & planner
 category: guide
-see_also: para, planning, node, status, add, day
+see_also: para, add, log, day, status, planning
 ---
 worklog (`wl`) is a fast, local, SQLite-backed worklog and planner. You track
 tasks/projects, log progress, plan your day, and review — all from the shell.

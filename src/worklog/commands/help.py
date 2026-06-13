@@ -201,7 +201,7 @@ def _render_body(body):
                 out(_md_inline(sub))
 
 
-def _render_topic(topic, meta, body, lang):
+def _render_topic(topic, meta, body, lang, show_see_also=True):
     title = meta.get("title", topic)
     # underline the title instead of spending a whole row on a ─── rule (plain mode: just the
     # title line, no separator — the blank line below sets it off).
@@ -209,7 +209,7 @@ def _render_topic(topic, meta, body, lang):
     out("")
     _render_body(body)
     see = meta.get("see_also") or []
-    if see:
+    if show_see_also and see:
         out("")
         # each see-also is a runnable `wl help <topic>` — cyan like inline references. Pack the
         # names into lines that fit help_width(), hanging continuations under the "See also: "
@@ -230,12 +230,42 @@ def _render_topic(topic, meta, body, lang):
 
 
 def _render_index(lang):
-    """Render just the index doc body — the short `wl help` overview (intro + most-used).
-    The full topic list lives behind `wl help --all` so the default output stays friendly."""
+    """Render the short `wl help` overview (index doc body), suppressing its bare 'See also'
+    footer — the curated core topics are rendered (with descriptions) by the caller instead.
+    Returns the index's `see_also` list = the curated core topics. The full topic list lives
+    behind `wl help --all` so the default output stays friendly."""
     p = _topic_path("index", lang)
-    if p:
-        meta, body = _parse_doc(p.read_text(encoding="utf-8"))
-        _render_topic("index", meta, body, lang)
+    if not p:
+        return []
+    meta, body = _parse_doc(p.read_text(encoding="utf-8"))
+    _render_topic("index", meta, body, lang, show_see_also=False)
+    return meta.get("see_also") or []
+
+
+def _topic_row(topic, title, width):
+    """One `    <name>  <description>` row (name padded to `width`, desc wrapped + hang-indented).
+    Shared by the core list (`wl help`) and the full list (`wl help --all`) so they align."""
+    # titles read "<name> — <description>"; show the description (or the whole title if no dash).
+    desc = title.split("—", 1)[1].strip() if "—" in title else title
+    namecol = "    " + f"{topic:<{width}}"   # indent + padded name = the hang column
+    chunks = _greedy_wrap(desc, max(_render.help_width() - len(namecol), 11), "", "")
+    # the topic id is a `wl help <topic>` entry → same bright-cyan as See-also links
+    out(namecol[:4] + _c(f"{topic:<{width}}", "kind") + _c(chunks[0], "meta"))
+    for ch in chunks[1:]:
+        out(" " * len(namecol) + _c(ch, "meta"))
+
+
+def _render_core_topics(lang, names):
+    """A short, curated list of the essential topics (with one-line descriptions) for the default
+    `wl help`. `names` come from the index doc's `see_also` (the single curation point)."""
+    topics = _list_topics(lang)
+    core = [(t, topics[t][0]) for t in names if t in topics]
+    if not core:
+        return
+    out(_c("Core topics", "header") + _c("  (wl help <topic>)", "meta"))
+    width = max((len(t) for t, _ in core), default=12) + 2
+    for topic, title in core:
+        _topic_row(topic, title, width)
 
 
 def _render_all_topics(lang):
@@ -256,17 +286,7 @@ def _render_all_topics(lang):
         out("")
         out("  " + _c(_CATEGORY_TITLE.get(cat, cat.title()), "planned"))
         for topic, title in items:
-            # titles read "<name> — <description>"; show the description (or the whole
-            # title if there's no dash), so the list isn't "node   node".
-            desc = title.split("—", 1)[1].strip() if "—" in title else title
-            namecol = "    " + f"{topic:<{width}}"   # indent + padded name = the hang column
-            # wrap the description to help_width(), hanging continuations under the name column,
-            # so a long desc on a narrow terminal lines up instead of overflowing to column 0.
-            chunks = _greedy_wrap(desc, max(_render.help_width() - len(namecol), 11), "", "")
-            # the topic id is a `wl help <topic>` entry → same bright-cyan as See-also links
-            out(namecol[:4] + _c(f"{topic:<{width}}", "kind") + _c(chunks[0], "meta"))
-            for ch in chunks[1:]:
-                out(" " * len(namecol) + _c(ch, "meta"))
+            _topic_row(topic, title, width)
 
 
 # --- colorizing argparse --help output to match the wl help 3-tier scheme (DESIGN §25) ---
@@ -487,10 +507,12 @@ def cmd_help(args, con=None):
         _render_all_topics(lang)
         return
     if not topic:
-        _render_index(lang)
+        core = _render_index(lang)
+        out("")
+        _render_core_topics(lang, core)
         n = len(_list_topics(lang))
         out("")
-        out(_c(f"  {n} help topics — ", "meta") + _c("wl help --all", "kind")
+        out(_c(f"  {n} topics total — ", "meta") + _c("wl help --all", "kind")
             + _c(" lists them all · ", "meta") + _c("wl help <topic>", "kind") + _c(" reads one", "meta"))
         return
     topic = topic.strip().lower()

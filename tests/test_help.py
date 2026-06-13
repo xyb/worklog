@@ -44,10 +44,14 @@ class TestHelpCommand:
         assert "node" in out and "add" in out
 
     def test_bare_help_is_short_with_pointer(self, cli):
-        # default `wl help` is a short overview + a pointer to the full list (no topic dump)
+        # default `wl help` is a short overview + a curated "Core topics" list + a pointer to the
+        # full list — NOT the whole category dump (that's behind --all)
         _, out, _ = cli("help")
-        assert "All topics" not in out
-        assert "wl help --all" in out and "help topics" in out
+        assert "All topics" not in out          # the full category dump is --all only
+        assert "Core topics" in out             # but the curated basics are shown
+        assert "wl help --all" in out and "topics total" in out
+        for basic in ("para", "add", "log", "day", "status", "planning"):
+            assert basic in out
 
     def test_topic_renders_with_see_also(self, cli):
         _, out, _ = cli("help", "node")
