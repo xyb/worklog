@@ -16,7 +16,8 @@ from .. import embedding as _embedding
 from .. import vectorstore as _vs
 from .. import db_table as _db
 from .. import render
-from ..render import _c, _node_line, _snippet_terms, out
+from ..render import _c, _node_line, _hl_terms, out
+from ..helpers import _truncate_log_body, _display_width
 from ..xdg import _resolve_vec_db_path
 
 # Batch bounds for embedding: a CHARACTER budget (≈ equal work / batch, the basis for an
@@ -185,10 +186,13 @@ def cmd_query(args, con):
         # show the single best-matching chunk — the exact passage that earned the score,
         # so a semantic hit is legible even when it shares no literal word with the query
         # (the `head` chunk repeats the title/body; a `log` chunk pins which log matched).
-        # Highlight per query TERM; flatten whitespace so a multi-line chunk stays one tidy line.
+        # Flatten whitespace + clip to one terminal line with the SAME width-aware truncation
+        # `wl day` uses for its log lines (_truncate_log_body), then highlight per query term.
         if h["chunk_text"]:
             flat = " ".join(h["chunk_text"].split())
-            out("    " + _c(f"↳ {h['chunk_kind']}:", "meta") + " " + _snippet_terms(flat, terms))
+            label = f"↳ {h['chunk_kind']}: "
+            body = _truncate_log_body(flat, indent_cols=_display_width("    " + label))
+            out("    " + _c(f"↳ {h['chunk_kind']}:", "meta") + " " + _hl_terms(body, terms))
 
 
 def _query_terms(q):

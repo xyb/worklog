@@ -224,18 +224,6 @@ def _hl_terms(text, terms):
     return "".join(parts)
 
 
-def _snippet_terms(text, terms, ctx=30):
-    """Snippet around the earliest-matching term, with every term highlighted in the window.
-    No term matches -> first 80 chars, unhighlighted (the term-aware sibling of `_snippet`)."""
-    text = str(text)
-    low = text.lower()
-    found = [low.find(t.lower()) for t in terms if t]
-    found = [i for i in found if i >= 0]
-    if not found:
-        return _c(text[:80] + ("…" if len(text) > 80 else ""))
-    i = min(found)
-    a, b = max(0, i - ctx), min(len(text), i + ctx + 30)
-    return ("…" if a > 0 else "") + _hl_terms(text[a:b], terms) + ("…" if b < len(text) else "")
 
 
 # --- node-line rendering (extracted from cli.py) ---

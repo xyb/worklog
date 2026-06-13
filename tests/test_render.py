@@ -96,20 +96,6 @@ class TestTermHighlight:
         out = wl.render._hl_terms("Build the API", ["api"])
         assert "[hit]" in out and "API" in out      # styled, preserves original case
 
-    def test_snippet_terms_windows_and_marks(self, tmp_db):
-        wl = tmp_db
-        wl._init_console("never", None)
-        text = "x" * 100 + " 性能 " + "y" * 100
-        out = wl.render._snippet_terms(text, ["性能"])
-        assert "*性能*" in out and out.startswith("…") and out.endswith("…")
-
-    def test_snippet_terms_no_match_truncates(self, tmp_db):
-        wl = tmp_db
-        wl._init_console("never", None)
-        out = wl.render._snippet_terms("a" * 200, ["zzz"])
-        assert out == "a" * 80 + "…"
-
-
 class TestThemes:
     EXPECTED = ["dark", "light", "mono"]   # real palettes (no "default")
 
