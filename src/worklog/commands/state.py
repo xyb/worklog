@@ -1241,7 +1241,11 @@ def cmd_agent(args, con):
         idw = max(len(i[0]) for i in items)       # segment text is ASCII (id/agent/hex sid) + one
         segw = max(len(i[1]) for i in items)      # `…` (1 col), so len == display width here
         for idstr, seg, title in items:
-            out(_c(idstr.ljust(idw), "id") + " ← " + _c(seg.ljust(segw), "meta") + " · " + _short(title))
+            # budget the title against the real prefix width (CJK-aware) so each line is exactly
+            # one terminal line ending in … — not a fixed 50-char cut that overflows + wraps
+            prefix_plain = f"{idstr.ljust(idw)} ← {seg.ljust(segw)} · "
+            shown = _truncate_log_body(title, indent_cols=_display_width(prefix_plain), full=False)
+            out(_c(idstr.ljust(idw), "id") + " ← " + _c(seg.ljust(segw), "meta") + " · " + shown)
         return
     if sub == "rm":
         sid = _agent_need_sid()
@@ -1265,7 +1269,9 @@ def cmd_agent(args, con):
         return
     agent = row["key"][len(_AGENT_PREFIX):]
     title = (_db.get(con, "node", row["node_id"]) or {})["title"]
-    out(_c(f"#{row['node_id']}", "id") + " ← " + _c(f"{agent}:{sid[:8]}…", "meta") + " · " + _short(title))
+    prefix_plain = f"#{row['node_id']} ← {agent}:{sid[:8]}… · "
+    shown = _truncate_log_body(title, indent_cols=_display_width(prefix_plain), full=False)
+    out(_c(f"#{row['node_id']}", "id") + " ← " + _c(f"{agent}:{sid[:8]}…", "meta") + " · " + shown)
 
 
 # --- clock entity group: ls / edit / rm (create = start/stop/spent) ---
