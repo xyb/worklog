@@ -161,6 +161,108 @@ class TestLazyDependency:
         assert "pip install" in err and "semantic" in err
 
 
+class TestSegment:
+    def test_jieba_segments_cjk(self):
+        from worklog.commands import semantic
+        terms = semantic._segment("向量检索")
+        assert "向量" in terms and "检索" in terms   # jieba splits the CJK run
+
+    def test_segments_latin_words(self):
+        from worklog.commands import semantic
+        assert semantic._segment("wl skill") == ["wl", "skill"] or \
+               set(["wl", "skill"]).issubset(set(semantic._segment("wl skill")))
+
+    def test_fallback_without_jieba_keeps_cjk_run(self, monkeypatch):
+        import sys
+        from worklog.commands import semantic
+        monkeypatch.setitem(sys.modules, "jieba", None)   # simulate extra not installed
+        assert semantic._segment("向量检索") == ["向量检索"]   # \w+ fallback: CJK run as one token
+        assert semantic._segment("wl skill") == ["wl", "skill"]
+
+    def test_query_terms_dedups(self):
+        from worklog.commands import semantic
+        assert semantic._query_terms("skill SKILL skill") == ["skill"]
+
+
+class TestRRF:
+    def test_fuses_by_reciprocal_rank(self):
+        from worklog.commands import semantic
+        # 1 is high in both lists → top; 3 and 2 trade places by combined reciprocal rank
+        assert semantic._rrf([[1, 2, 3], [3, 1, 2]]) == [1, 3, 2]
+
+    def test_union_of_ids(self):
+        from worklog.commands import semantic
+        assert set(semantic._rrf([[1, 2], [3]])) == {1, 2, 3}
+
+
+class TestHybrid:
+    def test_keyword_only_node_surfaces(self, cli, monkeypatch):
+        # 'xyzzy' is not in the fake embedder's vocab (neutral vector), but appears literally
+        # in node 2's log — hybrid's keyword side must surface it.
+        monkeypatch.setattr(emb, "embed", _fake_embed)
+        cli("add", "alpha task", "-k", "task")              # 1
+        cli("add", "ordinary", "-k", "task")                # 2
+        cli("log", "2", "the xyzzy marker is here")
+        cli("reindex")
+        code, out, _ = cli("--color", "never", "query", "xyzzy")
+        assert code == 0 and "#2 " in out                   # surfaced by keyword match
+
+    def test_synonym_query_finds_canonical(self, cli, monkeypatch):
+        from worklog.xdg import _resolve_config_path
+        p = _resolve_config_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("[synonyms]\nnyc = new york\n", encoding="utf-8")
+        monkeypatch.setattr(emb, "embed", _fake_embed)
+        cli("add", "trip to new york", "-k", "task")        # 1: contains "new york", not "nyc"
+        cli("add", "other", "-k", "task")
+        cli("reindex")
+        code, out, _ = cli("--color", "never", "query", "nyc")
+        assert "#1 " in out                                 # nyc → new york via synonyms
+
+
+class TestKeywordRank:
+    def test_ranks_by_distinct_terms_matched(self, cli, tmp_db):
+        cli("add", "alpha beta gamma", "-k", "task")   # 1: matches both terms
+        cli("add", "alpha only", "-k", "task")          # 2: matches one
+        cli("add", "unrelated", "-k", "task")           # 3: matches none
+        from worklog.commands import semantic
+        con = tmp_db.db_connect()
+        try:
+            ranked = semantic._keyword_rank(con, ["alpha", "beta"])
+        finally:
+            con.close()
+        assert ranked[0] == 1          # most distinct terms first
+        assert 2 in ranked and 3 not in ranked
+
+    def test_matches_log_and_tag(self, cli, tmp_db):
+        cli("add", "plain", "-k", "task")               # 1
+        cli("log", "1", "needle in the log")
+        cli("add", "tagged", "-k", "task")              # 2
+        cli("tag", "2", "needle")
+        from worklog.commands import semantic
+        con = tmp_db.db_connect()
+        try:
+            ranked = semantic._keyword_rank(con, ["needle"])
+        finally:
+            con.close()
+        assert set(ranked) == {1, 2}    # matched via log and via tag
+
+
+class TestSynonyms:
+    def test_expand_pulls_in_group(self, tmp_db, monkeypatch, tmp_path):
+        from worklog.commands import semantic
+        from worklog.xdg import _resolve_config_path
+        p = _resolve_config_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("[synonyms]\nnyc = new york, ny\n", encoding="utf-8")
+        out = semantic._expand_synonyms(["new york"])
+        assert set(out) >= {"nyc", "new york", "ny"}   # one alias pulls in the whole group
+
+    def test_no_config_is_identity(self, tmp_db):
+        from worklog.commands import semantic
+        assert semantic._expand_synonyms(["foo", "bar"]) == ["foo", "bar"]
+
+
 class TestProgress:
     def test_char_batches_respect_char_budget(self):
         from worklog.commands import semantic
@@ -223,10 +325,10 @@ class TestEmptyAndNoHits:
 
     def test_query_no_hits_message(self, seeded):
         seeded("reindex")
-        # threshold above the cosine max (1.0) → nothing clears it (text path, not json)
-        code, out, _ = seeded("query", "alpha", "--threshold", "1.5")
+        # a term in no node + a threshold above cosine max → neither side matches
+        code, out, _ = seeded("query", "zzz-nonexistent", "--threshold", "1.5")
         assert code == 0
-        assert "no semantic matches" in out.lower()
+        assert "no matches" in out.lower()
 
 
 class TestErrors:

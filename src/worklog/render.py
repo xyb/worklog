@@ -204,7 +204,7 @@ def _hl(text, q):
 def _hl_terms(text, terms):
     """Mark every occurrence of any term (case-insensitive) — styled hit / plain `*…*`.
     Unlike `_hl` (one contiguous substring), this highlights each query term separately,
-    so a multi-word / non-contiguous query (`性能 优化`, `spawn-tab skill`) still lights up
+    so a multi-word / non-contiguous query (`web server config`, `spawn-tab skill`) still lights up
     the parts that do appear. Longest terms win at a shared position."""
     text = str(text)
     terms = [t for t in terms if t]

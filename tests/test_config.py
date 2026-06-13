@@ -46,3 +46,25 @@ class TestConfig:
         with contextlib.redirect_stdout(io.StringIO()):
             wl.cmd_config(type("A", (), {})(), None)
         assert not db.exists()
+
+
+class TestConfigInit:
+    def test_init_creates_template(self, cli, tmp_db):
+        from worklog.xdg import _resolve_config_path
+        p = _resolve_config_path()
+        assert not p.exists()
+        code, out, _ = cli("config", "init")
+        assert code == 0 and p.exists()
+        text = p.read_text(encoding="utf-8")
+        assert "[embedding]" in text and "[synonyms]" in text   # documented template
+        assert "wrote" in out.lower()
+
+    def test_init_does_not_overwrite(self, cli, tmp_db):
+        from worklog.xdg import _resolve_config_path
+        p = _resolve_config_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("[embedding]\nmodel = mine\n", encoding="utf-8")
+        code, out, _ = cli("config", "init")
+        assert code == 0
+        assert "model = mine" in p.read_text(encoding="utf-8")   # untouched
+        assert "already exists" in out.lower()

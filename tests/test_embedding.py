@@ -55,6 +55,39 @@ class TestPayload:
         assert "Authorization" not in seen["headers"]
 
 
+class TestQueryPrompt:
+    def _capture(self, monkeypatch):
+        seen = {}
+        monkeypatch.setattr(emb, "_http_post", lambda u, p, h, t: seen.update(p) or _fake_resp([[1.0]]))
+        return seen
+
+    def test_query_substituted_at_placeholder(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        emb.embed(["how to X"], "query", {**CFG, "query_prompt": "search: {query}"})
+        assert seen["input"] == ["search: how to X"]
+
+    def test_backslash_n_becomes_newline(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        emb.embed(["q"], "query", {**CFG, "query_prompt": "Instruct: do\\nQuery:{query}"})
+        assert seen["input"] == ["Instruct: do\nQuery:q"]
+
+    def test_document_is_not_wrapped(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        emb.embed(["doc text"], "document", {**CFG, "query_prompt": "search: {query}"})
+        assert seen["input"] == ["doc text"]
+
+    def test_empty_prompt_no_wrap(self, monkeypatch):
+        seen = self._capture(monkeypatch)
+        emb.embed(["q"], "query", {**CFG, "query_prompt": ""})
+        assert seen["input"] == ["q"]
+
+    def test_missing_placeholder_raises(self, monkeypatch):
+        self._capture(monkeypatch)
+        with pytest.raises(emb.EmbeddingError) as e:
+            emb.embed(["q"], "query", {**CFG, "query_prompt": "no placeholder here"})
+        assert "{query}" in str(e.value)
+
+
 class TestParsing:
     def test_orders_by_index(self, monkeypatch):
         # response is reversed; embed() must reorder by 'index' to match input order
@@ -78,4 +111,33 @@ class TestErrors:
             raise urllib.error.HTTPError("u", 400, "Bad Request", {}, None)
         monkeypatch.setattr(emb, "_http_post", boom)
         with pytest.raises(emb.EmbeddingError):
-            emb.embed(["a"], "query", CFG)
+            emb.embed(["a"], "query", CFG)   # single item: nothing to fall back to → error
+
+
+class TestBatchFallback:
+    def test_batch_400_falls_back_to_per_item(self, monkeypatch):
+        seen = []
+
+        def post(url, payload, headers, timeout):
+            n = len(payload["input"])
+            seen.append(n)
+            if n > 1:
+                raise urllib.error.HTTPError("u", 400, "array not supported", {}, None)
+            return {"data": [{"index": 0, "embedding": [float(payload["input"][0] == "b")]}]}
+
+        monkeypatch.setattr(emb, "_http_post", post)
+        out = emb.embed(["a", "b"], "document", CFG)
+        assert out == [[0.0], [1.0]]        # per-item order preserved
+        assert seen == [2, 1, 1]            # tried batch once, then one at a time
+
+    def test_non_400_http_error_does_not_retry(self, monkeypatch):
+        calls = []
+
+        def post(*a, **k):
+            calls.append(1)
+            raise urllib.error.HTTPError("u", 401, "Unauthorized", {}, None)
+
+        monkeypatch.setattr(emb, "_http_post", post)
+        with pytest.raises(emb.EmbeddingError):
+            emb.embed(["a", "b"], "query", CFG)
+        assert len(calls) == 1              # 401 → no per-item retry storm

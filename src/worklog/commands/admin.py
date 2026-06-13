@@ -5,14 +5,20 @@ These set up or report on the DB / config / theming rather than touch task data;
 from __future__ import annotations
 
 import os
+import shutil
 import sys
+from pathlib import Path
 
 from .. import render
 from ..render import _c, out, _resolve_theme, THEMES
-from ..xdg import _resolve_db_path, _resolve_aliases_path, _xdg_data_home, _xdg_config_home
+from ..xdg import (_resolve_db_path, _resolve_aliases_path, _resolve_config_path,
+                   _xdg_data_home, _xdg_config_home)
 
 # Lazy access to the cli module (db_init / migration helpers / __version__) — at call time.
 from .. import cli as _cli  # noqa: E402
+
+# Bundled config.ini template (shipped in the wheel, like help/*.md), copied by `wl config init`.
+_CONFIG_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "config.ini"
 
 
 def cmd_init(args, con):
@@ -20,8 +26,22 @@ def cmd_init(args, con):
     print(f"✓ DB initialized: {_resolve_db_path(args)}")
 
 
+def cmd_config_init(args, con):
+    """Write a commented config.ini template from the bundled template; never overwrite."""
+    dest = _resolve_config_path()
+    if dest.exists():
+        out(_c(f"config already exists — not overwriting: {dest}", "meta"))
+        return
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(_CONFIG_TEMPLATE, dest)
+    out(_c(f"✓ wrote config template: {dest}", "done"))
+    out(_c("  edit it (everything starts commented = defaults), then `wl config` shows resolved values.", "meta"))
+
+
 def cmd_config(args, con):
-    """Print resolved configuration: where the DB and config files live + env."""
+    """Print resolved configuration; `wl config init` writes a template instead."""
+    if getattr(args, "config_sub", None) == "init":
+        return cmd_config_init(args, con)
     db = _resolve_db_path(args)
     if getattr(args, "db", None):
         db_src = "--db flag"
@@ -62,6 +82,9 @@ def cmd_config(args, con):
          f"[{ec['source']['dimensions']}]")
     _row("api_key", _c("(set)", "meta") if ec["api_key"] else _c("(none)", "meta"),
          f"[{ec['source']['api_key']}]")
+    qp = ec["query_prompt"]
+    qp_show = _c("(disabled)", "meta") if not qp else (qp[:54].replace("\n", "\\n") + ("…" if len(qp) > 54 else ""))
+    _row("query_prompt", qp_show, f"[{ec['source']['query_prompt']}]")
     try:
         import lancedb  # noqa: F401
         vec_status = "available"

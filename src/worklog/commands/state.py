@@ -1284,7 +1284,11 @@ def cmd_agent(args, con):
             yday = (_tu.today_date() - timedelta(days=1)).isoformat()
             cur = object()
             for it in shown:
-                day = (keyf(it) or "")[:10] or "(no date)"
+                # bucket by LOCAL day (keyf returns a UTC timestamp) so the day header matches the
+                # local today/yesterday labels — otherwise a binding made "now" lands under the UTC
+                # date and mislabels as yesterday during the UTC-evening / local-next-day window.
+                key = keyf(it)
+                day = _tu.utc_to_local(key)[:10] if key else "(no date)"
                 if day != cur:
                     cur = day
                     lbl = day + (" (today)" if day == today else " (yesterday)" if day == yday else "")

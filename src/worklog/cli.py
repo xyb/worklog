@@ -598,17 +598,20 @@ Before applying to an existing DB, the runner snapshots it to a same-dir
 `<db>.pre-v<N>.bak` (N = the version before migrating), so a bad migration
 is recoverable. A fresh init (no data yet) is not backed up.""")
 
-    sub.add_parser("config",
-        help="print resolved configuration: DB path, aliases path, XDG dirs, env vars",
+    cfgp = sub.add_parser("config",
+        help="print resolved configuration: DB path, aliases path, XDG dirs, env vars, embedding",
         formatter_class=_WlHelpFormatter,
         epilog="""\
-Shows where worklog reads from and how the runtime is configured.
-Useful when:
-  - you're not sure which DB `wl` is using ($WORKLOG_DB env vs XDG default)
-  - you need to point another tool at the same DB / aliases file
-  - the rich highlighting isn't appearing and you want to check theme/env
+Shows where worklog reads from and how the runtime is configured (paths, env, embedding backend).
+`wl config init` writes a commented config.ini template you can edit (won't overwrite an existing one).
 
-Read-only and side-effect free — does not create the DB if missing.""")
+Read-only by default — bare `wl config` does not create anything.""")
+    _cfgsub = cfgp.add_subparsers(dest="config_sub")
+    _cfgsub.add_parser("init", help="write a commented config.ini template (skips if it exists)",
+        formatter_class=_WlHelpFormatter,
+        epilog="Creates $XDG_CONFIG_HOME/worklog/config.ini from a template with the embedding "
+               "defaults + [synonyms] example, all commented. Edit it, then `wl config` shows the "
+               "resolved values. Won't overwrite an existing file.")
 
     sub.add_parser("init",
         help="initialize SQLite DB (default ~/.local/share/worklog/worklog.db; skips if it exists)",
@@ -1554,6 +1557,8 @@ More: `wl help find` (vs `wl ls --tag` precise filter / `wl ls --recent` by time
     embed_parent.add_argument("--model", help="embedding model name (overrides config/env)")
     embed_parent.add_argument("--dimensions", type=int, help="truncate embeddings to N dims (if the model supports it)")
     embed_parent.add_argument("--api-key", dest="api_key", help="bearer token for the embedding server, if it needs one")
+    embed_parent.add_argument("--query-prompt", dest="query_prompt",
+        help="query template ({query} placeholder; pass '' to disable) — overrides config/env")
 
     rx = sub.add_parser("reindex", parents=[embed_parent],
         help="(re)build the semantic search index (embeds every node)",
@@ -1577,8 +1582,8 @@ More: `wl query` to search; configure the backend in config.ini [embedding] / $W
         epilog="""\
 Common examples:
   wl query "how to avoid duplicate work"   # concept search, not substring
-  wl query "开源发布" --limit 5
-  wl query "性能" --threshold 0.4           # drop weak matches
+  wl query "open-source release" --limit 5
+  wl query "performance" --threshold 0.4    # drop weak matches
 
 More: `wl find` for exact keyword/substring; `wl reindex` to (re)build the index.""")
     qy.add_argument("query", help="natural-language text to search for by meaning")

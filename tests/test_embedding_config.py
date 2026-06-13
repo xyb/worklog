@@ -13,7 +13,7 @@ from worklog.xdg import _resolve_config_path
 
 def _args(**kw):
     """A fake argparse.Namespace carrying only the embedding override flags."""
-    base = {"endpoint": None, "model": None, "dimensions": None, "api_key": None}
+    base = {"endpoint": None, "model": None, "dimensions": None, "api_key": None, "query_prompt": None}
     base.update(kw)
     return types.SimpleNamespace(**base)
 
@@ -94,3 +94,50 @@ class TestFlagOverridesEnv:
         c = cfg.resolve_embedding_config(_args(dimensions=128))
         assert c["dimensions"] == 128
         assert c["source"]["dimensions"] == "flag"
+
+
+class TestQueryPrompt:
+    def test_default_is_qwen_template_with_placeholder(self, cfg_home):
+        c = cfg.resolve_embedding_config(_args())
+        assert "{query}" in c["query_prompt"]
+        assert "retrieve relevant passages" in c["query_prompt"]
+        assert c["source"]["query_prompt"] == "default"
+
+    def test_empty_in_config_means_off_not_default(self, cfg_home):
+        # an explicit empty value = "server already adds it, don't double" — must NOT
+        # fall through to the default template
+        _write_ini("[embedding]\nquery_prompt =\n")
+        c = cfg.resolve_embedding_config(_args())
+        assert c["query_prompt"] == ""
+        assert c["source"]["query_prompt"] == "config"
+
+    def test_custom_in_config(self, cfg_home):
+        _write_ini("[embedding]\nquery_prompt = search: {query}\n")
+        c = cfg.resolve_embedding_config(_args())
+        assert c["query_prompt"] == "search: {query}"
+
+    def test_empty_in_env_means_off(self, cfg_home, monkeypatch):
+        monkeypatch.setenv("WORKLOG_EMBED_QUERY_PROMPT", "")
+        c = cfg.resolve_embedding_config(_args())
+        assert c["query_prompt"] == "" and c["source"]["query_prompt"] == "env"
+
+    def test_flag_overrides(self, cfg_home):
+        _write_ini("[embedding]\nquery_prompt = from ini {query}\n")
+        c = cfg.resolve_embedding_config(_args(query_prompt="from flag {query}"))
+        assert c["query_prompt"] == "from flag {query}" and c["source"]["query_prompt"] == "flag"
+
+    def test_flag_empty_disables(self, cfg_home):
+        _write_ini("[embedding]\nquery_prompt = from ini {query}\n")
+        c = cfg.resolve_embedding_config(_args(query_prompt=""))
+        assert c["query_prompt"] == "" and c["source"]["query_prompt"] == "flag"
+
+
+class TestApiKey:
+    def test_flag_sets_key(self, cfg_home):
+        c = cfg.resolve_embedding_config(_args(api_key="sk-123"))
+        assert c["api_key"] == "sk-123" and c["source"]["api_key"] == "flag"
+
+    def test_env_sets_key(self, cfg_home, monkeypatch):
+        monkeypatch.setenv("WORKLOG_EMBED_API_KEY", "sk-env")
+        c = cfg.resolve_embedding_config(_args())
+        assert c["api_key"] == "sk-env" and c["source"]["api_key"] == "env"

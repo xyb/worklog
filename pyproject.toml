@@ -35,6 +35,7 @@ dependencies = [
 # install hint when this extra is absent.
 semantic = [
     "lancedb>=0.13",
+    "jieba>=0.42",
 ]
 
 [project.urls]
@@ -49,6 +50,7 @@ dev = [
     "pytest-xdist>=3.5",
     "coverage>=7.5",
     "lancedb>=0.13",   # so the semantic-search tests can run in CI
+    "jieba>=0.42",     # Chinese word segmentation for hybrid search
 ]
 
 [project.scripts]
