@@ -211,22 +211,30 @@ def _pri_marker(priority):
     return _c("[# ]", "meta")
 
 
-def _hang_wrap(prefix, prefix_cols, title, *, hl=None, style=None):
+def _hang_wrap(prefix, prefix_cols, title, *, hl=None, style=None, tail="", tail_cols=0):
     """Render `prefix` + a node `title` that wraps per the title mode (the single wrap utility,
     shared by `_node_line` and the day/tree custom renderers so they all behave the same).
     `prefix` is the styled left part of the line; `prefix_cols` is the display width of its PLAIN
     text. `wrap` (default): fold the title, continuation lines hang-indented to `prefix_cols`;
     `clip`: one line truncated with `…`. `style` themes the title text (e.g. `meta` to dim a
-    relation's title as auxiliary info); default = normal. Caller appends trailing suffixes."""
+    relation's title as auxiliary info); default = normal.
+
+    `tail` is the styled trailing suffix the caller appends (e.g. `«planned·not-done»` / clock /
+    `(this month N/M)`); `tail_cols` is its PLAIN display width. The tail rides the last title
+    line, but if it wouldn't fit it gets its own hang-indented continuation line — so it never
+    spills to column 0 (the bug when callers blindly appended suffixes ignoring the wrap width)."""
     render = (lambda t: _hl(t, hl)) if hl else (lambda t: _c(t, style))
+    avail = _term_width() - prefix_cols
     if _title_mode() == "clip":
-        return prefix + render(_truncate_log_body(title, indent_cols=prefix_cols))
-    wlines = _wrap_display(title, _term_width() - prefix_cols)
+        return prefix + render(_truncate_log_body(title, indent_cols=prefix_cols + tail_cols)) + tail
+    wlines = _wrap_display(title, avail)
     cont = " " * prefix_cols
+    if tail and tail_cols and _display_width(wlines[-1]) + tail_cols > avail:
+        wlines.append("")   # tail doesn't fit the last title line → give it its own hung line
     s = prefix + render(wlines[0])
     for ln in wlines[1:]:
         s += "\n" + cont + render(ln)
-    return s
+    return s + tail
 
 
 def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, planned=False, clock=True, sched=False, hl=None):
@@ -247,21 +255,23 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
     # hanging-indent column = display width of the plain prefix (everything left of the title).
     # Continuation lines (wrap mode) align here so a long title doesn't break tree indentation.
     prefix_cols = _display_width(f"{indent}{mk} {pri_plain} #{n['id']} {kind_plain}")
-    s = _hang_wrap(prefix, prefix_cols, n["title"], hl=hl)
+    # accumulate trailing suffixes as one tail (styled + its plain width) so _hang_wrap can keep
+    # the whole line within the terminal — a long title no longer pushes the suffix off the edge
+    tail, tail_plain = "", ""
     if planned and _has_tag(con, n["id"], "planned"):
-        s += " " + _c("·planned", "planned")
+        tail += " " + _c("·planned", "planned"); tail_plain += " ·planned"
     if sched and n["scheduled_date"]:
-        s += " " + _c("@" + _sched_display(n["scheduled_date"]), "planned")
+        sd = "@" + _sched_display(n["scheduled_date"])
+        tail += " " + _c(sd, "planned"); tail_plain += " " + sd
     if clock:
-        cm = _node_clock_min(con, n["id"])
-        d = _fmt_dur(cm)
+        d = _fmt_dur(_node_clock_min(con, n["id"]))
         if d:
-            s += " " + _c(d, "clock")
+            tail += " " + _c(d, "clock"); tail_plain += " " + d
     if tags:
         tl = _node_tags(con, n["id"])
         if tl:
-            s += "  " + _c(f":{':'.join(tl)}:", "tag")
-    return s
+            t = f":{':'.join(tl)}:"; tail += "  " + _c(t, "tag"); tail_plain += "  " + t
+    return _hang_wrap(prefix, prefix_cols, n["title"], hl=hl, tail=tail, tail_cols=_display_width(tail_plain))
 
 _RELATION_LABEL_W = 11  # widest label is "split-into:"; keeps the type column aligned
 

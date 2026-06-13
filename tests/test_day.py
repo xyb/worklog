@@ -182,6 +182,15 @@ class TestDayPlannedNotDoneSuppression:
         _, out, _ = cli("day", "2026-06-15")
         assert "planned·not-done" in out          # footer stat count is still present
 
+    def test_long_title_suffix_not_split_across_wrap(self, cli):
+        # a long title + «planned·not-done» suffix at a narrow width: the suffix must ride a
+        # hung continuation line intact, never split (the old bug spilled "…not-don\ne»" to col 0)
+        long_title = "晚上日终总结 worklog end of day planning 这是一个相当长的任务标题用来触发折行换行"
+        cli("add", long_title, "-k", "task", "-t", "work")
+        cli("sched", "1", "2026-06-15")
+        _, out, _ = cli("--width", "70", "day", "2026-06-15", "--by", "project")
+        assert "«planned·not-done»" in out        # contiguous, not broken by a wrap
+
     def test_row_hint_suppressed_under_by_plan(self, cli):
         # under the default --by plan the `▸ planned` group header + the `[ ]` marker
         # already convey it, so the per-row «planned·not-done» hint is redundant → hidden.

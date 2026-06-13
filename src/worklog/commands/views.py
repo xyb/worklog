@@ -725,14 +725,14 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
             mk_txt = _status_marker(n["status"]); mk = _c(mk_txt, _STATUS_STYLE.get(n["status"], "todo"))
         pri_txt = (f"[#{n['priority']}]" if n["priority"] else "[# ]")
         pri = _pri_marker(n["priority"]) + " "
-        mh = ""
+        mh = mh_plain = ""
         if n["kind"] == "habit":
             prog = _habit_month_progress(con, nid, target)
             if prog:
-                mh = _c(f"  (this month {prog[0]}/{prog[1]})", "meta")
+                mh_plain = f"  (this month {prog[0]}/{prog[1]})"; mh = _c(mh_plain, "meta")
         prefix = ind + mk + " " + _c(f"#{nid}", "id") + " " + pri
         prefix_cols = _display_width(f"{ind}{mk_txt} #{nid} {pri_txt} ")
-        out(_hang_wrap(prefix, prefix_cols, n["title"]) + mh)
+        out(_hang_wrap(prefix, prefix_cols, n["title"], tail=mh, tail_cols=_display_width(mh_plain)))
         if log_tail != 0 and (max_depth is None or depth + 1 < max_depth):
             logs = t["logs"]
             shown = logs if log_tail is None else logs[-log_tail:]
@@ -834,29 +834,34 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                     mk_txt = _status_marker(n["status"]); mk = _c(mk_txt, _STATUS_STYLE.get(n["status"], "todo"))
                 pri_txt = (f"[#{n['priority']}]" if n["priority"] else "[# ]")
                 pri = _pri_marker(n["priority"]) + " "
-                hint = ""
+                hint = hint_plain = ""
                 if not logs and n["status"] not in ("DONE", "CANCELED") and by != "plan":
                     # only "not-done" if the task is still open; a terminal-status task
                     # scheduled on a day with no logs is done, not pending (avoids the
                     # contradictory "[x] … «planned·not-done»"). Suppressed under `--by plan`
                     # the `▸ planned` group header + the `[ ]` marker already say it.
-                    hint = _c("  «planned·not-done»", "planned")
+                    hint_plain = "  «planned·not-done»"; hint = _c(hint_plain, "planned")
                 elif logs and log_tail == 0:
                     # compact mode: don't expand body, attach a count hint after the title line
-                    hint = _c(f"  ({len(logs)} log)", "meta")
+                    hint_plain = f"  ({len(logs)} log)"; hint = _c(hint_plain, "meta")
                 # THIS DAY's duration (clock intervals + plain-note span scoped to the day),
                 # not the node's all-time total; see _node_clock_min docstring
                 dur = _fmt_dur(_node_clock_min(con, nid, day=day))
                 dur_str = (" " + _c(dur, "clock")) if dur else ""
+                dur_plain = (" " + dur) if dur else ""
                 # habit month-to-date completion rate (this month N/M); skip if no schedule
-                mh = ""
+                mh = mh_plain = ""
                 if n["kind"] == "habit" and day:
                     prog = _habit_month_progress(con, nid, day)
                     if prog:
-                        mh = _c(f"  (this month {prog[0]}/{prog[1]})", "meta")
+                        mh_plain = f"  (this month {prog[0]}/{prog[1]})"; mh = _c(mh_plain, "meta")
                 prefix = "      " + mk + " " + _c(f"#{nid}", "id") + " " + pri
                 prefix_cols = _display_width(f"      {mk_txt} #{nid} {pri_txt} ")
-                out(_hang_wrap(prefix, prefix_cols, n["title"]) + dur_str + hint + mh)
+                # suffixes ride the last title line via _hang_wrap (so they wrap correctly, not
+                # spill to column 0); pass their combined PLAIN width as the tail budget
+                tail = dur_str + hint + mh
+                out(_hang_wrap(prefix, prefix_cols, n["title"], tail=tail,
+                               tail_cols=_display_width(dur_plain + hint_plain + mh_plain)))
                 if log_tail == 0:
                     continue
                 bodies = logs if log_tail is None else logs[-log_tail:]
