@@ -1547,6 +1547,44 @@ More: `wl help find` (vs `wl ls --tag` precise filter / `wl ls --recent` by time
     fd.add_argument("--limit", type=int, metavar="N", help="show only the first N (default 20; use 0 or --all for no cap)")
     fd.add_argument("--all", action="store_true", help="no row limit")
 
+    # --- semantic search (the 'semantic' extra): wl reindex / wl query ---
+    # Shared embedding-backend override flags (default<config.ini<env<flag, see worklog.config).
+    embed_parent = argparse.ArgumentParser(add_help=False)
+    embed_parent.add_argument("--endpoint", help="OpenAI-compatible /v1/embeddings URL (overrides config/env)")
+    embed_parent.add_argument("--model", help="embedding model name (overrides config/env)")
+    embed_parent.add_argument("--dimensions", type=int, help="truncate embeddings to N dims (if the model supports it)")
+    embed_parent.add_argument("--api-key", dest="api_key", help="bearer token for the embedding server, if it needs one")
+
+    rx = sub.add_parser("reindex", parents=[embed_parent],
+        help="(re)build the semantic search index (embeds every node)",
+        formatter_class=_WlHelpFormatter,
+        description="Embed every live node (title+body+logs+tags) via the configured embedding "
+                    "server and store the vectors in a sidecar LanceDB. Run after bulk changes; "
+                    "`wl query` reads what this builds. Needs the 'semantic' extra.",
+        epilog="""\
+Common examples:
+  wl reindex                          # build/refresh the index with the configured backend
+  wl reindex --endpoint http://host:11434/v1/embeddings --model qwen3-embedding
+
+More: `wl query` to search; configure the backend in config.ini [embedding] / $WORKLOG_EMBED_*.""")
+
+    qy = sub.add_parser("query", parents=[embed_parent, output_parent],
+        help="semantic search: nearest nodes by meaning (vs `find`'s keyword match)",
+        formatter_class=_WlHelpFormatter,
+        description="Embed the query and return the nodes whose meaning is closest (cosine), "
+                    "finding paraphrases that keyword `find` misses. Needs `wl reindex` first "
+                    "and the 'semantic' extra.",
+        epilog="""\
+Common examples:
+  wl query "how to avoid duplicate work"   # concept search, not substring
+  wl query "开源发布" --limit 5
+  wl query "性能" --threshold 0.4           # drop weak matches
+
+More: `wl find` for exact keyword/substring; `wl reindex` to (re)build the index.""")
+    qy.add_argument("query", help="natural-language text to search for by meaning")
+    qy.add_argument("--limit", type=int, metavar="N", default=10, help="max results (default 10)")
+    qy.add_argument("--threshold", type=float, metavar="T", help="drop matches with cosine score below T")
+
     lg = sub.add_parser("logs", parents=[window, filters, output_parent],
         help="list log entries (default last 7 days; preset today/yesterday/week/recent)",
         formatter_class=_WlHelpFormatter,
@@ -1744,6 +1782,8 @@ from .commands import (
     colorize_help,
     topic_exists,
     topic_names,
+    cmd_query,
+    cmd_reindex,
 )
 
 def cmd_node(args, con):
@@ -1809,6 +1849,8 @@ HANDLERS = {
     "import": cmd_import,
     "apply": cmd_apply,
     "find": cmd_find,
+    "query": cmd_query,
+    "reindex": cmd_reindex,
     "logs": cmd_logs,
     "themes": cmd_themes,
     "help": cmd_help,

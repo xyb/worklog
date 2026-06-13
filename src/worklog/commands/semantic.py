@@ -1,0 +1,187 @@
+"""worklog commands: semantic search — `wl reindex` (build vectors) + `wl query` (search).
+
+The embedding backend is any OpenAI-compatible HTTP server (see worklog.config /
+worklog.embedding); vectors live in an embedded LanceDB sidecar (worklog.vectorstore,
+the optional 'semantic' extra). Both failure modes — backend unreachable, extra not
+installed — are turned into a single clean `sys.exit` message here, never a traceback."""
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+from .. import config as _config
+from .. import embedding as _embedding
+from .. import vectorstore as _vs
+from .. import db_table as _db
+from .. import render
+from ..render import _c, _node_line, _snippet, _hl, out
+from ..xdg import _resolve_vec_db_path
+
+# Batch bounds for embedding: a CHARACTER budget (≈ equal work / batch, the basis for an
+# even progress bar) plus a node cap (keeps a single request's payload reasonable).
+MAX_BATCH_CHARS = 16000
+MAX_BATCH_NODES = 64
+
+
+def _node_docs(con):
+    """One 'document' per live node = title + body + log bodies + tags — the same
+    fields `wl find` searches, concatenated so a node's whole context is embedded.
+    Returns list of (node_id, title, status, priority, text)."""
+    nodes = con.execute(
+        "SELECT id, title, body, status, priority FROM node WHERE deleted_at IS NULL ORDER BY id"
+    ).fetchall()
+    logs = {}
+    for r in con.execute("SELECT node_id, body FROM log WHERE deleted_at IS NULL ORDER BY id"):
+        logs.setdefault(r["node_id"], []).append(r["body"] or "")
+    tags = {}
+    for r in con.execute("SELECT node_id, tag FROM tag WHERE deleted_at IS NULL"):
+        tags.setdefault(r["node_id"], []).append(r["tag"] or "")
+    docs = []
+    for n in nodes:
+        parts = [n["title"] or ""]
+        if n["body"]:
+            parts.append(n["body"])
+        parts.extend(logs.get(n["id"], []))
+        if tags.get(n["id"]):
+            parts.append(" ".join(tags[n["id"]]))
+        docs.append((n["id"], n["title"] or "", n["status"], n["priority"], "\n".join(parts)))
+    return docs
+
+
+def _weight(t):
+    """Work weight of one doc ≈ its character count (a token proxy). Min 1 so empty
+    nodes still advance the bar and the total is never zero."""
+    return max(len(t), 1)
+
+
+def _char_batches(texts, max_chars, max_nodes):
+    """Group texts into batches bounded by a CHARACTER budget (so each batch is ~equal
+    embedding work / wall-time, regardless of how log-heavy individual nodes are) and a
+    node cap (to keep request payloads sane). A single oversized text becomes its own batch."""
+    batch, chars = [], 0
+    for t in texts:
+        w = _weight(t)
+        if batch and (chars + w > max_chars or len(batch) >= max_nodes):
+            yield batch
+            batch, chars = [], 0
+        batch.append(t)
+        chars += w
+    if batch:
+        yield batch
+
+
+def _embed_batched(texts, input_type, cfg, on_progress=None, max_chars=MAX_BATCH_CHARS, max_nodes=MAX_BATCH_NODES):
+    """Embed in character-budgeted batches (so each batch ≈ equal work / wall-time). One
+    embedding HTTP call per batch; on_progress(calls_done, total_calls) fires after each —
+    progress is measured in CALLS (the real unit of work dispatched), which is uniform
+    precisely because the batches are char-budgeted to roughly equal size."""
+    batches = list(_char_batches(texts, max_chars, max_nodes))
+    vecs = []
+    for i, batch in enumerate(batches, 1):
+        vecs.extend(_embedding.embed(batch, input_type, cfg))
+        if on_progress is not None:
+            on_progress(i, len(batches))
+    return vecs
+
+
+def _embed_with_progress(texts, cfg):
+    """Embed `texts` as documents, showing a stderr progress bar (calls done / total +
+    percent + elapsed + ETA) when interactive. Disabled (no output) on non-TTY / piped /
+    NO_COLOR, where the loop still runs."""
+    from rich.console import Console
+    from rich.progress import (Progress, BarColumn, TextColumn, TaskProgressColumn,
+                               MofNCompleteColumn, TimeElapsedColumn, TimeRemainingColumn)
+    interactive = render._RICH_AVAIL and sys.stderr.isatty() and not os.environ.get("NO_COLOR")
+    n_calls = sum(1 for _ in _char_batches(texts, MAX_BATCH_CHARS, MAX_BATCH_NODES))
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(), MofNCompleteColumn(), TaskProgressColumn(),
+        TextColumn("·"), TimeElapsedColumn(), TextColumn("elapsed · ETA"), TimeRemainingColumn(),
+        console=Console(stderr=True), transient=True, disable=not interactive,
+    ) as prog:
+        task = prog.add_task(f"embedding {len(texts)} node(s) in {n_calls} call(s)", total=n_calls)
+        return _embed_batched(texts, "document", cfg,
+                              on_progress=lambda done, total: prog.update(task, completed=done))
+
+
+def _open_store(args):
+    """Open the sidecar store, mapping a missing 'semantic' extra to a clean exit."""
+    try:
+        return _vs.connect(_resolve_vec_db_path(args))
+    except _vs.VectorStoreError as e:
+        sys.exit(f"✗ {e}")
+
+
+def cmd_reindex(args, con):
+    """(Re)build the semantic index: embed every live node and replace the vector store."""
+    cfg = _config.resolve_embedding_config(args)
+    docs = _node_docs(con)
+    if not docs:
+        out(_c("(nothing to index — no nodes yet)", "meta"))
+        return
+    db = _open_store(args)
+    try:
+        vecs = _embed_with_progress([d[4] for d in docs], cfg)
+    except _embedding.EmbeddingError as e:
+        sys.exit(f"✗ {e}")
+    dim = len(vecs[0]) if vecs else 0
+    rows = [(nid, title, st, pr, cfg["model"], dim, v)
+            for (nid, title, st, pr, _txt), v in zip(docs, vecs)]
+    _vs.clear(db)
+    _vs.upsert(db, rows)
+    out(_c(f"✓ indexed {len(rows)} node(s) — model {cfg['model']}, dim {dim}", "done"))
+
+
+def cmd_query(args, con):
+    """Semantic search: embed the query, return the nearest nodes by cosine similarity."""
+    q = (args.query or "").strip()
+    if not q:
+        sys.exit("✗ search term cannot be empty")
+    cfg = _config.resolve_embedding_config(args)
+    db = _open_store(args)
+    if _vs.index_model(db) is None:
+        sys.exit("✗ no semantic index yet — run `wl reindex` first to build it")
+    try:
+        qvec = _embedding.embed([q], "query", cfg)[0]
+    except _embedding.EmbeddingError as e:
+        sys.exit(f"✗ {e}")
+    limit = getattr(args, "limit", None) or 10
+    threshold = getattr(args, "threshold", None)
+    hits = _vs.search(db, qvec, k=limit, threshold=threshold)
+
+    if getattr(args, "output", "text") == "json":
+        print(json.dumps([
+            {"id": h["node_id"], "title": h["title"], "status": h["status"],
+             "priority": h["priority"], "score": round(h["score"], 4)}
+            for h in hits
+        ], ensure_ascii=False, indent=2))
+        return
+
+    if not hits:
+        out(_c(f"(no semantic matches for '{q}')", "meta"))
+        return
+    out(_c(f"'{q}' — {len(hits)} semantic hit(s):", "header"))
+    for h in hits:
+        n = _db.get(con, "node", h["node_id"])
+        if not n:
+            continue  # vector for a node since deleted — skip (reindex will prune it)
+        out(_c(f"{h['score']:.3f}", "meta") + "  " + _node_line(con, n, hl=q))
+        # show the content that was embedded (body + recent logs + tags) so the user can
+        # see WHY a node matched — a semantic hit often shares no literal word with the query,
+        # so the bare title alone is opaque. Query terms that DO appear are highlighted.
+        _explain_hit(con, n, q)
+
+
+def _explain_hit(con, n, q, max_logs=3):
+    """Print an indented body/log/tag preview under a query hit (like `wl find`'s expansion),
+    so the match is legible even when no word literally overlaps the query."""
+    if n["body"]:
+        out("    " + _c("body:", "meta") + " " + _snippet(n["body"], q))
+    logs = _db.query(con, "log", cols="body", node_id=n["id"], order="id DESC", limit=max_logs)
+    for r in reversed(logs):
+        if r["body"]:
+            out("    " + _c("log:", "meta") + " " + _snippet(r["body"], q))
+    tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=n["id"])]
+    if tags:
+        out("    " + _c("tag:", "meta") + " " + _hl(", ".join(tags), q))

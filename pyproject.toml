@@ -28,6 +28,15 @@ dependencies = [
     "rich>=13",
 ]
 
+[project.optional-dependencies]
+# Semantic search (`wl query` / `wl reindex`): embeds via any OpenAI-compatible
+# HTTP server (stdlib urllib, no dep) and stores vectors in an embedded LanceDB.
+# Optional so the core CLI stays lightweight / pure-stdlib; `wl query` prints an
+# install hint when this extra is absent.
+semantic = [
+    "lancedb>=0.13",
+]
+
 [project.urls]
 Homepage = "https://github.com/xyb/worklog"
 Repository = "https://github.com/xyb/worklog"
@@ -39,6 +48,7 @@ dev = [
     "pytest-cov>=5.0",
     "pytest-xdist>=3.5",
     "coverage>=7.5",
+    "lancedb>=0.13",   # so the semantic-search tests can run in CI
 ]
 
 [project.scripts]

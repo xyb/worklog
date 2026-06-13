@@ -53,6 +53,23 @@ def cmd_config(args, con):
         val = os.environ.get(var)
         _row(var, val if val else _c("(not set)", "meta"))
     out("")
+    out(_c("embedding (wl query / reindex):", "header"))
+    from ..config import resolve_embedding_config
+    ec = resolve_embedding_config(args)
+    _row("endpoint", ec["endpoint"], f"[{ec['source']['endpoint']}]")
+    _row("model", ec["model"], f"[{ec['source']['model']}]")
+    _row("dimensions", ec["dimensions"] if ec["dimensions"] is not None else _c("(model native)", "meta"),
+         f"[{ec['source']['dimensions']}]")
+    _row("api_key", _c("(set)", "meta") if ec["api_key"] else _c("(none)", "meta"),
+         f"[{ec['source']['api_key']}]")
+    try:
+        import lancedb  # noqa: F401
+        vec_status = "available"
+    except ImportError:
+        vec_status = "not installed — `pip install 'pyworklog[semantic]'`"
+    _row("vector store", vec_status, "LanceDB (the 'semantic' extra)")
+
+    out("")
     out(_c("runtime:", "header"))
     _row("python", sys.executable, f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
     _row("rich", "available" if render._RICH_AVAIL else "not installed (plain-text mode)")

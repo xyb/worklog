@@ -46,3 +46,19 @@ def _resolve_db_path(args=None) -> Path:
 def _resolve_aliases_path() -> Path:
     """``$XDG_CONFIG_HOME/worklog/aliases.ini`` (default ``~/.config/worklog/aliases.ini``)."""
     return _xdg_config_home() / "worklog" / "aliases.ini"
+
+
+def _resolve_config_path() -> Path:
+    """``$XDG_CONFIG_HOME/worklog/config.ini`` (default ``~/.config/worklog/config.ini``).
+
+    Holds non-alias settings (currently the ``[embedding]`` backend for `wl query`).
+    A separate file from aliases.ini so the two concerns stay independent."""
+    return _xdg_config_home() / "worklog" / "config.ini"
+
+
+def _resolve_vec_db_path(args=None) -> Path:
+    """Sidecar vector store (a LanceDB directory), derived from the resolved main DB
+    path: ``<db-stem>.lancedb`` in the same directory. A separate store (structured
+    data in SQLite, vectors in LanceDB) kept next to whichever DB ``--db``/``$WORKLOG_DB``
+    selected, so test temp DBs get an isolated sidecar for free."""
+    return _resolve_db_path(args).with_suffix(".lancedb")
