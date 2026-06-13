@@ -933,6 +933,10 @@ More: `wl help agent`.""")
         help="which agent runtime this is (claude / cursor / codex / …); recorded with the session so the history shows what worked the node. Default: $WL_AGENT, else 'claude'")
     _agls = _agsub.add_parser("ls", help="list session→task bindings, most-recently-active first")
     _agls.add_argument("--all", action="store_true", help="show every binding (default elides older ones to avoid a screen-flood)")
+    _agls.add_argument("--by", choices=["active", "bound"], default="active",
+                       help="sort axis: active = node's latest log/update time (default); bound = session bind time")
+    _agls.add_argument("-g", "--group", action="store_true",
+                       help="group the list into per-day sections by the chosen time axis (--by)")
     _agsub.add_parser("rm", help="unbind the current session")
     _agctx = _agsub.add_parser("context", help="machine line `<id>\\t<title>` of the current session's binding (for hooks; empty if unbound)")
     _agctx.add_argument("--hook", action="store_true",

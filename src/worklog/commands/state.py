@@ -1181,6 +1181,22 @@ def _short(s, n=50):
     s = s or ""
     return s if len(s) <= n else s[: n - 1] + "…"
 
+
+def _agent_ls_row(it, idw, agw, sidlen, plain, indent=""):
+    """Format one `wl agent ls` row. plain → full sid + full title (no truncation); else the full
+    sid when it fits (shrunk to `sidlen` with … when tight) + title truncated to one line. `indent`
+    prefixes the row (e.g. under a day-group header) and is counted in the title's width budget."""
+    idstr = f"#{it['id']}".ljust(idw)
+    ag = (it["agent"] + ":").ljust(agw + 1)
+    if plain:
+        return f"{indent}{idstr} ← {ag}{it['sid']} · {it['title']}"
+    sid = it["sid"]
+    sid_show = sid if len(sid) <= sidlen else sid[: sidlen - 1] + "…"
+    seg = f"{ag}{sid_show}"
+    prefix_plain = f"{indent}{idstr} ← {seg} · "
+    title = _truncate_log_body(it["title"], indent_cols=_display_width(prefix_plain), full=False)
+    return indent + _c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + title
+
 def _current_session_id():
     """Session id of the running agent shell. Prefer $WL_SESSION_ID (a SessionStart hook can
     freeze the official session_id under this stable name), fall back to the (undocumented)
@@ -1230,17 +1246,25 @@ def cmd_agent(args, con):
         if not rows:
             out(_c("(no session bindings)", "meta"))
             return
-        # build items + each node's latest-activity time (max log time, else created_at), so the
-        # most-recently-worked bindings sort to the top and stale ones sink / get elided
+        # two time axes per binding: `act` = node's latest log/update time (most-recently-worked);
+        # `bound` = when this session was bound to the node (latest agent_session bind-history log).
         items = []
         for r in rows:
-            node = _db.get(con, "node", r["node_id"])
+            nid, sid = r["node_id"], r["value"]
+            node = _db.get(con, "node", nid)
             title = node["title"] if node else "(deleted)"
-            last = _db.query_one(con, "log", cols="MAX(logged_at) AS m", node_id=r["node_id"])
+            last = _db.query_one(con, "log", cols="MAX(logged_at) AS m", node_id=nid)
             act = (last["m"] if last else None) or (node["created_at"] if node else "") or ""
-            items.append({"id": r["node_id"], "agent": r["key"][len(_AGENT_PREFIX):],
-                          "sid": r["value"], "title": title, "act": act})
-        items.sort(key=lambda x: x["act"], reverse=True)   # most-recently-active first
+            bl = con.execute(
+                "SELECT MAX(l.logged_at) AS m FROM log l JOIN metric mt ON mt.log_id = l.id "
+                "WHERE l.node_id = ? AND mt.tag = ? AND mt.value_text = ? AND l.deleted_at IS NULL",
+                (nid, _SESSION_METRIC_TAG, sid)).fetchone()
+            bound = (bl["m"] if bl else None) or ""
+            items.append({"id": nid, "agent": r["key"][len(_AGENT_PREFIX):],
+                          "sid": sid, "title": title, "act": act, "bound": bound})
+        by = getattr(args, "by", "active")
+        keyf = (lambda it: it["bound"] or it["act"]) if by == "bound" else (lambda it: it["act"])
+        items.sort(key=keyf, reverse=True)                 # most-recent (by chosen axis) first
         plain = render.is_plain()
         # plain/piped or --all → show all (a script needs the lot); else elide older to avoid flood
         show_all = plain or getattr(args, "all", False)
@@ -1248,27 +1272,27 @@ def cmd_agent(args, con):
         hidden = len(items) - len(shown)
         idw = max(len(f"#{it['id']}") for it in shown)
         agw = max(len(it["agent"]) for it in shown)
-        if plain:
-            # plain text: emit EVERYTHING in full (full sid + full title), no truncation/elision
-            for it in shown:
-                out(f"{('#' + str(it['id'])).ljust(idw)} ← {(it['agent'] + ':').ljust(agw + 1)}{it['sid']} · {it['title']}")
-            return
-        # interactive: show the full sid when it fits leaving the title room; shrink it uniformly
-        # when tight (never below 8), always reserving MIN_TITLE cols for the title
+        # full sid when it fits leaving the title room; shrink uniformly (≥8) when tight (TTY only)
         W = _term_width()
-        base = idw + len(" ← ") + (agw + 1) + len(" · ")
         MIN_TITLE = 16
         sidlen = max(len(it["sid"]) for it in shown)
-        if base + sidlen + MIN_TITLE > W:
-            sidlen = max(8, W - base - MIN_TITLE)
-        for it in shown:
-            sid = it["sid"]
-            sid_show = sid if len(sid) <= sidlen else sid[:sidlen - 1] + "…"
-            seg = f"{(it['agent'] + ':').ljust(agw + 1)}{sid_show}"
-            idstr = f"#{it['id']}".ljust(idw)
-            prefix_plain = f"{idstr} ← {seg} · "
-            title = _truncate_log_body(it["title"], indent_cols=_display_width(prefix_plain), full=False)
-            out(_c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + title)
+        if idw + 3 + (agw + 1) + 3 + sidlen + MIN_TITLE > W:
+            sidlen = max(8, W - (idw + 3 + (agw + 1) + 3) - MIN_TITLE)
+        group = getattr(args, "group", False)
+        if group:
+            today = _tu.today()
+            yday = (_tu.today_date() - timedelta(days=1)).isoformat()
+            cur = object()
+            for it in shown:
+                day = (keyf(it) or "")[:10] or "(no date)"
+                if day != cur:
+                    cur = day
+                    lbl = day + (" (today)" if day == today else " (yesterday)" if day == yday else "")
+                    out(_c(lbl, "planned"))
+                out(_agent_ls_row(it, idw, agw, sidlen, plain, indent="  "))
+        else:
+            for it in shown:
+                out(_agent_ls_row(it, idw, agw, sidlen, plain))
         if hidden > 0:
             out(_c(f"  … +{hidden} older — wl agent ls --all", "meta"))
         return
