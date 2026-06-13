@@ -226,6 +226,85 @@ class TestAgent:
         ctx = payload["hookSpecificOutput"]["additionalContext"]
         assert "WL#1" in ctx and 'tricky "quote" task' in ctx
 
+    def test_ls_default_groups_by_day(self, cli, monkeypatch):
+        # default `wl agent ls` groups bindings into per-day sections (today / yesterday / date)
+        from datetime import date
+        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s2"); cli("agent", "2")
+        _, out, _ = cli("agent", "ls")
+        assert date.today().isoformat() in out and "today" in out
+        assert any(ln.startswith("  #") for ln in out.splitlines())   # rows indented under the header
+
+    def test_ls_flat_has_no_day_header(self, cli, monkeypatch):
+        from datetime import date
+        cli("add", "a", "-k", "task")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
+        _, out, _ = cli("agent", "ls", "--flat")
+        assert "today" not in out and date.today().isoformat() not in out
+        assert "#1" in out
+        # --no-group is an alias for --flat
+        _, out2, _ = cli("agent", "ls", "--no-group")
+        assert "today" not in out2
+
+    def test_ls_plain_shows_full_session_id(self, cli, monkeypatch):
+        # piped / plain (the test harness is non-TTY) → full session id, never abbreviated
+        cli("add", "a", "-k", "task")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-full-uuid-0123456789")
+        cli("agent", "1")
+        _, out, _ = cli("agent", "ls", "--flat")
+        assert "sess-full-uuid-0123456789" in out and "…" not in out
+
+    def test_ls_sorts_by_activity_most_recent_first(self, cli, tmp_db, monkeypatch):
+        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s2"); cli("agent", "2")
+        con = tmp_db.db_connect()   # backdate ALL of each node's logs to control latest-activity
+        con.execute("UPDATE log SET logged_at='2026-06-05 10:00:00' WHERE node_id=1")
+        con.execute("UPDATE log SET logged_at='2026-06-10 10:00:00' WHERE node_id=2")
+        con.commit()
+        _, out, _ = cli("agent", "ls", "--flat")
+        rows = [ln for ln in out.splitlines() if "←" in ln]
+        assert rows[0].lstrip().startswith("#2") and rows[1].lstrip().startswith("#1")
+
+    def test_ls_by_bound_sorts_by_bind_time(self, cli, tmp_db, monkeypatch):
+        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s2"); cli("agent", "2")
+        con = tmp_db.db_connect()   # backdate the bind-history carrier log per node, commit BEFORE
+        con.execute("UPDATE log SET logged_at='2026-06-03 09:00:00' WHERE node_id=1 AND tag='metric'")
+        con.execute("UPDATE log SET logged_at='2026-06-09 09:00:00' WHERE node_id=2 AND tag='metric'")
+        con.commit()                # release the write lock before the read-back cli call
+        _, out, _ = cli("agent", "ls", "--by", "bound", "--flat")
+        rows = [ln for ln in out.splitlines() if "←" in ln]
+        assert rows[0].lstrip().startswith("#2")   # bound 06-09 > 06-03 → first
+
+    def test_ls_caps_then_all_shows_everything(self, cli, monkeypatch):
+        # cap/elision only applies in the rich (non-plain) view → force is_plain off
+        import worklog.render as render
+        monkeypatch.setattr(render, "is_plain", lambda: False)
+        for i in range(14):
+            cli("add", f"t{i}", "-k", "task")
+        for i in range(1, 15):
+            monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", f"s{i}"); cli("agent", str(i))
+        _, capped, _ = cli("agent", "ls", "--flat")
+        assert len([ln for ln in capped.splitlines() if "←" in ln]) == 12   # default cap
+        assert "older" in capped and "wl agent ls --all" in capped
+        _, allout, _ = cli("agent", "ls", "--flat", "--all")
+        assert len([ln for ln in allout.splitlines() if "←" in ln]) == 14 and "older" not in allout
+
+    def test_ls_shrinks_sid_when_narrow(self, cli, monkeypatch):
+        # rich view on a narrow terminal: the sid shrinks (…) so the title keeps room
+        import worklog.render as render
+        monkeypatch.setattr(render, "is_plain", lambda: False)
+        monkeypatch.setenv("COLUMNS", "50")
+        cli("add", "整合质检代码到主分支的一个相当长的任务标题", "-k", "task")
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-0123456789-abcdef-long-uuid")
+        cli("agent", "1")
+        _, out, _ = cli("agent", "ls", "--flat")
+        row = next(ln for ln in out.splitlines() if "←" in ln)
+        assert "…" in row and "sess-0123456789-abcdef-long-uuid" not in row   # sid abbreviated
+
     def test_set_and_rm_invalidate_the_session_cache(self, cli, tmp_path, monkeypatch):
         state = tmp_path / "state"
         monkeypatch.setenv("XDG_STATE_HOME", str(state))
