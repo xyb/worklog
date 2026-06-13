@@ -1,4 +1,4 @@
-"""Sidecar vector store for semantic search (WL#674), backed by LanceDB.
+"""Sidecar vector store for semantic search, backed by LanceDB.
 
 A SEPARATE on-disk store (``<db>.lancedb/`` dir, see xdg._resolve_vec_db_path)
 holds one embedding per node, mirroring the structured/vector split of larger
