@@ -82,7 +82,9 @@ typical day-handling workflow → `references/bulk.md`.
 - **Don't bypass `wl` and `sqlite3` the DB directly for writes** — the DB (default `~/.local/share/worklog/worklog.db`, or wherever `$WORKLOG_DB` / `--db PATH` points) is the source of truth; schema lives in `DESIGN.md`
 - **Don't run `wl reset`** (drops the DB) unless explicitly requested
 - Before any bulk write, **`--dry-run` first**, especially for update/delete
-- **TDD — write the failing test first, then implement to green** (xyb hard rule). Every command / behavior / branch (sort, group, elision, truncation, plain-vs-rich, edge cases) needs a test; no test-after. `cli` fixture runs in **plain mode** (`is_plain()` True) — to test rich-only branches (truncation / elision / cap) `monkeypatch.setattr(render, "is_plain", lambda: False)`; to control time-ordering `UPDATE log.logged_at` but **`con.commit()` before any `cli(...)`** (else `database is locked`). When adding/changing a command in `src/worklog/cli.py`: test (first) + implementation + completion + `DESIGN.md` (if convention touched) + this `SKILL.md` (if usage touched) together; `make ship` (push only if tests pass).
+
+<!-- Developing wl itself (TDD, the keep-surfaces-in-sync rule, test seams) is NOT documented here —
+this skill is for USING wl. Contributor discipline lives in the repo's AGENTS.md + CONTRIBUTING.md. -->
 
 ## Where a fact goes: prop vs metric vs log
 
