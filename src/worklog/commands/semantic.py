@@ -179,13 +179,16 @@ def cmd_query(args, con):
         n = _db.get(con, "node", h["node_id"])
         if not n:
             continue  # vector for a node since deleted — skip (reindex will prune it)
-        out(_c(f"{h['score']:.3f}", "meta") + "  " + _node_line(con, n, hl=q))
+        # Pass the score as the node-line's `indent` so its hang-wrap counts the score width:
+        # a wrapped title's continuation lines then align under the title, not column 0.
+        out(_node_line(con, n, indent=f"{h['score']:.3f}  ", hl=q))
         # show the single best-matching chunk — the exact passage that earned the score,
         # so a semantic hit is legible even when it shares no literal word with the query
         # (the `head` chunk repeats the title/body; a `log` chunk pins which log matched).
-        # Highlight per query TERM, so a multi-word query lights up the parts that appear.
+        # Highlight per query TERM; flatten whitespace so a multi-line chunk stays one tidy line.
         if h["chunk_text"]:
-            out("    " + _c(f"↳ {h['chunk_kind']}:", "meta") + " " + _snippet_terms(h["chunk_text"], terms))
+            flat = " ".join(h["chunk_text"].split())
+            out("    " + _c(f"↳ {h['chunk_kind']}:", "meta") + " " + _snippet_terms(flat, terms))
 
 
 def _query_terms(q):

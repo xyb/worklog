@@ -70,6 +70,18 @@ class TestHitExplanation:
         assert "↳ log:" in out                  # the matched chunk is a log, labelled
         assert "specific finding" in out        # its content is shown
 
+    def test_matched_chunk_is_single_line(self, cli, monkeypatch):
+        # the head chunk joins title+body with a newline; the display must flatten it onto
+        # the `↳` line, not spill the body to column 0 (the alignment bug)
+        monkeypatch.setattr(emb, "embed", _fake_embed)
+        cli("add", "alpha proj", "-k", "task")
+        cli("node", "edit", "1", "--body", "extra context line")
+        cli("reindex")
+        code, out, _ = cli("--color", "never", "query", "alpha")
+        chunk_lines = [l for l in out.splitlines() if "↳" in l]
+        assert chunk_lines and "extra context line" in chunk_lines[0]
+        assert "\nextra context line" not in out  # not spilled to its own col-0 line
+
     def test_shows_matched_head_chunk(self, cli, monkeypatch):
         monkeypatch.setattr(emb, "embed", _fake_embed)
         cli("add", "alpha project", "-k", "task")           # title matches, no logs
