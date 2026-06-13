@@ -1,4 +1,4 @@
-"""worklog commands: meta group."""
+"""worklog commands: goal / recap / date / alias / sched / checkin group."""
 from __future__ import annotations
 
 import argparse
@@ -14,7 +14,7 @@ from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
 from .metric import checkin_metric
-from ..queries import _has_checkin, _latest_typed_log, _set_typed_log, _RESERVED_LOG_TAGS
+from ..queries import (_has_checkin, _latest_typed_log, _set_typed_log, _RESERVED_LOG_TAGS)
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -262,17 +262,89 @@ def cmd_date_group(args, con):
      "import": cmd_date_import}[sub](args, con)
 
 
+_GOAL_ID_MENTION = re.compile(r"(?:WL)?#(\d+)")
+
+
+def _mentioned_goal_ids(con, body, already):
+    """Live node ids NAMED in a goal's prose (`#42` / `WL#42`) that aren't already supplied as
+    structured targets — for a *hint only* (we never parse them into storage; that's too fragile).
+    Skips `PR#42` / `ABC#42` (a `#` glued to an alnum char) and dead ids. Order-preserving, deduped."""
+    out, seen = [], set()
+    excl = set(already or ())
+    for m in _GOAL_ID_MENTION.finditer(body or ""):
+        if m.start() > 0 and body[m.start() - 1].isalnum():
+            continue   # PR#42 / ABC#42 — not a node ref
+        i = int(m.group(1))
+        if i in seen or i in excl:
+            continue
+        seen.add(i)
+        if _node_exists(con, i):
+            out.append(i)
+    return out
+
+
+def _set_goal_targets(con, node_id, ids):
+    """SET a node's CURRENT (latest) goal's structured targets to exactly `ids` (priority order) —
+    the 'I wrote the whole goal as text, now attach its ids' shortcut: no new log, no re-typing.
+    REPLACES any existing targets on that goal log (the text is the complete goal, so the ids are
+    the complete set, not an append). Errors if the node has no goal yet."""
+    row = _db.query_one(con, "log", cols="id", node_id=node_id, tag="goal", order="id DESC")
+    if not row:
+        sys.exit(f'✗ #{node_id} has no goal yet — write one first (wl goal "...")')
+    _check_ids_exist(con, ids)
+    want = []
+    for i in ids:        # dedupe, preserve priority order
+        if i not in want:
+            want.append(i)
+    current = [int(r["value_num"]) for r in _db.query(con, "metric", cols="value_num",
+               log_id=row["id"], tag="goal") if r["value_num"] is not None]
+    shown = " ".join("#" + str(i) for i in want)
+    if current == want:
+        out(_c(f"= #{node_id} goal targets already {shown}", "meta"))
+        return
+    for r in _db.query(con, "metric", cols="id", log_id=row["id"], tag="goal"):
+        _db.delete(con, "metric", id=r["id"])   # replace: clear the old set first
+    for i in want:
+        _db.insert(con, "metric", {"log_id": row["id"], "node_id": node_id, "tag": "goal",
+                   "value_num": i, "at": _tu.utc_now()})
+    con.commit()
+    out(_c(f"✓ #{node_id} goal targets: {shown}", "meta"))
+
+
+def _goal_id_hint(con, body, already, set_stem, full_stem):
+    """Nudge when the goal prose NAMES live nodes that aren't structured targets yet — we never
+    parse them into storage, but we offer two ready-to-run lines: `set_stem` sets the ids on the
+    goal just written (whole set, no re-typing), `full_stem` is the one-shot form to use from the
+    start next time. Both get the ids appended; copy either verbatim. No-op when nothing to suggest."""
+    ids = _mentioned_goal_ids(con, body, already)
+    if not ids:
+        return
+    shown = " ".join(f"#{i}" for i in ids)
+    tail = " ".join(str(i) for i in ids)
+    out(_c(f"  💡 {shown} in the text aren't structured targets yet:", "meta"))
+    out(f"     set ids:   {set_stem} {tail}")
+    out(f"     next time: {full_stem} {tail}")
+
+
 def cmd_goal(args, con):
-    """Shortcut to read/write today's goal: `wl goal` reads; `wl goal 'text'` writes. Today's day-node is auto-created if missing.
-    Stored as a tag=goal log (history-preserving): each write appends a new log; the latest is the current goal."""
+    """The default (bare) form of `wl goal`: read/write TODAY's goal. `wl goal` reads; `wl goal
+    'text' [ids]` writes (today's day-node auto-created). Stored as a tag=goal log (history-
+    preserving): each write appends, latest is current. Trailing ids (priority order) are the
+    goal's target nodes, stored as `goal` metrics. `wl goal set/ls/rm` reach any node."""
     nid = _ensure_today_day(con)
-    if not args.text:
+    text = getattr(args, "text", None)
+    if not text:
         row = _latest_typed_log(con, nid, "goal")
         out(row["body"] if row and row["body"] else _c("(no goal set for today)", "meta"))
         return
-    _set_typed_log(con, nid, "goal", args.text)
+    goals = getattr(args, "goals", None) or []
+    if goals:
+        _check_ids_exist(con, goals)
+    _set_typed_log(con, nid, "goal", text, goals=goals)
     con.commit()
-    out(_c(f"✓ today's goal: {args.text}", "meta"))
+    extra = ("  [" + ", ".join(f"#{i}" for i in goals) + "]") if goals else ""
+    out(_c(f"✓ today's goal: {text}{extra}", "meta"))
+    _goal_id_hint(con, text, goals, f"wl goal set {nid} --ids", f'wl goal "{text}"')
 
 def cmd_summary_prop(args, con):
     """Shortcut to read/write a day's end-of-day recap (default today; --date for a past day).
@@ -305,26 +377,44 @@ def cmd_summary_prop(args, con):
     out(_c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta"))
 
 
-# --- meta entity group: set / ls / rm for the history-preserving typed-log meta
-# fields (goal/summary/overview/top5). These are NOT props (single-value, overwrite) — each
-# is a `log.tag` log, latest = current, history kept. `wl set <node> <field>` routes here as
-# a documented shortcut (parallel to `wl set` → `wl prop set`); `wl goal`/`wl recap` are the
-# today-auto shortcuts for goal/summary. ---
-def cmd_meta_set(args, con):
-    """Set/append a meta field on a node — the create/update verb of the meta group.
-    Each write appends a typed log (history kept; latest is current). Also reachable as the
-    `wl set <node> <field>` shortcut, and `wl goal` / `wl recap` for today's goal/summary."""
+# --- goal group: set / ls / rm for the history-preserving reserved-tag logs (goal / summary)
+# on ANY node. These are NOT props (single-value, overwrite) — each is a `log.tag` log, latest =
+# current, history kept. `wl set <node> <field>` routes here as a documented shortcut (parallel to
+# `wl set` → `wl prop set`); bare `wl goal` / `wl recap` are the today-auto shortcuts. A goal can
+# carry trailing target node ids (priority order), stored as `goal` metrics. ---
+def cmd_goal_set(args, con):
+    """Set/append a goal (or summary) on a node — the create/update verb of the goal group.
+    Each write appends a reserved-tag log (history kept; latest is current). Also reachable as the
+    `wl set <node> <field>` shortcut, and bare `wl goal` / `wl recap` for today's goal/summary."""
     if not _node_exists(con, args.id):
         sys.exit(f"✗ node #{args.id} not found")
-    log_id = _set_typed_log(con, args.id, args.field, args.value)
+    set_ids = getattr(args, "ids", None)
+    if set_ids:                   # set the node's existing goal targets (no new log, no text)
+        if args.value:
+            sys.exit("✗ give a goal text OR --ids <ids>, not both")
+        _set_goal_targets(con, args.id, set_ids)
+        return
+    if not args.value:
+        sys.exit('✗ need a goal/summary text (or --ids <ids> to set targets on the current goal)')
+    field = "summary" if getattr(args, "summary", False) else "goal"
+    goals = getattr(args, "goals", None) or []
+    if goals:
+        if field != "goal":
+            sys.exit("✗ target node ids only apply to a goal, not --summary")
+        _check_ids_exist(con, goals)
+    log_id = _set_typed_log(con, args.id, field, args.value, goals=goals)
     con.commit()
     at = _db.get(con, "log", log_id)["logged_at"]
-    out(_c(f"✓ #{args.id} {args.field} (logged at {at}): {args.value}", "meta"))
+    extra = ("  [" + ", ".join(f"#{i}" for i in goals) + "]") if goals else ""
+    out(_c(f"✓ #{args.id} {field} (logged at {at}): {args.value}{extra}", "meta"))
+    if field == "goal":
+        _goal_id_hint(con, args.value, goals,
+                      f"wl goal set {args.id} --ids", f'wl goal set {args.id} "{args.value}"')
 
 
-def cmd_meta_ls(args, con):
-    """List a node's meta fields (current value of each present field) — the read verb of
-    the meta group. Each field shows its latest typed log (the current value)."""
+def cmd_goal_ls(args, con):
+    """List a node's reserved-tag logs (current goal / summary) — the read verb of the goal group.
+    Each shows its latest typed log (the current value)."""
     if not _node_exists(con, args.id):
         sys.exit(f"✗ node #{args.id} not found")
     shown = False
@@ -334,27 +424,28 @@ def cmd_meta_ls(args, con):
             shown = True
             out(_c(f"  #{args.id} {field}", "id") + _c(": ", "meta") + row["body"])
     if not shown:
-        out(_c(f"#{args.id} has no meta fields", "meta"))
+        out(_c(f"#{args.id} has no goal / summary", "meta"))
 
 
-def cmd_meta_rm(args, con):
-    """Clear a meta field on a node — the delete verb of the meta group. Soft-deletes the
+def cmd_goal_rm(args, con):
+    """Clear a node's goal (or summary) — the delete verb of the goal group. Soft-deletes the
     field's typed logs (reversible). Also reachable as the `wl unset <node> <field>` shortcut."""
     if not _node_exists(con, args.id):
         sys.exit(f"✗ node #{args.id} not found")
-    n = _db.delete(con, "log", node_id=args.id, tag=args.field)
+    field = "summary" if getattr(args, "summary", False) else "goal"
+    n = _db.delete(con, "log", node_id=args.id, tag=field)
     con.commit()
-    out(_c(f"✓ #{args.id} {args.field} cleared ({n} log(s))" if n
-           else f"(#{args.id} has no {args.field})", "meta"))
+    out(_c(f"✓ #{args.id} {field} cleared ({n} log(s))" if n
+           else f"(#{args.id} has no {field})", "meta"))
 
 
-def cmd_meta(args, con):
-    """Dispatch `wl meta <set|ls|rm>` (the metric-style entity group). Meta fields
-    (goal/summary/overview/top5) are history-preserving typed logs, distinct from props."""
-    sub = getattr(args, "meta_sub", None)
-    if sub is None:
-        sys.exit("✗ usage: wl meta <set|ls|rm> … (see `wl meta --help`)")
-    {"set": cmd_meta_set, "ls": cmd_meta_ls, "rm": cmd_meta_rm}[sub](args, con)
+def cmd_goal_group(args, con):
+    """Dispatch `wl goal` — bare (or the `today` default verb) reads/writes today's goal via
+    cmd_goal; `set`/`ls`/`rm` reach any node's reserved-tag logs (goal / summary)."""
+    sub = getattr(args, "goal_sub", None)
+    if sub in (None, "today"):
+        return cmd_goal(args, con)
+    {"set": cmd_goal_set, "ls": cmd_goal_ls, "rm": cmd_goal_rm}[sub](args, con)
 
 
 # --- alias command (manages ~/.config/worklog/aliases.ini; loaded into argparse subparser

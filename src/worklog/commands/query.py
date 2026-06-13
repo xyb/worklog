@@ -1159,7 +1159,7 @@ def _show_one(args, con):
             events.append((r["logged_at"], "📊 metric", _mline(mrows[0]), None, mrows[1:]))
         else:
             # timeline log row: "    YYYY-MM-DD HH:MM:SS  #L<id>  ✎ <kind>  <body>". The kind shows
-            # the log's tag when it has one (goal/summary/overview/top5 meta fields, or any custom
+            # the log's tag when it has one (goal/summary reserved-tag logs, or any custom
             # tag) so a tagged log is distinguishable, not rendered the same as a plain note; an
             # untagged log is just "✎ log". Budget body against the *actual* prefix width.
             kind = f"✎ {r['tag']}" if r["tag"] else "✎ log"

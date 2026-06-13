@@ -529,9 +529,9 @@ def cmd_set(args, con):
         # shadow, or a system-managed prop (plan.*). Reject with a pointer to the right command.
         sys.exit(f"✗ '{args.key}' is reserved, not a free UDA prop — {hint}")
     if args.key in _RESERVED_LOG_TAGS:
-        # goal/summary/overview/top5 are history-preserving meta fields, stored as typed
-        # logs (not single-value props): each write appends a log, the latest is current.
-        # This is the key-routed shortcut for `wl meta set` — keep the output identical.
+        # goal/summary are history-preserving reserved-tag logs, stored in the log table (not
+        # single-value props): each write appends a log, the latest is current. This is the
+        # key-routed shortcut for `wl goal set` — keep the output identical (prose only, no ids).
         log_id = _set_typed_log(con, args.id, args.key, args.value)
         con.commit()
         at = _db.get(con, "log", log_id)["logged_at"]
@@ -1051,8 +1051,8 @@ def cmd_prop_rm(args, con):
     if not key:
         sys.exit("✗ prop key cannot be empty")
     if key in _RESERVED_LOG_TAGS:
-        # key-routed shortcut, symmetric with `wl set`: a meta field lives in the log table
-        # as a typed log, not a prop — clear it there (= wl meta rm).
+        # key-routed shortcut, symmetric with `wl set`: goal/summary live in the log table
+        # as reserved-tag logs, not props — clear it there (= wl goal rm).
         n = _db.delete(con, "log", node_id=args.id, tag=key)
         con.commit()
         out(_c(f"✓ #{args.id} {key} cleared ({n} log(s))" if n

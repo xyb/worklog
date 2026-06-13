@@ -17,4 +17,4 @@ list/view by tag: `wl day -t work`, `wl ls -t work`, `wl tree -t personal` (all 
 
 Tags are the real tag field — distinct from props (`wl set` would only make a shadow
 "tags" prop, which is why `wl set <id> tags ...` is refused). For one-of-a-kind static
-attributes use a prop instead; for history-preserving day/week/month fields use `wl meta`.
+attributes use a prop instead; for a node's history-preserving goal / summary use `wl goal`.

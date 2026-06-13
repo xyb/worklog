@@ -3,8 +3,8 @@ title: day — a single day's plan + activity
 category: command
 see_also: planning, para, status
 ---
-`wl day [date]` reproduces one day (default today): the day's header meta at the top — each
-field with its own marker (🎯 goal · 📝 recap · ⭐ top5 · 📅 week overview), a goal that names
+`wl day [date]` reproduces one day (default today): the day's header at the top — each line
+with its own marker (🎯 goal · 📝 recap · 📅 this week · ⭐ this month), a goal that names
 task `#ids` showing ` [done/total]` progress — then work / personal / other buckets →
 planned/unplanned → task → its logs that day. A long/multi-line recap carries `> ` only on its
 first line; continuation lines align (spaces) under the `> ` content column.

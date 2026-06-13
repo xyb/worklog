@@ -281,14 +281,14 @@ def _args_node_show(p):
 
 def _args_prop_set(p):
     p.add_argument("id", type=int, help="node id")
-    p.add_argument("key", help="prop key (or a meta field: goal/summary/overview/top5 → routes to meta)")
+    p.add_argument("key", help="prop key (or goal/summary → routes to wl goal, history-preserving)")
     p.add_argument("value", help="the value to store")
     return p
 
 
 def _args_prop_rm(p):
     p.add_argument("id", type=int, help="node id")
-    p.add_argument("key", help="prop key to remove (or a meta field → clears it)")
+    p.add_argument("key", help="prop key to remove (or goal/summary → clears it)")
     return p
 
 
@@ -346,6 +346,8 @@ _DEFAULT_VERB_ENTITIES = {
     "log": ("add", frozenset(("add", "ls", "edit", "rm"))),
     "sched": ("add", frozenset(("add", "ls", "rm"))),
     "agent": ("set", frozenset(("set", "ls", "rm", "context"))),
+    # goal's default form writes/reads TODAY's goal (text, not an int id); set/ls/rm reach any node
+    "goal": ("today", frozenset(("today", "set", "ls", "rm"))),
 }
 # global flags that consume the next token as their value (skip it when locating the subcommand)
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format", "--width", "--title"))
@@ -469,7 +471,7 @@ Concepts (the data model):
   `log`      a timestamped progress entry on a node (each append is kept = history)
   `tag`      labels on a node; work / personal drive the `wl day` buckets
   `prop`     a static key=value attribute (owner, linear-id, …) — single value, overwritten
-  `meta`     history-preserving fields: goal / summary / overview / top5 (a separate store)
+  `goal`     a node's goal / summary — history-preserving reserved-tag logs (`wl goal`)
   `metric`   a structured datapoint (a number or a check-in) attached to a log
   `link`     a pointer to an Obsidian vault doc
   `sched`    schedules a node to a day → it shows up "planned" in `wl day`
@@ -860,16 +862,16 @@ More: `wl help relation`.""")
     rel.add_argument("--rm", action="store_true", help="remove the relation (from both sides)")
 
     se = sub.add_parser("set",
-        help="set a value on a node — key-routed shortcut: a prop (= wl prop set) or a meta field (= wl meta set)",
-        description="Set a value on a node — a key-routed shortcut. A meta key (goal/summary/overview/top5) routes to `wl meta set` (history-preserving typed log); any other key routes to `wl prop set` (static single-value UDA prop). So `wl set` is to `prop set` / `meta set` what `wl add` is to `node add`.",
+        help="set a value on a node — key-routed shortcut: a prop (= wl prop set) or goal/summary (= wl goal set)",
+        description="Set a value on a node — a key-routed shortcut. The key goal or summary routes to `wl goal set` (history-preserving reserved-tag log); any other key routes to `wl prop set` (static single-value UDA prop). So `wl set` is to `prop set` / `goal set` what `wl add` is to `node add`.",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl set 42 owner xyb                  # a prop (static single-value; = wl prop set)
   wl set 42 linear ABC-449             # backfill a Linear id
-  wl set <day_id> goal "deliver X"     # a meta field (= wl meta set; or `wl goal` for today)
+  wl set <node_id> goal "deliver X"    # a goal log on any node (= wl goal set; `wl goal` for today)
 
-Key-routed: goal/summary/overview/top5 → meta (history-preserving); any other key → a prop.
+Key-routed: goal/summary → wl goal (history-preserving); any other key → a prop.
 
 More: `wl help set`.""")
     _args_prop_set(se)
@@ -877,7 +879,7 @@ More: `wl help set`.""")
     # prop entity group: set / ls / rm. `set` → wl set shortcut; `rm` → wl unset.
     pr = sub.add_parser("prop",
         help="prop (UDA) CRUD: set / ls / rm (set has the top-level shortcut wl set; rm = wl unset)",
-        description="Custom key=value prop (UDA) CRUD — the metric-style entity group. Meta fields (goal/summary/overview/top5) and real tags are NOT props (use wl goal/recap and wl tag).",
+        description="Custom key=value prop (UDA) CRUD — the metric-style entity group. goal/summary (reserved-tag logs) and real tags are NOT props (use wl goal/recap and wl tag).",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Shortcuts: set → `wl set`, rm → `wl unset` (same handlers); `ls` has none (props also show
@@ -936,15 +938,15 @@ More: `wl help agent`.""")
         help="emit a ready-to-print Claude Code UserPromptSubmit JSON payload instead (so a hook needs no jq)")
 
     us = sub.add_parser("unset",
-        help="remove a value from a node — key-routed: a prop (= wl prop rm) or a meta field (= wl meta rm)",
-        description="Remove a value from a node — the delete counterpart of `wl set`, key-routed the same way: a meta key (goal/summary/overview/top5) clears that meta field (= `wl meta rm`); any other key removes a UDA prop (= `wl prop rm`).",
+        help="remove a value from a node — key-routed: a prop (= wl prop rm) or goal/summary (= wl goal rm)",
+        description="Remove a value from a node — the delete counterpart of `wl set`, key-routed the same way: the key goal or summary clears that reserved-tag log (= `wl goal rm`); any other key removes a UDA prop (= `wl prop rm`).",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl unset 42 owner                   # remove the 'owner' prop (= wl prop rm)
-  wl unset <day_id> goal              # clear the goal meta field (= wl meta rm)
+  wl unset <node_id> goal             # clear the goal log (= wl goal rm)
 
-Key-routed like `wl set`: a meta key → that meta field, any other key → a prop.""")
+Key-routed like `wl set`: goal/summary → that reserved-tag log, any other key → a prop.""")
     _args_prop_rm(us)
 
     # clock entity group: ls / edit / rm. Create stays start/stop/spent.
@@ -1190,7 +1192,7 @@ More: `wl help summary` (vs `wl changes` deltas / `wl day` single day).""")
 
     dy = sub.add_parser("day", parents=[filters, output_parent],
         help="full view of a day (default today): bucket -> project/plan -> task -> log",
-        description="Full view of one day: work/personal/other -> (planned/unplanned/project/priority) -> task -> indented logs. The header states the day's nature (workday / weekend, refined to holiday / leave / makeup by a `wl dateinfo` label). Top shows end-of-day summary + today's goal + Top5 (if set). Defaults to log-date-driven (works for past days too).",
+        description="Full view of one day: work/personal/other -> (planned/unplanned/project/priority) -> task -> indented logs. The header states the day's nature (workday / weekend, refined to holiday / leave / makeup by a `wl dateinfo` label). Top shows end-of-day summary + today's goal + the week's & month's goal (if set). Defaults to log-date-driven (works for past days too).",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
@@ -1215,26 +1217,48 @@ More: `wl help day` · `wl help planning` (the optional per-level planning caden
                     help="full log expansion, no elision (overrides default tail=3)")
 
     g = sub.add_parser("goal",
-        help="read/write today's goal — what you aim to deliver today (history-preserving)",
-        description="Read or write today's goal — a short statement of what you aim to deliver today. Stored as the day node's `goal` meta field (a history-preserving typed log: each write appends, the latest is current); auto-creates today's day node. `wl day` shows it at the top.",
+        help="goal CRUD: read/write a node's goal — what you aim to deliver (history-preserving)",
+        description="Read or write a goal — a short statement of what you aim to deliver. Bare `wl goal` reads/writes TODAY's goal (the default form, auto-creates today's day node); `wl goal set/ls/rm <node>` reach any node (day / week / month / year — the level is the node's kind). Stored as a `goal` log (history-preserving: each write appends, the latest is current). `wl day` shows today's at the top. A goal can carry trailing node ids — its target nodes, in priority order — stored as `goal` metrics so the link is structured, not parsed from the prose.",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl goal "ship the Q3 report draft"     # write today's goal
+  wl goal "ship X" 12 34                 # today's goal + its target nodes #12,#34 (priority order)
   wl goal                                # read (no text)
+  wl goal set <month_id> "deliver A, B" 7 9 3   # a month's goal + ~5 target nodes
+  wl goal ls <node_id>                   # show a node's current goal / summary
+  wl goal rm <node_id>                   # clear a node's goal (--summary clears the summary)
 
-Planning rhythm (all optional, all history-preserving meta fields):
+Planning rhythm (all optional, all history-preserving):
   morning   `wl goal "..."`                       today's intended deliverable
   evening   `wl recap "..."`                       what actually happened (the counterpart)
-  weekly    `wl meta set <week_id> overview "..."` this week's focus / P0-P1
-  monthly   `wl meta set <month_id> top5 "..."`    the month's Top 5
+  weekly    `wl goal set <week_id> "..."`          this week's focus / P0-P1
+  monthly   `wl goal set <month_id> "..." …ids`    the month's goals (we suggest ~5)
   Plan the *work* itself with `wl sched <id> <day>` (a task shows "planned" in `wl day`)
   or `wl defer <id> someday` (a loose backlog item). See `wl day -h` for the level cadence.""")
-    g.add_argument("text", nargs="?", help="no arg = read today's goal; with text = write it")
+    _gsub = g.add_subparsers(dest="goal_sub")
+    # default verb: bare `wl goal` / `wl goal "text" [ids]` → today's goal
+    _gtoday = _gsub.add_parser("today", help="read/write today's goal (the default bare form)")
+    _gtoday.add_argument("text", nargs="?", help="no arg = read today's goal; with text = write it")
+    _gtoday.add_argument("goals", nargs="*", type=int, metavar="ID",
+                   help="target node ids after the text, in priority order (`wl goal \"...\" 12 34`) — stored as `goal` metrics so the link is structured, not parsed from the prose")
+    _gset = _gsub.add_parser("set", help="set a goal on any node (--summary for the summary; --ids sets target ids on the current goal)")
+    _gset.add_argument("id", type=int)
+    _gset.add_argument("value", nargs="?", help="goal/summary text (omit only with --ids)")
+    _gset.add_argument("goals", nargs="*", type=int, metavar="ID",
+                       help="target node ids after the value, in priority order — stored as `goal` metrics so the link is structured")
+    _gset.add_argument("--summary", action="store_true",
+                       help="set the node's summary (backward-looking recap) instead of its goal — prose only, no target ids")
+    _gset.add_argument("--ids", nargs="+", type=int, metavar="ID",
+                       help="set the node's CURRENT goal targets to exactly these node ids (priority order; replaces, no new log, no text) — the 'I wrote the goal, now attach the ids' fix")
+    _gsub.add_parser("ls", help="list a node's current goal / summary").add_argument("id", type=int)
+    _grm = _gsub.add_parser("rm", help="clear a node's goal (--summary for the summary)")
+    _grm.add_argument("id", type=int)
+    _grm.add_argument("--summary", action="store_true", help="clear the summary instead of the goal")
 
     rc = sub.add_parser("recap",
         help="read/write a day's end-of-day summary — what actually happened (history-preserving)",
-        description="Read or write a day's end-of-day summary — a short reflection on what actually happened. Stored as the day node's `summary` meta field (a history-preserving typed log); the write time is recorded so `wl day` can warn if you log more after recapping. The evening counterpart to `wl goal`.",
+        description="Read or write a day's end-of-day summary — a short reflection on what actually happened. Stored as the day node's `summary` reserved-tag log (history-preserving); the write time is recorded so `wl day` can warn if you log more after recapping. The evening counterpart to `wl goal`.",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
@@ -1245,7 +1269,7 @@ Common examples:
 
 `wl day` shows "Recap: ... (written at MM-DD HH:MM)" at the top; if you log more after
 recapping it warns "⚠ N changes after recap, consider rewriting". (`wl goal` is the morning
-counterpart; weekly/monthly summaries are `wl meta set <week> overview` / `<month> top5`.)""")
+counterpart; week/month goals are `wl goal set <week>` / `<month> "..." …ids`.)""")
     rc.add_argument("text", nargs="?", help="no arg = read; with text = write the summary")
     rc.add_argument("-d", "--date", help="target day (YYYY-MM-DD / today / yesterday / 昨天 ...); default today")
 
@@ -1443,32 +1467,8 @@ Common examples:
     _dtsub.add_parser("rm", help="clear a date's label (= wl dateinfo <date> --clear)").add_argument("date", help="YYYY-MM-DD")
     _dtsub.add_parser("import", help='batch import {"YYYY-MM-DD":"label"} JSON (= wl dateinfo --import)').add_argument("file", help="JSON file path, or - for stdin")
 
-    # meta entity group: set / ls / rm for the history-preserving typed-log meta
-    # fields (goal/summary/overview/top5). Distinct from props (prop = static single-value).
-    me = sub.add_parser("meta",
-        help="meta-field CRUD: set / ls / rm — history-preserving typed logs (goal/summary/overview/top5)",
-        description="Meta-field CRUD — the metric-style entity group for the four history-preserving typed-log fields (goal/summary/overview/top5; each edit appends, latest = current). Distinct from props (prop = static single-value, overwrite). Shortcuts onto this group: `wl set <node> <field>` (= meta set), `wl goal` / `wl recap` (today's goal/summary).",
-        formatter_class=_WlHelpFormatter,
-        epilog="""\
-Shortcuts (same typed-log store):
-  wl set <node> goal "..."     = wl meta set <node> goal "..."  (key-routed; props go to prop set)
-  wl unset <node> goal         = wl meta rm <node> goal
-  wl goal "..."  / wl recap "..."   today's day-node goal / summary (auto-target today)
-
-Common examples:
-  wl meta set 9 overview "this week: ship X"   # week node's overview
-  wl meta set 12 top5 "1. … 2. …"              # month node's Top5
-  wl meta ls 3                                  # show #3's current meta fields
-  wl meta rm 3 goal                             # clear a meta field (reversible)""")
-    _mesub = me.add_subparsers(dest="meta_sub")
-    _mset = _mesub.add_parser("set", help="set/append a meta field (= the wl set <node> <field> shortcut)")
-    _mset.add_argument("id", type=int)
-    _mset.add_argument("field", choices=list(_RESERVED_LOG_TAGS))
-    _mset.add_argument("value")
-    _mesub.add_parser("ls", help="list a node's current meta fields").add_argument("id", type=int)
-    _mrm = _mesub.add_parser("rm", help="clear a meta field (= wl unset <node> <field>)")
-    _mrm.add_argument("id", type=int)
-    _mrm.add_argument("field", choices=list(_RESERVED_LOG_TAGS))
+    # (the former `wl meta` group is merged into `wl goal` — goal/summary reserved-tag logs
+    # are managed via `wl goal set/ls/rm` and the bare `wl goal` / `wl recap` shortcuts.)
 
     # alias command: manage ~/.config/worklog/aliases.ini (wired into the parser at startup)
     al = sub.add_parser("alias",
@@ -1697,6 +1697,7 @@ from .commands import (
     cmd_day,
     _ensure_today_day,
     cmd_goal,
+    cmd_goal_group,
     cmd_summary_prop,
     _checkin_collect,
     _is_interactive_tty,
@@ -1712,7 +1713,6 @@ from .commands import (
     cmd_sched_group,
     cmd_dateinfo,
     cmd_date_group,
-    cmd_meta,
     cmd_alias,
     cmd_changes,
     _bulk_status_change,
@@ -1787,7 +1787,7 @@ HANDLERS = {
     "descendants": cmd_descendants,
     "agenda": cmd_agenda,
     "day": cmd_day,
-    "goal": cmd_goal,
+    "goal": cmd_goal_group,
     "recap": cmd_summary_prop,
     "tick": cmd_tick,
     "unlog": cmd_unlog,
@@ -1796,7 +1796,6 @@ HANDLERS = {
     "sched": cmd_sched_group,
     "dateinfo": cmd_dateinfo,
     "date": cmd_date_group,
-    "meta": cmd_meta,
     "alias": cmd_alias,
     "import": cmd_import,
     "apply": cmd_apply,

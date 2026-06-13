@@ -93,7 +93,7 @@ class TestDay:
 
 
 class TestDayMeta:
-    """meta: day recap / Top5 / today's goal stored as day-node props, shown at the top of wl day"""
+    """reserved-tag logs: day recap / today's goal, shown at the top of wl day"""
 
     def _seed_day(self, cli):
         cli("add", "2026", "-k", "year")                                     # 1
@@ -112,7 +112,7 @@ class TestDayMeta:
 
 
 class TestDayMetaRendering:
-    """cmd_day: goal / day recap / Top5 / week prop rendering branches."""
+    """cmd_day: today's goal / day recap / week-goal / month-goal rendering branches."""
 
     def _setup_day_with_props(self, cli, **props):
         from datetime import date
@@ -133,18 +133,24 @@ class TestDayMetaRendering:
         _, out, _ = cli("day", today)
         assert "Recap" in out and "end-of-day review content" in out
 
-    def test_day_renders_top5(self, cli):
-        today = self._setup_day_with_props(cli, top5="Top5 content")
-        _, out, _ = cli("day", today)
-        assert "Top5" in out
-
-    def test_day_renders_week_overview(self, cli):
+    def test_day_renders_month_goal(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        # build a week → day parent-child chain, write overview on the week
+        # month → week → day chain; the month's goal shows under "This month"
+        cli("add", "2026-05", "-k", "month")                      # 1
+        cli("add", "2026-W22", "-k", "week", "--parent", "1")     # 2
+        cli("add", today, "-k", "day", "--parent", "2")           # 3
+        cli("set", "1", "goal", "month goal content")
+        _, out, _ = cli("day", today)
+        assert "This month" in out and "month goal content" in out
+
+    def test_day_renders_week_goal(self, cli):
+        from datetime import date
+        today = date.today().isoformat()
+        # week → day chain, write the goal on the week (was the old "overview")
         cli("add", "2026-W22", "-k", "week")  # id 1
         cli("add", today, "-k", "day", "--parent", "1")  # id 2
-        cli("set", "1", "overview", "this week's focus")
+        cli("set", "1", "goal", "this week's focus")
         _, out, _ = cli("day", today)
         assert "This week" in out and "this week's focus" in out
 
@@ -270,16 +276,17 @@ class TestDayMetaMarkersAndGoalProgress:
     def test_distinct_markers(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "2026-W99", "-k", "week")              # 1
-        cli("add", today, "-k", "day", "--parent", "1")   # 2
-        cli("set", "2", "goal", "G")
-        cli("set", "2", "summary", "S")
-        cli("set", "2", "top5", "T")
-        cli("set", "1", "overview", "O")
+        cli("add", "2026-05", "-k", "month")                   # 1
+        cli("add", "2026-W99", "-k", "week", "--parent", "1")  # 2
+        cli("add", today, "-k", "day", "--parent", "2")        # 3
+        cli("set", "3", "goal", "G")
+        cli("set", "3", "summary", "S")
+        cli("set", "1", "goal", "T")     # month-level goal
+        cli("set", "2", "goal", "O")     # week-level goal
         _, out, _ = cli("day", today)
-        assert "🎯 G" in out          # goal
+        assert "🎯 G" in out          # today's goal
         assert "📝 Recap: S" in out   # summary distinct from goal
-        assert "⭐ Top5: T" in out
+        assert "⭐ This month: T" in out
         assert "📅 This week: O" in out
 
     def test_recap_blockquote_continuation(self, cli):

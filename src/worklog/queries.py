@@ -283,57 +283,54 @@ def make_node_filter(con, args):
     return ok
 
 
-_RESERVED_LOG_TAGS = ("goal", "summary", "overview", "top5")  # meta fields stored as typed logs
+_RESERVED_LOG_TAGS = ("goal", "summary")  # reserved-tag logs: forward goal / backward summary
 
 
 def _latest_typed_log(con, node_id, log_type):
-    """The most recent log row of a given `type` on a node — the 'current' value of a
-    history-preserving meta field (goal / summary / overview / top5). Returns the Row
+    """The most recent log row of a given `tag` on a node — the 'current' value of a
+    history-preserving reserved-tag log (goal / summary). Returns the Row
     (body, logged_at) or None. Each edit appends a new log, so history is kept and the
     latest one is the current value."""
     return _db.query_one(con, "log", cols="body, logged_at", node_id=node_id, tag=log_type,
                         order="logged_at DESC, id DESC")
 
 
-# the reserved-tag logs whose body names the task/project nodes it plans (goal = today's
-# deliverables; top5 = the month's priorities). On each write we extract those #ids into a
-# `plan.<tag>` prop so the plan↔node link is queryable (wl ls --prop plan.goal) instead of
-# living only in free text. summary/overview are prose recaps, not plans — not structured here.
-_PLAN_REF_TAGS = ("goal", "top5")
+# A `goal` log can carry a STRUCTURED, priority-ordered list of the node(s) it aims to deliver —
+# stored as `goal` metrics on the log itself (value_num = node id, metric insertion order =
+# priority). The caller supplies the ids explicitly; wl never parses them from the prose. Any
+# number is allowed (we suggest ~5 for a month). The metric tag is the bare word `goal`, the same
+# as the carrier log's own tag; the node's kind (day / week / month / year) distinguishes the level
+# at query time. `summary` logs are prose only. The latest goal log's `goal` metrics are current.
+_GOAL_METRIC = "goal"
 
 
-def _extract_node_refs(con, text):
-    """The live node ids a piece of text names as `#NNN` / `WL#NNN` (a `PR#`/`LUM-` run does
-    NOT count). Order-preserving + deduped; only ids that are real live nodes. Used to structure
-    a goal/top5 log's targets into a `plan.*` prop."""
-    import re
-    pat = re.compile(r"(?<![A-Za-z0-9])(?:WL)?#0*(\d+)(?!\d)")
-    out, seen = [], set()
-    for m in pat.finditer(text or ""):
-        i = int(m.group(1))
-        if i not in seen and _node_exists(con, i):
-            seen.add(i)
-            out.append(i)
-    return out
-
-
-def _set_typed_log(con, node_id, log_type, body):
-    """Append a reserved-tag log (a `log` row whose `tag` is one of goal/summary/overview/top5;
-    history-preserving — each write appends, the latest is current). No commit; caller owns the
-    transaction. For a plan tag (goal/top5) also (re)writes the `plan.<tag>` prop from the #ids
-    named in `body`, so the structured plan↔node link tracks the current text. Returns the log id."""
+def _set_typed_log(con, node_id, log_type, body, goals=None):
+    """Append a reserved-tag log (`tag` in goal/summary; history-preserving — each write appends,
+    the latest is current). No commit; caller owns the transaction. For a `goal` log, `goals` (an
+    ordered node-id list, priority first) is stored as one `goal` metric per id, in order. The
+    caller supplies them — wl never parses the prose. Returns the log id."""
     log_id = _db.insert(con, "log", {
         "node_id": node_id, "tag": log_type, "body": body, "logged_at": _tu.utc_now(),
     })
-    if log_type in _PLAN_REF_TAGS:
-        refs = _extract_node_refs(con, body)
-        key = f"plan.{log_type}"
-        if refs:   # write the structured prop directly (bypass the user-facing reserved guard)
-            _db.upsert(con, "prop", {"node_id": node_id, "key": key, "value": ",".join(map(str, refs))},
-                       key=("node_id", "key"))
-        else:      # goal text names no node → clear any stale plan.<tag> prop
-            _db.delete(con, "prop", node_id=node_id, key=key)
+    if goals and log_type == "goal":
+        for i in goals:   # insertion order = priority
+            _db.insert(con, "metric", {
+                "log_id": log_id, "node_id": node_id, "tag": _GOAL_METRIC,
+                "value_num": i, "at": _tu.utc_now(),
+            })
     return log_id
+
+
+def _log_goals(con, node_id):
+    """The goal node ids of a node's CURRENT goal log — the `goal` metrics on its latest goal log,
+    in priority order (metric insertion order). [] if there's no goal log or it carries none. The
+    display numbers these to show priority; reverse queries hit the metric table directly
+    (tag=goal), narrowing by node kind for the level."""
+    row = _db.query_one(con, "log", cols="id", node_id=node_id, tag="goal", order="id DESC")
+    if not row:
+        return []
+    return [int(r["value_num"]) for r in _db.query(con, "metric", cols="value_num",
+            log_id=row["id"], tag=_GOAL_METRIC, order="id") if r["value_num"] is not None]
 
 
 def _has_checkin(con, node_id, day):
@@ -434,14 +431,9 @@ _RESERVED_PROP_KEYS = {
 
 def _reserved_prop_hint(key):
     """If `key` collides with a core node field (so storing it as a UDA prop would shadow the
-    real field) OR is a system-managed prop, return the corrective hint; else None. Single source
-    of truth for the guard shared by cmd_set (wl set / wl prop set) and the importers."""
-    k = (key or "").strip().lower()
-    if k.startswith("plan."):
-        # plan.goal / plan.top5 are derived from the goal/top5 log text — set via `wl goal`
-        # (write a goal naming #ids), not by hand, so the prop and the text can't disagree
-        return "a structured plan prop, derived from the goal/top5 text — write `wl goal \"… #id …\"`, don't set it directly"
-    return _RESERVED_PROP_KEYS.get(k)
+    real field), return the corrective hint; else None. Single source of truth for the guard
+    shared by cmd_set (wl set / wl prop set) and the importers."""
+    return _RESERVED_PROP_KEYS.get((key or "").strip().lower())
 
 
 def _upsert_prop(con, nid, key, value):

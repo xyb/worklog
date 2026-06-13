@@ -523,7 +523,7 @@ class TestMetricImport:
 
 
 class TestMetaTypedLogs:
-    """goal / summary / overview / top5 are history-preserving typed logs, not props."""
+    """goal / summary are history-preserving reserved-tag logs, not props."""
 
     def test_goal_edit_keeps_history(self, cli, tmp_db):
         cli("goal", "deliver X today")
@@ -535,11 +535,11 @@ class TestMetaTypedLogs:
 
     def test_set_meta_key_writes_typed_log_not_prop(self, cli, tmp_db):
         cli("add", "2026-W23", "-k", "week")  # node 1
-        _, out, _ = cli("set", "1", "overview", "this week's focus")
+        _, out, _ = cli("set", "1", "goal", "this week's focus")
         assert "logged" in out
         con = tmp_db.db_connect()
-        assert con.execute("SELECT COUNT(*) FROM log WHERE node_id=1 AND tag='overview'").fetchone()[0] == 1
-        assert con.execute("SELECT COUNT(*) FROM prop WHERE node_id=1 AND key='overview'").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM log WHERE node_id=1 AND tag='goal'").fetchone()[0] == 1
+        assert con.execute("SELECT COUNT(*) FROM prop WHERE node_id=1 AND key='goal'").fetchone()[0] == 0
 
     def test_set_non_meta_key_still_prop(self, cli, tmp_db):
         cli("add", "t", "-k", "task")

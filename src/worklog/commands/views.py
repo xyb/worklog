@@ -166,18 +166,19 @@ def cmd_tree(args, con):
         _print_tree(con, root, depth=0, max_depth=max_depth,
                     include_canceled=inc_cancel, log_tail=log_tail, full=full)
 
-# wl day header meta fields, each with a distinct marker: one glance tells goal from
-# recap from week-overview from month-top5. (label is "" when the marker alone reads clearly.)
+# wl day header reserved-tag logs, each with a distinct marker: one glance tells today's goal
+# from recap from the week's goal from the month's goal. Week/month goals are the same `goal`
+# tag on the ancestor week/month node — the level is the node's kind.
 _DAY_META = {
-    "goal":     "🎯 ",
-    "summary":  "📝 Recap: ",
-    "top5":     "⭐ Top5: ",
-    "overview": "📅 This week: ",
+    "goal":    "🎯 ",
+    "summary": "📝 Recap: ",
+    "week":    "📅 This week: ",
+    "month":   "⭐ This month: ",
 }
 
 
 def _meta_blockquote(body, marker, indent="  "):
-    """Render a day-header meta field: only the FIRST line carries the `<indent>> ` prefix; every
+    """Render a day-header reserved-tag log: only the FIRST line carries the `<indent>> ` prefix; every
     continuation (soft-wrap or embedded newline) is indented with plain spaces to align under the
     text after `> ` — cleaner than repeating `> ` on every line. The marker (🎯 / Recap: / …) rides
     on the first line. Soft-wraps by display width (CJK-aware)."""
@@ -226,7 +227,7 @@ def _goal_progress(con, body):
 
 def _day_meta_dict(con, day):
     """The day-header meta as a dict (for `wl day -o json`): goal (+ goal_progress {done,total}),
-    summary (+ summary_at), top5, week_overview. Only present keys are included."""
+    summary (+ summary_at), week_goal, month_goal. Only present keys are included."""
     if not day:
         return {}
     d = {}
@@ -240,14 +241,16 @@ def _day_meta_dict(con, day):
     if s and s["body"]:
         d["summary"] = s["body"]
         d["summary_at"] = s["logged_at"]   # UTC instant
-    t5 = _latest_typed_log(con, day["id"], "top5")
-    if t5 and t5["body"]:
-        d["top5"] = t5["body"]
-    wk = _db.query_one(con, "node", cols="id", id=day["parent_id"], kind="week") if day["parent_id"] else None
+    wk = _db.query_one(con, "node", cols="id, parent_id", id=day["parent_id"], kind="week") if day["parent_id"] else None
     if wk:
-        ov = _latest_typed_log(con, wk["id"], "overview")
-        if ov and ov["body"]:
-            d["week_overview"] = ov["body"]
+        wg = _latest_typed_log(con, wk["id"], "goal")
+        if wg and wg["body"]:
+            d["week_goal"] = wg["body"]
+        mo = _db.query_one(con, "node", cols="id", id=wk["parent_id"], kind="month") if wk["parent_id"] else None
+        if mo:
+            mg = _latest_typed_log(con, mo["id"], "goal")
+            if mg and mg["body"]:
+                d["month_goal"] = mg["body"]
     return d
 
 
@@ -299,12 +302,12 @@ def cmd_day(args, con):
     head = target + (f" {wd}" if wd else "") + (f" · {nature}" if nature else "")
     is_json = getattr(args, "output", "text") == "json"
     if not is_json:
-        # lead with the day node id so `wl goal`/`wl show <id>`/`wl meta` have it to hand
+        # lead with the day node id so `wl goal`/`wl show <id>` have it to hand
         nid = (_c(f"#{day['id']}", "id") + " ") if day else ""
         out(nid + _c(head, "header"))
-    # meta (history-preserving typed logs on the day node): goal / recap(summary) / Top5;
-    # plus the parent week node's overview. Each is the latest log of that type. (json mode
-    # gathers these into a dict via _day_meta_dict instead of rendering text.)
+    # reserved-tag logs on the day node: goal / recap(summary); plus the ancestor week's and
+    # month's goal. Each is the latest log of that tag. (json mode gathers these into a dict via
+    # _day_meta_dict instead of rendering text.)
     if day and not is_json:
         g = _latest_typed_log(con, day["id"], "goal")
         if g and g["body"]:
@@ -317,7 +320,7 @@ def cmd_day(args, con):
             when = _c(f" (written at {_tu.utc_to_local(at)[5:16]})", "meta") if at else ""
             out(_c(_meta_blockquote(s["body"], _DAY_META["summary"]), "meta") + when)
             # stale check: count plain-note logs (tag IS NULL) added after the recap;
-            # meta logs (goal/summary/…) and metric carriers (type='metric') don't count.
+            # reserved-tag logs (goal/summary) and metric carriers (tag='metric') don't count.
             if at:
                 newer = con.execute(
                     f"SELECT COUNT(*) FROM log WHERE logged_at > ? "
@@ -326,14 +329,17 @@ def cmd_day(args, con):
                 ).fetchone()[0]
                 if newer:
                     out(_c(f"  > ⚠ {newer} change(s) after recap; consider rewriting via wl recap", "doing"))
-        t5 = _latest_typed_log(con, day["id"], "top5")
-        if t5 and t5["body"]:
-            out(_c(_meta_blockquote(t5["body"], _DAY_META["top5"]), "meta"))
-        wk = _db.query_one(con, "node", cols="id", id=day["parent_id"], kind="week")
+        # the week's and month's goal — same `goal` tag on the ancestor week / month node
+        wk = _db.query_one(con, "node", cols="id, parent_id", id=day["parent_id"], kind="week") if day["parent_id"] else None
         if wk:
-            ov = _latest_typed_log(con, wk["id"], "overview")
-            if ov and ov["body"]:
-                out(_c(_meta_blockquote(ov["body"], _DAY_META["overview"]), "meta"))
+            wg = _latest_typed_log(con, wk["id"], "goal")
+            if wg and wg["body"]:
+                out(_c(_meta_blockquote(wg["body"], _DAY_META["week"]), "meta"))
+            mo = _db.query_one(con, "node", cols="id", id=wk["parent_id"], kind="month") if wk["parent_id"] else None
+            if mo:
+                mg = _latest_typed_log(con, mo["id"], "goal")
+                if mg and mg["body"]:
+                    out(_c(_meta_blockquote(mg["body"], _DAY_META["month"]), "meta"))
 
     # an explicit --status filter (applied below via make_node_filter) must override the
     # default CANCELED hide, else `day --status CANCELED` would drop its own matches.

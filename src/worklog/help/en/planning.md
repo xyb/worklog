@@ -11,13 +11,14 @@ Planning the work:
   wl sched <id> --recur   a recurring rule (daily / weekly:Mon,Fri / monthly:-1 / …)
   wl defer <id> someday   a loose backlog item (status LATER, no committed day)
 
-The narrative rhythm (history-preserving meta fields — each edit is kept):
+The narrative rhythm (history-preserving reserved-tag logs — each edit is kept). The goal is
+the same `goal` tag at every level; the node's kind (day / week / month / …) is the level:
   day      `wl goal "..."`                       what you aim to deliver today
            `wl recap "..."`                       what actually happened (evening)
-  week     `wl meta set <week_id> overview "..."` this week's focus / P0-P1
-  month    `wl meta set <month_id> top5 "..."`    the month's Top 5
-  quarter  `wl meta set <quarter_id> goal "..."`  the quarter's objective (if you plan that far)
+  week     `wl goal set <week_id> "..."`          this week's focus / P0-P1
+  month    `wl goal set <month_id> "..." …ids`    the month's goals (we suggest ~5, by priority)
+  quarter  `wl goal set <quarter_id> "..."`       the quarter's objective (if you plan that far)
 
-`wl day` shows the day's goal + recap (and Top5/overview if set) at the top, and warns if
-you log more after recapping. Find a level's node id with `wl tree`. None of this is
+`wl day` shows the day's goal + recap, plus the week's and month's goal at the top, and warns
+if you log more after recapping. Find a level's node id with `wl tree`. None of this is
 enforced; the time skeleton builds itself as you log and schedule.

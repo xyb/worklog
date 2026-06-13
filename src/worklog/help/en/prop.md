@@ -1,7 +1,7 @@
 ---
 title: prop — a static key=value attribute
 category: concept
-see_also: meta, tag, node
+see_also: goal, tag, node
 ---
 A **prop** is a static, single-value key=value attribute on a node (e.g. `owner`,
 `linear-id`). It overwrites in place — no history.
@@ -10,9 +10,9 @@ A **prop** is a static, single-value key=value attribute on a node (e.g. `owner`
   wl prop ls 42                # list a node's props
   wl unset 42 owner            # remove one (= wl prop rm)
 
-Prop vs meta: a prop is one static value; a **meta** field (goal/summary/overview/top5) is
-history-preserving — each edit appends (see `wl help meta`). `wl set` / `wl unset` route by
-key: a meta key goes to the meta store, any other key to a prop. To edit real **tags** use
+Prop vs goal/summary: a prop is one static value; a **goal** or **summary** is a reserved-tag
+log — history-preserving, each edit appends (see `wl help goal`). `wl set` / `wl unset` route by
+key: goal/summary go to the log store, any other key to a prop. To edit real **tags** use
 `wl tag` — `wl set <id> tags ...` is refused on purpose (it would make a misleading shadow
 prop, not touch the real tag field).
 

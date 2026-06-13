@@ -125,67 +125,63 @@ def _typed_logs(con, nid, tag):
         "SELECT body FROM log WHERE node_id=? AND tag=? AND deleted_at IS NULL ORDER BY id", (nid, tag))]
 
 
-class TestMetaGroup:
-    """`wl meta set/ls/rm` — the group for history-preserving typed-log meta fields
-    (goal/summary/overview/top5), distinct from props. `wl set`/`wl unset` route meta keys
-    here as a documented shortcut (key-routed, parallel to prop)."""
+class TestGoalGroup:
+    """`wl goal set/ls/rm` — the group for the history-preserving reserved-tag logs
+    (goal / summary) on any node, distinct from props. The bare `wl goal` / `wl recap` cover
+    today; `wl set`/`wl unset` route goal/summary keys here (key-routed, parallel to prop)."""
 
-    def test_meta_set_writes_typed_log(self, cli, tmp_db):
+    def test_goal_set_writes_typed_log(self, cli, tmp_db):
         cli("add", "w", "-k", "week")
-        cli("meta", "set", "1", "overview", "ship X")
-        assert _typed_logs(tmp_db.db_connect(), 1, "overview") == ["ship X"]
+        cli("goal", "set", "1", "ship X")                    # week-level goal
+        assert _typed_logs(tmp_db.db_connect(), 1, "goal") == ["ship X"]
 
-    def test_set_shortcut_equals_meta_set(self, cli, tmp_db):
+    def test_set_shortcut_equals_goal_set(self, cli, tmp_db):
         cli("add", "w", "-k", "week")
-        cli("set", "1", "overview", "via shortcut")          # key-routed shortcut
-        assert _typed_logs(tmp_db.db_connect(), 1, "overview") == ["via shortcut"]
+        cli("set", "1", "goal", "via shortcut")              # key-routed shortcut
+        assert _typed_logs(tmp_db.db_connect(), 1, "goal") == ["via shortcut"]
 
-    def test_meta_is_history_preserving(self, cli, tmp_db):
+    def test_goal_is_history_preserving(self, cli, tmp_db):
         cli("add", "d", "-k", "day")
-        cli("meta", "set", "1", "goal", "first")
-        cli("meta", "set", "1", "goal", "second")            # append, not overwrite
+        cli("goal", "set", "1", "first")
+        cli("goal", "set", "1", "second")                    # append, not overwrite
         assert _typed_logs(tmp_db.db_connect(), 1, "goal") == ["first", "second"]
         # ls shows the latest as current
-        _, out, _ = cli("meta", "ls", "1")
+        _, out, _ = cli("goal", "ls", "1")
         assert "second" in out and "first" not in out
 
-    def test_meta_ls_empty(self, cli):
-        cli("add", "t", "-k", "task")
-        _, out, _ = cli("meta", "ls", "1")
-        assert "no meta fields" in out
-
-    def test_meta_rm_clears(self, cli, tmp_db):
+    def test_goal_set_summary_flag(self, cli, tmp_db):
         cli("add", "d", "-k", "day")
-        cli("meta", "set", "1", "goal", "x")
-        cli("meta", "rm", "1", "goal")
+        cli("goal", "set", "1", "what happened", "--summary")  # backward recap, not a goal
+        con = tmp_db.db_connect()
+        assert _typed_logs(con, 1, "summary") == ["what happened"]
+        assert _typed_logs(con, 1, "goal") == []
+
+    def test_goal_ls_empty(self, cli):
+        cli("add", "t", "-k", "task")
+        _, out, _ = cli("goal", "ls", "1")
+        assert "no goal / summary" in out
+
+    def test_goal_rm_clears(self, cli, tmp_db):
+        cli("add", "d", "-k", "day")
+        cli("goal", "set", "1", "x")
+        cli("goal", "rm", "1")
         assert _typed_logs(tmp_db.db_connect(), 1, "goal") == []
 
-    def test_unset_metakey_routes_to_meta_rm(self, cli, tmp_db):
+    def test_unset_goalkey_routes_to_goal_rm(self, cli, tmp_db):
         cli("add", "d", "-k", "day")
         cli("set", "1", "goal", "x")
         cli("unset", "1", "goal")                            # key-routed: clears the typed log
         assert _typed_logs(tmp_db.db_connect(), 1, "goal") == []
 
-    def test_meta_is_not_a_prop(self, cli, tmp_db):
+    def test_goal_is_not_a_prop(self, cli, tmp_db):
         cli("add", "d", "-k", "day")
-        cli("meta", "set", "1", "goal", "g")                 # → log table
+        cli("goal", "set", "1", "g")                         # → log table
         cli("set", "1", "owner", "me")                       # → prop table
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM prop WHERE node_id=1 AND key='goal'").fetchone()[0] == 0
         assert con.execute("SELECT COUNT(*) FROM prop WHERE node_id=1 AND key='owner'").fetchone()[0] == 1
         assert _typed_logs(con, 1, "goal") == ["g"]
 
-    def test_meta_set_bad_field_rejected(self, cli):
-        # `field` is choices-constrained; argparse rejects an unknown one in parse_args
-        # (raises SystemExit before the handler — outside run_cli's output capture).
-        cli("add", "t", "-k", "task")
-        with pytest.raises(SystemExit):
-            cli("meta", "set", "1", "bogus", "x")
-
-    def test_meta_set_missing_node(self, cli):
-        _, _, err = cli("meta", "set", "999", "goal", "x")
+    def test_goal_set_missing_node(self, cli):
+        _, _, err = cli("goal", "set", "999", "x")
         assert "not found" in err
-
-    def test_bare_meta_usage(self, cli):
-        _, _, err = cli("meta")
-        assert "usage: wl meta" in err

@@ -14,7 +14,7 @@ A node has:
   • created/closed timestamps
 
 Around a node hang the other entities (each its own topic):
-  log (progress entries) · tag (labels) · prop (static fields) · meta (goal/summary/…)
+  log (progress entries) · tag (labels) · prop (static fields) · goal (goal/summary logs)
   metric (datapoints) · link (vault docs) · sched (planned days) · clock (time intervals)
 
 CRUD (the metric-style `wl node <verb>` group; add/ls/show also have top-level shortcuts):
