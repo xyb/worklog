@@ -931,7 +931,8 @@ More: `wl help agent`.""")
         help="append a one-off history log carrying an `agent_session` metric (session id) + an `agent` metric (runtime name), so `wl metric ls <id> --tag agent_session --all` recovers every session it was worked under (default on; `--no-record` for a pointer-only bind)")
     _ags.add_argument("--agent", default=None, metavar="NAME",
         help="which agent runtime this is (claude / cursor / codex / …); recorded with the session so the history shows what worked the node. Default: $WL_AGENT, else 'claude'")
-    _agsub.add_parser("ls", help="list all session→task bindings")
+    _agls = _agsub.add_parser("ls", help="list session→task bindings, most-recently-active first")
+    _agls.add_argument("--all", action="store_true", help="show every binding (default elides older ones to avoid a screen-flood)")
     _agsub.add_parser("rm", help="unbind the current session")
     _agctx = _agsub.add_parser("context", help="machine line `<id>\\t<title>` of the current session's binding (for hooks; empty if unbound)")
     _agctx.add_argument("--hook", action="store_true",

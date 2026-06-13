@@ -59,6 +59,13 @@ _PRI_STYLE = {"A": "pri_a", "B": "pri_b", "C": "pri_c"}
 _CONSOLE = None  # initialized by main() based on --color/--theme; None = plain text
 
 
+def is_plain():
+    """True when output is plain text (no rich console) — i.e. piped / NO_COLOR / --color never /
+    rich missing. Read live (the global is set in main()). Callers use it to emit FULL, untruncated
+    output in plain mode (a script/grep needs the whole value), and only abbreviate for the TTY."""
+    return _CONSOLE is None
+
+
 def _resolve_color(mode):
     if mode is None:
         mode = os.environ.get("WORKLOG_COLOR", "auto")

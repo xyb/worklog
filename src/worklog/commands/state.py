@@ -1079,6 +1079,7 @@ _AGENT_APP = "claude"                       # default agent runtime this CLI shi
 _AGENT_PREFIX = "agent_session."            # cross-app prefix: prop key is agent_session.<agent>
 _AGENT_KEY = _AGENT_PREFIX + _AGENT_APP       # default key (agent_session.claude)
 _SESSION_METRIC_TAG = "agent_session"        # bind-history metric: the session id (value_text = sid); tag string mirrors the prop namespace
+_AGENT_LS_CAP = 12                            # `wl agent ls` shows the N most-recently-active bindings by default; --all (or plain/piped) shows every one
 _AGENT_METRIC_TAG = "agent"                  # bind-history metric: the runtime name (value_text = prop-key suffix, e.g. claude)
 
 def _current_agent():
@@ -1225,27 +1226,51 @@ def cmd_agent(args, con):
         out(line)
         return
     if sub == "ls":
-        rows = _db.query(con, "prop", cols="node_id, key, value", key__like=_AGENT_PREFIX + "%", order="key, value")
+        rows = _db.query(con, "prop", cols="node_id, key, value", key__like=_AGENT_PREFIX + "%")
         if not rows:
             out(_c("(no session bindings)", "meta"))
             return
-        # pad the #id and <agent>:<sid> columns to a uniform width so the ← / · / title columns
-        # line up — node ids and agent names differ in length, which left them ragged.
+        # build items + each node's latest-activity time (max log time, else created_at), so the
+        # most-recently-worked bindings sort to the top and stale ones sink / get elided
         items = []
         for r in rows:
             node = _db.get(con, "node", r["node_id"])
             title = node["title"] if node else "(deleted)"
-            idstr = f"#{r['node_id']}"
-            seg = f"{r['key'][len(_AGENT_PREFIX):]}:{r['value'][:8]}…"
-            items.append((idstr, seg, title))
-        idw = max(len(i[0]) for i in items)       # segment text is ASCII (id/agent/hex sid) + one
-        segw = max(len(i[1]) for i in items)      # `…` (1 col), so len == display width here
-        for idstr, seg, title in items:
-            # budget the title against the real prefix width (CJK-aware) so each line is exactly
-            # one terminal line ending in … — not a fixed 50-char cut that overflows + wraps
-            prefix_plain = f"{idstr.ljust(idw)} ← {seg.ljust(segw)} · "
-            shown = _truncate_log_body(title, indent_cols=_display_width(prefix_plain), full=False)
-            out(_c(idstr.ljust(idw), "id") + " ← " + _c(seg.ljust(segw), "meta") + " · " + shown)
+            last = _db.query_one(con, "log", cols="MAX(logged_at) AS m", node_id=r["node_id"])
+            act = (last["m"] if last else None) or (node["created_at"] if node else "") or ""
+            items.append({"id": r["node_id"], "agent": r["key"][len(_AGENT_PREFIX):],
+                          "sid": r["value"], "title": title, "act": act})
+        items.sort(key=lambda x: x["act"], reverse=True)   # most-recently-active first
+        plain = render.is_plain()
+        # plain/piped or --all → show all (a script needs the lot); else elide older to avoid flood
+        show_all = plain or getattr(args, "all", False)
+        shown = items if show_all else items[:_AGENT_LS_CAP]
+        hidden = len(items) - len(shown)
+        idw = max(len(f"#{it['id']}") for it in shown)
+        agw = max(len(it["agent"]) for it in shown)
+        if plain:
+            # plain text: emit EVERYTHING in full (full sid + full title), no truncation/elision
+            for it in shown:
+                out(f"{('#' + str(it['id'])).ljust(idw)} ← {(it['agent'] + ':').ljust(agw + 1)}{it['sid']} · {it['title']}")
+            return
+        # interactive: show the full sid when it fits leaving the title room; shrink it uniformly
+        # when tight (never below 8), always reserving MIN_TITLE cols for the title
+        W = _term_width()
+        base = idw + len(" ← ") + (agw + 1) + len(" · ")
+        MIN_TITLE = 16
+        sidlen = max(len(it["sid"]) for it in shown)
+        if base + sidlen + MIN_TITLE > W:
+            sidlen = max(8, W - base - MIN_TITLE)
+        for it in shown:
+            sid = it["sid"]
+            sid_show = sid if len(sid) <= sidlen else sid[:sidlen - 1] + "…"
+            seg = f"{(it['agent'] + ':').ljust(agw + 1)}{sid_show}"
+            idstr = f"#{it['id']}".ljust(idw)
+            prefix_plain = f"{idstr} ← {seg} · "
+            title = _truncate_log_body(it["title"], indent_cols=_display_width(prefix_plain), full=False)
+            out(_c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + title)
+        if hidden > 0:
+            out(_c(f"  … +{hidden} older — wl agent ls --all", "meta"))
         return
     if sub == "rm":
         sid = _agent_need_sid()
@@ -1269,9 +1294,21 @@ def cmd_agent(args, con):
         return
     agent = row["key"][len(_AGENT_PREFIX):]
     title = (_db.get(con, "node", row["node_id"]) or {})["title"]
-    prefix_plain = f"#{row['node_id']} ← {agent}:{sid[:8]}… · "
+    idstr = f"#{row['node_id']}"
+    if render.is_plain():
+        out(f"{idstr} ← {agent}:{sid} · {title}")    # plain: full sid + full title, no truncation
+        return
+    # interactive: full sid when it fits leaving the title room; shrink uniformly when tight
+    base = len(idstr) + len(" ← ") + len(agent) + 1 + len(" · ")
+    MIN_TITLE = 16
+    sidlen = len(sid)
+    if base + sidlen + MIN_TITLE > _term_width():
+        sidlen = max(8, _term_width() - base - MIN_TITLE)
+    sid_show = sid if len(sid) <= sidlen else sid[:sidlen - 1] + "…"
+    seg = f"{agent}:{sid_show}"
+    prefix_plain = f"{idstr} ← {seg} · "
     shown = _truncate_log_body(title, indent_cols=_display_width(prefix_plain), full=False)
-    out(_c(f"#{row['node_id']}", "id") + " ← " + _c(f"{agent}:{sid[:8]}…", "meta") + " · " + shown)
+    out(_c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + shown)
 
 
 # --- clock entity group: ls / edit / rm (create = start/stop/spent) ---
