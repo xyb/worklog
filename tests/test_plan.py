@@ -110,11 +110,21 @@ class TestGoalIdHint:
     def test_no_hint_when_all_structured(self, cli):
         cli("add", "a", "-k", "task")          # #1
         _, out, _ = cli("goal", "ship #1", "1")
-        assert "💡" not in out
+        assert "💡" not in out                 # goal already has its target → silent
 
-    def test_hint_skips_pr_refs_and_dead_ids(self, cli):
-        _, out, _ = cli("goal", "merge PR#9 and ship #999")   # PR#9 glued; #999 doesn't exist
-        assert "💡" not in out
+    def test_nudge_when_no_targets(self, cli, tmp_db):
+        # a prose-only goal with no ids at all still nudges toward linking target nodes
+        _, out, _ = cli("goal", "wrap up loose ends")
+        con = tmp_db.db_connect()
+        assert "no target nodes" in out
+        assert f"wl goal set {_day_id(con)} --ids <id" in out
+
+    def test_pr_and_dead_ids_get_only_the_generic_nudge(self, cli):
+        # PR#9 (glued) and #999 (dead) aren't real targets → no concrete "set ids:" suggestion,
+        # but the goal has no targets so the generic nudge still shows
+        _, out, _ = cli("goal", "merge PR#9 and ship #999")
+        assert "set ids:" not in out           # no concrete id suggested for PR#9/#999
+        assert "no target nodes" in out         # generic nudge instead
 
     def test_hint_on_goal_set(self, cli):
         cli("add", "m", "-k", "month")         # #1

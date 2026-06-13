@@ -312,18 +312,22 @@ def _set_goal_targets(con, node_id, ids):
 
 
 def _goal_id_hint(con, body, already, set_stem, full_stem):
-    """Nudge when the goal prose NAMES live nodes that aren't structured targets yet — we never
-    parse them into storage, but we offer two ready-to-run lines: `set_stem` sets the ids on the
-    goal just written (whole set, no re-typing), `full_stem` is the one-shot form to use from the
-    start next time. Both get the ids appended; copy either verbatim. No-op when nothing to suggest."""
+    """After writing a goal, nudge toward structured target nodes (so every goal links to the
+    tasks it delivers). `already` is the structured ids set THIS write (empty if none).
+      • prose NAMES live ids not yet structured → offer two ready-to-run lines: `set_stem` sets
+        them on the goal now (no re-typing), `full_stem` is the one-shot form for next time.
+      • goal ended up with NO targets at all → a one-line nudge with the `--ids` command template.
+    No-op only when the goal already has structured targets."""
     ids = _mentioned_goal_ids(con, body, already)
-    if not ids:
-        return
-    shown = " ".join(f"#{i}" for i in ids)
-    tail = " ".join(str(i) for i in ids)
-    out(_c(f"  💡 {shown} in the text aren't structured targets yet:", "meta"))
-    out(f"     set ids:   {set_stem} {tail}")
-    out(f"     next time: {full_stem} {tail}")
+    if ids:
+        shown = " ".join(f"#{i}" for i in ids)
+        tail = " ".join(str(i) for i in ids)
+        out(_c(f"  💡 {shown} in the text aren't structured targets yet:", "meta"))
+        out(f"     set ids:   {set_stem} {tail}")
+        out(f"     next time: {full_stem} {tail}")
+    elif not already:
+        out(_c(f"  💡 no target nodes — link the goal to the tasks it delivers "
+               f"(priority order): {set_stem} <id…>", "meta"))
 
 
 def cmd_goal(args, con):

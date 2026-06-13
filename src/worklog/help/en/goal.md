@@ -25,7 +25,8 @@ them and the goal is plain free text. Already wrote a goal and forgot the ids?
 
 If a goal's text *names* live node ids (`#42`) that aren't structured targets yet, the success
 line prints a copy-paste hint with both forms: `--ids` them onto the current goal now, or the
-one-shot `wl goal "..." 42` for next time.
+one-shot `wl goal "..." 42` for next time. If a goal ends up with **no** target nodes at all, it
+nudges you to link some — `wl goal set <node> --ids <id…>` — so every goal points at its tasks.
 
 **Achievement tracking**: if the goal text names task ids (`#12`, or `WL#12`), `wl day` resolves
 them and appends ` [done/total]` with a status emoji — `✅` all done, `🟡` partial, `⬜` none.
