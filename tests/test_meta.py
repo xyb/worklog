@@ -1,4 +1,4 @@
-"""Tests for meta (extracted from the original test_wl.py monolith)."""
+"""Tests for goal / recap shortcuts + the goal group (extracted from the test_wl.py monolith)."""
 import sqlite3
 import pytest
 

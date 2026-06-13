@@ -50,12 +50,12 @@ worklog 刻意保持**少依赖、低抽象**：运行时只有 **stdlib + `rich
 - **kind 取值**：`lifetime / decade / year / quarter / month / week / day / area / project / task / meetlog / habit / signal`（可扩展，但加新 kind 要想清楚它在 tree / projects / summary 里怎么归类）
 - **status 只在 task / habit / meetlog 类用**；时间层级类（year/month/...）跟 project 类 status 留 NULL
 - 表：`node / tag / log / metric / clock / prop / link / sched / date_meta` + 派生 view `v_node_path`
-- **`node → log → metric` 主干**（log 为中心的核心）：一个 `node` 挂多条 `log`；一条 `log`(带 `tag`——`note`/`goal`/`summary`/`overview`/`top5`/`clock`(载体)/…，NULL = 普通笔记)下挂 0..N 条 `metric`。`metric` 是结构化数据点(`tag` = 它是什么，如 `glucose`/`pullups`/`checkin`；外加 `value_num`/`value_text`/`unit`/`note`/`at`)。**`tag` 是三处统一的分类字段**——node(多值标签集)、log(角色,单值)、metric(种类,单值);同一个词、不同范围、SQL 不混。metric **必须挂在一条 log 上**(`metric.log_id` NOT NULL)——所以每个数据点都有 log 载体；`CHECK` 要求有值(纯标记如打卡存 `value_num=1`)。`metric.node_id` 是反范式冗余(免 join 查某 node 的数据点，无 FK；trigger 保证它始终等于载体 log 的 node)。CRUD 入口：`wl metric add/ls/edit/rm`(`add` 不带 `--on-log` 时建载体 log；无值标记存 `value_num=1`);`wl log`/`wl add` 的 `--metric` 和 `wl import` 的 `metrics` 可内联挂数据点。habit「今天做没做」= 当天有没有 `tag=checkin` 的 metric(`wl tick`/`wl checkin` 写),不再是「那天有没有 log」。
-- **元信息 = 历史保留的 typed log**：day 的 `goal`/`summary`、week 的 `overview`、month 的 `top5` 都是 `log.tag` 化的 log(最新一条=当前值,每次改追加一条),由 `wl goal`/`wl recap`/`wl set <node> <key>` 写。(`prop` 回归只放真正静态的单值属性。)
+- **`node → log → metric` 主干**（log 为中心的核心）：一个 `node` 挂多条 `log`；一条 `log`(带 `tag`——`note`/`goal`/`summary`/`metric`(载体)/…，NULL = 普通笔记)下挂 0..N 条 `metric`。`metric` 是结构化数据点(`tag` = 它是什么，如 `glucose`/`pullups`/`checkin`，或 `goal` = 一条 goal log 按优先级排序的目标 node id；外加 `value_num`/`value_text`/`unit`/`note`/`at`)。**`tag` 是三处统一的分类字段**——node(多值标签集)、log(角色,单值)、metric(种类,单值);同一个词、不同范围、SQL 不混。metric **必须挂在一条 log 上**(`metric.log_id` NOT NULL)——所以每个数据点都有 log 载体；`CHECK` 要求有值(纯标记如打卡存 `value_num=1`)。`metric.node_id` 是反范式冗余(免 join 查某 node 的数据点，无 FK；trigger 保证它始终等于载体 log 的 node)。CRUD 入口：`wl metric add/ls/edit/rm`(`add` 不带 `--on-log` 时建载体 log；无值标记存 `value_num=1`);`wl log`/`wl add` 的 `--metric` 和 `wl import` 的 `metrics` 可内联挂数据点。habit「今天做没做」= 当天有没有 `tag=checkin` 的 metric(`wl tick`/`wl checkin` 写),不再是「那天有没有 log」。
+- **保留 tag 的 log = 历史保留**：`goal`(前瞻,任意时间层级)和 `summary`(后顾日终)都是 `log.tag` 化的 log(最新一条=当前值,每次改追加一条),有自己的 `wl goal set/ls/rm <node>` 组(`--summary` 改写 summary),也由 bare `wl goal`/`wl recap`(今日自动)和 key-route 的 `wl set <node> goal|summary` 写。goal **每个层级同一个 `goal` tag**——node 的 kind(day/week/month/year)就是层级;旧的 week `overview`、month `top5` 已并入 goal(迁移 0010)。一条 goal 可带结构化目标(写时显式给的 node id,顺序=优先级,存成 `goal` metric);`wl day`/`wl goal` 展示 goal + 编号带状态的目标列表 + `[done/total]`。(`prop` 回归只放真正静态的单值属性。)
 - **`clock` = 结构化计时**:`clock(node_id, start_at, end_at, elapsed_sec)`,由 `wl start`/`stop`/`spent`/`wait` 读写——替代旧的 `CLOCK_IN`/`CLOCK_OUT` log-body 约定;时长从 `elapsed_sec` 求和,不再从文本解析。
 - **两条并列树（都挂 lifetime 下）**（2026-05-29 起）：
   - **责任领域线**：`lifetime → area → project → task`（PARA：area 是跨时间的责任领域，project 归 area，task 归 project）
-  - **时间线**：`lifetime → year → quarter → month → week → day`（承载时间骨架 + 元信息 typed log：day 的 goal/summary、month 的 top5/goal、week 的 overview）
+  - **时间线**：`lifetime → year → quarter → month → week → day`（承载时间骨架 + 保留 tag 的 log：每个层级的 `goal`、day 的 `summary` 日终）
     - 小结(`summary` log)自带 `logged_at` = 写入时间。`wl day` 显示「(写于 …)」,若当天小结后还有普通笔记 log(`tag IS NULL`)就提示「⚠ 小结后又有 N 条变更, 建议重写 recap」。(替代旧的 `summary_at` prop。)
   - **project 不再挂 month**（旧设计曾挂月，已迁到 area）。日/月/周视图靠 **log 的 logged_at**（时间维度）跟 **kind/tag/祖先链**（领域维度）解耦：`wl day` 按 log 日期驱动、project 经祖先链解析、bucket 经 work/personal tag——所以 project 移到 area 下不影响任何按天/按项目视图
 
@@ -431,11 +431,11 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
 
 改 sched / day 推导时，`_sched_fires` / `_scheduled_node_ids` / `_node_plan` / `_sec_group` / `_render_day_group` / `cmd_day` / `cmd_logs`(--group) / `cmd_sched` 同步。
 
-## 24. 元信息 + 日期上下文（wl day 顶部）
+## 24. 目标 / 总结 + 日期上下文（wl day 顶部）
 
 2026-05-29 拍板（vault §八 4/5）：
 
-- **元信息 → 节点 prop**（不新建 note 表）：day 节点 prop `goal`（今日交付目标）/ `summary`（日终小结）/ `top5`（Top5 进度）；week 节点 prop `overview`（本周概要）。用 `wl set <id> <key> <value>` 写。`wl day` 顶部按 `> 🎯 / > 日终小结： / > Top5： / > 本周：` blockquote 渲染（读 day 节点及其父 week 节点的 prop）。
+- **wl day 顶部的 goal / summary**（2026-05-29 起为 prop，后演进，**以下为现状**）：`goal`（前瞻，任意层级）和 `summary`（日终）是节点上保留 tag 的 **log**（历史保留，非 prop）——day 写 goal/summary，week/month 写 goal（同一个 `goal` tag，靠 node kind 区分层级；旧的 `overview`/`top5` 已并入 goal）。`wl goal`/`wl recap`/`wl goal set <node>` 写，goal 可带结构化目标 node id（`goal` metric，顺序=优先级）。`wl day` 顶部按 `> 🎯 / > 📝 Recap / > 📅 This week / > ⭐ This month` blockquote 渲染 + 编号带状态的目标列表 + `[done/total]`。
 - **日期上下文 → 专门 `date_meta` 表**：`(date PRIMARY KEY, label)`。`label` = 节日/休假/调休/节气（劳动节假期 / 调休上班 / 小满 / 年假 …）。**不依赖 day 节点**，可全年预导入假期表 + 自定义。
   - **周X 自动算**（`_cn_weekday`，不存储），`date_meta` 只存非自动信息。
   - `wl day` 头部 = `<date> <周X>[ · <label>]`（`_date_label` 查表）。day 节点标题统一存**纯日期** `YYYY-MM-DD`（周X/节日不进标题，避免与自动算/查表重复）。

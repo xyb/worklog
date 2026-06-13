@@ -272,7 +272,7 @@ class TestDayNature:
 
 
 class TestDayMetaMarkersAndGoalProgress:
-    """distinct meta markers · continued blockquote · goal achievement [done/total]."""
+    """distinct header markers · continued blockquote · goal achievement [done/total]."""
 
     def _day(self, cli, **props):
         from datetime import date

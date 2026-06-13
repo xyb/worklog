@@ -101,14 +101,21 @@ wl checkin --per-item                 # alt: one-by-one y/n/note/q prompt
 wl checkin --all-kinds                # not limited to habit kind
 ```
 
-## Meta fields keep history (typed logs, not props)
+## Goal / summary keep history (reserved-tag logs, not props)
 
-The four meta fields (goal/summary/overview/top5) have their own group `wl meta set/ls/rm <node>
-<field>`, stored as `log.tag` logs — each write appends, the latest is current, so edit history
-is kept (`prop` is a separate store, only for truly-static single-value attributes). `wl goal` /
-`wl recap` are today-auto shortcuts; `wl set <node> <field>` / `wl unset <node> <field>` are
-key-routed shortcuts onto `wl meta set` / `wl meta rm` (so `wl set` fronts both `prop set` and
-`meta set` by key, like `wl add` is `node add`).
+Two reserved-tag logs — `goal` (forward, any time level) and `summary` (backward recap) — have
+their own group `wl goal set/ls/rm <node>` (`--summary` targets the summary), stored as `log.tag`
+logs: each write appends, the latest is current, so edit history is kept (`prop` is a separate
+store, only for truly-static single-value attributes). A goal is the **same `goal` tag at every
+level** — the node's kind (day/week/month/year) is the level (the former `overview`/`top5` are
+gone, folded into `goal`; migration 0010). Bare `wl goal` / `wl recap` are today-auto shortcuts;
+`wl set <node> goal|summary` / `wl unset` are key-routed onto `wl goal set` / `wl goal rm` (so
+`wl set` fronts both `prop set` and `goal set` by key, like `wl add` is `node add`).
+
+**Structured goal targets**: a goal can name the node ids it delivers — supplied explicitly,
+trailing the text, order = priority — stored as `goal` metrics (`wl goal "ship X" 12 34`). Set
+them on an existing goal with `wl goal set <node> --ids 12 34`. `wl day` / `wl goal` / `wl goal ls`
+render the goal + its numbered, status-marked targets + a `[done/total]` tag computed from them.
 
 ## Scheduling & recurrence rules (`--recur`)
 
@@ -156,7 +163,7 @@ wl show 42 -o json | jq .status       # full node + relations (one object; array
 wl ls -p A -o json | jq '.[].title'   # array of node summaries (filters apply, no 20-cap)
 wl logs --id 42 -o json               # array of that node's log rows
 wl projects -o json | jq '.[].counts' # projects + per-project done/doing/pending/total
-wl day -o json | jq '.meta.goal_progress'  # day meta + tasks-with-logs + clock
+wl day -o json | jq '.goal_progress, .goal_targets'  # goal+targets flattened; + tasks-with-logs + clock
 wl tree --root 45 -o json             # nested structural subtree
 wl summary --week 2026-W22 -o json | jq .totals   # window totals + done/pending
 ```

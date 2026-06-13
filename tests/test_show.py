@@ -24,7 +24,7 @@ class TestShow:
         assert "timeline / changes" in out  # logs upgraded to timeline
 
     def test_show_timeline_marks_log_tag(self, cli):
-        # a tagged log (meta field goal/summary/… or custom) shows its tag in the timeline,
+        # a tagged log (reserved-tag goal/summary or custom) shows its tag in the timeline,
         # distinguishable from a plain untagged "✎ log"
         import json
         cli("goal", "today's aim")   # writes a tag=goal log on today's day node
