@@ -247,8 +247,12 @@ def _emit_goal_targets(con, node_id, indent="     "):
     `wl day` and `wl goal` so the two render identically."""
     rows = _goal_target_rows(con, node_id)
     for n, r in enumerate(rows, 1):
-        mk = _c(_status_marker(r["status"]), _STATUS_STYLE.get(r["status"], "todo"))
-        title = _truncate_log_body(r["title"], indent_cols=len(indent) + 8, full=False)
+        mk_plain = _status_marker(r["status"])
+        # budget the title against the ACTUAL plain prefix width (indent + "N. " + marker + #id),
+        # so the truncated line fits the terminal on ONE line (no soft-wrap to a flush-left tail)
+        prefix_plain = f"{indent}{n}. {mk_plain} #{r['id']} "
+        title = _truncate_log_body(r["title"], indent_cols=_display_width(prefix_plain), full=False)
+        mk = _c(mk_plain, _STATUS_STYLE.get(r["status"], "todo"))
         out(f"{indent}{n}. " + mk + " " + _c(f"#{r['id']}", "id") + " " + title)
 
 
