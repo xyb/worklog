@@ -38,10 +38,16 @@ class TestHelpDocs:
 
 class TestHelpCommand:
     def test_index_lists_topics_by_category(self, cli):
-        _, out, _ = cli("help")
+        _, out, _ = cli("help", "--all")            # the full list moved behind --all
         assert "All topics" in out
         assert "Concepts" in out and "Commands" in out and "Guides" in out
         assert "node" in out and "add" in out
+
+    def test_bare_help_is_short_with_pointer(self, cli):
+        # default `wl help` is a short overview + a pointer to the full list (no topic dump)
+        _, out, _ = cli("help")
+        assert "All topics" not in out
+        assert "wl help --all" in out and "help topics" in out
 
     def test_topic_renders_with_see_also(self, cli):
         _, out, _ = cli("help", "node")
@@ -66,7 +72,7 @@ class TestHelpCommand:
     def test_index_columns_keep_a_gap(self, cli):
         # the longest topic id must not run into its description (print-completion regression)
         import re
-        _, out, _ = cli("help")
+        _, out, _ = cli("help", "--all")
         assert "print-completionshell" not in out
         # each topic row is `    <name><≥2 spaces><desc>` — the name column is padded to the
         # longest name + 2, so even print-completion keeps a gap before its description.

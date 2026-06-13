@@ -17,6 +17,7 @@ How help works here:
   • `wl <command> -h`   quick reference for one command (usage + a few examples).
   • `wl help <topic>`   this browser — a fuller explanation of a command, concept,
     parameter, or workflow, with "See also" links to related topics.
+  • `wl help --all`     every topic, grouped by category.
 
-Start with `wl help para` (how to organize), `wl help planning` (goals/summaries
-rhythm), and the concept topics below.
+Start with `wl help para` (how to organize) or `wl help planning` (goals/summaries
+rhythm); `wl help --all` lists the rest.

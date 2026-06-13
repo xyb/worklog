@@ -230,11 +230,16 @@ def _render_topic(topic, meta, body, lang):
 
 
 def _render_index(lang):
+    """Render just the index doc body — the short `wl help` overview (intro + most-used).
+    The full topic list lives behind `wl help --all` so the default output stays friendly."""
     p = _topic_path("index", lang)
     if p:
         meta, body = _parse_doc(p.read_text(encoding="utf-8"))
         _render_topic("index", meta, body, lang)
-        out("")
+
+
+def _render_all_topics(lang):
+    """The full categorized topic list (`wl help --all`)."""
     out(_c("All topics", "header") + _c("  (wl help <topic>)", "meta"))
     topics = _list_topics(lang)
     by_cat = {}
@@ -476,8 +481,17 @@ def cmd_help(args, con=None):
     """`wl help [topic]` — render the index, or one topic + its see-also links (DESIGN §25)."""
     lang = _resolve_lang(args)
     topic = getattr(args, "topic", None)
+    if getattr(args, "all", False) and not topic:
+        _render_index(lang)
+        out("")
+        _render_all_topics(lang)
+        return
     if not topic:
         _render_index(lang)
+        n = len(_list_topics(lang))
+        out("")
+        out(_c(f"  {n} help topics — ", "meta") + _c("wl help --all", "kind")
+            + _c(" lists them all · ", "meta") + _c("wl help <topic>", "kind") + _c(" reads one", "meta"))
         return
     topic = topic.strip().lower()
     p = _topic_path(topic, lang)

@@ -1600,18 +1600,20 @@ More: `wl help logs` (vs `wl day` structured view / `wl show <id>` single-node t
 
     hp = sub.add_parser("help",
         help="info-style topic browser: wl help lists topics, wl help <topic> reads one",
-        description="Browse the bundled help topics — fuller explanations of commands, concepts, parameters, and workflows than `<command> -h` gives, with 'See also' links. `wl help` shows the index; `wl help <topic>` reads one topic.",
+        description="Browse the bundled help topics — fuller explanations of commands, concepts, parameters, and workflows than `<command> -h` gives, with 'See also' links. `wl help` shows a short overview; `wl help --all` lists every topic by category; `wl help <topic>` reads one topic.",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Examples:
-  wl help                 # the index + all topics by category
+  wl help                 # short overview + pointer to the full list
+  wl help --all           # every topic, grouped by category
   wl help para            # how to organize (areas / projects / tasks)
   wl help planning        # goals / summaries / scheduling rhythm
   wl help status          # what the [ ] / [/] / [x] markers mean
 
 Topics live as Markdown docs in the repo (i18n-ready); `wl <command> -h` stays the quick
 per-command reference, `wl help <topic>` is the fuller teaching layer.""")
-    hp.add_argument("topic", nargs="?", help="topic name (omit to list all; e.g. node / add / planning)")
+    hp.add_argument("topic", nargs="?", help="topic name (omit for the overview; e.g. node / add / planning)")
+    hp.add_argument("--all", action="store_true", help="list every help topic by category (the full index)")
     hp.add_argument("--lang", help="help language (default: $WORKLOG_LANG / $LANG, falling back to en)")
 
     pc = sub.add_parser("print-completion",
