@@ -84,6 +84,23 @@ class TestGoalTargets:
                            "AND deleted_at IS NULL").fetchall()
         assert _day_id(con) in [r["node_id"] for r in rows]
 
+    def test_targets_surface_consistently(self, cli):
+        # the structured targets must show in wl goal, wl day (text), and -o json — aligned
+        import json
+        cli("add", "a", "-k", "task")          # #1
+        cli("add", "b", "-k", "task")          # #2
+        cli("done", "1")                        # #1 settled
+        cli("goal", "ship A and B", "1", "2")
+        _, g, _ = cli("goal")                   # wl goal read
+        assert "[1/2]" in g and "[x] " in g and "#1" in g and "#2" in g
+        _, d, _ = cli("day")                    # wl day text
+        assert "1. " in d and "2. " in d and "#1" in d and "#2" in d
+        _, j, _ = cli("day", "-o", "json")      # json
+        dd = json.loads(j)
+        assert [t["id"] for t in dd["goal_targets"]] == [1, 2]
+        assert dd["goal_targets"][0]["status"] == "DONE"
+        assert dd["goal_progress"] == {"done": 1, "total": 2}
+
 
 class TestGoalIdHint:
     """We never parse #ids from the prose into storage, but if the goal text NAMES live nodes that

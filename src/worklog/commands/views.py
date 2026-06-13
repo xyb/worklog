@@ -44,6 +44,7 @@ from ..queries import (
     nodes_with_tag,
     _has_checkin,
     _latest_typed_log,
+    _log_goals,
     _insert_log,
     _node_bucket,
     _node_clock_min,
@@ -195,9 +196,25 @@ def _header_blockquote(body, marker, indent="  "):
     return "\n".join(lines)
 
 
-def _goal_counts(con, body):
-    """(done, total) from the `#<id>` / `WL#<id>` task refs a goal names — total = distinct
-    resolvable ids, done = those settled (DONE/CANCELED). (0, 0) if the goal names no tasks."""
+def _goal_target_rows(con, node_id):
+    """The resolved structured target nodes of a node's current goal — [{id,title,status}] in
+    priority order (the `goal` metrics on its latest goal log). [] if the goal has no targets.
+    The single source for showing a goal's targets across `wl day` / `wl goal` / `-o json`."""
+    rows = []
+    for i in _log_goals(con, node_id):
+        n = _db.get(con, "node", i)
+        if n:
+            rows.append({"id": n["id"], "title": n["title"], "status": n["status"] or "TODO"})
+    return rows
+
+
+def _goal_counts(con, node_id, body):
+    """(done, total) for a goal's targets — the structured `goal` metrics if present, else the
+    `#id`/`WL#id` refs named in the prose (legacy fallback). done = settled (DONE/CANCELED)."""
+    rows = _goal_target_rows(con, node_id)
+    if rows:
+        done = sum(1 for r in rows if r["status"] in ("DONE", "CANCELED"))
+        return done, len(rows)
     import re
     seen, total, done = set(), 0, 0
     for m in re.findall(r"(?:WL)?#(\d+)", body or ""):
@@ -214,15 +231,25 @@ def _goal_counts(con, body):
     return done, total
 
 
-def _goal_progress(con, body):
-    """Goal achievement as ` [done/total] <emoji>` (zero-schema: progress rides on the ids you
-    write in the goal — `wl goal "ship #12 and #13"`). "" if no tasks named.
-    ✅ all done · 🟡 partial · ⬜ none."""
-    done, total = _goal_counts(con, body)
+def _goal_progress(con, node_id, body):
+    """Goal achievement as ` [done/total] <emoji>` from its targets (structured metrics, else
+    prose #ids). "" if no targets. ✅ all done · 🟡 partial · ⬜ none."""
+    done, total = _goal_counts(con, node_id, body)
     if not total:
         return ""
     emoji = "✅" if done == total else ("⬜" if done == 0 else "🟡")
     return f" [{done}/{total}] {emoji}"
+
+
+def _emit_goal_targets(con, node_id, indent="     "):
+    """Print a goal's structured targets as a numbered, status-marked list (priority order):
+    `<indent>1. [x] #630 title`. No-op if the goal has no structured targets. Shared by
+    `wl day` and `wl goal` so the two render identically."""
+    rows = _goal_target_rows(con, node_id)
+    for n, r in enumerate(rows, 1):
+        mk = _c(_status_marker(r["status"]), _STATUS_STYLE.get(r["status"], "todo"))
+        title = _truncate_log_body(r["title"], indent_cols=len(indent) + 8, full=False)
+        out(f"{indent}{n}. " + mk + " " + _c(f"#{r['id']}", "id") + " " + title)
 
 
 def _day_goals_dict(con, day):
@@ -234,7 +261,10 @@ def _day_goals_dict(con, day):
     g = _latest_typed_log(con, day["id"], "goal")
     if g and g["body"]:
         d["goal"] = g["body"]
-        dn, tt = _goal_counts(con, g["body"])
+        targets = _goal_target_rows(con, day["id"])
+        if targets:
+            d["goal_targets"] = targets          # [{id,title,status}], priority order
+        dn, tt = _goal_counts(con, day["id"], g["body"])
         if tt:
             d["goal_progress"] = {"done": dn, "total": tt}
     s = _latest_typed_log(con, day["id"], "summary")
@@ -313,9 +343,11 @@ def cmd_day(args, con):
     if day and not is_json:
         g = _latest_typed_log(con, day["id"], "goal")
         if g and g["body"]:
-            # goal carries its own achievement [done/total] from the #ids it names
+            # goal line carries its [done/total] achievement, then its structured target nodes
+            # (numbered, status-marked) on the lines below
             out(_c(_header_blockquote(g["body"], _DAY_MARKERS["goal"]), "meta")
-                + _c(_goal_progress(con, g["body"]), "meta"))
+                + _c(_goal_progress(con, day["id"], g["body"]), "meta"))
+            _emit_goal_targets(con, day["id"])
         s = _latest_typed_log(con, day["id"], "summary")
         if s and s["body"]:
             at = s["logged_at"]
@@ -336,12 +368,16 @@ def cmd_day(args, con):
         if wk:
             wg = _latest_typed_log(con, wk["id"], "goal")
             if wg and wg["body"]:
-                out(_c(_header_blockquote(wg["body"], _DAY_MARKERS["week"]), "meta"))
+                out(_c(_header_blockquote(wg["body"], _DAY_MARKERS["week"]), "meta")
+                    + _c(_goal_progress(con, wk["id"], wg["body"]), "meta"))
+                _emit_goal_targets(con, wk["id"])
             mo = _db.query_one(con, "node", cols="id", id=wk["parent_id"], kind="month") if wk["parent_id"] else None
             if mo:
                 mg = _latest_typed_log(con, mo["id"], "goal")
                 if mg and mg["body"]:
-                    out(_c(_header_blockquote(mg["body"], _DAY_MARKERS["month"]), "meta"))
+                    out(_c(_header_blockquote(mg["body"], _DAY_MARKERS["month"]), "meta")
+                        + _c(_goal_progress(con, mo["id"], mg["body"]), "meta"))
+                    _emit_goal_targets(con, mo["id"])
 
     # an explicit --status filter (applied below via make_node_filter) must override the
     # default CANCELED hide, else `day --status CANCELED` would drop its own matches.

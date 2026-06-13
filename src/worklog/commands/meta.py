@@ -75,7 +75,8 @@ from .. import cli as _cli  # noqa: E402
 from .views import _cn_weekday, _date_label, _scheduled_node_ids
 
 from .state import _ids_list
-from .views import _WEEKDAY_ABBR, _cn_weekday, _date_label, _scheduled_node_ids
+from .views import (_WEEKDAY_ABBR, _cn_weekday, _date_label, _scheduled_node_ids,
+                    _goal_progress, _emit_goal_targets)
 
 def cmd_init(args, con):
     _cli.db_init(con)
@@ -339,7 +340,12 @@ def cmd_goal(args, con):
     text = getattr(args, "text", None)
     if not text:
         row = _latest_typed_log(con, nid, "goal")
-        out(row["body"] if row and row["body"] else _c("(no goal set for today)", "meta"))
+        if not (row and row["body"]):
+            out(_c("(no goal set for today)", "meta"))
+            return
+        # read view: goal text + [done/total] + the structured targets (same render as wl day)
+        out(row["body"] + _c(_goal_progress(con, nid, row["body"]), "meta"))
+        _emit_goal_targets(con, nid)
         return
     goals = getattr(args, "goals", None) or []
     if goals:
@@ -427,6 +433,8 @@ def cmd_goal_ls(args, con):
         if row and row["body"]:
             shown = True
             out(_c(f"  #{args.id} {field}", "id") + _c(": ", "meta") + row["body"])
+            if field == "goal":          # list the goal's structured targets, same as wl day
+                _emit_goal_targets(con, args.id, indent="       ")
     if not shown:
         out(_c(f"#{args.id} has no goal / summary", "meta"))
 
