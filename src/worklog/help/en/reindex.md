@@ -3,8 +3,9 @@ title: reindex — build the semantic search index
 category: command
 see_also: query, config
 ---
-`wl reindex` embeds every live node (title + body + logs + tags) via the configured
-embedding server and stores the vectors in a sidecar LanceDB, which `wl query` then searches.
+`wl reindex` embeds every live node — split into chunks (its head, plus one per log) — via the
+configured embedding server and stores the vectors in a sidecar LanceDB, which `wl query` then
+searches (ranking each node by its best-matching chunk).
 
   wl reindex                            # build/refresh with the configured backend
   wl reindex --model qwen3-embedding    # override the model for this run

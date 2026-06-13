@@ -11,9 +11,10 @@ share no words with it — the paraphrase matches that keyword `wl find` misses.
   wl query "性能" --threshold 0.4           # drop weak matches (cosine score < 0.4)
   wl query "vector search" -o json          # machine-readable {id,title,status,score}
 
-How it works: every node (title + body + logs + tags) is embedded into a vector by an
-OpenAI-compatible embedding server; your query is embedded the same way and the nearest
-vectors come back ranked by cosine similarity.
+How it works: each node is split into chunks (its head — title+body+tags — plus one per log)
+and embedded by an OpenAI-compatible server; your query is embedded the same way, and nodes
+are ranked by their **best-matching chunk** (cosine), so a node surfaces on its most relevant
+passage instead of a diluted whole-node average. Each hit shows that matching chunk (`↳ …`).
 
 First run `wl reindex` to build the index — `wl query` reads what it builds, and won't see
 nodes added since the last reindex until you rebuild.

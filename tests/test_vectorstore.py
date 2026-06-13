@@ -1,6 +1,8 @@
-"""Tests for the LanceDB-backed sidecar vector store.
+"""Tests for the LanceDB-backed sidecar vector store (chunk-level + max-pool).
 
-These need the 'semantic' extra (lancedb) installed — it's in the dev group.
+A node is indexed as MULTIPLE chunk rows (a head chunk + one per log); search
+scores chunks and aggregates to a node by its best (max) chunk, returning that
+chunk as the match reason. Needs the 'semantic' extra (lancedb, in the dev group).
 No network: LanceDB is embedded, each test gets its own tmp directory."""
 import sys
 import pytest
@@ -13,13 +15,14 @@ def store(tmp_path):
     return vs.connect(tmp_path / "wl.lancedb")
 
 
-def _row(nid, title, st, pr, vec, model="m", dim=2):
-    return (nid, title, st, pr, model, dim, vec)
+def _chunk(node_id, vec, *, title="t", status="TODO", priority="A",
+           text="chunk text", kind="log", model="m", dim=2):
+    return {"node_id": node_id, "title": title, "status": status, "priority": priority,
+            "model": model, "dim": dim, "vector": vec, "chunk_text": text, "chunk_kind": kind}
 
 
 class TestMissingDependency:
     def test_connect_without_lancedb_raises_with_hint(self, tmp_path, monkeypatch):
-        # simulate the extra not being installed
         monkeypatch.setitem(sys.modules, "lancedb", None)
         with pytest.raises(vs.VectorStoreError) as e:
             vs.connect(tmp_path / "x.lancedb")
@@ -27,26 +30,19 @@ class TestMissingDependency:
 
 
 class TestStore:
-    def test_upsert_then_load(self, store):
+    def test_upsert_then_load_multiple_chunks_per_node(self, store):
         vs.upsert(store, [
-            _row(1, "task one", "TODO", "A", [1.0, 0.0]),
-            _row(2, "task two", "DONE", "B", [0.0, 1.0]),
+            _chunk(1, [1.0, 0.0], text="head one", kind="head"),
+            _chunk(1, [0.0, 1.0], text="log a", kind="log"),
+            _chunk(2, [1.0, 1.0], text="head two", kind="head"),
         ])
-        rows = {r["node_id"]: r for r in vs.load(store)}
-        assert set(rows) == {1, 2}
-        assert rows[1]["title"] == "task one" and rows[1]["status"] == "TODO"
-        assert list(rows[1]["vector"]) == [1.0, 0.0]
-
-    def test_upsert_replaces_same_node(self, store):
-        vs.upsert(store, [_row(1, "v1", "TODO", "A", [1.0, 0.0])])
-        vs.upsert(store, [_row(1, "v2", "DONE", "A", [0.0, 1.0])])
         rows = vs.load(store)
-        assert len(rows) == 1
-        assert rows[0]["title"] == "v2"
-        assert list(rows[0]["vector"]) == [0.0, 1.0]
+        assert len(rows) == 3
+        n1 = [r for r in rows if r["node_id"] == 1]
+        assert {r["chunk_kind"] for r in n1} == {"head", "log"}
 
     def test_clear(self, store):
-        vs.upsert(store, [_row(1, "x", "TODO", None, [1.0, 0.0])])
+        vs.upsert(store, [_chunk(1, [1.0, 0.0])])
         vs.clear(store)
         assert vs.load(store) == []
 
@@ -54,38 +50,50 @@ class TestStore:
         assert vs.load(store) == []
 
     def test_index_model(self, store):
-        vs.upsert(store, [_row(1, "x", "TODO", None, [1.0, 0.0], model="model-a", dim=1024)])
+        vs.upsert(store, [_chunk(1, [1.0, 0.0], model="model-a", dim=1024)])
         assert vs.index_model(store) == ("model-a", 1024)
 
     def test_index_model_empty(self, store):
         assert vs.index_model(store) is None
 
 
-class TestSearch:
-    def test_ranks_by_cosine(self, store):
+class TestMaxPoolSearch:
+    def test_aggregates_to_node_by_best_chunk(self, store):
+        # node 1 has a weak head chunk + a strong log chunk aligned with the query;
+        # max-pool must score node 1 by its BEST (the log) chunk, not an average.
         vs.upsert(store, [
-            _row(1, "north", "TODO", "A", [1.0, 0.0]),
-            _row(2, "east", "TODO", "A", [0.0, 1.0]),
-            _row(3, "northish", "TODO", "A", [0.9, 0.1]),
+            _chunk(1, [0.1, 1.0], title="n1", text="off-topic head", kind="head"),
+            _chunk(1, [1.0, 0.0], title="n1", text="the matching log", kind="log"),
+            _chunk(2, [0.0, 1.0], title="n2", text="n2 head", kind="head"),
         ])
         hits = vs.search(store, [1.0, 0.0], k=2)
-        assert [h["node_id"] for h in hits] == [1, 3]
-        assert hits[0]["score"] > hits[1]["score"]
-        assert hits[0]["score"] == pytest.approx(1.0, abs=1e-4)  # identical direction
+        assert hits[0]["node_id"] == 1
+        assert hits[0]["score"] == pytest.approx(1.0, abs=1e-4)        # the log chunk, not diluted
+        assert hits[0]["chunk_text"] == "the matching log"            # best chunk = the reason
+        assert hits[0]["chunk_kind"] == "log"
 
-    def test_search_carries_metadata(self, store):
-        vs.upsert(store, [_row(7, "the title", "DOING", "B", [1.0, 0.0])])
+    def test_one_row_per_node(self, store):
+        # three chunks for node 1, one for node 2 → exactly two node hits
+        vs.upsert(store, [
+            _chunk(1, [1.0, 0.0]), _chunk(1, [0.9, 0.1]), _chunk(1, [0.8, 0.2]),
+            _chunk(2, [0.0, 1.0]),
+        ])
+        hits = vs.search(store, [1.0, 0.0], k=10)
+        assert [h["node_id"] for h in hits] == [1, 2]
+
+    def test_carries_node_metadata(self, store):
+        vs.upsert(store, [_chunk(7, [1.0, 0.0], title="the title", status="DOING", priority="B")])
         h = vs.search(store, [1.0, 0.0], k=1)[0]
         assert h["node_id"] == 7 and h["title"] == "the title"
         assert h["status"] == "DOING" and h["priority"] == "B"
 
-    def test_threshold_filters(self, store):
+    def test_threshold_filters_on_best_chunk(self, store):
         vs.upsert(store, [
-            _row(1, "aligned", "TODO", "A", [1.0, 0.0]),
-            _row(2, "orthogonal", "TODO", "A", [0.0, 1.0]),
+            _chunk(1, [1.0, 0.0]),     # cos 1.0
+            _chunk(2, [0.0, 1.0]),     # cos ~0
         ])
         hits = vs.search(store, [1.0, 0.0], k=10, threshold=0.5)
-        assert [h["node_id"] for h in hits] == [1]  # #2 (cos≈0) cut by threshold
+        assert [h["node_id"] for h in hits] == [1]
 
     def test_search_empty_store(self, store):
         assert vs.search(store, [1.0, 0.0], k=5) == []

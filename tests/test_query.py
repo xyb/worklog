@@ -58,19 +58,24 @@ class TestQueryRanking:
 
 
 class TestHitExplanation:
-    """A semantic hit must show WHY it matched: the node's content (body/logs/tags),
-    like `wl find` does — not just the bare title."""
+    """A semantic hit shows the single best-matching CHUNK as the reason — the exact
+    passage (a specific log, or the head) that earned the score — not just the title."""
 
-    def test_shows_log_and_body_context(self, cli, monkeypatch):
+    def test_shows_matched_log_chunk(self, cli, monkeypatch):
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        cli("add", "alpha task", "-k", "task")               # 1
-        cli("node", "edit", "1", "--body", "the alpha body detail")
-        cli("log", "1", "an alpha progress note")
+        cli("add", "weekly review", "-k", "task")          # title has no 'alpha'
+        cli("log", "1", "alpha specific finding")           # only this log matches
         cli("reindex")
         code, out, _ = cli("--color", "never", "query", "alpha")
-        # query word is hit-marked, so assert on the surrounding (un-marked) text
-        assert "body detail" in out                 # body shown
-        assert "progress note" in out               # log shown
+        assert "↳ log:" in out                  # the matched chunk is a log, labelled
+        assert "specific finding" in out        # its content is shown
+
+    def test_shows_matched_head_chunk(self, cli, monkeypatch):
+        monkeypatch.setattr(emb, "embed", _fake_embed)
+        cli("add", "alpha project", "-k", "task")           # title matches, no logs
+        cli("reindex")
+        code, out, _ = cli("--color", "never", "query", "alpha")
+        assert "↳ head:" in out
 
     def test_highlights_literal_overlap(self, seeded):
         seeded("reindex")
@@ -78,13 +83,13 @@ class TestHitExplanation:
         # the literal query word, where it appears, is hit-marked (plain → *…*) like find
         assert "*alpha*" in out
 
-    def test_shows_tags(self, cli, monkeypatch):
+    def test_matched_chunk_carries_tags(self, cli, monkeypatch):
         monkeypatch.setattr(emb, "embed", _fake_embed)
         cli("add", "alpha task", "-k", "task")
         cli("tag", "1", "gamma")
         cli("reindex")
         code, out, _ = cli("--color", "never", "query", "alpha")
-        assert "gamma" in out
+        assert "gamma" in out  # tags are part of the head chunk text shown as the reason
 
 
 class TestJsonOutput:

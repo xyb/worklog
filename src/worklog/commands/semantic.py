@@ -15,7 +15,7 @@ from .. import embedding as _embedding
 from .. import vectorstore as _vs
 from .. import db_table as _db
 from .. import render
-from ..render import _c, _node_line, _snippet, _hl, out
+from ..render import _c, _node_line, _snippet, out
 from ..xdg import _resolve_vec_db_path
 
 # Batch bounds for embedding: a CHARACTER budget (≈ equal work / batch, the basis for an
@@ -24,10 +24,13 @@ MAX_BATCH_CHARS = 16000
 MAX_BATCH_NODES = 64
 
 
-def _node_docs(con):
-    """One 'document' per live node = title + body + log bodies + tags — the same
-    fields `wl find` searches, concatenated so a node's whole context is embedded.
-    Returns list of (node_id, title, status, priority, text)."""
+def _node_chunks(con):
+    """Split each live node into CHUNKS for embedding (not one diluted whole-node
+    vector): a `head` chunk (title + body + tags = the node's own identity) plus one
+    `log` chunk per log entry, each prefixed with `title · tags` so a short log keeps
+    enough context to stand on its own. Search max-pools chunks back to nodes, so a
+    node surfaces on its single most relevant passage instead of an averaged blur.
+    Returns list of (node_id, title, status, priority, chunk_kind, chunk_text)."""
     nodes = con.execute(
         "SELECT id, title, body, status, priority FROM node WHERE deleted_at IS NULL ORDER BY id"
     ).fetchall()
@@ -37,16 +40,21 @@ def _node_docs(con):
     tags = {}
     for r in con.execute("SELECT node_id, tag FROM tag WHERE deleted_at IS NULL"):
         tags.setdefault(r["node_id"], []).append(r["tag"] or "")
-    docs = []
+    chunks = []
     for n in nodes:
-        parts = [n["title"] or ""]
+        title = n["title"] or ""
+        tagstr = " ".join(tags.get(n["id"], []))
+        prefix = title + (f" · {tagstr}" if tagstr else "")
+        head = [title]
         if n["body"]:
-            parts.append(n["body"])
-        parts.extend(logs.get(n["id"], []))
-        if tags.get(n["id"]):
-            parts.append(" ".join(tags[n["id"]]))
-        docs.append((n["id"], n["title"] or "", n["status"], n["priority"], "\n".join(parts)))
-    return docs
+            head.append(n["body"])
+        if tagstr:
+            head.append(tagstr)
+        chunks.append((n["id"], title, n["status"], n["priority"], "head", "\n".join(head)))
+        for body in logs.get(n["id"], []):
+            if body.strip():
+                chunks.append((n["id"], title, n["status"], n["priority"], "log", f"{prefix}\n{body}"))
+    return chunks
 
 
 def _weight(t):
@@ -114,23 +122,25 @@ def _open_store(args):
 
 
 def cmd_reindex(args, con):
-    """(Re)build the semantic index: embed every live node and replace the vector store."""
+    """(Re)build the semantic index: embed every node's chunks and replace the vector store."""
     cfg = _config.resolve_embedding_config(args)
-    docs = _node_docs(con)
-    if not docs:
+    chunks = _node_chunks(con)
+    if not chunks:
         out(_c("(nothing to index — no nodes yet)", "meta"))
         return
     db = _open_store(args)
     try:
-        vecs = _embed_with_progress([d[4] for d in docs], cfg)
+        vecs = _embed_with_progress([c[5] for c in chunks], cfg)
     except _embedding.EmbeddingError as e:
         sys.exit(f"✗ {e}")
     dim = len(vecs[0]) if vecs else 0
-    rows = [(nid, title, st, pr, cfg["model"], dim, v)
-            for (nid, title, st, pr, _txt), v in zip(docs, vecs)]
+    rows = [{"node_id": nid, "title": title, "status": st, "priority": pr,
+             "model": cfg["model"], "dim": dim, "vector": v, "chunk_text": text, "chunk_kind": kind}
+            for (nid, title, st, pr, kind, text), v in zip(chunks, vecs)]
     _vs.clear(db)
     _vs.upsert(db, rows)
-    out(_c(f"✓ indexed {len(rows)} node(s) — model {cfg['model']}, dim {dim}", "done"))
+    n_nodes = len({c[0] for c in chunks})
+    out(_c(f"✓ indexed {n_nodes} node(s) ({len(rows)} chunks) — model {cfg['model']}, dim {dim}", "done"))
 
 
 def cmd_query(args, con):
@@ -153,7 +163,8 @@ def cmd_query(args, con):
     if getattr(args, "output", "text") == "json":
         print(json.dumps([
             {"id": h["node_id"], "title": h["title"], "status": h["status"],
-             "priority": h["priority"], "score": round(h["score"], 4)}
+             "priority": h["priority"], "score": round(h["score"], 4),
+             "matched_kind": h["chunk_kind"], "matched_text": h["chunk_text"]}
             for h in hits
         ], ensure_ascii=False, indent=2))
         return
@@ -167,21 +178,8 @@ def cmd_query(args, con):
         if not n:
             continue  # vector for a node since deleted — skip (reindex will prune it)
         out(_c(f"{h['score']:.3f}", "meta") + "  " + _node_line(con, n, hl=q))
-        # show the content that was embedded (body + recent logs + tags) so the user can
-        # see WHY a node matched — a semantic hit often shares no literal word with the query,
-        # so the bare title alone is opaque. Query terms that DO appear are highlighted.
-        _explain_hit(con, n, q)
-
-
-def _explain_hit(con, n, q, max_logs=3):
-    """Print an indented body/log/tag preview under a query hit (like `wl find`'s expansion),
-    so the match is legible even when no word literally overlaps the query."""
-    if n["body"]:
-        out("    " + _c("body:", "meta") + " " + _snippet(n["body"], q))
-    logs = _db.query(con, "log", cols="body", node_id=n["id"], order="id DESC", limit=max_logs)
-    for r in reversed(logs):
-        if r["body"]:
-            out("    " + _c("log:", "meta") + " " + _snippet(r["body"], q))
-    tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=n["id"])]
-    if tags:
-        out("    " + _c("tag:", "meta") + " " + _hl(", ".join(tags), q))
+        # show the single best-matching chunk — the exact passage that earned the score,
+        # so a semantic hit is legible even when it shares no literal word with the query
+        # (the `head` chunk repeats the title/body; a `log` chunk pins which log matched).
+        if h["chunk_text"]:
+            out("    " + _c(f"↳ {h['chunk_kind']}:", "meta") + " " + _snippet(h["chunk_text"], q))
