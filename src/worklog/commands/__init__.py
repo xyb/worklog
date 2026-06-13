@@ -1,10 +1,10 @@
 """worklog command handlers and their internal helpers.
 
-Split into 5 groups by responsibility: state mutations, queries / views,
-tree / day rendering, bulk import-apply, and meta (init/config/migrate/
-checkin/sched/dateinfo/themes/goal/recap). Each group is one .py file;
-this __init__ re-exports everything so cli.py (and tests) can import
-from `worklog.commands` without knowing the internal split.
+Split by responsibility: state mutations, queries / views, tree / day rendering,
+bulk import-apply, and one file per command (group): admin (init/config/migrate/themes),
+dateinfo, goal (+ recap), alias, checkin, sched, plus the shared timenodes helpers.
+This __init__ re-exports everything so cli.py (and tests) can import from
+`worklog.commands` without knowing the internal split.
 """
 from .state import (
     cmd_add,
@@ -98,37 +98,33 @@ from .bulk import (
     _fieldop_desc,
     _apply_sub,
 )
-from .meta import (
-    cmd_init,
-    cmd_config,
-    cmd_migrate,
-    cmd_themes,
+# meta.py was split into per-command modules (2026-06-13): admin / dateinfo / goal / alias /
+# checkin / sched + the shared timenodes helpers.
+from .admin import cmd_init, cmd_config, cmd_migrate, cmd_themes
+from .dateinfo import (
     cmd_dateinfo,
     cmd_date_set,
     cmd_date_ls,
     cmd_date_rm,
     cmd_date_import,
     cmd_date_group,
+)
+from .goal import (
     cmd_goal_set,
     cmd_goal_ls,
     cmd_goal_rm,
     cmd_goal_group,
-    cmd_alias_add,
-    cmd_alias_ls,
-    cmd_alias_rm,
-    cmd_alias,
     cmd_goal,
     cmd_summary_prop,
+)
+from .alias import cmd_alias_add, cmd_alias_ls, cmd_alias_rm, cmd_alias
+from .checkin import (
     cmd_checkin,
-    cmd_sched,
-    cmd_sched_ls,
-    cmd_sched_rm,
-    cmd_sched_group,
-    _ensure_today_day,
     _checkin_collect,
     _is_interactive_tty,
     _multi_select_tty,
     _checkin_per_item,
-    _norm_rrule,
 )
+from .sched import cmd_sched, cmd_sched_ls, cmd_sched_rm, cmd_sched_group, _norm_rrule
+from .timenodes import _ensure_today_day
 from .help import cmd_help, colorize_help, topic_exists, topic_names

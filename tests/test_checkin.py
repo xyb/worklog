@@ -89,8 +89,8 @@ class TestCheckin:
         from worklog import cli as wl_mod
         # mock TTY + multi-select returns [0] (pick the 1st pending)
         from worklog import cli as wl_mod_
-        monkeypatch.setattr(wl_mod_.commands.meta, "_is_interactive_tty", lambda: True)
-        monkeypatch.setattr(wl_mod.commands.meta, "_multi_select_tty", lambda options, header: [0])
+        monkeypatch.setattr(wl_mod_.commands.checkin, "_is_interactive_tty", lambda: True)
+        monkeypatch.setattr(wl_mod.commands.checkin, "_multi_select_tty", lambda options, header: [0])
         _, out, _ = cli("checkin")
         assert "done 1/3" in out
         # 1st checked in
@@ -105,8 +105,8 @@ class TestCheckin:
         self._setup_habits(cli, 2)
         from worklog import cli as wl_mod
         from worklog import cli as wl_mod_
-        monkeypatch.setattr(wl_mod_.commands.meta, "_is_interactive_tty", lambda: True)
-        monkeypatch.setattr(wl_mod.commands.meta, "_multi_select_tty", lambda *a: None)
+        monkeypatch.setattr(wl_mod_.commands.checkin, "_is_interactive_tty", lambda: True)
+        monkeypatch.setattr(wl_mod.commands.checkin, "_multi_select_tty", lambda *a: None)
         _, out, _ = cli("checkin")
         assert "cancel" in out
         _, s1, _ = cli("show", "1")
@@ -118,7 +118,7 @@ class TestCheckin:
         inputs = iter(["y"])
         monkeypatch.setattr("builtins.input", lambda *a: next(inputs))
         from worklog import cli as wl_mod_
-        monkeypatch.setattr(wl_mod_.commands.meta, "_is_interactive_tty", lambda: True)
+        monkeypatch.setattr(wl_mod_.commands.checkin, "_is_interactive_tty", lambda: True)
         _, out, _ = cli("checkin", "--per-item")
         assert "done 1/1" in out
 
