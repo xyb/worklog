@@ -83,6 +83,15 @@ class TestHitExplanation:
         # the literal query word, where it appears, is hit-marked (plain → *…*) like find
         assert "*alpha*" in out
 
+    def test_multiword_query_highlights_each_term(self, cli, monkeypatch):
+        monkeypatch.setattr(emb, "embed", _fake_embed)
+        cli("add", "notes", "-k", "task")
+        cli("log", "1", "alpha and beta together")
+        cli("reindex")
+        code, out, _ = cli("--color", "never", "query", "alpha beta")
+        # each query term highlighted separately in the matched chunk, not the whole phrase
+        assert "*alpha*" in out and "*beta*" in out
+
     def test_matched_chunk_carries_tags(self, cli, monkeypatch):
         monkeypatch.setattr(emb, "embed", _fake_embed)
         cli("add", "alpha task", "-k", "task")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 
 from .. import config as _config
@@ -15,7 +16,7 @@ from .. import embedding as _embedding
 from .. import vectorstore as _vs
 from .. import db_table as _db
 from .. import render
-from ..render import _c, _node_line, _snippet, out
+from ..render import _c, _node_line, _snippet_terms, out
 from ..xdg import _resolve_vec_db_path
 
 # Batch bounds for embedding: a CHARACTER budget (≈ equal work / batch, the basis for an
@@ -172,6 +173,7 @@ def cmd_query(args, con):
     if not hits:
         out(_c(f"(no semantic matches for '{q}')", "meta"))
         return
+    terms = _query_terms(q)
     out(_c(f"'{q}' — {len(hits)} semantic hit(s):", "header"))
     for h in hits:
         n = _db.get(con, "node", h["node_id"])
@@ -181,5 +183,12 @@ def cmd_query(args, con):
         # show the single best-matching chunk — the exact passage that earned the score,
         # so a semantic hit is legible even when it shares no literal word with the query
         # (the `head` chunk repeats the title/body; a `log` chunk pins which log matched).
+        # Highlight per query TERM, so a multi-word query lights up the parts that appear.
         if h["chunk_text"]:
-            out("    " + _c(f"↳ {h['chunk_kind']}:", "meta") + " " + _snippet(h["chunk_text"], q))
+            out("    " + _c(f"↳ {h['chunk_kind']}:", "meta") + " " + _snippet_terms(h["chunk_text"], terms))
+
+
+def _query_terms(q):
+    """Split a query into terms for highlighting: word runs (a CJK run stays one token —
+    finer word-segmentation arrives with the jieba tokenizer when hybrid search lands)."""
+    return re.findall(r"\w+", q, re.UNICODE)

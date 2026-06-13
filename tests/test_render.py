@@ -78,6 +78,38 @@ class TestColorRendering:
         assert "\\[b]" in out  # [ inside content gets escaped
 
 
+class TestTermHighlight:
+    def test_hl_terms_marks_each_term_plain(self, tmp_db):
+        wl = tmp_db
+        wl._init_console("never", None)
+        out = wl.render._hl_terms("优化性能瓶颈", ["性能", "优化"])
+        assert "*性能*" in out and "*优化*" in out   # both terms marked, non-contiguous
+
+    def test_hl_terms_no_match_is_plain(self, tmp_db):
+        wl = tmp_db
+        wl._init_console("never", None)
+        assert wl.render._hl_terms("nothing here", ["zzz"]) == "nothing here"
+
+    def test_hl_terms_case_insensitive_styled(self, tmp_db):
+        wl = tmp_db
+        wl._init_console("always", None)
+        out = wl.render._hl_terms("Build the API", ["api"])
+        assert "[hit]" in out and "API" in out      # styled, preserves original case
+
+    def test_snippet_terms_windows_and_marks(self, tmp_db):
+        wl = tmp_db
+        wl._init_console("never", None)
+        text = "x" * 100 + " 性能 " + "y" * 100
+        out = wl.render._snippet_terms(text, ["性能"])
+        assert "*性能*" in out and out.startswith("…") and out.endswith("…")
+
+    def test_snippet_terms_no_match_truncates(self, tmp_db):
+        wl = tmp_db
+        wl._init_console("never", None)
+        out = wl.render._snippet_terms("a" * 200, ["zzz"])
+        assert out == "a" * 80 + "…"
+
+
 class TestThemes:
     EXPECTED = ["dark", "light", "mono"]   # real palettes (no "default")
 

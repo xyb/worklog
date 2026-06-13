@@ -10,6 +10,7 @@ would not follow mutations).
 from __future__ import annotations
 
 import os
+import re
 import sys
 
 try:
@@ -198,6 +199,43 @@ def _hl(text, q):
     if _CONSOLE is None:
         return pre + f"*{mid}*" + post
     return _c(pre) + _c(mid, "hit") + _c(post)
+
+
+def _hl_terms(text, terms):
+    """Mark every occurrence of any term (case-insensitive) — styled hit / plain `*…*`.
+    Unlike `_hl` (one contiguous substring), this highlights each query term separately,
+    so a multi-word / non-contiguous query (`性能 优化`, `spawn-tab skill`) still lights up
+    the parts that do appear. Longest terms win at a shared position."""
+    text = str(text)
+    terms = [t for t in terms if t]
+    if not terms:
+        return _c(text)
+    pat = re.compile("|".join(re.escape(t) for t in sorted(set(terms), key=len, reverse=True)),
+                     re.IGNORECASE)
+    mark = (lambda s: f"*{s}*") if _CONSOLE is None else (lambda s: _c(s, "hit"))
+    parts, last = [], 0
+    for m in pat.finditer(text):
+        if m.start() > last:
+            parts.append(_c(text[last:m.start()]))
+        parts.append(mark(m.group(0)))
+        last = m.end()
+    if last < len(text):
+        parts.append(_c(text[last:]))
+    return "".join(parts)
+
+
+def _snippet_terms(text, terms, ctx=30):
+    """Snippet around the earliest-matching term, with every term highlighted in the window.
+    No term matches -> first 80 chars, unhighlighted (the term-aware sibling of `_snippet`)."""
+    text = str(text)
+    low = text.lower()
+    found = [low.find(t.lower()) for t in terms if t]
+    found = [i for i in found if i >= 0]
+    if not found:
+        return _c(text[:80] + ("…" if len(text) > 80 else ""))
+    i = min(found)
+    a, b = max(0, i - ctx), min(len(text), i + ctx + 30)
+    return ("…" if a > 0 else "") + _hl_terms(text[a:b], terms) + ("…" if b < len(text) else "")
 
 
 # --- node-line rendering (extracted from cli.py) ---
