@@ -274,3 +274,12 @@ class TestRelationShow:
         # the title wrapped to a continuation line aligned under the title column
         title_lines = [l for l in out.splitlines() if set(l.strip()) == {"x"}]
         assert title_lines and all(l.startswith(" " * 18) for l in title_lines)
+
+
+class TestAddRelationParse:
+    def test_add_relation_non_numeric_id_errors(self, cli):
+        # `wl add --relation` parses the spec at creation time; a non-numeric id is rejected
+        # (distinct entry point from `wl relation <id> <type> <ids>`).
+        code, _, err = cli("add", "child", "-k", "task", "--relation", "related abc")
+        assert code != 0
+        assert "not a node id" in err

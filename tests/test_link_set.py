@@ -169,3 +169,16 @@ class TestLinkWikilinkStrip:
         f = tmp_path / "d.txt"; f.write_text("~ #1\n  +link [[Via Apply]]\n", encoding="utf-8")
         cli("apply", str(f))
         assert _links(tmp_db.db_connect(), 1) == ["Via Apply"]
+
+
+class TestUnlinkAndTagRmGuards:
+    def test_unlink_empty_doc_errors(self, cli):
+        cli("add", "task one", "-k", "task")          # node 1
+        code, _, err = cli("unlink", "1", "")
+        assert code != 0 and "cannot be empty" in err
+
+    def test_tag_rm_blank_token_removes_nothing(self, cli):
+        cli("add", "task one", "-k", "task")          # node 1
+        # `tag rm` with a token that strips to empty ('+') removes nothing → the no-op message
+        _, out, _ = cli("tag", "rm", "1", "+")
+        assert "no tags removed" in out

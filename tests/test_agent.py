@@ -335,3 +335,9 @@ class TestAgent:
         cache.write_text("stale-again")
         cli("agent", "rm")                          # unbind → invalidates again
         assert not cache.exists()
+
+
+class TestAgentLsEmpty:
+    def test_agent_ls_no_bindings(self, cli):
+        _, out, _ = cli("agent", "ls")
+        assert "no session bindings" in out

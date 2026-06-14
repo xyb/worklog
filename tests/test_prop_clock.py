@@ -220,3 +220,28 @@ class TestPropClockReviewFixes:
         assert con.execute(
             "SELECT COUNT(*) FROM log WHERE node_id=1 AND tag='goal' AND deleted_at IS NULL"
         ).fetchone()[0] == 0
+
+
+class TestPropGroupGuards:
+    """prop group error/edge paths (ls missing/empty, rm missing/empty-key, no-subcommand)."""
+    def test_prop_ls_missing_node(self, cli):
+        code, _, err = cli("prop", "ls", "99")
+        assert code != 0 and "not found" in err
+
+    def test_prop_ls_empty(self, cli):
+        cli("add", "task one", "-k", "task")
+        _, out, _ = cli("prop", "ls", "1")
+        assert "no props" in out
+
+    def test_prop_rm_missing_node(self, cli):
+        code, _, err = cli("prop", "rm", "99", "owner")
+        assert code != 0 and "not found" in err
+
+    def test_prop_rm_empty_key(self, cli):
+        cli("add", "task one", "-k", "task")
+        code, _, err = cli("prop", "rm", "1", "")
+        assert code != 0 and "key cannot be empty" in err
+
+    def test_prop_no_subcommand_shows_usage(self, cli):
+        code, _, err = cli("prop")
+        assert code != 0 and "usage" in err.lower()

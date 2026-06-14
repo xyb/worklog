@@ -294,3 +294,33 @@ class TestPropFilter:
         assert _parse_prop_cond("k") == ("exists", "k", None)
         assert _parse_prop_cond("g.") == ("prefix", "g.", None)
         assert _parse_prop_cond("g.*") == ("prefix", "g.", None)
+
+
+class TestTreeByEmptiesGroup:
+    """`wl tree --by <axis>` under a node-filter that empties a WHOLE group → that group is
+    skipped (the `continue` branches), distinct from a filter that only partly trims a group."""
+
+    def _two_directions(self, cli):
+        cli("add", "work item", "-k", "task", "-t", "work")
+        cli("add", "home item", "-k", "task", "-t", "personal")
+
+    def test_by_tag_filter_drops_nonmatching_groups(self, cli):
+        # non-generic tags (work/personal are excluded from the tag axis)
+        cli("add", "alpha item", "-k", "task", "-t", "alpha")
+        cli("add", "beta item", "-k", "task", "-t", "beta")
+        # filter to `alpha` → the whole `beta` tag group empties → skipped
+        code, out, _ = cli("tree", "--by", "tag", "-t", "alpha")
+        assert code == 0
+        assert "alpha item" in out and "beta item" not in out
+
+    def test_by_direction_filter_drops_empty_direction(self, cli):
+        self._two_directions(cli)
+        code, out, _ = cli("tree", "--by", "direction", "-t", "work")
+        assert code == 0
+        assert "home item" not in out
+
+    def test_by_project_filter(self, cli):
+        cli("add", "Proj A", "-k", "project", "-t", "work")        # 1
+        cli("add", "a task", "-k", "task", "--parent", "1", "-t", "work")  # 2
+        code, out, _ = cli("tree", "--by", "project", "-t", "work")
+        assert code == 0

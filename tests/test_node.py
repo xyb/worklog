@@ -139,3 +139,19 @@ class TestNodeReviewFixes:
         cli("node", "reparent", "2", "0")  # 0 = detach
         con = tmp_db.db_connect()
         assert con.execute("SELECT parent_id FROM node WHERE id=2").fetchone()[0] is None
+
+
+class TestNodeGuards:
+    """Missing-node / bad-input guards on the node entity group."""
+    def test_reparent_missing_node_errors(self, cli):
+        code, _, err = cli("node", "reparent", "99", "1")   # missing CHILD (vs missing-parent elsewhere)
+        assert code != 0 and "not found" in err
+
+    def test_rm_missing_node_errors(self, cli):
+        code, _, err = cli("node", "rm", "99")
+        assert code != 0 and "not found" in err
+
+    def test_edit_bad_scheduled_errors(self, cli):
+        cli("add", "task one", "-k", "task")
+        code, _, err = cli("node", "edit", "1", "--scheduled", "not-a-date")
+        assert code != 0
