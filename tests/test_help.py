@@ -528,3 +528,18 @@ class TestNewcomerHelp:
         assert "A = P0" in h                   # priority arg now explained
         assert "ship the Q3 report" in h       # simple first example, not work-jargon
 
+
+
+class TestLsHelpExamples:
+    """ls --help carries usage examples (from test_ux)"""
+    def test_ls_help_has_usage_examples(self, cli):
+        """hints moved to --help epilog (no stdout pollution)"""
+        # argparse --help calls SystemExit(0); call build_parser to inspect the epilog directly
+        from worklog import cli as wl
+        p = wl.build_parser()
+        ls_action = next(a for a in p._actions if hasattr(a, "choices") and "ls" in (a.choices or {}))
+        ls_parser = ls_action.choices["ls"]
+        assert "wl find" in (ls_parser.epilog or "")
+        assert "--parent" in ls_parser.epilog
+        assert "--unscheduled" in ls_parser.epilog
+

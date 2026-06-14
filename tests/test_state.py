@@ -193,3 +193,50 @@ class TestDoneRecurringWarning:
         cli("sched", "1", "2026-06-15")
         _, out, _ = cli("done", "1")
         assert "recurring" not in out
+
+
+class TestMultiIdAndWait:
+    """multi-id done/start + wait status (from test_ux)"""
+    def test_done_multiple_ids(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("add", "t2", "-k", "task")
+        cli("add", "t3", "-k", "task")
+        _, out, _ = cli("done", "1", "2", "3")
+        assert "#1 → DONE" in out
+        assert "#2 → DONE" in out
+        assert "#3 → DONE" in out
+
+    def test_done_single_id_still_works(self, cli):
+        """legacy usage wl done 1 still works"""
+        cli("add", "t1", "-k", "task")
+        _, out, _ = cli("done", "1")
+        assert "#1 → DONE" in out
+
+    def test_start_multiple_ids(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("add", "t2", "-k", "task")
+        _, out, _ = cli("start", "1", "2")
+        assert "#1 → DOING" in out
+        assert "#2 → DOING" in out
+
+    def test_wait_marks_status(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("wait", "1", "--note", "waiting on review")
+        _, show, _ = cli("show", "1")
+        assert "WAIT" in show
+        assert "waiting on review" in show
+
+    def test_wait_auto_clocks_out(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("start", "1")
+        cli("wait", "1")
+        _, active, _ = cli("active")
+        assert "#1" not in active  # CLOCK auto-closed; no longer in active
+
+    def test_wait_multiple_ids(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("add", "t2", "-k", "task")
+        _, out, _ = cli("wait", "1", "2")
+        assert "#1 → WAIT" in out
+        assert "#2 → WAIT" in out
+

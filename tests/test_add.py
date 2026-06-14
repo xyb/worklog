@@ -226,3 +226,35 @@ class TestAddDuplicateWarning:
         cli("add", "exact same title", "-k", "project")
         _, out, _ = cli("add", "exact same title", "-k", "project")
         assert "similar open" in out
+
+
+class TestAddSched:
+    """add --sched (schedule at creation) + validation (from test_ux)"""
+    def test_add_sched_direct(self, cli):
+        """wl add --sched today = add task and put it in the sched table at the same time"""
+        cli("add", "today task", "-k", "task", "--sched", "today")
+        _, day, _ = cli("day")
+        assert "#1" in day
+        assert "today task" in day
+        assert "planned" in day  # in the planned section, not unplanned
+
+    def test_add_sched_yesterday(self, cli):
+        cli("add", "backfill yesterday", "-k", "task", "--sched", "yesterday")
+        _, yday, _ = cli("day", "yesterday")
+        assert "backfill yesterday" in yday
+
+    def test_add_sched_invalid_date_errors(self, cli):
+        code, _, err = cli("add", "work item", "-k", "task", "--sched", "not-a-date")
+        assert code != 0
+        assert "bad date" in err or "bad date" in _ or "✗" in (err + _)
+
+    def test_add_sched_and_scheduled_conflict(self, cli):
+        code, _, err = cli("add", "t1", "-k", "task", "--sched", "today", "--scheduled", "下周")
+        assert code != 0
+
+    def test_empty_title_rejected(self, cli):
+        code, _, err = cli("add", "", "-k", "task")
+        assert code != 0
+        code2, _, err2 = cli("add", "   ", "-k", "task")
+        assert code2 != 0
+

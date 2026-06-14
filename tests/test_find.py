@@ -133,3 +133,23 @@ class TestFindLimit:
         _, out, _ = cli("find", "xyz", "--limit", "5")
         assert "15 hits" in out
         assert "showing first 5" in out
+
+
+class TestFindValidation:
+    """empty query + invalid --in/--kind rejected (from test_ux)"""
+    def test_find_empty_rejected(self, cli):
+        code, _, err = cli("find", "")
+        assert code != 0
+        code2, _, err2 = cli("find", "   ")
+        assert code2 != 0
+
+    def test_find_invalid_field_rejected(self, cli):
+        cli("add", "t1", "-k", "task")
+        code, _, _ = cli("find", "t1", "--in", "bogus")
+        assert code != 0
+
+    def test_find_invalid_kind_rejected(self, cli):
+        cli("add", "t1", "-k", "task")
+        code, _, _ = cli("find", "t1", "--kind", "bogus")
+        assert code != 0
+

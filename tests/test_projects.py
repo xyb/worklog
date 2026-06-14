@@ -126,3 +126,30 @@ class TestKindsEmpty:
     def test_kinds_on_empty_db(self, cli):
         code, out, _ = cli("kinds")
         assert code == 0 and "no nodes yet" in out
+
+
+class TestProjectsLimitWindow:
+    """--limit + --week window (from test_ux)"""
+    def test_projects_limit(self, cli):
+        for i in range(5):
+            cli("add", f"p{i}", "-k", "project")
+        _, out, _ = cli("projects", "--limit", "2")
+        assert "(showing 2/5)" in out
+
+    def test_projects_window_week(self, cli):
+        """projects uses the window parent parser; --week resolves to a since cutoff"""
+        cli("add", "old", "-k", "project")
+        cli("add", "t-old", "-k", "task", "--parent", "1")
+        cli("log", "2", "old", "--date", "2020-01-01")
+        cli("add", "new", "-k", "project")
+        cli("add", "t-new", "-k", "task", "--parent", "3")
+        cli("log", "4", "today")
+        # use the current week for wl
+        from datetime import date
+        today = date.today()
+        iso_week = today.isocalendar()
+        wk = f"{iso_week[0]}-W{iso_week[1]:02d}"
+        _, out, _ = cli("projects", "--week", wk)
+        assert "new" in out
+        assert "old" not in out
+

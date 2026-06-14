@@ -299,3 +299,121 @@ class TestLogFormatOneline:
         import pytest
         with pytest.raises(SystemExit):
             cli("--log-format", "garbage", "day")
+
+
+# --- relog by #L id + logs recent preset (from test_ux) ---
+
+class TestUnstubbedHelpers:
+    """additional unit/edge cases to improve overall coverage."""
+
+    def test_relog_log_id_with_hash_L_prefix(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "old")
+        cli("relog", "#L1", "new")
+        _, show, _ = cli("show", "1")
+        assert "new" in show
+
+    def test_logs_recent_preset(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "x")
+        _, out, _ = cli("logs", "recent")
+        from datetime import date
+        assert date.today().isoformat() in out
+
+
+# --- short flags -d/-n on log/logs/tick/recap (from test_ux) ---
+
+class TestShortFlags:
+    """single-letter short flags for high-frequency args (-d/--date, -n/--note)."""
+
+    def test_log_dash_d_date(self, cli, tmp_db):
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "backfilled", "-d", "2026-06-01")
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT logged_at FROM log WHERE node_id=1 AND deleted_at IS NULL").fetchone()
+        assert row[0].startswith("2026-06-01")
+
+    def test_logs_dash_d_date(self, cli):
+        cli("add", "t", "-k", "task")
+        cli("log", "1", "x", "-d", "2026-06-01")
+        _, out, _ = cli("logs", "-d", "2026-06-01")
+        assert "backfilled" in out or "x" in out
+
+    def test_tick_dash_n_note(self, cli, tmp_db):
+        cli("add", "h", "-k", "habit")
+        cli("tick", "1", "-n", "6 pullups")
+        con = tmp_db.db_connect()
+        bodies = [r[0] for r in con.execute("SELECT body FROM log WHERE node_id=1 AND deleted_at IS NULL")]
+        assert "6 pullups" in bodies
+
+    def test_recap_dash_d_date(self, cli):
+        cli("recap", "-d", "2026-06-01", "past recap")
+        _, out, _ = cli("recap", "-d", "2026-06-01")
+        assert "past recap" in out
+
+
+class TestLogsLimitAndIdTail:
+    """--limit cap + --id --tail (from test_ux)"""
+    def test_logs_limit(self, cli):
+        cli("add", "t1", "-k", "task")
+        for i in range(20):
+            cli("log", "1", f"log {i}")
+        _, out, _ = cli("logs", "--since", "1970-01-01", "--limit", "5")
+        assert "showing 5/20" in out
+
+    def test_logs_id_tail_single_task(self, cli):
+        """wl logs --id N --tail K: tail also takes effect in single-task mode, no need for --by-task"""
+        cli("add", "t1", "-k", "task")
+        for i in range(7):
+            cli("log", "1", f"e{i}")
+        _, out, _ = cli("logs", "--id", "1", "--tail", "3")
+        # should return last 3 + display omission hint
+        assert "e6" in out and "e5" in out and "e4" in out
+        assert "e0" not in out and "e1" not in out
+        assert "showing last 3" in out or "elided" in out
+
+
+
+class TestLogsDateWords:
+    """logs --date today/yesterday alias + week preset + by-task tail0 + case-insensitive (from test_ux)"""
+    def test_logs_date_today_alias(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "today thing")
+        _, out, _ = cli("logs", "--date", "today")
+        assert "today thing" in out
+
+    def test_logs_date_yesterday_alias(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "yesterday thing", "--date", "yesterday")
+        _, out, _ = cli("logs", "--date", "yesterday")
+        assert "yesterday thing" in out
+
+    def test_logs_preset_week(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "this week's items")
+        _, out, _ = cli("logs", "week")
+        assert "this week's items" in out
+
+    def test_logs_by_task_tail_zero(self, cli):
+        """tail 0 = show header only, no expansion (edge-case bug fix for Python lst[-0:] = full list)"""
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "a")
+        cli("log", "1", "b")
+        _, out, _ = cli("logs", "--since", "1970-01-01", "--by-task", "--tail", "0")
+        assert "#1" in out
+        assert "2 total" in out
+        assert "[" not in out.split("\n")[1] if len(out.split("\n")) > 1 else True
+        # body not expanded; strip header words then check
+        cleaned = out.replace("'t1'", "").replace("total", "").replace("last", "")
+        assert "a" not in cleaned
+        assert "b" not in cleaned
+
+    def test_date_case_insensitive(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "today thing")
+        _, out, _ = cli("day", "TODAY")
+        assert "today thing" in out
+        _, out2, _ = cli("day", "Yesterday")
+        # "Yesterday" should resolve successfully (no error even with no content)
+        assert "✗" not in out2
+

@@ -182,3 +182,19 @@ class TestUnlinkAndTagRmGuards:
         # `tag rm` with a token that strips to empty ('+') removes nothing → the no-op message
         _, out, _ = cli("tag", "rm", "1", "+")
         assert "no tags removed" in out
+
+
+class TestLinkMultiId:
+    """link to multiple ids + empty-doc guard (from test_ux)"""
+    def test_link_multiple_ids(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("add", "t2", "-k", "task")
+        _, out, _ = cli("link", "1", "2", "shared doc")
+        assert "#1" in out and "shared doc" in out
+        assert "#2" in out
+
+    def test_link_empty_doc_rejected(self, cli):
+        cli("add", "t1", "-k", "task")
+        code, _, _ = cli("link", "1", "")
+        assert code != 0
+

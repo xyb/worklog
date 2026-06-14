@@ -184,3 +184,14 @@ class TestShowJson:
         _, out, _ = cli("show", "1")
         assert "#1" in out and "plain" in out
         assert not out.lstrip().startswith("{")   # default is rich text, not json
+
+
+class TestShowMultiId:
+    """show several ids (from test_ux)"""
+    def test_show_multiple_ids(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("add", "t2", "-k", "task")
+        _, out, _ = cli("show", "1", "2")
+        assert "#1" in out and "t1" in out
+        assert "#2" in out and "t2" in out
+

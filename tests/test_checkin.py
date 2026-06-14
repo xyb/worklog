@@ -305,3 +305,33 @@ class TestCheckinCollectAlreadyLogged:
         rows, today_str, kinds = wl._checkin_collect(con, A())
         assert rows
         assert rows[0]["already"] is True
+
+
+class TestTickShortcuts:
+    """tick multi-id + empty-note fallback (from test_ux)"""
+    def test_tick_multiple_ids(self, cli):
+        cli("add", "h1", "-k", "habit")
+        cli("add", "h2", "-k", "habit")
+        cli("add", "h3", "-k", "habit")
+        _, out, _ = cli("tick", "1", "2", "3", "--note", "do all today")
+        assert "#1 checked in" in out
+        assert "#2 checked in" in out
+        assert "#3 checked in" in out
+        # each one got a log entry
+        for nid in ("1", "2", "3"):
+            _, show, _ = cli("show", nid)
+            assert "do all today" in show
+
+    def test_tick_single_id_still_works(self, cli):
+        cli("add", "h1", "-k", "habit")
+        _, out, _ = cli("tick", "1", "--note", "ok")
+        assert "#1 checked in" in out
+
+    def test_tick_empty_note_falls_back(self, cli):
+        cli("add", "t1", "-k", "task")
+        _, out, _ = cli("tick", "1", "--note", "")
+        # no error; falls back to default body
+        assert "checked in" in out
+        _, show, _ = cli("show", "1")
+        assert "✓ done" in show
+

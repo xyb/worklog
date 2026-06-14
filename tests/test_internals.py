@@ -129,3 +129,13 @@ class TestEditInEditorUnlink:
         result = wl._edit_in_editor("hello", suffix=".txt")
         assert result == "hello"
 
+
+
+class TestVersion:
+    """__version__ resolves (from test_ux)"""
+    def test_version_constant_exists(self, cli, tmp_db):
+        # __version__ exists and is non-empty
+        from worklog import cli as wl_mod
+        assert hasattr(wl_mod, "__version__")
+        assert wl_mod.__version__
+

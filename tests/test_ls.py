@@ -240,3 +240,38 @@ class TestLsJson:
         import json
         _, out, _ = cli("ls", "-o", "json")
         assert len(json.loads(out)) == 25   # machine output isn't capped at the display default 20
+
+
+class TestLsLimitTop:
+    """explicit --limit / --top (from test_ux)"""
+    def test_ls_limit(self, cli):
+        for i in range(10):
+            cli("add", f"t{i}", "-k", "task")
+        _, out, _ = cli("ls", "--limit", "3")
+        assert "showing 3/10" in out
+        # only 3 task rows expected
+        assert out.count("#1 t1") == 0 or "t0" in out
+
+    def test_ls_top_by_priority(self, cli):
+        cli("add", "low-pri", "-k", "task", "-p", "C")
+        cli("add", "high-pri-1", "-k", "task", "-p", "A")
+        cli("add", "no-pri", "-k", "task")
+        cli("add", "high-pri-2", "-k", "task", "-p", "A")
+        _, out, _ = cli("ls", "--top", "2")
+        # top sorts by priority + id; top 2 are A
+        assert "high-pri-1" in out
+        assert "high-pri-2" in out
+        assert "low-pri" not in out
+        assert "no-pri" not in out
+
+
+
+class TestLsBrief:
+    """ls -q brief drops tags (from test_ux)"""
+    def test_ls_brief_drops_tags(self, cli):
+        cli("add", "t1", "-k", "task", "-t", "important,work")
+        _, full, _ = cli("ls")
+        _, brief, _ = cli("-q", "ls")
+        assert ":important:" in full or "important" in full
+        assert ":important:" not in brief
+

@@ -395,3 +395,23 @@ class TestDayTitleWrap:
         for cont in body[1:]:
             assert cont.startswith(" " * col)       # continuations hang-indent to the title column
             assert cont.strip().startswith("x")
+
+
+class TestDayShorthand:
+    """day today/yesterday shorthand + invalid date (from test_ux)"""
+    def test_day_accepts_today_shorthand(self, cli):
+        cli("add", "work item", "-k", "task")
+        cli("log", "1", "today thing")
+        _, out, _ = cli("day", "today")
+        assert "today thing" in out
+
+    def test_day_accepts_yesterday_shorthand(self, cli):
+        cli("add", "work item", "-k", "task")
+        cli("log", "1", "yesterday thing", "--date", "yesterday")
+        _, out, _ = cli("day", "yesterday")
+        assert "yesterday thing" in out
+
+    def test_day_invalid_date_errors(self, cli):
+        code, _, err = cli("day", "not-a-date")
+        assert code != 0
+

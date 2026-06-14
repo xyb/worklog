@@ -309,3 +309,74 @@ class TestResolveAtTsEdges:
             raise OSError("no tty")
         monkeypatch.setattr(shutil, "get_terminal_size", boom)
         assert helpers._term_width() == 80
+
+
+# --- log auto-status promotion + duration display (from test_ux) ---
+
+class TestDurationAndAutoProgress:
+    """§26 duration summary + §27 auto status advancement."""
+
+    def test_log_keep_status_disables_auto(self, cli):
+        cli("add", "t1", "-k", "task")
+        _, out, _ = cli("log", "1", "progress", "--keep-status")
+        assert "TODO → DOING" not in out
+        _, show, _ = cli("show", "1")
+        # still TODO
+        assert "TODO" in show
+
+    def test_log_with_date_keeps_status(self, cli):
+        """backfilling a historical log does not change status"""
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "history", "--date", "2020-01-01")
+        _, show, _ = cli("show", "1")
+        assert "TODO" in show
+
+    def test_log_done_not_reverted(self, cli):
+        """logging after DONE does not auto-revert status"""
+        cli("add", "t1", "-k", "task")
+        cli("done", "1")
+        cli("log", "1", "addendum")
+        _, show, _ = cli("show", "1")
+        assert "DONE" in show
+
+    def test_duration_format(self, cli):
+        """log span duration shown as [Xh Ym]"""
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "a", "--time", "10:00")
+        cli("log", "1", "b", "--time", "12:30")
+        _, out, _ = cli("ls")
+        assert "[2h30m]" in out
+
+    def test_duration_under_hour(self, cli):
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "a", "--time", "10:00")
+        cli("log", "1", "b", "--time", "10:45")
+        _, out, _ = cli("ls")
+        assert "[45m]" in out
+
+    def test_duration_zero_hidden(self, cli):
+        """single log has no span; no duration shown"""
+        cli("add", "t1", "-k", "task")
+        cli("log", "1", "single")
+        _, out, _ = cli("ls")
+        assert "[" not in out.split("single")[1] if "single" in out else True
+
+
+class TestLogDateWords:
+    """log --date relative words + empty-body guard (from test_ux)"""
+    def test_log_date_accepts_yesterday(self, cli):
+        cli("add", "work item", "-k", "task")
+        cli("log", "1", "yesterday thing", "--date", "yesterday")
+        _, show, _ = cli("show", "1")
+        # "yesterday" is resolved to a concrete date and stored in logged_at
+        from datetime import date, timedelta
+        yday = (date.today() - timedelta(days=1)).isoformat()
+        assert yday in show
+
+    def test_logs_empty_body_rejected(self, cli):
+        cli("add", "t1", "-k", "task")
+        code, _, err = cli("log", "1", "")
+        assert code != 0
+        code2, _, _ = cli("log", "1", "   ")
+        assert code2 != 0
+
