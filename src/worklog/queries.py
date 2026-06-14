@@ -390,6 +390,14 @@ def _node_exists(con, node_id):
     return _db.exists(con, "node", id=node_id)
 
 
+def _require_node(con, node_id):
+    """The canonical single-id existence guard: ``sys.exit`` with ``✗ node #N not found`` if the
+    node is missing. The single-id twin of :func:`_check_ids_exist` — every command that takes one
+    node id routes its not-found check here instead of re-inlining the message."""
+    if not _node_exists(con, node_id):
+        sys.exit(f"✗ node #{node_id} not found")
+
+
 def _node_tags(con, nid):
     """Return the tag list for a node (insertion order)."""
     return [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)]
@@ -398,8 +406,7 @@ def _node_tags(con, nid):
 def _check_ids_exist(con, ids):
     """Batch existence check; sys.exit if any id is missing. Used by multi-id commands."""
     for nid in ids:
-        if not _node_exists(con, nid):
-            sys.exit(f"✗ node #{nid} not found")
+        _require_node(con, nid)
 
 
 # Core node fields (real columns / hierarchy / tags) that must NEVER become UDA props.

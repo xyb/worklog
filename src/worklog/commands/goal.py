@@ -14,6 +14,7 @@ from .. import db_table as _db
 from ..queries import (
     _check_ids_exist,
     _node_exists,
+    _require_node,
     _latest_typed_log,
     _set_typed_log,
     _RESERVED_LOG_TAGS,
@@ -156,8 +157,7 @@ def cmd_goal_set(args, con):
     """Set a goal (or summary, via --summary) on a node — the create/update verb of the goal
     group. Each write appends a reserved-tag log (history kept; latest is current). `--ids`
     instead sets the existing goal's structured targets. Also reachable as `wl set <node> <key>`."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     set_ids = getattr(args, "ids", None)
     if set_ids:                   # set the node's existing goal targets (no new log, no text)
         if args.value:
@@ -185,8 +185,7 @@ def cmd_goal_set(args, con):
 def cmd_goal_ls(args, con):
     """List a node's reserved-tag logs (current goal / summary) — the read verb of the goal group.
     Each shows its latest typed log (the current value)."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     shown = False
     for field in _RESERVED_LOG_TAGS:
         row = _latest_typed_log(con, args.id, field)
@@ -202,8 +201,7 @@ def cmd_goal_ls(args, con):
 def cmd_goal_rm(args, con):
     """Clear a node's goal (or summary, via --summary) — the delete verb of the goal group.
     Soft-deletes the field's typed logs (reversible). Also reachable as `wl unset <node> <key>`."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     field = "summary" if getattr(args, "summary", False) else "goal"
     n = _db.delete(con, "log", node_id=args.id, tag=field)
     con.commit()

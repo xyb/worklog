@@ -44,6 +44,7 @@ from ..queries import (
     _node_bucket,
     _node_clock_min,
     _node_exists,
+    _require_node,
     _node_plan,
     _node_project,
     _node_tags,
@@ -251,8 +252,7 @@ def cmd_add(args, con):
         out(_c("  if it's the same thing: wl sched <id> <day> to reschedule, or wl link / wl log it", "meta"))
 
 def cmd_log(args, con):
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     if not args.body or not args.body.strip():
         sys.exit("✗ log body cannot be empty")
     args.body = args.body.strip()
@@ -367,8 +367,7 @@ def cmd_spent(args, con):
     """
     import re as _re
     nid = args.id
-    if not _node_exists(con, nid):
-        sys.exit(f"✗ node #{nid} not found")
+    _require_node(con, nid)
     # parse duration: 1h30m / 90m / 90 (bare number = minutes)
     s = args.duration.strip().lower()
     mins = 0
@@ -487,8 +486,7 @@ def cmd_relation(args, con):
     removes from both sides. Types: split-from / split-into / related. Distinct from
     ancestors (parent/child hierarchy) — these express derivation / association (this task
     was split out of / into / relates to that one)."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     rtype = getattr(args, "rtype", None)
     if not rtype:
         _print_relations(con, args.id)
@@ -518,8 +516,7 @@ def cmd_relation(args, con):
 
 
 def cmd_set(args, con):
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     if not args.key or not args.key.strip():
         sys.exit("✗ prop key cannot be empty")
     args.key = args.key.strip()
@@ -546,8 +543,7 @@ def cmd_tag(args, con):
     A bare word adds (same as +word); no ops lists current tags. This is the direct
     editor for the real tag field — `wl set <id> tags ...` is rejected on purpose so
     it can't quietly create a shadow prop."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     ops = [o.strip() for o in (args.ops or []) if o.strip()]
     if not ops:
         tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
@@ -576,8 +572,7 @@ def cmd_tag(args, con):
 
 def cmd_tag_ls(args, con):
     """List a node's real tags — the read verb of the tag group (= bare `wl tag <id>`)."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
     out(_c(f"#{args.id} tags: " + (":".join(tags) if tags else "(none)"), "meta"))
 
@@ -586,8 +581,7 @@ def cmd_tag_rm(args, con):
     """Remove tag(s) from a node — the delete verb of the tag group (= `wl tag <id> -tag`).
     Each argument is a plain tag name (a leading + is stripped; to pass a `-tag` use the
     inline form `wl tag <id> -tag`, since argparse would read a leading - as a flag)."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     removed = []
     for raw in args.tags:
         t = raw.lstrip("+-").strip()
@@ -688,8 +682,7 @@ def cmd_unlog(args, con):
         return
 
     # --node <id>: delete latest log for that day
-    if not _node_exists(con, nid):
-        sys.exit(f"✗ node #{nid} not found")
+    _require_node(con, nid)
     date = getattr(args, "date", None)
     if date:
         try:
@@ -799,8 +792,7 @@ def cmd_log_ls(args, con):
     """List a node's log entries — the read verb of the log group. A simple node-scoped
     stream (`#L<id> [time] body`); for the full filterable / windowed view use `wl logs
     --id <id>` (presets, --since/--until, --by-task, --group, …)."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     rows = _db.query(con, "log", cols="id, logged_at, body", node_id=args.id, order="logged_at")
     if not rows:
         out(_c(f"#{args.id} has no logs", "meta"))
@@ -957,8 +949,7 @@ def cmd_node_reparent(args, con):
     not a UDA prop. 'none'/'root'/0 detaches to the top level. Refuses a cycle (the new
     parent must not be the node itself or one of its descendants)."""
     nid = args.id
-    if not _node_exists(con, nid):
-        sys.exit(f"✗ node #{nid} not found")
+    _require_node(con, nid)
     p = (args.parent or "").strip().lower()
     if p in ("none", "root", "0", ""):
         new_parent = None
@@ -984,8 +975,7 @@ def cmd_node_rm(args, con):
     """Soft-delete node(s) and their subtree (reversible tombstone) — the
     primitive single-node form of `wl apply - #id`. Clearing `deleted_at` restores."""
     for nid in args.ids:
-        if not _node_exists(con, nid):
-            sys.exit(f"✗ node #{nid} not found")
+        _require_node(con, nid)
     total = 0
     for nid in args.ids:
         # include_deleted: tombstone the FULL structural subtree, so a live node hanging
@@ -1001,8 +991,7 @@ def cmd_node_edit(args, con):
     """Edit a node's own fields: title / priority / kind / body / scheduled / deadline.
     (Status has its own verbs done/cancel/…; parent → `node reparent`; tags → `wl tag`.)"""
     nid = args.id
-    if not _node_exists(con, nid):
-        sys.exit(f"✗ node #{nid} not found")
+    _require_node(con, nid)
     changes = {}
     if args.title is not None:
         if not args.title.strip():
@@ -1032,8 +1021,7 @@ def cmd_node_edit(args, con):
 def cmd_prop_ls(args, con):
     """List a node's UDA props (key=value). The read primitive for prop (props are also
     shown inline by `wl show`)."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     rows = _db.query(con, "prop", cols="key, value", node_id=args.id, order="key")
     if not rows:
         out(_c(f"(#{args.id} has no props)", "meta"))
@@ -1045,8 +1033,7 @@ def cmd_prop_ls(args, con):
 def cmd_prop_rm(args, con):
     """Remove a UDA prop from a node (soft-delete the row). Also the `wl unset`
     shortcut. The delete counterpart of `wl set`."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     key = (args.key or "").strip()
     if not key:
         sys.exit("✗ prop key cannot be empty")
@@ -1219,8 +1206,7 @@ def cmd_agent(args, con):
         agent = (getattr(args, "agent", None) or _current_agent())
         key = _agent_key(agent)
         nid = args.id
-        if not _node_exists(con, nid):
-            sys.exit(f"✗ node #{nid} not found")
+        _require_node(con, nid)
         cur = _db.query_one(con, "prop", cols="value", node_id=nid, key=key)
         if cur and cur["value"] != sid:
             out(_c(f"⚠ #{nid} 已被 session {cur['value'][:8]}… 绑定,将被覆盖", "later"))
@@ -1342,8 +1328,7 @@ def cmd_agent(args, con):
 # --- clock entity group: ls / edit / rm (create = start/stop/spent) ---
 def cmd_clock_ls(args, con):
     """List a node's clock intervals (start → end, duration). Read primitive for clock."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     rows = _db.query(con, "clock", cols="id, start_at, end_at, elapsed_sec", node_id=args.id, order="id")
     if not rows:
         out(_c(f"(#{args.id} has no clock intervals)", "meta"))
@@ -1419,8 +1404,7 @@ def cmd_clock(args, con):
 # --- link entity group: add / ls / rm, default verb `add` ---
 def cmd_link_ls(args, con):
     """List a node's vault-doc links. Read primitive for link (also shown by `wl show`)."""
-    if not _node_exists(con, args.id):
-        sys.exit(f"✗ node #{args.id} not found")
+    _require_node(con, args.id)
     rows = _db.query(con, "link", cols="vault_doc", node_id=args.id, order="vault_doc")
     if not rows:
         out(_c(f"(#{args.id} has no links)", "meta"))

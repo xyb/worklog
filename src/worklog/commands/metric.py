@@ -24,7 +24,7 @@ import sys
 from .. import timeutil as _tu
 from .. import db_table as _db
 from ..helpers import _resolve_concrete_date, _resolve_window
-from ..queries import _node_exists, _has_checkin
+from ..queries import _require_node, _has_checkin
 from ..render import _c, out
 
 _CARRIER_TYPE = "metric"  # log.tag marking an auto-created metric carrier log
@@ -190,8 +190,7 @@ def attach_metric_specs(con, log_id, node_id, specs, *, at=None):
 def cmd_metric_add(args, con):
     """Attach a structured datapoint to a node (via a carrier log)."""
     node = args.node
-    if not _node_exists(con, node):
-        sys.exit(f"✗ node #{node} not found")
+    _require_node(con, node)
     if not (args.tag or "").strip():
         sys.exit("✗ metric tag cannot be empty")
     at = _resolve_at(args.at) if args.at else None
@@ -227,8 +226,7 @@ def cmd_metric_add(args, con):
 def cmd_metric_ls(args, con):
     """List a node's metrics (default = this week; --all for everything; --tag filter)."""
     node = args.node
-    if not _node_exists(con, node):
-        sys.exit(f"✗ node #{node} not found")
+    _require_node(con, node)
     simple = {"node_id": node}
     if args.tag:
         simple["tag"] = args.tag.strip()
