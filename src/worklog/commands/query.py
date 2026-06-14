@@ -876,87 +876,12 @@ def cmd_summary(args, con):
             if not projects_only:
                 _print_block(od, op)
 
-def cmd_logs(args, con):
-    """List all log entries in a time range. Default: last N days only, to avoid full-history flooding."""
-    from datetime import date, timedelta
-
-    # presets: wl logs today / yesterday / week / recent
-    preset = getattr(args, "preset", None)
-    if preset == "today":
-        args.date = _tu.today()
-    elif preset == "yesterday":
-        args.date = (_tu.today_date() - timedelta(days=1)).isoformat()
-    elif preset == "week":
-        # this Monday
-        today = _tu.today_date()
-        args.since = (today - timedelta(days=today.weekday())).isoformat()
-    elif preset == "recent":
-        args.days = 1
-        args.brief = True  # explicit brief
-
-    # node_id via the helper; the day-range filters below use local_day_sql (an
-    # expression), so they stay explicit
-    where, params = _db.clause(node_id=args.id) if args.id else ([], [])
-    if args.date:
-        try:
-            args.date = _resolve_concrete_date(args.date)
-        except ValueError:
-            sys.exit(f"✗ invalid --date '{args.date}' (use YYYY-MM-DD / today / yesterday)")
-        where.append(f"{_tu.local_day_sql('logged_at')} = ?")
-        params.append(args.date)
-    # default time window: when no id/date/since given, only the last N days (default 7)
-    since = args.since
-    if not args.id and not args.date and not since:
-        since = (_tu.today_date() - timedelta(days=getattr(args, "days", 7) or 7)).isoformat()
-    if since:
-        where.append(f"{_tu.local_day_sql('logged_at')} >= ?")
-        params.append(since)
-    if getattr(args, "until", None):
-        where.append(f"{_tu.local_day_sql('logged_at')} <= ?")
-        params.append(args.until)
-    where.append("log.deleted_at IS NULL")
-    where.append("node.deleted_at IS NULL")
-    grouped = getattr(args, "group", "none") == "day"
-    cols = "log.id, log.node_id, log.logged_at, log.tag, log.body, node.title"
-    if grouped:
-        cols += ", node.status, node.priority, node.kind"
-    sql = f"SELECT {cols} FROM log JOIN node ON log.node_id = node.id"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
-    sql += " ORDER BY log.logged_at"
-    rows = con.execute(sql, params).fetchall()
-    # shared --tag/--kind/--status filter: drop logs whose node doesn't match
-    nf = make_node_filter(con, args)
-    if nf:
-        rows = [r for r in rows if nf(r["node_id"])]
-
-    if getattr(args, "output", "text") == "json":
-        import json
-        print(json.dumps([
-            {"id": r["id"], "node_id": r["node_id"], "logged_at": r["logged_at"],
-             "tag": r["tag"], "body": r["body"], "node_title": r["title"]}
-            for r in rows], ensure_ascii=False, indent=2))   # empty window → [] (valid output)
-        return
-
-    if not rows:
-        # provide a useful hint explaining why empty
-        if args.id and not _node_exists(con, args.id):
-            out(_c(f"(node #{args.id} does not exist)", "meta"))
-        elif args.id:
-            out(_c(f"(node #{args.id} has no logs in this window)", "meta"))
-        else:
-            hint = []
-            if args.date:
-                hint.append(f"on {args.date}")
-            elif since:
-                hint.append(f"since {since}")
-                if args.until:
-                    hint.append(f"until {args.until}")
-            out(_c(f"(no logs {' '.join(hint)})", "meta"))
-        return
-
+def _render_logs(con, args, rows):
+    """Render fetched log rows in text mode: --group day (day-view grouping), --by-task
+    (per-task last-N), or the flat one-line-per-log list. Tail/brief/limit all resolved here."""
     brief = _is_brief(args, "no_body")
     by_task = getattr(args, "by_task", False)
+    grouped = getattr(args, "group", "none") == "day"
     # tail default 3 (aligns with wl day / wl tree); 0 = no expansion; --all-logs / large number = full expansion
     tail = _resolve_log_tail(args, brief, default_tail=3)
 
@@ -1039,6 +964,93 @@ def cmd_logs(args, con):
             out(_c(f"[{lat}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"'{title_disp}': {body}"))
 
 
+
+def _emit_logs_json(rows):
+    """`wl logs -o json`: one flat object per log row (empty window → [])."""
+    import json
+    print(json.dumps([
+        {"id": r["id"], "node_id": r["node_id"], "logged_at": r["logged_at"],
+         "tag": r["tag"], "body": r["body"], "node_title": r["title"]}
+        for r in rows], ensure_ascii=False, indent=2))   # empty window → [] (valid output)
+
+
+
+def cmd_logs(args, con):
+    """List all log entries in a time range. Default: last N days only, to avoid full-history flooding."""
+    from datetime import date, timedelta
+
+    # presets: wl logs today / yesterday / week / recent
+    preset = getattr(args, "preset", None)
+    if preset == "today":
+        args.date = _tu.today()
+    elif preset == "yesterday":
+        args.date = (_tu.today_date() - timedelta(days=1)).isoformat()
+    elif preset == "week":
+        # this Monday
+        today = _tu.today_date()
+        args.since = (today - timedelta(days=today.weekday())).isoformat()
+    elif preset == "recent":
+        args.days = 1
+        args.brief = True  # explicit brief
+
+    # node_id via the helper; the day-range filters below use local_day_sql (an
+    # expression), so they stay explicit
+    where, params = _db.clause(node_id=args.id) if args.id else ([], [])
+    if args.date:
+        try:
+            args.date = _resolve_concrete_date(args.date)
+        except ValueError:
+            sys.exit(f"✗ invalid --date '{args.date}' (use YYYY-MM-DD / today / yesterday)")
+        where.append(f"{_tu.local_day_sql('logged_at')} = ?")
+        params.append(args.date)
+    # default time window: when no id/date/since given, only the last N days (default 7)
+    since = args.since
+    if not args.id and not args.date and not since:
+        since = (_tu.today_date() - timedelta(days=getattr(args, "days", 7) or 7)).isoformat()
+    if since:
+        where.append(f"{_tu.local_day_sql('logged_at')} >= ?")
+        params.append(since)
+    if getattr(args, "until", None):
+        where.append(f"{_tu.local_day_sql('logged_at')} <= ?")
+        params.append(args.until)
+    where.append("log.deleted_at IS NULL")
+    where.append("node.deleted_at IS NULL")
+    grouped = getattr(args, "group", "none") == "day"
+    cols = "log.id, log.node_id, log.logged_at, log.tag, log.body, node.title"
+    if grouped:
+        cols += ", node.status, node.priority, node.kind"
+    sql = f"SELECT {cols} FROM log JOIN node ON log.node_id = node.id"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY log.logged_at"
+    rows = con.execute(sql, params).fetchall()
+    # shared --tag/--kind/--status filter: drop logs whose node doesn't match
+    nf = make_node_filter(con, args)
+    if nf:
+        rows = [r for r in rows if nf(r["node_id"])]
+
+    if getattr(args, "output", "text") == "json":
+        _emit_logs_json(rows)
+        return
+
+    if not rows:
+        # provide a useful hint explaining why empty
+        if args.id and not _node_exists(con, args.id):
+            out(_c(f"(node #{args.id} does not exist)", "meta"))
+        elif args.id:
+            out(_c(f"(node #{args.id} has no logs in this window)", "meta"))
+        else:
+            hint = []
+            if args.date:
+                hint.append(f"on {args.date}")
+            elif since:
+                hint.append(f"since {since}")
+                if args.until:
+                    hint.append(f"until {args.until}")
+            out(_c(f"(no logs {' '.join(hint)})", "meta"))
+        return
+
+    _render_logs(con, args, rows)
 # --- completion generator (argparse -> fish/bash/zsh) ---
 # loaded via ~/.config/<shell>/<config> | source pattern; does not write a persistent file
 
