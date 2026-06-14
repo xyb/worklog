@@ -701,10 +701,9 @@ def cmd_changes(args, con):
 
 
 
-def cmd_summary(args, con):
-    """Time-window summary: aggregate counts + sliced by direction/project + completion list (input for weekly / monthly reports)."""
-    import re as _re
-
+def _summary_buckets(con, args):
+    """Compute the [since, until] window + the node buckets a summary needs: done / added-open /
+    doing / pending lists and total clock minutes, all scoped to that local-day window."""
     since, until = _resolve_window(args)
     inc_cancel = getattr(args, "show_canceled", False)
 
@@ -734,22 +733,34 @@ def cmd_summary(args, con):
         if (n["status"] or "TODO") not in ("DONE", "CANCELED")
         and (_has_tag(con, n["id"], "planned") or n["status"] == "DOING" or inw(n["created_at"]))
     ]
+    return {"since": since, "until": until, "nodes": nodes, "done": done,
+            "added_open": added_open, "doing": doing, "clock_min": clock_min, "pending": pending}
 
-    if getattr(args, "output", "text") == "json":
-        # machine view: window + totals + by-direction done counts + flat done/pending node lists
-        # (group by parent/project from the summaries if needed; the text view does the grouping).
-        import json
-        print(json.dumps({
-            "since": since, "until": until,
-            "totals": {"done": len(done), "doing": len(doing),
-                       "added_open": len(added_open), "clock_min": clock_min},
-            "by_direction": {d: len([n for n in done if _has_tag(con, n["id"], d)])
-                             for d in ("work", "personal")},
-            "done": [_node_summary_dict(con, n) for n in done],
-            "pending": [_node_summary_dict(con, n) for n in pending],
-        }, ensure_ascii=False, indent=2))
-        return
 
+def _emit_summary_json(con, b):
+    """`wl summary -o json`: window + totals + by-direction done counts + flat done/pending lists."""
+    since, until = b["since"], b["until"]
+    nodes, done, doing = b["nodes"], b["done"], b["doing"]
+    added_open, pending, clock_min = b["added_open"], b["pending"], b["clock_min"]
+    # machine view: window + totals + by-direction done counts + flat done/pending node lists
+    # (group by parent/project from the summaries if needed; the text view does the grouping).
+    import json
+    print(json.dumps({
+        "since": since, "until": until,
+        "totals": {"done": len(done), "doing": len(doing),
+                   "added_open": len(added_open), "clock_min": clock_min},
+        "by_direction": {d: len([n for n in done if _has_tag(con, n["id"], d)])
+                         for d in ("work", "personal")},
+        "done": [_node_summary_dict(con, n) for n in done],
+        "pending": [_node_summary_dict(con, n) for n in pending],
+    }, ensure_ascii=False, indent=2))
+
+
+def _render_summary(con, args, b):
+    """Text summary: totals line, by-direction counts, then the by-day or by-project grouping."""
+    since, until = b["since"], b["until"]
+    nodes, done, doing = b["nodes"], b["done"], b["doing"]
+    added_open, pending, clock_min = b["added_open"], b["pending"], b["clock_min"]
     out(_c(f"📊 {since} ~ {until} summary", "header"))
     line = f"done {len(done)} · doing {len(doing)} · added-open {len(added_open)}"
     if clock_min:
@@ -875,6 +886,15 @@ def cmd_summary(args, con):
             out("\n▸ " + _c("(unassigned)", "header") + _c(f"  (done {len(od)} / pending {len(op)})", "meta"))
             if not projects_only:
                 _print_block(od, op)
+
+
+def cmd_summary(args, con):
+    """Time-window summary: aggregate counts + sliced by direction/project + completion list (input for weekly / monthly reports)."""
+    b = _summary_buckets(con, args)
+    if getattr(args, "output", "text") == "json":
+        _emit_summary_json(con, b)
+        return
+    _render_summary(con, args, b)
 
 def _render_logs(con, args, rows):
     """Render fetched log rows in text mode: --group day (day-view grouping), --by-task
