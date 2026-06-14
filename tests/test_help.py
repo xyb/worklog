@@ -401,3 +401,130 @@ class TestHelpRenderingMore:
         assert code == 0
         # --all is the full catalog → many more lines than the curated default
         assert out.count("\n") > 20
+
+
+class TestWelcomeBanner:
+    """Bare `wl` (no subcommand) prints a getting-started banner instead of an argparse error."""
+
+    def test_welcome_banner_content(self, tmp_db, capsys):
+        tmp_db._print_welcome()
+        out = capsys.readouterr().out
+        assert "wl " in out and "SQLite-backed worklog" in out
+        assert "Getting started:" in out
+        # the most common commands users will reach for first
+        for cmd in ("wl init", "wl add", "wl log", "wl done", "wl ls", "wl tree", "wl day"):
+            assert cmd in out, f"missing {cmd!r} in welcome banner"
+        assert "wl --help" in out  # pointer to full help
+
+    def test_bare_invocation_no_required_cmd(self, tmp_db):
+        """build_parser() must allow cmd=None (no required subparser) so main() can show the banner."""
+        parser = tmp_db.build_parser()
+        args = parser.parse_args([])
+        assert args.cmd is None
+
+
+class TestNewcomerHelp:
+    """Top-level help orientation for newcomers: clean usage (no 50-command brace blob),
+    a welcoming quickstart, and a commands-grouped-by-purpose map."""
+
+    def _top_help(self, tmp_db):
+        return tmp_db.build_parser().format_help()
+
+    def test_usage_uses_command_metavar_not_brace_blob(self, tmp_db):
+        h = self._top_help(tmp_db)
+        assert "<command> ..." in h            # clean usage
+        assert "{migrate,config,init,add" not in h   # the old brace blob is gone
+
+    def test_description_has_quickstart(self, tmp_db):
+        h = self._top_help(tmp_db)
+        assert "New here?" in h and "wl init" in h and "wl add" in h
+
+    def test_epilog_groups_commands_by_purpose(self, tmp_db):
+        h = self._top_help(tmp_db)
+        for group in ("track work", "see it", "organize", "plan/reflect", "bulk & setup"):
+            assert group in h
+
+    def test_epilog_has_concepts_glossary(self, tmp_db):
+        h = self._top_help(tmp_db)
+        assert "Concepts" in h
+        for concept in ("node", "log", "tag", "prop", "goal", "metric", "link", "sched",
+                        "clock", "status", "priority"):
+            assert concept in h
+        # the output markers a newcomer actually sees must be explained
+        for marker in ("[ ] todo", "[/] doing", "[x] done", "[-] canceled"):
+            assert marker in h
+        assert "[#A] = P0" in h            # priority rendering
+        assert "#L42" in h and "#M7" in h  # log / metric id forms (in the tips)
+
+    def test_help_mentions_para(self, tmp_db):
+        # top help introduces PARA; the per-command -h is slim and defers the detail to the
+        # `wl help para` topic (which holds the full area/project/task explanation — no loss).
+        assert "PARA" in self._top_help(tmp_db)
+        import argparse
+        from worklog.commands.help import _topic_path, FALLBACK_LANG
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        add_h = sa.choices["add"].format_help()
+        assert "wl help para" in add_h
+        para_md = _topic_path("para", FALLBACK_LANG).read_text("utf-8")
+        assert "PARA" in para_md and "ongoing responsibility" in para_md
+
+    def test_top_help_points_to_wl_help_topic_browser(self, tmp_db):
+        h = self._top_help(tmp_db)
+        assert "wl help" in h   # the --help surface points into the topic browser
+
+    def test_no_user_facing_arg_lacks_help(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        bare = []
+        for name, sub in sa.choices.items():
+            for a in sub._actions:
+                if isinstance(a, (argparse._HelpAction, argparse._SubParsersAction)):
+                    continue
+                if a.dest in ("help", "brief"):
+                    continue
+                if not a.help:
+                    bare.append(f"{name}.{a.dest}")
+        assert bare == [], f"args missing help: {bare}"
+
+    def test_day_help_explains_time_levels_as_optional(self, tmp_db):
+        # the slim day -h defers the per-level cadence to the topic but still points there;
+        # the time levels (framed as optional / self-building / not enforced) live in the
+        # `wl help day` + `wl help planning` topics — no loss from trimming the epilog.
+        import argparse
+        from worklog.commands.help import _topic_path, FALLBACK_LANG
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        h = sa.choices["day"].format_help()
+        assert "wl help planning" in h
+        day_md = _topic_path("day", FALLBACK_LANG).read_text("utf-8")
+        for lvl in ("year", "quarter", "month", "week"):
+            assert lvl in day_md
+        assert "optional" in day_md.lower() or "suggested" in day_md.lower()
+        assert "never create" in day_md.lower()              # self-building, not required
+        plan_md = _topic_path("planning", FALLBACK_LANG).read_text("utf-8")
+        assert "enforced" in plan_md.lower()                 # none of it is enforced
+
+    def test_goal_recap_help_show_planning_rhythm_and_no_stale_terms(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        goal_h = sa.choices["goal"].format_help()
+        recap_h = sa.choices["recap"].format_help()
+        assert "Planning rhythm" in goal_h
+        for level in ("morning", "evening", "weekly", "monthly"):
+            assert level in goal_h
+        # stale pre-meta-reshape terms must be gone (goal is a typed log, not a prop)
+        assert "prop 'goal'" not in goal_h
+        assert "summary_at" not in recap_h
+        assert "history-preserving" in goal_h and "history-preserving" in recap_h
+
+    def test_add_help_has_arg_help_and_relatable_example(self, tmp_db):
+        import argparse
+        p = tmp_db.build_parser()
+        sa = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
+        h = sa.choices["add"].format_help()
+        assert "A = P0" in h                   # priority arg now explained
+        assert "ship the Q3 report" in h       # simple first example, not work-jargon
+
