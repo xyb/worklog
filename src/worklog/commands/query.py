@@ -1103,10 +1103,9 @@ def _next_sched_fire(rules, start):
     return None
 
 
-def _show_one(args, con):
-    n = _db.get(con, "node", args.id)
-    if not n:
-        sys.exit(f"✗ node #{args.id} not found")
+def _show_detail(con, args, n):
+    """`wl show` static detail block: header, status, ancestors, dates, body, tags, props (+ the
+    nested relation sub-block), links, schedule, and direct children."""
     out(_c(f"#{n['id']}", "id") + " " + _c(f"[{n['kind']}]", "kind") + " " + _c(n["title"], "header"))
     if n["status"]:
         st = _c(n["status"], _STATUS_STYLE.get(n["status"], "todo"))
@@ -1167,6 +1166,10 @@ def _show_one(args, con):
         for c in children:
             out(_node_line(con, c, indent="    "))
 
+
+def _show_timeline(con, args, n):
+    """`wl show` timeline/changes: created / scheduled / closed / each log (with folded metrics) /
+    clock intervals, merged by time and tail-elided (--no-timeline skips, --all-timelines full)."""
     # timeline / changes: created / scheduled / closed / each log (including CLOCK events), merged by time
     # brief / --no-timeline -> skip entire section; --timeline-tail N -> only the latest N
     brief = _is_brief(args, "no_timeline")
@@ -1228,6 +1231,13 @@ def _show_one(args, con):
             for line in metric_rows(metrics, "           "):
                 out(line)
 
+
+def _show_one(args, con):
+    n = _db.get(con, "node", args.id)
+    if not n:
+        sys.exit(f"✗ node #{args.id} not found")
+    _show_detail(con, args, n)
+    _show_timeline(con, args, n)
 
 _LS_SORT_SQL = {
     "pri": "priority NULLS LAST, id",
