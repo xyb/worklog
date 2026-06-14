@@ -185,3 +185,10 @@ class TestGoalGroup:
     def test_goal_set_missing_node(self, cli):
         _, _, err = cli("goal", "set", "999", "x")
         assert "not found" in err
+
+
+class TestGoalReadEmpty:
+    def test_goal_read_with_none_set(self, cli):
+        # bare `wl goal` on a fresh day (auto-created) with no goal log → the empty notice
+        _, out, _ = cli("goal")
+        assert "no goal set for today" in out

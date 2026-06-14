@@ -122,7 +122,7 @@ class TestVocabLists:
         assert "(none)" in out
 
 
-class TestProjectsEmpty:
-    def test_projects_on_empty_db(self, cli):
-        code, out, _ = cli("projects")
-        assert code == 0 and "no active projects" in out
+class TestKindsEmpty:
+    def test_kinds_on_empty_db(self, cli):
+        code, out, _ = cli("kinds")
+        assert code == 0 and "no nodes yet" in out

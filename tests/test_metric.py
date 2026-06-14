@@ -676,3 +676,10 @@ class TestMetricDispatch:
         assert _metric_id_arg("#M7") == 7
         assert _metric_id_arg("M7") == 7
         assert _metric_id_arg("7") == 7
+
+
+class TestMetricEmptyTag:
+    def test_metric_add_empty_tag_rejected(self, cli):
+        cli("add", "t", "-k", "task")
+        code, _, err = cli("metric", "add", "1", "")
+        assert code != 0 and "tag cannot be empty" in err

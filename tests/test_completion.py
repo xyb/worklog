@@ -198,3 +198,12 @@ class TestAllSubparsersHaveDescription:
             if not (sub.epilog or "").strip():
                 missing.append(name)
         assert not missing, f"the following sub parsers lack epilog (§35): {missing}"
+
+
+class TestPrintCompletionBadShell:
+    def test_unsupported_shell_errors(self):
+        # argparse `choices` guards the CLI surface, so reach the function's own guard directly
+        import types
+        from worklog.completion import cmd_print_completion
+        with pytest.raises(SystemExit):
+            cmd_print_completion(types.SimpleNamespace(shell="nosuchshell"))

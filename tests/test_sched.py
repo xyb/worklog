@@ -784,3 +784,20 @@ class TestAgenda:
     def test_agenda_bad_date_rejected(self, cli):
         code, _, err = cli("agenda", "not-a-date", "2026-06-30")
         assert code != 0
+
+
+class TestSchedLsAndRruleValidation:
+    def test_sched_ls_no_schedule_message(self, cli):
+        cli("add", "t", "-k", "task")
+        _, out, _ = cli("sched", "ls", "1")
+        assert "has no schedule" in out
+
+    def test_empty_weekly_rule_rejected(self):
+        from worklog import cli as wl
+        with pytest.raises(ValueError):
+            wl._norm_rrule("weekly:")          # no weekday after the colon
+
+    def test_quarterly_day_out_of_range_rejected(self):
+        from worklog import cli as wl
+        with pytest.raises(ValueError):
+            wl._norm_rrule("quarterly:1-99")   # day 99 > 31
