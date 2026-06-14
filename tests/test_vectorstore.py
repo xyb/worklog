@@ -1,18 +1,24 @@
-"""Tests for the LanceDB-backed sidecar vector store (chunk-level + max-pool).
+"""Tests for the sidecar vector store (chunk-level + max-pool), run against BOTH
+pluggable backends — LanceDB (the 'semantic' extra) and the pure-stdlib SQLite
+fallback — so they prove behavioral parity.
 
 A node is indexed as MULTIPLE chunk rows (a head chunk + one per log); search
 scores chunks and aggregates to a node by its best (max) chunk, returning that
-chunk as the match reason. Needs the 'semantic' extra (lancedb, in the dev group).
-No network: LanceDB is embedded, each test gets its own tmp directory."""
+chunk as the match reason. No network: both backends are embedded, each test
+gets its own tmp directory. The lancedb cases skip when the extra isn't installed;
+the sqlite cases always run (stdlib only)."""
 import sys
 import pytest
 
 from worklog import vectorstore as vs
 
 
-@pytest.fixture
-def store(tmp_path):
-    return vs.connect(tmp_path / "wl.lancedb")
+@pytest.fixture(params=["lancedb", "sqlite"])
+def store(tmp_path, request):
+    """Every behavior test runs once per backend (lancedb skipped if absent)."""
+    if request.param == "lancedb":
+        pytest.importorskip("lancedb")
+    return vs.connect(tmp_path / "wl.lancedb", backend=request.param)
 
 
 def _chunk(node_id, vec, *, title="t", status="TODO", priority="A",
@@ -21,12 +27,28 @@ def _chunk(node_id, vec, *, title="t", status="TODO", priority="A",
             "model": model, "dim": dim, "vector": vec, "chunk_text": text, "chunk_kind": kind}
 
 
-class TestMissingDependency:
-    def test_connect_without_lancedb_raises_with_hint(self, tmp_path, monkeypatch):
+class TestBackendSelection:
+    def test_auto_falls_back_to_sqlite_without_lancedb(self, tmp_path, monkeypatch):
+        # Graceful degradation: no lancedb → connect() silently uses the SQLite backend
+        # (no exception), so `wl query` still works on platforms with no lancedb wheel.
+        monkeypatch.setitem(sys.modules, "lancedb", None)
+        store = vs.connect(tmp_path / "x.lancedb")
+        assert vs.backend_name(store) == "sqlite"
+
+    def test_forced_lancedb_without_it_raises_with_hint(self, tmp_path, monkeypatch):
         monkeypatch.setitem(sys.modules, "lancedb", None)
         with pytest.raises(vs.VectorStoreError) as e:
-            vs.connect(tmp_path / "x.lancedb")
+            vs.connect(tmp_path / "x.lancedb", backend="lancedb")
         assert "semantic" in str(e.value).lower()
+
+    def test_auto_prefers_lancedb_when_present(self, tmp_path):
+        pytest.importorskip("lancedb")
+        store = vs.connect(tmp_path / "x.lancedb")
+        assert vs.backend_name(store) == "lancedb"
+
+    def test_unknown_backend_raises(self, tmp_path):
+        with pytest.raises(vs.VectorStoreError):
+            vs.connect(tmp_path / "x.lancedb", backend="bogus")
 
 
 class TestStore:
@@ -47,6 +69,10 @@ class TestStore:
         assert vs.load(store) == []
 
     def test_load_empty_store(self, store):
+        assert vs.load(store) == []
+
+    def test_upsert_empty_is_noop(self, store):
+        vs.upsert(store, [])
         assert vs.load(store) == []
 
     def test_index_model(self, store):

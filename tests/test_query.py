@@ -132,9 +132,10 @@ class TestJsonOutput:
         assert [d["id"] for d in data] == [1]
 
 
-class TestLazyDependency:
-    """The 'semantic' extra (lancedb) must load lazily: users without it keep
-    full use of the core CLI, and only `query`/`reindex` prompt to install it."""
+class TestBackendFallback:
+    """The 'semantic' extra (lancedb) loads lazily AND degrades gracefully: the core
+    CLI works without it, and `query`/`reindex` fall back to the pure-stdlib SQLite
+    vector store (no install prompt — they just work, only slower) when lancedb is absent."""
 
     def test_core_command_unaffected_without_extra(self, cli, monkeypatch):
         import sys
@@ -143,22 +144,25 @@ class TestLazyDependency:
         code, out, _ = cli("ls")
         assert code == 0 and "ordinary task" in out
 
-    def test_query_without_extra_hints_install(self, cli, monkeypatch):
+    def test_reindex_without_lancedb_uses_sqlite_fallback(self, cli, monkeypatch):
         import sys
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        monkeypatch.setitem(sys.modules, "lancedb", None)
-        code, out, err = cli("query", "alpha")
-        assert code != 0
-        assert "pip install" in err and "semantic" in err
+        monkeypatch.setitem(sys.modules, "lancedb", None)  # no fast backend
+        cli("add", "alpha task", "-k", "task")
+        code, out, err = cli("reindex")
+        assert code == 0                       # succeeds, no install prompt
+        assert "1" in out                      # indexed the node
+        assert "sqlite" in (out + err).lower() # notes which fallback backend it used
 
-    def test_reindex_without_extra_hints_install(self, cli, monkeypatch):
+    def test_query_without_lancedb_uses_sqlite_fallback(self, cli, monkeypatch):
         import sys
         monkeypatch.setattr(emb, "embed", _fake_embed)
         monkeypatch.setitem(sys.modules, "lancedb", None)
         cli("add", "alpha task", "-k", "task")
-        code, out, err = cli("reindex")
-        assert code != 0
-        assert "pip install" in err and "semantic" in err
+        cli("reindex")
+        code, out, _ = cli("--color", "never", "query", "alpha")
+        assert code == 0
+        assert "#1 " in out                    # the node is found via the SQLite backend
 
 
 class TestSegment:

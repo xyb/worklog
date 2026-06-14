@@ -40,6 +40,10 @@
 - **状态机** —— TODO / DOING / LATER / WAIT / DONE / DEFERRED / CANCELED。
 - **日 / 周 / 月视图** —— `wl day` / `tree` / `summary` 重建画面 + 统计。
 - **全文搜索** —— `wl find`,命中高亮。
+- **语义 + 混合检索** —— `wl query`:按语义(embedding)排序,再和关键词匹配(RRF)融合,改写过的说法和精确的名字都能浮出来;走任意 OpenAI 兼容的 embedding 服务。向量存在 LanceDB(可选 `semantic` extra),没有 LanceDB wheel 的平台自动降级到纯 Python 的 SQLite 后端 —— 见[语义检索后端](#语义检索后端)。
+- **任务关系** —— `wl relation` 给任务建关系(`split-from` / `split-into` / `related`),独立于父子树。
+- **机器可读输出** —— `show` / `ls` / `logs` / `day` / `tree` / `summary` / `projects` 上加 `-o json`,给脚本和 AI 用。
+- **Agent session 绑定** —— `wl agent` 把一个 AI session 绑到任务上(status line / hook 可以显示出来)。
 - **Vault 关联** —— `wl link` 到 Obsidian 文档(`[[wikilink]]`)。
 - **批量 import / apply** —— 一个 JSON 或 wl-diff 导入一整天。
 - **AI 友好输出** —— `-q` brief、捕获时纯文本、TTY 上配色、shell 补全。
@@ -117,6 +121,23 @@ wl --theme light summary --week ...  # 手动指定浅色背景主题
 - 搜索命中(含标题里的命中)高亮: styled 用背景色,纯文本用半角 `*…*` 标出
 - env 兜底: `$WORKLOG_COLOR` / `$WORKLOG_THEME` / `$NO_COLOR`
 - rich 是可选依赖,没装也能跑(纯文本)
+
+## 语义检索后端
+
+`wl query` / `wl reindex` 通过任意 OpenAI 兼容服务做 embedding(标准库 HTTP,无依赖),向量存在一个旁路索引里。两个后端可互换、自动选择 —— 分词和存储都能优雅降级,所以语义检索在**每个**支持的 Python 上、**零**必装 extra 就能用:
+
+| 组件 | 最佳(装了 `semantic` extra) | 降级(无 extra / 无 wheel) |
+| --- | --- | --- |
+| 向量存储 | **LanceDB** —— 内存映射,不管多大都 ~1ms 打开 | **SQLite** —— 纯 Python cosine、线性扫描;worklog 规模够用,很大时偏慢 |
+| 分词 | **jieba** —— 多粒度,中文召回好 | **`\w+`** —— 一段 CJK 当一个 token(中文召回更粗) |
+
+```fish
+pip install 'pyworklog[semantic]'   # 快路径:LanceDB + jieba
+```
+
+**最佳体验:** 在任意 **Python 3.9–3.14**、**Linux** 或 **Apple-Silicon macOS** 上装 `semantic` extra —— LanceDB 在这些组合上发的是前向兼容(abi3)wheel,覆盖全部版本;jieba 是纯 Python,哪儿都能装。
+
+**什么时候走降级:** LanceDB 不发源码包,所以没有预编译 wheel 的平台 —— **Intel macOS**、**musl/Alpine**、**\*BSD**、32-bit —— `wl query`/`reindex` 自动改用 SQLite 后端(结果一样,只是慢);`wl reindex` 这时会打一行提示。其它什么都不变,核心 CLI 也从不需要任一 extra。
 
 ## Schema
 

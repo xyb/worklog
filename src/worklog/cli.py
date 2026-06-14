@@ -1564,21 +1564,25 @@ More: `wl help find` (vs `wl ls --tag` precise filter / `wl ls --recent` by time
         help="(re)build the semantic search index (embeds every node)",
         formatter_class=_WlHelpFormatter,
         description="Embed every live node (title+body+logs+tags) via the configured embedding "
-                    "server and store the vectors in a sidecar LanceDB. Run after bulk changes; "
-                    "`wl query` reads what this builds. Needs the 'semantic' extra.",
+                    "server and store the vectors in a sidecar store. Run after bulk changes; "
+                    "`wl query` reads what this builds. Uses LanceDB if the 'semantic' extra is "
+                    "installed, else a slower pure-Python SQLite fallback (no extra needed).",
         epilog="""\
 Common examples:
   wl reindex                          # build/refresh the index with the configured backend
   wl reindex --endpoint http://host:11434/v1/embeddings --model qwen3-embedding
 
+Vector backend: LanceDB (fast, the optional 'semantic' extra) on any Python 3.9–3.14 on Linux
+or Apple-Silicon macOS; falls back automatically to a pure-Python SQLite store where no LanceDB
+wheel exists (Intel macOS, musl/Alpine, …) — same results, slower at large scale.
 More: `wl query` to search; configure the backend in config.ini [embedding] / $WORKLOG_EMBED_*.""")
 
     qy = sub.add_parser("query", parents=[embed_parent, output_parent],
         help="semantic search: nearest nodes by meaning (vs `find`'s keyword match)",
         formatter_class=_WlHelpFormatter,
         description="Embed the query and return the nodes whose meaning is closest (cosine), "
-                    "finding paraphrases that keyword `find` misses. Needs `wl reindex` first "
-                    "and the 'semantic' extra.",
+                    "finding paraphrases that keyword `find` misses. Needs `wl reindex` first. "
+                    "Uses the LanceDB store if installed, else the pure-Python SQLite fallback.",
         epilog="""\
 Common examples:
   wl query "how to avoid duplicate work"   # concept search, not substring

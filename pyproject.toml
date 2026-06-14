@@ -1,6 +1,6 @@
 [project]
 name = "pyworklog"
-version = "0.7.0"
+version = "0.8.0"
 description = "SQLite-backed worklog tool with a todo.sh-style CLI"
 readme = "README.md"
 license = "MIT"
@@ -30,9 +30,12 @@ dependencies = [
 
 [project.optional-dependencies]
 # Semantic search (`wl query` / `wl reindex`): embeds via any OpenAI-compatible
-# HTTP server (stdlib urllib, no dep) and stores vectors in an embedded LanceDB.
-# Optional so the core CLI stays lightweight / pure-stdlib; `wl query` prints an
-# install hint when this extra is absent.
+# HTTP server (stdlib urllib, no dep). This extra is the FAST path — LanceDB for
+# the vector store + jieba for CJK segmentation. Both are optional: without them
+# `wl query`/`reindex` auto-fall-back to a pure-Python SQLite store + `\w+`
+# segmentation (works on every Python/platform, just slower). LanceDB ships
+# forward-compatible (abi3) wheels for Python 3.9–3.14 on Linux + Apple-Silicon
+# macOS; jieba is pure-Python (installs anywhere).
 semantic = [
     "lancedb>=0.13",
     "jieba>=0.42",
@@ -49,8 +52,8 @@ dev = [
     "pytest-cov>=5.0",
     "pytest-xdist>=3.5",
     "coverage>=7.5",
-    "lancedb>=0.13",   # so the semantic-search tests can run in CI
-    "jieba>=0.42",     # Chinese word segmentation for hybrid search
+    "lancedb>=0.13",   # exercise the FAST semantic-search path in CI (the SQLite/\w+ fallback
+    "jieba>=0.42",     # is tested too, by monkeypatching these away — see tests/test_vectorstore.py)
 ]
 
 [project.scripts]

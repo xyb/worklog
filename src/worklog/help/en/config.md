@@ -6,8 +6,9 @@ see_also: admin, init, query
 `wl config` prints where things live and the current settings: the DB path (and how it was
 resolved), the aliases file, XDG dirs, relevant env vars, and the **embedding backend** for
 `wl query`/`wl reindex` (endpoint / model / dimensions / api_key, each tagged with where it
-resolved from — default / config / env / flag — plus whether the LanceDB `semantic` extra is
-installed). Read-only — it doesn't create anything.
+resolved from — default / config / env / flag — plus which vector-store backend is active:
+LanceDB when the `semantic` extra is installed, else the pure-Python SQLite fallback). Read-only
+— it doesn't create anything.
 
 The embedding backend resolves across **defaults < `~/.config/worklog/config.ini` `[embedding]`
 < `$WORKLOG_EMBED_*` < `--endpoint/--model/--dimensions/--api-key`** flags. Default is a local

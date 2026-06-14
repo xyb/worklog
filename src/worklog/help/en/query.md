@@ -25,8 +25,11 @@ Fusion**. Each hit shows its matching chunk (`↳ …`), query terms highlighted
 First run `wl reindex` to build the index — `wl query` reads what it builds, and won't see
 nodes added since the last reindex until you rebuild.
 
-Needs the optional `semantic` extra: `pip install 'pyworklog[semantic]'` (adds LanceDB).
-Configure the embedding backend in `wl config` — see `wl help config`.
+Backends degrade gracefully, so this works with **no** required extras: the vector store is
+LanceDB when the optional `semantic` extra is installed (`pip install 'pyworklog[semantic]'`,
+the fast path on Python 3.9–3.14 / Linux / Apple-Silicon macOS), else a pure-Python SQLite
+fallback (same results, slower) where no LanceDB wheel exists; segmentation is jieba with the
+extra, else a `\w+` fallback. Configure the embedding backend in `wl config` — see `wl help config`.
 
 `wl find` (exact keyword/substring) and `wl query` (meaning) are complementary: `find` for
 when you remember a word, `query` for when you only remember the idea.

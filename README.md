@@ -42,6 +42,10 @@ Background: built after surveying 12 candidate products (Logseq / Tana / TaskWar
 - **Status machine** — TODO / DOING / LATER / WAIT / DONE / DEFERRED / CANCELED.
 - **Day / week / month views** — `wl day` / `tree` / `summary` rebuild the picture + stats.
 - **Full-text search** — `wl find`, hits highlighted.
+- **Semantic + hybrid search** — `wl query`: rank by meaning (embeddings) fused with keyword match (RRF), so paraphrases *and* exact names both surface; via any OpenAI-compatible embedding server. Vectors live in LanceDB (optional `semantic` extra) or auto-fall-back to a pure-Python SQLite store where no LanceDB wheel exists — see [Semantic search backends](#semantic-search-backends).
+- **Task relations** — `wl relation` links tasks (`split-from` / `split-into` / `related`), distinct from the parent/child tree.
+- **Machine-readable output** — `-o json` on `show` / `ls` / `logs` / `day` / `tree` / `summary` / `projects` for scripts and AI.
+- **Agent session binding** — `wl agent` ties an AI session to a task (status line / hooks can surface it).
 - **Vault link** — `wl link` to Obsidian docs (`[[wikilink]]`).
 - **Bulk import / apply** — load a whole day in one JSON or wl-diff.
 - **AI-friendly output** — `-q` brief, plain-text on capture, colors on a TTY, shell completion.
@@ -132,6 +136,31 @@ wl --theme light summary --week ...  # manually pick the light-background theme
 - Search hits (including matches in titles) highlight: styled mode uses background color; plain text wraps with `*…*`
 - env fallback: `$WORKLOG_COLOR` / `$WORKLOG_THEME` / `$NO_COLOR`
 - `rich` is an optional dependency — the tool still runs without it (plain text only)
+
+## Semantic search backends
+
+`wl query` / `wl reindex` embed text via any OpenAI-compatible server (stdlib HTTP, no
+dependency) and store the vectors in a sidecar index. Two interchangeable backends, chosen
+automatically — both segmentation and storage degrade gracefully, so semantic search works on
+**every** supported Python with **zero** required extras:
+
+| Component | Best (with `semantic` extra) | Fallback (no extra / no wheel) |
+| --- | --- | --- |
+| Vector store | **LanceDB** — memory-mapped, opens in ~1ms regardless of size | **SQLite** — pure-Python cosine, linear scan; fine at worklog scale, slower at very large stores |
+| Word segmentation | **jieba** — multi-granularity CJK recall | **`\w+`** — a CJK run stays one token (coarser Chinese recall) |
+
+```fish
+pip install 'pyworklog[semantic]'   # the fast path: LanceDB + jieba
+```
+
+**Best experience:** install the `semantic` extra on any **Python 3.9–3.14** on **Linux** or
+**Apple-Silicon macOS** — LanceDB ships forward-compatible (abi3) wheels there for all of those
+versions, and jieba is pure-Python so it installs anywhere.
+
+**When the fallback kicks in:** LanceDB ships no source distribution, so on platforms with no
+prebuilt wheel — **Intel macOS**, **musl/Alpine**, **\*BSD**, 32-bit — `wl query`/`reindex`
+automatically use the SQLite store instead (same results, just slower); `wl reindex` prints a
+one-line note when it does. Nothing else changes, and the core CLI never needs either extra.
 
 ## Schema
 

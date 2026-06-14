@@ -200,6 +200,10 @@ def cmd_reindex(args, con):
     _vs.upsert(db, rows)
     n_nodes = len({c[0] for c in chunks})
     out(_c(f"✓ indexed {n_nodes} node(s) ({len(rows)} chunks) — model {cfg['model']}, dim {dim}", "done"))
+    if _vs.backend_name(db) == "sqlite":
+        # No lancedb wheel here → the pure-Python fallback. Works, but nudge toward the fast store.
+        out(_c("  (sqlite fallback backend — install the 'semantic' extra "
+               "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
 
 
 def cmd_query(args, con):

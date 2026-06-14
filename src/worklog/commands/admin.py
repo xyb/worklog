@@ -87,10 +87,11 @@ def cmd_config(args, con):
     _row("query_prompt", qp_show, f"[{ec['source']['query_prompt']}]")
     try:
         import lancedb  # noqa: F401
-        vec_status = "available"
+        vec_status, vec_note = "LanceDB", "the 'semantic' extra (fast)"
     except ImportError:
-        vec_status = "not installed — `pip install 'pyworklog[semantic]'`"
-    _row("vector store", vec_status, "LanceDB (the 'semantic' extra)")
+        vec_status = "SQLite (pure-Python fallback)"
+        vec_note = "no LanceDB wheel — `pip install 'pyworklog[semantic]'` for the fast store"
+    _row("vector store", vec_status, vec_note)
 
     out("")
     out(_c("runtime:", "header"))
