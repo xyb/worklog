@@ -144,6 +144,27 @@ class TestClockGroup:
         code, _, err = cli("clock", "rm", "99")
         assert code != 0 and "not found" in err
 
+    def test_clock_edit_missing_interval(self, cli):
+        code, _, err = cli("clock", "edit", "99", "--start", "2026-06-06 09:00")
+        assert code != 0 and "not found" in err
+
+    def test_clock_edit_bad_start_timestamp(self, cli):
+        self._interval(cli)
+        code, _, err = cli("clock", "edit", "1", "--start", "not-a-time")
+        assert code != 0 and "--start" in err
+
+    def test_clock_edit_bad_end_timestamp(self, cli):
+        self._interval(cli)
+        code, _, err = cli("clock", "edit", "1", "--end", "not-a-time")
+        assert code != 0 and "--end" in err
+
+    def test_clock_edit_clear_end_reopens(self, cli, tmp_db):
+        self._interval(cli)
+        cli("clock", "edit", "1", "--end", "")     # clear the end → back to running
+        con = tmp_db.db_connect()
+        r = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE id=1").fetchone()
+        assert r["end_at"] is None and r["elapsed_sec"] is None
+
 
 class TestPropClockHelpCrossRefs:
     """The shortcut ↔ canonical cross-reference must appear in both helps (DESIGN §1.2).

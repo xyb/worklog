@@ -141,3 +141,30 @@ class TestApiKey:
         monkeypatch.setenv("WORKLOG_EMBED_API_KEY", "sk-env")
         c = cfg.resolve_embedding_config(_args())
         assert c["api_key"] == "sk-env" and c["source"]["api_key"] == "env"
+
+
+class TestCoerce:
+    def test_empty_string_coerces_to_none(self):
+        # a set-but-empty ini/env value for a normal field = "unset" → falls through
+        assert cfg._coerce("endpoint", "   ") is None
+        assert cfg._coerce("model", "") is None
+
+    def test_none_passes_through(self):
+        assert cfg._coerce("endpoint", None) is None
+
+
+class TestSynonymMap:
+    def test_empty_without_file(self, cfg_home):
+        assert cfg.synonym_map() == {}
+
+    def test_empty_when_file_has_no_synonyms_section(self, cfg_home):
+        _write_ini("[embedding]\nmodel = m\n")          # file exists, but no [synonyms]
+        assert cfg.synonym_map() == {}
+
+    def test_group_expansion(self, cfg_home):
+        _write_ini("[synonyms]\nNew York = NYC, NY\n")
+        m = cfg.synonym_map()
+        # configparser lowercases the option key, so the canonical comes back as "new york";
+        # alias values keep their case.
+        assert m["nyc"] == {"new york", "NYC", "NY"}
+        assert m["new york"] == m["ny"] == m["nyc"]

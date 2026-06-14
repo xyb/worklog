@@ -68,3 +68,44 @@ class TestConfigInit:
         assert code == 0
         assert "model = mine" in p.read_text(encoding="utf-8")   # untouched
         assert "already exists" in out.lower()
+
+
+class TestConfigSources:
+    """The DB-source label + vector-store backend line in `wl config`."""
+
+    def test_marks_db_flag_source(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("WORKLOG_DB", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+        import importlib, io, contextlib, types
+        from worklog import cli as wl
+        importlib.reload(wl)
+        args = types.SimpleNamespace(db=str(tmp_path / "x.db"))
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            wl.cmd_config(args, None)
+        assert "--db flag" in buf.getvalue()
+
+    def test_marks_xdg_default_source(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("WORKLOG_DB", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+        monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+        import importlib, io, contextlib, types
+        from worklog import cli as wl
+        importlib.reload(wl)
+        args = types.SimpleNamespace()   # neither --db flag nor $WORKLOG_DB
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            wl.cmd_config(args, None)
+        assert "XDG default" in buf.getvalue()
+
+    def test_shows_lancedb_backend_when_present(self, cli):
+        pytest.importorskip("lancedb")
+        _, out, _ = cli("config")
+        assert "LanceDB" in out
+
+    def test_shows_sqlite_fallback_without_lancedb(self, cli, monkeypatch):
+        import sys
+        monkeypatch.setitem(sys.modules, "lancedb", None)
+        code, out, _ = cli("config")
+        assert code == 0
+        assert "SQLite (pure-Python fallback)" in out

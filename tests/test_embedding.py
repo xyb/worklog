@@ -141,3 +141,42 @@ class TestBatchFallback:
         with pytest.raises(emb.EmbeddingError):
             emb.embed(["a", "b"], "query", CFG)
         assert len(calls) == 1              # 401 → no per-item retry storm
+
+
+class _FakeHTTPResponse:
+    """Minimal context-manager file-like that json.load() can read from."""
+    def __init__(self, body):
+        self._body = body
+    def __enter__(self):
+        return self
+    def __exit__(self, *a):
+        return False
+    def read(self, *a):
+        return self._body
+
+
+class TestHttpPost:
+    """The real _http_post (urllib) — drives it with a fake urlopen so it stays
+    offline while still exercising request-building + json parsing."""
+
+    def test_builds_post_request_and_parses_json(self, monkeypatch):
+        captured = {}
+        body = json.dumps({"data": [{"index": 0, "embedding": [1.0, 2.0]}]}).encode("utf-8")
+
+        def fake_urlopen(req, timeout=None):
+            captured["url"] = req.full_url
+            captured["method"] = req.get_method()
+            captured["data"] = req.data
+            captured["timeout"] = timeout
+            return _FakeHTTPResponse(body)
+
+        monkeypatch.setattr(emb.urllib.request, "urlopen", fake_urlopen)
+        out = emb._http_post(
+            "http://backend/v1/embeddings", {"input": ["a"]},
+            {"Content-Type": "application/json"}, 30,
+        )
+        assert out["data"][0]["embedding"] == [1.0, 2.0]
+        assert captured["method"] == "POST"
+        assert captured["url"] == "http://backend/v1/embeddings"
+        assert json.loads(captured["data"]) == {"input": ["a"]}
+        assert captured["timeout"] == 30

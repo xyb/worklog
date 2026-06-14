@@ -75,6 +75,27 @@ class TestStore:
         vs.upsert(store, [])
         assert vs.load(store) == []
 
+    def test_second_upsert_appends(self, store):
+        # the index is rebuilt wholesale, but a second upsert onto an existing table must append
+        # (LanceDB `tbl.add` / SQLite second insert), not replace.
+        vs.upsert(store, [_chunk(1, [1.0, 0.0])])
+        vs.upsert(store, [_chunk(2, [0.0, 1.0])])
+        assert {r["node_id"] for r in vs.load(store)} == {1, 2}
+
+
+class TestLanceVersionDrift:
+    def test_table_names_falls_back_to_old_api(self, tmp_path):
+        # Older lancedb has no list_tables() (only table_names()); _table_names must
+        # degrade across that version drift instead of raising AttributeError.
+        pytest.importorskip("lancedb")
+        store = vs.connect(tmp_path / "x.lancedb", backend="lancedb")
+
+        class OldApiDB:
+            def table_names(self):
+                return ["vec"]
+        store.db = OldApiDB()
+        assert store._table_names() == ["vec"]
+
     def test_index_model(self, store):
         vs.upsert(store, [_chunk(1, [1.0, 0.0], model="model-a", dim=1024)])
         assert vs.index_model(store) == ("model-a", 1024)

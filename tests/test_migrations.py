@@ -407,3 +407,34 @@ class TestMigration0007UTC:
         con.commit()
         self._replay_0007(tmp_db, con)
         assert con.execute("SELECT logged_at FROM log WHERE body='bare-date'").fetchone()[0] == "2026-06-01"
+
+
+class TestDbHelpers:
+    """Edge paths in worklog.db: in-memory connections, missing dirs, non-numeric files."""
+
+    def test_db_file_path_none_for_in_memory(self):
+        from worklog import db
+        con = sqlite3.connect(":memory:")
+        # in-memory main DB has an empty file string → normalized to None
+        assert db._db_file_path(con) is None
+        con.close()
+
+    def test_backup_skipped_for_in_memory_db(self):
+        from worklog import db
+        con = sqlite3.connect(":memory:")
+        con.execute("PRAGMA user_version = 1")
+        # current>0 and pending>0, but no on-disk file → nothing to snapshot, returns None
+        assert db._backup_before_migrate(con, current=1, pending=2) is None
+        con.close()
+
+    def test_migration_files_empty_when_dir_missing(self, tmp_path):
+        from worklog import db
+        assert db.migration_files(tmp_path / "does-not-exist") == []
+
+    def test_migration_files_skips_non_numeric_prefix(self, tmp_path):
+        from worklog import db
+        mig = tmp_path / "migs"; mig.mkdir()
+        (mig / "0001_init.sql").write_text("CREATE TABLE a (x);")
+        (mig / "notes_helper.sql").write_text("-- not a migration, no numeric prefix")
+        files = db.migration_files(mig)
+        assert [p.name for p in files] == ["0001_init.sql"]   # the non-numeric one is skipped

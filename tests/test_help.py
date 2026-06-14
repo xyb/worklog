@@ -371,3 +371,33 @@ class TestArgparseHelpColor:
         from worklog.commands.help import _argv_color_theme
         monkeypatch.setattr("sys.argv", ["wl", "--color", "always", "--theme=light", "log", "-h"])
         assert _argv_color_theme() == ("always", "light")
+
+
+class TestHelpRenderingMore:
+    """Cover the styled link / bare-URL inline branches and full-doc rendering."""
+
+    @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
+                        reason="rich not installed")
+    def test_md_inline_link_and_url_with_color(self, monkeypatch):
+        import worklog.render as render
+        from worklog.commands import help as H
+        monkeypatch.setattr(render, "_CONSOLE", object())   # color on
+        r = H._md_inline("see [the docs](http://example.com) here")
+        assert "[underline]the docs[/underline]" in r        # link text underlined
+        assert "[kind]http://example.com[/kind]" in r        # the URL styled as a target
+        r2 = H._md_inline("visit http://example.com now")
+        assert "[underline]http://example.com[/underline]" in r2   # bare URL underlined
+
+    def test_renders_real_topics_in_both_color_modes(self, cli):
+        # real topic docs carry links / **bold** / `code` / fenced blocks / headings — rendering
+        # them end-to-end exercises _render_body + the inline renderer on both code paths.
+        for topic in ("config", "query", "reindex", "agent", "ids"):
+            for color in ("always", "never"):
+                code, out, _ = cli("--color", color, "help", topic)
+                assert code == 0 and out.strip()
+
+    def test_help_all_lists_every_topic_by_category(self, cli):
+        code, out, _ = cli("help", "--all")
+        assert code == 0
+        # --all is the full catalog → many more lines than the curated default
+        assert out.count("\n") > 20

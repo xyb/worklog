@@ -359,3 +359,39 @@ class TestErrors:
         code, out, err = cli("reindex")
         assert code != 0
         assert "unreachable" in err.lower()
+
+
+class TestSemanticInternals:
+    """Edge paths in the reindex/query plumbing."""
+
+    def test_node_chunks_skips_whitespace_only_log(self, cli, tmp_db):
+        cli("add", "task one", "-k", "task")               # node 1
+        con = tmp_db.db_connect()
+        try:
+            con.execute("INSERT INTO log (node_id, body) VALUES (1, '   ')")  # blank-body log
+            con.commit()
+            from worklog.commands import semantic
+            chunks = semantic._node_chunks(con)
+        finally:
+            con.close()
+        kinds = {(c[0], c[4]) for c in chunks}
+        assert (1, "head") in kinds          # head chunk still produced
+        assert (1, "log") not in kinds        # the whitespace-only log produced no chunk
+
+    def test_embed_batched_without_progress_callback(self, monkeypatch):
+        from worklog.commands import semantic
+        monkeypatch.setattr(semantic._embedding, "embed",
+                            lambda texts, t, cfg: [[1.0] for _ in texts])
+        out = semantic._embed_batched(["a", "b"], "document", {}, on_progress=None)
+        assert len(out) == 2                  # runs fine with no progress callback
+
+    def test_open_store_error_exits_cleanly(self, cli, monkeypatch):
+        # A VectorStoreError from connect() (e.g. a forced backend that can't load) becomes a
+        # clean `✗ …` exit, never a traceback.
+        from worklog.commands import semantic
+        def boom(path):
+            raise semantic._vs.VectorStoreError("backend boom")
+        monkeypatch.setattr(semantic._vs, "connect", boom)
+        code, out, err = cli("query", "anything")
+        assert code != 0
+        assert "boom" in (out + err)
