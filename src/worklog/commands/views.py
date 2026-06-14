@@ -319,74 +319,61 @@ def _emit_day_json(con, target, day, items, sched_ids):
     }, ensure_ascii=False, indent=2))
 
 
-def cmd_day(args, con):
-    """Reproduce a single day's progress (default today): bucket by work/personal -> project -> task -> that day's logs.
-    Driven by log dates (not the day node), so it works for historical days too."""
-    from datetime import date as _date
-
-    if args.date:
-        try:
-            target = _resolve_concrete_date(args.date)
-        except ValueError:
-            sys.exit(f"✗ invalid date '{args.date}' (use YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow)")
-    else:
-        target = _tu.today()
-    day = _db.query_one(con, "node", kind="day", title__like=target + "%", order="id")
-    # date context: date + weekday + the day's nature (workday/weekend/holiday/leave,
-    # refined by any date_meta label) so the header conveys "what kind of day" at a glance
+def _emit_day_header(con, day, target):
+    """Render the text-mode day header: `#<id> <date> <weekday> · <nature>`, then the day's goal +
+    recap(summary, with a staleness warning) + the ancestor week's & month's goals — each the latest
+    typed log, with its [done/total] progress and structured target nodes. No-op body when there's
+    no day node (just the bare date line)."""
     wd = _cn_weekday(target)
     nature = _day_nature(con, target)
     head = target + (f" {wd}" if wd else "") + (f" · {nature}" if nature else "")
-    is_json = getattr(args, "output", "text") == "json"
-    if not is_json:
-        # lead with the day node id so `wl goal`/`wl show <id>` have it to hand
-        nid = (_c(f"#{day['id']}", "id") + " ") if day else ""
-        out(nid + _c(head, "header"))
-    # reserved-tag logs on the day node: goal / recap(summary); plus the ancestor week's and
-    # month's goal. Each is the latest log of that tag. (json mode gathers these into a dict via
-    # _day_goals_dict instead of rendering text.)
-    if day and not is_json:
-        g = _latest_typed_log(con, day["id"], "goal")
-        if g and g["body"]:
-            # goal line carries its [done/total] achievement, then its structured target nodes
-            # (numbered, status-marked) on the lines below
-            out(_c(_header_blockquote(g["body"], _DAY_MARKERS["goal"]), "meta")
-                + _c(_goal_progress(con, day["id"], g["body"]), "meta"))
-            _emit_goal_targets(con, day["id"])
-        s = _latest_typed_log(con, day["id"], "summary")
-        if s and s["body"]:
-            at = s["logged_at"]
-            when = _c(f" (written at {_tu.utc_to_local(at)[5:16]})", "meta") if at else ""
-            out(_c(_header_blockquote(s["body"], _DAY_MARKERS["summary"]), "meta") + when)
-            # stale check: count plain-note logs (tag IS NULL) added after the recap;
-            # reserved-tag logs (goal/summary) and metric carriers (tag='metric') don't count.
-            if at:
-                newer = con.execute(
-                    f"SELECT COUNT(*) FROM log WHERE logged_at > ? "
-                    f"AND {_tu.local_day_sql('logged_at')} = ? AND tag IS NULL AND deleted_at IS NULL",
-                    (at, target),
-                ).fetchone()[0]
-                if newer:
-                    out(_c(f"  > ⚠ {newer} change(s) after recap; consider rewriting via wl recap", "doing"))
-        # the week's and month's goal — same `goal` tag on the ancestor week / month node
-        wk = _db.query_one(con, "node", cols="id, parent_id", id=day["parent_id"], kind="week") if day["parent_id"] else None
-        if wk:
-            wg = _latest_typed_log(con, wk["id"], "goal")
-            if wg and wg["body"]:
-                out(_c(_header_blockquote(wg["body"], _DAY_MARKERS["week"]), "meta")
-                    + _c(_goal_progress(con, wk["id"], wg["body"]), "meta"))
-                _emit_goal_targets(con, wk["id"])
-            mo = _db.query_one(con, "node", cols="id", id=wk["parent_id"], kind="month") if wk["parent_id"] else None
-            if mo:
-                mg = _latest_typed_log(con, mo["id"], "goal")
-                if mg and mg["body"]:
-                    out(_c(_header_blockquote(mg["body"], _DAY_MARKERS["month"]), "meta")
-                        + _c(_goal_progress(con, mo["id"], mg["body"]), "meta"))
-                    _emit_goal_targets(con, mo["id"])
+    # lead with the day node id so `wl goal`/`wl show <id>` have it to hand
+    nid = (_c(f"#{day['id']}", "id") + " ") if day else ""
+    out(nid + _c(head, "header"))
+    if not day:
+        return
+    g = _latest_typed_log(con, day["id"], "goal")
+    if g and g["body"]:
+        # goal line carries its [done/total] achievement, then its structured target nodes
+        out(_c(_header_blockquote(g["body"], _DAY_MARKERS["goal"]), "meta")
+            + _c(_goal_progress(con, day["id"], g["body"]), "meta"))
+        _emit_goal_targets(con, day["id"])
+    s = _latest_typed_log(con, day["id"], "summary")
+    if s and s["body"]:
+        at = s["logged_at"]
+        when = _c(f" (written at {_tu.utc_to_local(at)[5:16]})", "meta") if at else ""
+        out(_c(_header_blockquote(s["body"], _DAY_MARKERS["summary"]), "meta") + when)
+        # stale check: count plain-note logs (tag IS NULL) added after the recap
+        if at:
+            newer = con.execute(
+                f"SELECT COUNT(*) FROM log WHERE logged_at > ? "
+                f"AND {_tu.local_day_sql('logged_at')} = ? AND tag IS NULL AND deleted_at IS NULL",
+                (at, target),
+            ).fetchone()[0]
+            if newer:
+                out(_c(f"  > ⚠ {newer} change(s) after recap; consider rewriting via wl recap", "doing"))
+    # the week's and month's goal — same `goal` tag on the ancestor week / month node
+    wk = _db.query_one(con, "node", cols="id, parent_id", id=day["parent_id"], kind="week") if day["parent_id"] else None
+    if wk:
+        wg = _latest_typed_log(con, wk["id"], "goal")
+        if wg and wg["body"]:
+            out(_c(_header_blockquote(wg["body"], _DAY_MARKERS["week"]), "meta")
+                + _c(_goal_progress(con, wk["id"], wg["body"]), "meta"))
+            _emit_goal_targets(con, wk["id"])
+        mo = _db.query_one(con, "node", cols="id", id=wk["parent_id"], kind="month") if wk["parent_id"] else None
+        if mo:
+            mg = _latest_typed_log(con, mo["id"], "goal")
+            if mg and mg["body"]:
+                out(_c(_header_blockquote(mg["body"], _DAY_MARKERS["month"]), "meta")
+                    + _c(_goal_progress(con, mo["id"], mg["body"]), "meta"))
+                _emit_goal_targets(con, mo["id"])
 
-    # an explicit --status filter (applied below via make_node_filter) must override the
-    # default CANCELED hide, else `day --status CANCELED` would drop its own matches.
-    inc_cancel = getattr(args, "show_canceled", False) or bool(getattr(args, "status", None))
+
+def _collect_day_items(con, target, inc_cancel):
+    """The day's work items: every task/habit/meetlog with a log on that local day, plus any
+    scheduled for that day with no log yet (planned-ahead, visible before being worked). Returns
+    (items, sched_ids), items mapping node_id -> {node, logs:[...]}. CANCELED nodes are dropped
+    unless inc_cancel."""
     cfrag, cparams = _status_filter_sql(include_canceled=inc_cancel, col="node.status")
     cancel_sql = (" AND " + cfrag) if cfrag else ""
     rows = con.execute(
@@ -400,8 +387,6 @@ def cmd_day(args, con):
             ORDER BY log.logged_at, log.node_id""",
         [target] + cparams,
     ).fetchall()
-
-    # items: tasks with logs + tasks scheduled but with no log yet today (planned items visible ahead of time)
     items = {}
     for r in rows:
         items.setdefault(r["node_id"], {"node": r, "logs": []})["logs"].append(r["body"])
@@ -413,6 +398,29 @@ def cmd_day(args, con):
                 if not inc_cancel and nr["status"] == "CANCELED":
                     continue
                 items[nid] = {"node": nr, "logs": []}
+    return items, sched_ids
+
+
+def cmd_day(args, con):
+    """Reproduce a single day's progress (default today): bucket by work/personal -> project -> task -> that day's logs.
+    Driven by log dates (not the day node), so it works for historical days too."""
+    if args.date:
+        try:
+            target = _resolve_concrete_date(args.date)
+        except ValueError:
+            sys.exit(f"✗ invalid date '{args.date}' (use YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow)")
+    else:
+        target = _tu.today()
+    day = _db.query_one(con, "node", kind="day", title__like=target + "%", order="id")
+    is_json = getattr(args, "output", "text") == "json"
+    # header (date context + the day/week/month goal + recap cascade); json gathers these separately
+    if not is_json:
+        _emit_day_header(con, day, target)
+
+    # an explicit --status filter (applied below via make_node_filter) must override the
+    # default CANCELED hide, else `day --status CANCELED` would drop its own matches.
+    inc_cancel = getattr(args, "show_canceled", False) or bool(getattr(args, "status", None))
+    items, sched_ids = _collect_day_items(con, target, inc_cancel)
 
     # shared --tag/--kind/--status filter: keep only matching nodes. Empty buckets /
     # groups then simply don't get rendered (_render_day_group builds them from items).
