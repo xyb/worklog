@@ -1197,109 +1197,110 @@ def _agent_need_sid():
         sys.exit("✗ no session id ($WL_SESSION_ID / $CLAUDE_CODE_SESSION_ID) — run inside a Claude Code session")
     return sid
 
-def cmd_agent(args, con):
-    """`wl agent` — bind the current agent session to a node.
-    wl agent <id> = set · wl agent = show current · wl agent ls = list all · wl agent rm = unbind."""
-    sub = getattr(args, "agent_sub", None)
-    if sub == "set":
-        sid = _agent_need_sid()
-        agent = (getattr(args, "agent", None) or _current_agent())
-        key = _agent_key(agent)
-        nid = args.id
-        _require_node(con, nid)
-        cur = _db.query_one(con, "prop", cols="value", node_id=nid, key=key)
-        if cur and cur["value"] != sid:
-            out(_c(f"⚠ #{nid} 已被 session {cur['value'][:8]}… 绑定,将被覆盖", "later"))
-        # Record the history trail unless told not to AND it isn't already recorded — dedup by the
-        # actual metric (not "is the prop already set"), so a pair bound before history existed
-        # (an early auto-bind, or a --no-record bind) still gets recorded on a later bind.
-        do_record = getattr(args, "record", True) and not _has_agent_history(con, nid, sid)
-        # one session → one node: drop this sid's live pointer under ANY agent key before re-binding
-        _db.delete(con, "prop", key__like=_AGENT_PREFIX + "%", value=sid)
-        _upsert_prop(con, nid, key, sid)
-        if do_record:
-            _record_bind_history(con, nid, sid, agent)   # append-only history trail
-        con.commit()
-        _invalidate_agent_cache(sid)   # binding changed → integrations re-fetch via `wl agent context`
-        title = (_db.get(con, "node", nid) or {})["title"]
-        line = _c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{agent}:{sid[:8]}…", "meta") + " · " + _short(title)
-        if do_record:
-            line += _c("  +history", "meta")
-        out(line)
+def _agent_set(args, con):
+    sid = _agent_need_sid()
+    agent = (getattr(args, "agent", None) or _current_agent())
+    key = _agent_key(agent)
+    nid = args.id
+    _require_node(con, nid)
+    cur = _db.query_one(con, "prop", cols="value", node_id=nid, key=key)
+    if cur and cur["value"] != sid:
+        out(_c(f"⚠ #{nid} 已被 session {cur['value'][:8]}… 绑定,将被覆盖", "later"))
+    # Record the history trail unless told not to AND it isn't already recorded — dedup by the
+    # actual metric (not "is the prop already set"), so a pair bound before history existed
+    # (an early auto-bind, or a --no-record bind) still gets recorded on a later bind.
+    do_record = getattr(args, "record", True) and not _has_agent_history(con, nid, sid)
+    # one session → one node: drop this sid's live pointer under ANY agent key before re-binding
+    _db.delete(con, "prop", key__like=_AGENT_PREFIX + "%", value=sid)
+    _upsert_prop(con, nid, key, sid)
+    if do_record:
+        _record_bind_history(con, nid, sid, agent)   # append-only history trail
+    con.commit()
+    _invalidate_agent_cache(sid)   # binding changed → integrations re-fetch via `wl agent context`
+    title = (_db.get(con, "node", nid) or {})["title"]
+    line = _c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{agent}:{sid[:8]}…", "meta") + " · " + _short(title)
+    if do_record:
+        line += _c("  +history", "meta")
+    out(line)
+    return
+
+def _agent_ls(args, con):
+    rows = _db.query(con, "prop", cols="node_id, key, value", key__like=_AGENT_PREFIX + "%")
+    if not rows:
+        out(_c("(no session bindings)", "meta"))
         return
-    if sub == "ls":
-        rows = _db.query(con, "prop", cols="node_id, key, value", key__like=_AGENT_PREFIX + "%")
-        if not rows:
-            out(_c("(no session bindings)", "meta"))
-            return
-        # two time axes per binding: `act` = node's latest log/update time (most-recently-worked);
-        # `bound` = when this session was bound to the node (latest agent_session bind-history log).
-        items = []
-        for r in rows:
-            nid, sid = r["node_id"], r["value"]
-            node = _db.get(con, "node", nid)
-            title = node["title"] if node else "(deleted)"
-            last = _db.query_one(con, "log", cols="MAX(logged_at) AS m", node_id=nid)
-            act = (last["m"] if last else None) or (node["created_at"] if node else "") or ""
-            bl = con.execute(
-                "SELECT MAX(l.logged_at) AS m FROM log l JOIN metric mt ON mt.log_id = l.id "
-                "WHERE l.node_id = ? AND mt.tag = ? AND mt.value_text = ? AND l.deleted_at IS NULL",
-                (nid, _SESSION_METRIC_TAG, sid)).fetchone()
-            bound = (bl["m"] if bl else None) or ""
-            items.append({"id": nid, "agent": r["key"][len(_AGENT_PREFIX):],
-                          "sid": sid, "title": title, "act": act, "bound": bound})
-        by = getattr(args, "by", "active")
-        keyf = (lambda it: it["bound"] or it["act"]) if by == "bound" else (lambda it: it["act"])
-        items.sort(key=keyf, reverse=True)                 # most-recent (by chosen axis) first
-        plain = render.is_plain()
-        # plain/piped or --all → show all (a script needs the lot); else elide older to avoid flood
-        show_all = plain or getattr(args, "all", False)
-        shown = items if show_all else items[:_AGENT_LS_CAP]
-        hidden = len(items) - len(shown)
-        idw = max(len(f"#{it['id']}") for it in shown)
-        agw = max(len(it["agent"]) for it in shown)
-        # full sid when it fits leaving the title room; shrink uniformly (≥8) when tight (TTY only)
-        W = _term_width()
-        MIN_TITLE = 16
-        sidlen = max(len(it["sid"]) for it in shown)
-        if idw + 3 + (agw + 1) + 3 + sidlen + MIN_TITLE > W:
-            sidlen = max(8, W - (idw + 3 + (agw + 1) + 3) - MIN_TITLE)
-        group = getattr(args, "group", False)
-        if group:
-            today = _tu.today()
-            yday = (_tu.today_date() - timedelta(days=1)).isoformat()
-            cur = object()
-            for it in shown:
-                # bucket by LOCAL day (keyf returns a UTC timestamp) so the day header matches the
-                # local today/yesterday labels — otherwise a binding made "now" lands under the UTC
-                # date and mislabels as yesterday during the UTC-evening / local-next-day window.
-                key = keyf(it)
-                day = _tu.utc_to_local(key)[:10] if key else "(no date)"
-                if day != cur:
-                    cur = day
-                    lbl = day + (" (today)" if day == today else " (yesterday)" if day == yday else "")
-                    out(_c(lbl, "planned"))
-                out(_agent_ls_row(it, idw, agw, sidlen, plain, indent="  "))
-        else:
-            for it in shown:
-                out(_agent_ls_row(it, idw, agw, sidlen, plain))
-        if hidden > 0:
-            out(_c(f"  … +{hidden} older — wl agent ls --all", "meta"))
-        return
-    if sub == "rm":
-        sid = _agent_need_sid()
-        n = _db.delete(con, "prop", key__like=_AGENT_PREFIX + "%", value=sid)   # any agent's key
-        con.commit()
-        _invalidate_agent_cache(sid)   # drop cached binding so the hook stops injecting
-        out(_c(f"✓ unbound (session {sid[:8]}…)" if n else f"(session {sid[:8]}… 本来就没绑定)", "meta"))
-        return
-    if sub == "context":
-        # Machine output for integrations (the context hook): a `<node_id>\t<title>` line, or
-        # with --hook the ready-to-emit UserPromptSubmit JSON (so the hook needs no `jq`). Empty
-        # when unbound. Plain print (not `out`) — consumed by scripts, not rendered.
-        sid = _current_session_id()
-        print(_agent_hook_json(con, sid) if getattr(args, "hook", False) else _agent_context_line(con, sid))
-        return
+    # two time axes per binding: `act` = node's latest log/update time (most-recently-worked);
+    # `bound` = when this session was bound to the node (latest agent_session bind-history log).
+    items = []
+    for r in rows:
+        nid, sid = r["node_id"], r["value"]
+        node = _db.get(con, "node", nid)
+        title = node["title"] if node else "(deleted)"
+        last = _db.query_one(con, "log", cols="MAX(logged_at) AS m", node_id=nid)
+        act = (last["m"] if last else None) or (node["created_at"] if node else "") or ""
+        bl = con.execute(
+            "SELECT MAX(l.logged_at) AS m FROM log l JOIN metric mt ON mt.log_id = l.id "
+            "WHERE l.node_id = ? AND mt.tag = ? AND mt.value_text = ? AND l.deleted_at IS NULL",
+            (nid, _SESSION_METRIC_TAG, sid)).fetchone()
+        bound = (bl["m"] if bl else None) or ""
+        items.append({"id": nid, "agent": r["key"][len(_AGENT_PREFIX):],
+                      "sid": sid, "title": title, "act": act, "bound": bound})
+    by = getattr(args, "by", "active")
+    keyf = (lambda it: it["bound"] or it["act"]) if by == "bound" else (lambda it: it["act"])
+    items.sort(key=keyf, reverse=True)                 # most-recent (by chosen axis) first
+    plain = render.is_plain()
+    # plain/piped or --all → show all (a script needs the lot); else elide older to avoid flood
+    show_all = plain or getattr(args, "all", False)
+    shown = items if show_all else items[:_AGENT_LS_CAP]
+    hidden = len(items) - len(shown)
+    idw = max(len(f"#{it['id']}") for it in shown)
+    agw = max(len(it["agent"]) for it in shown)
+    # full sid when it fits leaving the title room; shrink uniformly (≥8) when tight (TTY only)
+    W = _term_width()
+    MIN_TITLE = 16
+    sidlen = max(len(it["sid"]) for it in shown)
+    if idw + 3 + (agw + 1) + 3 + sidlen + MIN_TITLE > W:
+        sidlen = max(8, W - (idw + 3 + (agw + 1) + 3) - MIN_TITLE)
+    group = getattr(args, "group", False)
+    if group:
+        today = _tu.today()
+        yday = (_tu.today_date() - timedelta(days=1)).isoformat()
+        cur = object()
+        for it in shown:
+            # bucket by LOCAL day (keyf returns a UTC timestamp) so the day header matches the
+            # local today/yesterday labels — otherwise a binding made "now" lands under the UTC
+            # date and mislabels as yesterday during the UTC-evening / local-next-day window.
+            key = keyf(it)
+            day = _tu.utc_to_local(key)[:10] if key else "(no date)"
+            if day != cur:
+                cur = day
+                lbl = day + (" (today)" if day == today else " (yesterday)" if day == yday else "")
+                out(_c(lbl, "planned"))
+            out(_agent_ls_row(it, idw, agw, sidlen, plain, indent="  "))
+    else:
+        for it in shown:
+            out(_agent_ls_row(it, idw, agw, sidlen, plain))
+    if hidden > 0:
+        out(_c(f"  … +{hidden} older — wl agent ls --all", "meta"))
+    return
+
+def _agent_rm(args, con):
+    sid = _agent_need_sid()
+    n = _db.delete(con, "prop", key__like=_AGENT_PREFIX + "%", value=sid)   # any agent's key
+    con.commit()
+    _invalidate_agent_cache(sid)   # drop cached binding so the hook stops injecting
+    out(_c(f"✓ unbound (session {sid[:8]}…)" if n else f"(session {sid[:8]}… 本来就没绑定)", "meta"))
+    return
+
+def _agent_context(args, con):
+    # Machine output for integrations (the context hook): a `<node_id>\t<title>` line, or
+    # with --hook the ready-to-emit UserPromptSubmit JSON (so the hook needs no `jq`). Empty
+    # when unbound. Plain print (not `out`) — consumed by scripts, not rendered.
+    sid = _current_session_id()
+    print(_agent_hook_json(con, sid) if getattr(args, "hook", False) else _agent_context_line(con, sid))
+    return
+
+def _agent_show(args, con):
     # bare `wl agent` → show the current session's binding (under whichever agent key it lives)
     sid = _agent_need_sid()
     row = _db.query_one(con, "prop", cols="node_id, key", key__like=_AGENT_PREFIX + "%", value=sid)
@@ -1324,6 +1325,13 @@ def cmd_agent(args, con):
     shown = _truncate_log_body(title, indent_cols=_display_width(prefix_plain), full=False)
     out(_c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + shown)
 
+def cmd_agent(args, con):
+    """`wl agent` — bind the current agent session to a node.
+    wl agent <id> = set · wl agent = show current · wl agent ls = list all · wl agent rm = unbind."""
+    sub = getattr(args, "agent_sub", None)
+    # set/ls/rm/context dispatch like every other entity group; bare `wl agent` → show
+    {"set": _agent_set, "ls": _agent_ls, "rm": _agent_rm,
+     "context": _agent_context}.get(sub, _agent_show)(args, con)
 
 # --- clock entity group: ls / edit / rm (create = start/stop/spent) ---
 def cmd_clock_ls(args, con):
