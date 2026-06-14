@@ -119,6 +119,74 @@ def _find_similar_open(con, title, kind):
             hits.append(r)
     return hits
 
+def _add_sched(con, node_id, args):
+    """`wl add --sched`: schedule the new node for a day (writes the sched table directly).
+    Returns the ` @<date>` echo hint, or '' when no --sched."""
+    if not getattr(args, "sched", None):
+        return ""
+    try:
+        d = _resolve_concrete_date(args.sched)
+    except ValueError:
+        sys.exit(f"✗ invalid --sched date '{args.sched}' (use YYYY-MM-DD / today / tomorrow / day-after-tomorrow / yesterday)")
+    _db.insert(con, "sched", {"node_id": node_id, "on_date": d, "created_at": _tu.utc_now()})
+    return " " + _c(f"@{d}", "planned")
+
+
+def _add_link(con, node_id, args):
+    """`wl add --link`: attach a vault doc. Returns the ` → [[doc]]` hint, or '' when no/empty --link."""
+    if not getattr(args, "link", None):
+        return ""
+    link_doc = _strip_wikilink(args.link)
+    if not link_doc:
+        return ""
+    _upsert_link(con, node_id, link_doc)
+    return " → " + _c(f"[[{link_doc}]]", "meta")
+
+
+def _add_relations(con, node_id, args):
+    """`wl add --relation` (repeatable): write task↔task relation(s) on both sides at creation.
+    Returns the ` + N relation(s)` hint, or '' when none."""
+    rel_specs = getattr(args, "relation", None)
+    if not rel_specs:
+        return ""
+    rel_n = 0
+    for spec in rel_specs:
+        rtype, ids = _parse_relation_spec(spec)
+        _check_ids_exist(con, ids)
+        rel_n += len(_apply_relation(con, node_id, rtype, ids))
+    return f" + {rel_n} relation(s)" if rel_n else ""
+
+
+def _add_log_and_metrics(con, node_id, args, at_ts):
+    """`wl add --log` / `--metric`: insert the log (sharing the resolved --at instant), then attach
+    datapoint(s) onto that carrier — or a dedicated `metric` carrier log when there's no --log, so
+    every datapoint still hangs off a log. Returns (log_hint, metric_hint)."""
+    log_hint = ""
+    created_log_id = None
+    log_body = getattr(args, "log", None)
+    if log_body and log_body.strip():
+        if at_ts:
+            # at_ts is already a UTC instant — insert directly (don't round-trip through
+            # _insert_log's dict path, which would re-apply local→UTC)
+            created_log_id = _db.insert(con, "log", {"node_id": node_id, "logged_at": at_ts, "body": log_body.strip()})
+        else:
+            created_log_id = _insert_log(con, node_id, log_body.strip())
+        log_hint = " + log"
+    metric_hint = ""
+    specs = getattr(args, "metric", None)
+    if specs:
+        if created_log_id is not None:
+            mlog_id = created_log_id
+        else:
+            mlog_id = _db.insert(con, "log", {
+                "node_id": node_id, "logged_at": at_ts or _tu.utc_now(),
+                "body": "", "tag": _CARRIER_TYPE,
+            })
+        nm = attach_metric_specs(con, mlog_id, node_id, specs, at=at_ts or None)
+        metric_hint = f" + {nm} metric(s)"
+    return log_hint, metric_hint
+
+
 def cmd_add(args, con):
     if not args.title or not args.title.strip():
         sys.exit("✗ title cannot be empty")
@@ -181,64 +249,11 @@ def cmd_add(args, con):
         _db.upsert(con, "tag", {"node_id": node_id, "tag": t}, key=("node_id", "tag"))
     if args.proj:
         _db.upsert(con, "prop", {"node_id": node_id, "key": "project", "value": args.proj}, key=("node_id", "key"))
-    # --sched: write directly to sched table (one command = "create task + schedule it as planned for a day")
-    sched_hint = ""
-    if getattr(args, "sched", None):
-        try:
-            d = _resolve_concrete_date(args.sched)
-        except ValueError:
-            sys.exit(f"✗ invalid --sched date '{args.sched}' (use YYYY-MM-DD / today / tomorrow / day-after-tomorrow / yesterday)")
-        _db.insert(con, "sched", {"node_id": node_id, "on_date": d, "created_at": _tu.utc_now()})
-        sched_hint = " " + _c(f"@{d}", "planned")
-
-    # --link: attach a vault doc
-    link_hint = ""
-    if getattr(args, "link", None):
-        link_doc = _strip_wikilink(args.link)
-        if link_doc:
-            _upsert_link(con, node_id, link_doc)
-            link_hint = " → " + _c(f"[[{link_doc}]]", "meta")
-
-    # --relation: establish task↔task relation(s) at creation, writing both sides
-    # (e.g. --relation 'split-from 42'). Repeatable; reuses the wl relation core.
-    rel_hint = ""
-    rel_specs = getattr(args, "relation", None)
-    if rel_specs:
-        rel_n = 0
-        for spec in rel_specs:
-            rtype, ids = _parse_relation_spec(spec)
-            _check_ids_exist(con, ids)
-            rel_n += len(_apply_relation(con, node_id, rtype, ids))
-        if rel_n:
-            rel_hint = f" + {rel_n} relation(s)"
-
-    # --log: insert a log (using at_ts if given, otherwise NOW)
-    log_hint = ""
-    created_log_id = None
-    log_body = getattr(args, "log", None)
-    if log_body and log_body.strip():
-        if at_ts:
-            # at_ts is already a UTC instant — insert it directly (don't round-trip
-            # through _insert_log's dict path, which would re-apply local→UTC)
-            created_log_id = _db.insert(con, "log", {"node_id": node_id, "logged_at": at_ts, "body": log_body.strip()})
-        else:
-            created_log_id = _insert_log(con, node_id, log_body.strip())
-        log_hint = " + log"
-
-    # --metric: attach datapoint(s); reuse the --log carrier if present, else make a
-    # dedicated (type='metric') carrier log so every datapoint still has a log.
-    metric_hint = ""
-    specs = getattr(args, "metric", None)
-    if specs:
-        if created_log_id is not None:
-            mlog_id = created_log_id
-        else:
-            mlog_id = _db.insert(con, "log", {
-                "node_id": node_id, "logged_at": at_ts or _tu.utc_now(),
-                "body": "", "tag": _CARRIER_TYPE,
-            })
-        nm = attach_metric_specs(con, mlog_id, node_id, specs, at=at_ts or None)
-        metric_hint = f" + {nm} metric(s)"
+    # creation-time side effects, each returning its echo hint (order fixed by the output line below)
+    sched_hint = _add_sched(con, node_id, args)
+    link_hint = _add_link(con, node_id, args)
+    rel_hint = _add_relations(con, node_id, args)
+    log_hint, metric_hint = _add_log_and_metrics(con, node_id, args, at_ts)
 
     con.commit()
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
