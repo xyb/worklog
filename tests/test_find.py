@@ -98,3 +98,11 @@ class TestFindTitleHighlight:
         code, out, _ = cli("--color", "never", "find", "needle")
         assert "title-only task" in out  # title verbatim, no marker
         assert "*pure" not in out
+
+
+class TestFindBody:
+    def test_find_in_body_shows_snippet(self, cli):
+        cli("add", "plain title", "-k", "task", "--body", "the secret needle lives in the body")
+        code, out, _ = cli("find", "needle")
+        assert code == 0
+        assert "body:" in out and "needle" in out

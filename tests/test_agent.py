@@ -80,6 +80,23 @@ class TestAgent:
         # and so must the · before the title
         assert len({ln.index("·") for ln in lines}) == 1
 
+    def test_ls_interactive_color_renders(self, cli, monkeypatch):
+        # styled (non-plain) path: full sid kept when it fits
+        self._sess(monkeypatch, "sess-interactive")
+        cli("add", "task one", "-k", "task")
+        cli("agent", "1")
+        code, out, _ = cli("--color", "always", "agent", "ls")
+        assert code == 0 and "#1" in out
+
+    def test_ls_interactive_shrinks_long_sid_on_narrow_width(self, cli, monkeypatch):
+        # styled + tight width → the sid is uniformly shrunk with an ellipsis (the shrink branch)
+        self._sess(monkeypatch, "a-very-long-session-id-that-will-not-fit-0987654321")
+        cli("add", "a task with a long enough title to crowd the line", "-k", "task")
+        cli("agent", "1")
+        code, out, _ = cli("--color", "always", "--width", "40", "agent", "ls")
+        assert code == 0
+        assert "…" in out          # sid truncated to fit the narrow width
+
     def test_conflict_warns_when_node_held_by_other_session(self, cli, monkeypatch):
         cli("add", "a", "-k", "task")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
