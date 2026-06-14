@@ -115,15 +115,9 @@ def cmd_import(args, con):
 # rich-field sub-lines: <indent>@log/@link/@prop <value>  (attached to the previous node)
 _MARKER_STATUS = {" ": "TODO", "x": "DONE", "/": "DOING", ">": "LATER", "?": "WAIT", "-": "CANCELED"}
 
-def cmd_apply(args, con):
-    """Apply wl-diff: + add (node line) / ~ update (lock-line + field-ops, only declared fields) / - delete / anchor. Single transaction + dry-run validation."""
-    raw = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
-    try:
-        ops = _parse_wld(raw)
-    except ValueError as e:
-        sys.exit(f"✗ parse failed: {e}")
-
-    # --- validation phase (validate all, stop on errors, no write) ---
+def _apply_validate(con, ops):
+    """Validate every wl-diff op (existence / field-ops / parent-cycle / markers) without writing.
+    Returns the list of error strings (empty = all valid)."""
     errors = []
     for o in ops:
         pfx, ln = o["op"], o["lineno"]
@@ -159,8 +153,11 @@ def cmd_apply(args, con):
                 errors.append(f"line {ln}: unknown marker [{f['marker']}]")
     if errors:
         sys.exit("✗ validation failed (not written):\n  " + "\n  ".join(errors))
+    return errors
 
-    # --- plan (guaranteed valid at this point) ---
+
+def _apply_plan(ops):
+    """One human-readable line per op (for --dry-run and the success summary)."""
     plan = []
     for o in ops:
         pfx = o["op"]
@@ -173,14 +170,12 @@ def cmd_apply(args, con):
             plan.append(f"+ {f['title']}" + (f" @depth{o['depth']}" if o["depth"] else "") + sub)
         elif pfx == "-":
             plan.append(f"- #{o['fields']['id']} (cascades subtree)")
+    return plan
 
-    if args.dry_run:
-        out(_c("[dry-run]", "meta") + _c(f" {len(plan)} operations (not written):", "header"))
-        for desc in plan:
-            out("  " + _c(desc))
-        return
 
-    # --- execute (single transaction) ---
+def _apply_execute(con, ops):
+    """Execute every op in the caller's open transaction (caller commits on success); roll back
+    and exit on any error. Returns counts {add, update, delete}."""
     stack = {}
     counts = {"add": 0, "update": 0, "delete": 0}
     try:
@@ -224,7 +219,26 @@ def cmd_apply(args, con):
     except Exception as e:
         con.rollback()
         sys.exit(f"✗ apply failed (rolled back): {e}")
+    return counts
 
+
+def cmd_apply(args, con):
+    """Apply wl-diff: + add (node line) / ~ update (lock-line + field-ops, only declared fields) / - delete / anchor. Single transaction + dry-run validation."""
+    raw = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
+    try:
+        ops = _parse_wld(raw)
+    except ValueError as e:
+        sys.exit(f"✗ parse failed: {e}")
+    errors = _apply_validate(con, ops)
+    if errors:
+        sys.exit("✗ validation failed (not written):\n  " + "\n  ".join(errors))
+    plan = _apply_plan(ops)
+    if args.dry_run:
+        out(_c("[dry-run]", "meta") + _c(f" {len(plan)} operations (not written):", "header"))
+        for desc in plan:
+            out("  " + _c(desc))
+        return
+    counts = _apply_execute(con, ops)
     con.commit()
     out(_c("✓", "done") + _c(f" added {counts['add']} · updated {counts['update']} · deleted {counts['delete']}"))
 
