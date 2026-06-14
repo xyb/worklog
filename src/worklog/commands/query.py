@@ -168,39 +168,29 @@ def cmd_show(args, con):
         args.id = nid
         _show_one(args, con)
 
-def cmd_ls(args, con):
-    """list nodes. Mirrors shell ls multi-dimensional query conventions (ls -t / -S / -r etc.):
-    - default --sort pri (priority+id), like ls default-by-name
-    - --sort created/closed/scheduled/updated/title/id similar to ls -t / -S
-    - --reverse / -r reverses (like ls -r)
-    - --recent N anything that changed in the last N days (created/log/closed)
-    - --unscheduled tasks not in sched
-    - --ids 1 2 3 list specific ids directly (like ls file1 file2)
-    """
-    inc_cancel = getattr(args, "show_canceled", False)
-
-    # --ids mode: list specific ids directly (like ls file1 file2), skipping filters
-    if getattr(args, "ids", None):
-        rows = []
-        for nid in args.ids:
-            r = _db.get(con, "node", nid)
-            if r:
-                rows.append(r)
-        if getattr(args, "output", "text") == "json":
-            _emit_nodes_json(con, rows)   # empty list → [] (valid machine output)
-            return
-        if not rows:
-            print("(no nodes matched given ids)")
-            return
-        brief = getattr(args, "brief", False)
-        for n in rows:
-            out(_node_line(con, n, tags=not brief, sched=not brief))
+def _ls_ids(con, args):
+    """`wl ls --ids 1 2 3`: list specific nodes directly (like `ls file1 file2`), skipping filters."""
+    rows = []
+    for nid in args.ids:
+        r = _db.get(con, "node", nid)
+        if r:
+            rows.append(r)
+    if getattr(args, "output", "text") == "json":
+        _emit_nodes_json(con, rows)   # empty list → [] (valid machine output)
         return
+    if not rows:
+        print("(no nodes matched given ids)")
+        return
+    brief = getattr(args, "brief", False)
+    for n in rows:
+        out(_node_line(con, n, tags=not brief, sched=not brief))
 
-    # the shared --tag/--kind/--status filter is applied as a post-pass via
-    # make_node_filter (one definition for all list/view commands); only ls-specific
-    # dimensions (--parent / --unscheduled / --recent) and the default DONE-hide are
-    # built into SQL here.
+
+def _ls_build_query(args):
+    """Build the `wl ls` SQL + params from its ls-specific dimensions (--parent / --unscheduled /
+    --recent / --sort / --reverse + the default DONE-hide). The shared --tag/--kind/--status filter
+    is applied separately as a post-pass (make_node_filter). Returns (sql, params)."""
+    inc_cancel = getattr(args, "show_canceled", False)
     simple = {}
     if args.parent is not None:
         simple["parent_id"] = args.parent
@@ -245,7 +235,26 @@ def cmd_ls(args, con):
                 flipped.append(piece + " DESC")
         order_by = ", ".join(flipped)
     sql += f" ORDER BY {order_by}"
+    return sql, params
 
+
+def cmd_ls(args, con):
+    """list nodes. Mirrors shell ls multi-dimensional query conventions (ls -t / -S / -r etc.):
+    - default --sort pri (priority+id), like ls default-by-name
+    - --sort created/closed/scheduled/updated/title/id similar to ls -t / -S
+    - --reverse / -r reverses (like ls -r)
+    - --recent N anything that changed in the last N days (created/log/closed)
+    - --unscheduled tasks not in sched
+    - --ids 1 2 3 list specific ids directly (like ls file1 file2)
+    """
+    # --ids mode: list specific ids directly (like ls file1 file2), skipping filters
+    if getattr(args, "ids", None):
+        _ls_ids(con, args)
+        return
+
+    # ls-specific dimensions (--parent / --unscheduled / --recent / --sort) build the SQL; the
+    # shared --tag/--kind/--status filter is applied below as a post-pass via make_node_filter.
+    sql, params = _ls_build_query(args)
     rows = list(con.execute(sql, params))
     nf = make_node_filter(con, args)
     if nf:
