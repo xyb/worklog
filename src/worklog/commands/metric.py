@@ -98,6 +98,18 @@ def _fmt_value(row):
     return ""
 
 
+def metric_rows(metrics, indent, *, cap=5):
+    """The indented ``↳ [tag] value`` datapoint rows folded under a node in the day /
+    activity / `wl show` timeline views — capped at ``cap`` with a trailing
+    ``↳ … N more datapoints`` overflow line. ``metrics`` are pre-fetched rows (tag +
+    value fields); ``indent`` is the leading whitespace. Returns the rendered lines so
+    every caller folds datapoints identically instead of re-inlining the format."""
+    lines = [indent + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta") for m in metrics[:cap]]
+    if len(metrics) > cap:
+        lines.append(indent + _c(f"↳ … {len(metrics) - cap} more datapoints", "meta"))
+    return lines
+
+
 def _line(row):
     line = (_c(f"#M{row['id']}", "id") + " " + _c(f"[{row['tag']}]", "planned")
             + f" {_fmt_value(row)}".rstrip() + _c(f"  @{_tu.utc_to_local(row['at'])}", "meta"))

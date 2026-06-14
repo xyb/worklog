@@ -13,7 +13,7 @@ from pathlib import Path
 from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
-from .metric import _fmt_value
+from .metric import _fmt_value, metric_rows
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
@@ -1193,10 +1193,8 @@ def _show_one(args, con):
             # instants (created/closed/log/clock, len-19) render local; literal dates (scheduled) pass through
             out("    " + _c(_tu.utc_to_local(ts), "meta") + "  " + lid_str + "  " + _c(kind) + (f"  {_c(extra)}" if extra else ""))
             # fold a log's metrics beneath it (over-count elision keeps it tidy)
-            for m in metrics[:5]:
-                out("           " + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta"))
-            if len(metrics) > 5:
-                out("           " + _c(f"↳ … {len(metrics) - 5} more datapoints", "meta"))
+            for line in metric_rows(metrics, "           "):
+                out(line)
 
 
 _LS_SORT_SQL = {
