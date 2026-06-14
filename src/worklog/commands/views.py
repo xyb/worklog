@@ -69,6 +69,7 @@ from ..render import (
     _pri_marker,
     _hang_wrap,
     _node_line,
+    _node_activity_prefix,
     _print_truncation_hint,
     _snippet,
     out,
@@ -719,19 +720,13 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
     for nid, t in tasks.items():
         n = t["r"]
         # habit done today = has a structured check-in metric that day (not "any log")
-        if n["kind"] == "habit" and _has_checkin(con, nid, target):
-            mk_txt = "[x]"; mk = _c(mk_txt, "done")
-        else:
-            mk_txt = _status_marker(n["status"]); mk = _c(mk_txt, _STATUS_STYLE.get(n["status"], "todo"))
-        pri_txt = (f"[#{n['priority']}]" if n["priority"] else "[# ]")
-        pri = _pri_marker(n["priority"]) + " "
+        done = n["kind"] == "habit" and _has_checkin(con, nid, target)
         mh = mh_plain = ""
         if n["kind"] == "habit":
             prog = _habit_month_progress(con, nid, target)
             if prog:
                 mh_plain = f"  (this month {prog[0]}/{prog[1]})"; mh = _c(mh_plain, "meta")
-        prefix = ind + mk + " " + _c(f"#{nid}", "id") + " " + pri
-        prefix_cols = _display_width(f"{ind}{mk_txt} #{nid} {pri_txt} ")
+        prefix, prefix_cols = _node_activity_prefix(n, nid, ind, done=done)
         out(_hang_wrap(prefix, prefix_cols, n["title"], tail=mh, tail_cols=_display_width(mh_plain)))
         if log_tail != 0 and (max_depth is None or depth + 1 < max_depth):
             logs = t["logs"]
@@ -826,12 +821,7 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 n = it["node"]
                 logs = it["logs"]
                 # habit done today = has a structured check-in metric that day (not "any log")
-                if n["kind"] == "habit" and day and _has_checkin(con, nid, day):
-                    mk_txt = "[x]"; mk = _c(mk_txt, "done")
-                else:
-                    mk_txt = _status_marker(n["status"]); mk = _c(mk_txt, _STATUS_STYLE.get(n["status"], "todo"))
-                pri_txt = (f"[#{n['priority']}]" if n["priority"] else "[# ]")
-                pri = _pri_marker(n["priority"]) + " "
+                done = n["kind"] == "habit" and day and _has_checkin(con, nid, day)
                 hint = hint_plain = ""
                 if not logs and n["status"] not in ("DONE", "CANCELED") and by != "plan":
                     # only "not-done" if the task is still open; a terminal-status task
@@ -853,8 +843,7 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                     prog = _habit_month_progress(con, nid, day)
                     if prog:
                         mh_plain = f"  (this month {prog[0]}/{prog[1]})"; mh = _c(mh_plain, "meta")
-                prefix = "      " + mk + " " + _c(f"#{nid}", "id") + " " + pri
-                prefix_cols = _display_width(f"      {mk_txt} #{nid} {pri_txt} ")
+                prefix, prefix_cols = _node_activity_prefix(n, nid, "      ", done=done)
                 # suffixes ride the last title line via _hang_wrap (so they wrap correctly, not
                 # spill to column 0); pass their combined PLAIN width as the tail budget
                 tail = dur_str + hint + mh

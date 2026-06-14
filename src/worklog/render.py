@@ -251,6 +251,31 @@ def _pri_marker(priority):
     return _c("[# ]", "meta")
 
 
+def _pri_plain(priority):
+    """Plain-text twin of `_pri_marker` (no styling): ``[#A]`` / ``[# ]`` when unset. Used for
+    hang-indent WIDTH math, where only the column count matters, not the color — the single
+    source for that string so the unset marker can't drift between renderers."""
+    return f"[#{priority}]" if priority else "[# ]"
+
+
+def _node_activity_prefix(n, nid, indent, *, done=False):
+    """The ``<indent><marker> #<id> <pri> `` prefix the day / activity renderers print before a
+    node's title, then feed to `_hang_wrap`. NOTE this is the activity layout (id BEFORE priority,
+    no kind) — distinct from `_node_line`'s list layout (priority before id) — shared by
+    `_print_day_activity` and `_render_day_group` so the two can't drift. ``nid`` is passed
+    explicitly (the callers key on it; their row ``n`` may not carry an ``id`` column). ``done=True``
+    forces the ``[x]`` check-marker (a habit checked-in that day). Returns ``(styled_prefix,
+    prefix_cols)``, where prefix_cols is the plain display width for the hang indent."""
+    if done:
+        mk_txt, mk = "[x]", _c("[x]", "done")
+    else:
+        mk_txt = _status_marker(n["status"])
+        mk = _c(mk_txt, _STATUS_STYLE.get(n["status"], "todo"))
+    prefix = indent + mk + " " + _c(f"#{nid}", "id") + " " + _pri_marker(n["priority"]) + " "
+    prefix_cols = _display_width(f"{indent}{mk_txt} #{nid} {_pri_plain(n['priority'])} ")
+    return prefix, prefix_cols
+
+
 def _hang_wrap(prefix, prefix_cols, title, *, hl=None, style=None, tail="", tail_cols=0):
     """Render `prefix` + a node `title` that wraps per the title mode (the single wrap utility,
     shared by `_node_line` and the day/tree custom renderers so they all behave the same).
@@ -287,7 +312,7 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
     mk = "✓" if done else _status_marker(n["status"])
     marker = _c(mk, "done" if done else _STATUS_STYLE.get(n["status"], "todo"))
     pri = _pri_marker(n["priority"])
-    pri_plain = f"[#{n['priority']}]" if n["priority"] else "[# ]"
+    pri_plain = _pri_plain(n["priority"])
     kind_plain = f"[{n['kind']}] " if (show_kind and n["kind"] != "task") else ""
     kind = (_c(kind_plain.rstrip(), "kind") + " ") if kind_plain else ""
     nid = _c(f"#{n['id']}", "id")
