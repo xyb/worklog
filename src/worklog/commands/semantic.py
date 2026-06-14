@@ -16,7 +16,7 @@ from .. import embedding as _embedding
 from .. import vectorstore as _vs
 from .. import db_table as _db
 from .. import render
-from ..render import _c, _node_line, _hl_terms, out
+from ..render import _c, _node_line, _hl_terms, _detail_line, out
 from ..helpers import _truncate_log_body, _display_width
 from ..xdg import _resolve_vec_db_path
 
@@ -261,9 +261,11 @@ def cmd_query(args, con):
         chunk = h.get("chunk_text", "")
         if chunk:
             flat = " ".join(chunk.split())
-            label = f"↳ {h.get('chunk_kind', '')}: "
-            body = _truncate_log_body(flat, indent_cols=_display_width("    " + label))
-            out("    " + _c(f"↳ {h.get('chunk_kind', '')}:", "meta") + " " + _hl_terms(body, terms))
+            label = f"↳ {h.get('chunk_kind', '')}:"
+            # width-clip the chunk exactly like `wl day` clips a log line (shared _truncate_log_body),
+            # accounting for the indent+label width, then render via the shared detail-line format.
+            body = _truncate_log_body(flat, indent_cols=_display_width("    " + label + " "))
+            out(_detail_line(label, _hl_terms(body, terms)))
 
 
 def _segment(text):

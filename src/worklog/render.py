@@ -224,6 +224,13 @@ def _hl_terms(text, terms):
     return "".join(parts)
 
 
+def _detail_line(label, content, *, indent="    "):
+    """One indented detail line shown UNDER a node line: ``<indent><label> <content>`` with the
+    label dimmed (the "meta" style). The single building block for the match/snippet rows that
+    `wl find` (``body:`` / ``log:`` / ``tag:`` …) and `wl query` (``↳ <kind>:``) print, so every
+    command renders its sub-lines identically instead of re-inlining the indent+label format.
+    ``content`` is passed through already-rendered (e.g. via `_snippet` / `_hl` / `_hl_terms`)."""
+    return indent + _c(label, "meta") + " " + content
 
 
 # --- node-line rendering (extracted from cli.py) ---

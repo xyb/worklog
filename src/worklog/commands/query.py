@@ -67,6 +67,7 @@ from ..render import (
     _hl,
     _pri_marker,
     _node_line,
+    _detail_line,
     _print_truncation_hint,
     _snippet,
     out,
@@ -339,19 +340,19 @@ def cmd_find(args, con):
         out(_node_line(con, n, hl=q) + "  " + _c(f"«{'/'.join(sorted(where))}»", "meta"))
         # show hit contents not in the title line (title already highlighted, no expansion needed)
         if "body" in where and n["body"]:
-            out("    " + _c("body:", "meta") + " " + _snippet(n["body"], q))
+            out(_detail_line("body:", _snippet(n["body"], q)))
         if "log" in where:
             for r in _db.query(con, "log", cols="body", node_id=nid, body__like=like, order="id"):
-                out("    " + _c("log:", "meta") + " " + _snippet(r["body"], q))
+                out(_detail_line("log:", _snippet(r["body"], q)))
         if "tag" in where:
             tg = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid, tag__like=like)]
-            out("    " + _c("tag:", "meta") + " " + _hl(", ".join(tg), q))
+            out(_detail_line("tag:", _hl(", ".join(tg), q)))
         if "prop" in where:
             for r in con.execute("SELECT key,value FROM prop WHERE node_id=? AND (key LIKE ? OR value LIKE ?) AND deleted_at IS NULL", (nid, like, like)):
-                out("    " + _c("prop:", "meta") + " " + _hl(f"{r['key']}={r['value']}", q))
+                out(_detail_line("prop:", _hl(f"{r['key']}={r['value']}", q)))
         if "link" in where:
             for r in _db.query(con, "link", cols="vault_doc", node_id=nid, vault_doc__like=like):
-                out("    " + _c("link:", "meta") + " " + _hl(f"[[{r['vault_doc']}]]", q))
+                out(_detail_line("link:", _hl(f"[[{r['vault_doc']}]]", q)))
 
 def cmd_focus(args, con):
     """Focus on a node: upstream path + self + downstream subtree."""
