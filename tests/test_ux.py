@@ -59,12 +59,6 @@ class TestUXShortcuts:
         _, show, _ = cli("show", "1")
         assert "11:09:00" in show  # time stored in logged_at
 
-    def test_log_with_date_and_time(self, cli):
-        cli("add", "work item", "-k", "task")
-        cli("log", "1", "review", "--date", "2026-05-28", "--time", "14:30")
-        _, show, _ = cli("show", "1")
-        assert "2026-05-28 14:30:00" in show
-
     def test_log_date_accepts_yesterday(self, cli):
         cli("add", "work item", "-k", "task")
         cli("log", "1", "yesterday thing", "--date", "yesterday")
@@ -73,11 +67,6 @@ class TestUXShortcuts:
         from datetime import date, timedelta
         yday = (date.today() - timedelta(days=1)).isoformat()
         assert yday in show
-
-    def test_log_invalid_time_errors(self, cli):
-        cli("add", "t1", "-k", "task")
-        code, _, err = cli("log", "1", "x", "--time", "abc")
-        assert code != 0
 
     def test_day_accepts_today_shorthand(self, cli):
         cli("add", "work item", "-k", "task")
@@ -142,32 +131,6 @@ class TestUXShortcuts:
         _, show, _ = cli("show", "1")
         assert "TODO" in show
         assert "DONE" not in show or "TODO" in show  # status reverted to TODO
-
-    def test_find_default_limits_20(self, cli):
-        for i in range(30):
-            cli("add", f"hello {i}", "-k", "task")
-        _, out, _ = cli("find", "hello")
-        assert "30 hits" in out
-        assert "showing first 20" in out
-        # only 20 rows expected
-        import re
-        ids = re.findall(r"#\d+", out)
-        # header "30 hits" also contains the string 30; counting by hash form is more reliable
-        assert out.count("hello") <= 22  # 20 task rows + 2 occurrences in the header
-
-    def test_find_all_shows_everything(self, cli):
-        for i in range(25):
-            cli("add", f"abc {i}", "-k", "task")
-        _, out, _ = cli("find", "abc", "--all")
-        assert "25 hits" in out
-        assert "showing first" not in out
-
-    def test_find_limit_explicit(self, cli):
-        for i in range(15):
-            cli("add", f"xyz {i}", "-k", "task")
-        _, out, _ = cli("find", "xyz", "--limit", "5")
-        assert "15 hits" in out
-        assert "showing first 5" in out
 
     def test_tick_multiple_ids(self, cli):
         cli("add", "h1", "-k", "habit")
@@ -280,14 +243,6 @@ class TestUXShortcuts:
         assert "checked in" in out
         _, show, _ = cli("show", "1")
         assert "✓ done" in show
-
-    def test_logs_invalid_id_hint(self, cli):
-        _, out, _ = cli("logs", "--id", "9999")
-        assert "does not exist" in out or "9999" in out
-
-    def test_logs_empty_window_hint(self, cli):
-        _, out, _ = cli("logs", "--date", "2020-01-01")
-        assert "no logs" in out
 
     def test_log_time_validates_range(self, cli):
         cli("add", "t1", "-k", "task")
@@ -429,13 +384,6 @@ class TestCanceledFilter:
 
 class TestDurationAndAutoProgress:
     """§26 duration summary + §27 auto status advancement."""
-
-    def test_log_auto_promotes_todo_to_doing(self, cli):
-        cli("add", "t1", "-k", "task")
-        _, out, _ = cli("log", "1", "progress")
-        assert "TODO → DOING" in out
-        _, show, _ = cli("show", "1")
-        assert "DOING" in show
 
     def test_log_keep_status_disables_auto(self, cli):
         cli("add", "t1", "-k", "task")

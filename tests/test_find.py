@@ -106,3 +106,30 @@ class TestFindBody:
         code, out, _ = cli("find", "needle")
         assert code == 0
         assert "body:" in out and "needle" in out
+
+
+class TestFindLimit:
+    """--limit / --all on `wl find` (default cap 20, lifts)."""
+    def test_find_default_limits_20(self, cli):
+        for i in range(30):
+            cli("add", f"hello {i}", "-k", "task")
+        _, out, _ = cli("find", "hello")
+        assert "30 hits" in out
+        assert "showing first 20" in out
+        # only 20 rows expected
+        import re
+        ids = re.findall(r"#\d+", out)
+        # header "30 hits" also contains the string 30; counting by hash form is more reliable
+        assert out.count("hello") <= 22  # 20 task rows + 2 occurrences in the header
+    def test_find_all_shows_everything(self, cli):
+        for i in range(25):
+            cli("add", f"abc {i}", "-k", "task")
+        _, out, _ = cli("find", "abc", "--all")
+        assert "25 hits" in out
+        assert "showing first" not in out
+    def test_find_limit_explicit(self, cli):
+        for i in range(15):
+            cli("add", f"xyz {i}", "-k", "task")
+        _, out, _ = cli("find", "xyz", "--limit", "5")
+        assert "15 hits" in out
+        assert "showing first 5" in out
