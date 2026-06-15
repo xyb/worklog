@@ -10,6 +10,7 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
 
 from .. import config as _config
 from .. import embedding as _embedding
@@ -198,6 +199,9 @@ def cmd_reindex(args, con):
     """(Re)build the semantic index. Default = full rebuild (embed every node, replace the
     store). `--incremental` = embed only nodes new/changed since the last index + drop deleted
     ones (the cheap day-to-day top-up; full is for first build / model change)."""
+    if getattr(args, "auto", False):     # background single-flight worker (spawned after a write)
+        _reindex_auto(args, con)
+        return
     cfg = _config.resolve_embedding_config(args)
     chunks = _node_chunks(con)
     if not chunks:
@@ -223,22 +227,35 @@ def cmd_reindex(args, con):
                "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
 
 
-def _reindex_incremental(con, db, cfg, chunks):
+def _reindex_incremental(con, db, cfg, chunks, *, quiet=False):
     """Embed only the nodes whose chunk set changed since the last index, and evict deleted ones.
     Dirty detection is a cheap text diff (no embedding): a node is dirty if its current set of
     chunk texts differs from what's indexed; deleted = indexed node no longer live. Embeds just
-    the dirty nodes' chunks. Falls back to a full pass when the store is empty."""
+    the dirty nodes' chunks. Falls back to a full pass when the store is empty.
+
+    Returns True if it changed the index (work done), False if it was already up to date. `quiet`
+    (the background --auto worker) suppresses output and swallows embedding errors instead of
+    exiting, so a transient backend outage can't kill a detached loop."""
+    def _embed(texts):
+        try:
+            return _embed_with_progress(texts, cfg)
+        except _embedding.EmbeddingError as e:
+            if quiet:
+                return None              # give up this pass quietly; a later write retries
+            sys.exit(f"✗ {e}")
+
     im = _vs.index_model(db)
     if im is None:                       # empty store → nothing to diff against, do a full build
-        try:
-            vecs = _embed_with_progress([c[5] for c in chunks], cfg)
-        except _embedding.EmbeddingError as e:
-            sys.exit(f"✗ {e}")
-        dim = len(vecs[0]) if vecs else 0
-        _vs.upsert(db, _chunk_rows(chunks, vecs, cfg, dim))
-        out(_c(f"✓ indexed {len({c[0] for c in chunks})} node(s) ({len(chunks)} chunks)", "done"))
-        return
+        vecs = _embed([c[5] for c in chunks])
+        if vecs is None:
+            return False
+        _vs.upsert(db, _chunk_rows(chunks, vecs, cfg, len(vecs[0]) if vecs else 0))
+        if not quiet:
+            out(_c(f"✓ indexed {len({c[0] for c in chunks})} node(s) ({len(chunks)} chunks)", "done"))
+        return True
     if im[0] != cfg["model"]:
+        if quiet:
+            return False                 # model changed → needs a full rebuild; don't churn here
         sys.exit(f"✗ index was built with model '{im[0]}' but config is '{cfg['model']}' — "
                  f"run a full `wl reindex` (without --incremental) to rebuild with the new model")
     by_node, cur_text = {}, {}
@@ -254,21 +271,64 @@ def _reindex_incremental(con, db, cfg, chunks):
     changed = {nid for nid in (live & indexed) if cur_text[nid] != idx_text[nid]}
     dirty = new | changed
     if not dirty and not removed:
-        out(_c("✓ index already up to date", "done"))
-        return
+        if not quiet:
+            out(_c("✓ index already up to date", "done"))
+        return False
     dirty_chunks = [c for nid in dirty for c in by_node[nid]]
     rows = []
     if dirty_chunks:
-        try:
-            vecs = _embed_with_progress([c[5] for c in dirty_chunks], cfg)
-        except _embedding.EmbeddingError as e:
-            sys.exit(f"✗ {e}")
+        vecs = _embed([c[5] for c in dirty_chunks])
+        if vecs is None:
+            return False
         rows = _chunk_rows(dirty_chunks, vecs, cfg, im[1])
     _vs.delete_nodes(db, changed | removed)   # drop changed nodes' stale chunks + deleted nodes
     if rows:
         _vs.upsert(db, rows)
-    out(_c(f"✓ incremental: +{len(new)} new, ~{len(changed)} changed, -{len(removed)} removed "
-           f"({len(dirty_chunks)} chunks embedded)", "done"))
+    if not quiet:
+        out(_c(f"✓ incremental: +{len(new)} new, ~{len(changed)} changed, -{len(removed)} removed "
+               f"({len(dirty_chunks)} chunks embedded)", "done"))
+    return True
+
+
+def _reindex_lock_path(args):
+    """The single-flight lock for the background auto-reindex worker — a sibling of the vector
+    store, so one is held per store (per DB)."""
+    return Path(_resolve_vec_db_path(args)).parent / ".reindex.lock"
+
+
+def _reindex_auto(args, con):
+    """Background single-flight incremental reindex (spawned detached after a write). Holds an
+    exclusive lock — if another worker already holds it, exit immediately (single-flight) — then
+    loops incremental passes until nothing is dirty, so writes that land mid-run are still picked
+    up. Quiet; never raises (a detached worker must not surface errors)."""
+    import fcntl
+    lock_path = _reindex_lock_path(args)
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lf = open(lock_path, "w")
+    except OSError:
+        return
+    try:
+        try:
+            fcntl.flock(lf.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return                       # another worker is running — single-flight, don't pile up
+        cfg = _config.resolve_embedding_config(args)
+        for _ in range(1000):            # bounded guard; each pass only embeds what's still dirty
+            chunks = _node_chunks(con)
+            if not chunks:
+                break                    # empty db — nothing to index
+            db = _open_store(args)
+            if not _reindex_incremental(con, db, cfg, chunks, quiet=True):
+                break                    # clean → done (loop again only if a write dirtied it)
+    except Exception:
+        pass                             # detached worker: swallow everything, never crash loudly
+    finally:
+        try:
+            fcntl.flock(lf.fileno(), fcntl.LOCK_UN)
+        except OSError:
+            pass
+        lf.close()
 
 
 def cmd_query(args, con):

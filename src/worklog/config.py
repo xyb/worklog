@@ -98,6 +98,25 @@ def synonym_map():
     return out
 
 
+def auto_reindex_enabled():
+    """Whether a write should kick a background incremental reindex. Default ON; turn off with
+    `$WORKLOG_AUTO_REINDEX=0` or `[index] auto_reindex = false` in config.ini. The env wins."""
+    env = os.environ.get("WORKLOG_AUTO_REINDEX")
+    if env is not None:
+        return env.strip().lower() not in ("0", "false", "no", "off", "")
+    p = _resolve_config_path()
+    if not p.exists():
+        return True
+    cfg = configparser.ConfigParser()
+    try:
+        cfg.read(p, encoding="utf-8")
+    except configparser.Error:
+        return True
+    if "index" in cfg and "auto_reindex" in cfg["index"]:
+        return cfg["index"].getboolean("auto_reindex", True)
+    return True
+
+
 def resolve_embedding_config(args=None):
     """Resolve the embedding backend config across the four layers. Returns a dict of
     the resolved values plus a ``source`` dict naming each value's origin."""

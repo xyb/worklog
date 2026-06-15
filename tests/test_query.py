@@ -483,3 +483,43 @@ class TestReindexIncremental:
         monkeypatch.setattr(emb, "embed", lambda texts, t, cfg: (n.append(len(texts)), _fake_embed(texts, t, cfg))[1])
         seeded("reindex", "--incremental")
         assert sum(n) <= 2   # just #4's chunk(s), not all four nodes
+
+
+class TestReindexAuto:
+    """#806 Phase 2: `wl reindex --auto` = single-flight background worker (lock + loop-until-clean)."""
+
+    def test_auto_indexes_new_nodes(self, seeded):
+        seeded("reindex")
+        seeded("add", "delta task", "-k", "task")
+        code, _, _ = seeded("reindex", "--auto")
+        assert code == 0
+        _, out2, err = seeded("query", "delta")
+        assert "#4 " in out2 and "not indexed" not in err.lower()   # #4 now indexed
+
+    def test_auto_single_flight_skips_when_locked(self, seeded, tmp_path, monkeypatch):
+        import fcntl
+        from worklog.commands import semantic as s
+        lock = tmp_path / "reindex.lock"
+        monkeypatch.setattr(s, "_reindex_lock_path", lambda args: lock)
+        seeded("reindex")
+        seeded("add", "delta task", "-k", "task")
+        held = open(lock, "w")
+        fcntl.flock(held.fileno(), fcntl.LOCK_EX)               # simulate another worker holding it
+        try:
+            seeded("reindex", "--auto")                         # must skip (single-flight)
+        finally:
+            fcntl.flock(held.fileno(), fcntl.LOCK_UN); held.close()
+        _, _, err = seeded("query", "delta")
+        assert "not indexed" in err.lower()                     # skipped → #4 still unindexed
+
+
+class TestAutoReindexConfig:
+    def test_env_disables(self, monkeypatch):
+        from worklog import config
+        monkeypatch.setenv("WORKLOG_AUTO_REINDEX", "0")
+        assert config.auto_reindex_enabled() is False
+
+    def test_env_enables(self, monkeypatch):
+        from worklog import config
+        monkeypatch.setenv("WORKLOG_AUTO_REINDEX", "1")
+        assert config.auto_reindex_enabled() is True

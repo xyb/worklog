@@ -1597,6 +1597,8 @@ wheel exists (Intel macOS, musl/Alpine, …) — same results, slower at large s
 More: `wl query` to search; configure the backend in config.ini [embedding] / $WORKLOG_EMBED_*.""")
     rx.add_argument("--incremental", action="store_true",
                     help="embed only nodes new/changed since the last index (+ drop deleted) — the cheap day-to-day top-up vs a full rebuild")
+    rx.add_argument("--auto", action="store_true",
+                    help="single-flight background worker: hold a lock (skip if one's running) and loop incremental passes until the index is clean. Spawned automatically after a write when [index] auto_reindex is on")
 
     qy = sub.add_parser("query", parents=[embed_parent, output_parent],
         help="semantic search: nearest nodes by meaning (vs `find`'s keyword match)",
@@ -1956,8 +1958,30 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
     con = db_connect()
     try:
         HANDLERS[args.cmd](args, con)
+        _maybe_kick_reindex(args, con)
     finally:
         con.close()
+
+
+def _maybe_kick_reindex(args, con):  # pragma: no cover -- spawns a detached process; not unit-tested
+    """After a command that wrote to the DB, spawn a detached single-flight background incremental
+    reindex (`wl reindex --auto`), so new/changed nodes get embedded without a manual `wl reindex`.
+    No-op for read commands (nothing changed), for `reindex` itself, and when disabled by config/env.
+    Best-effort: any failure is swallowed — a stale index must never break the foreground command."""
+    try:
+        if args.cmd == "reindex" or con.total_changes <= 0:
+            return
+        from . import config as _config
+        if not _config.auto_reindex_enabled():
+            return
+        import subprocess
+        db = getattr(args, "db", None)
+        # --db is a GLOBAL flag → it must precede the subcommand, not follow it
+        cmd = [sys.argv[0]] + (["--db", str(db)] if db else []) + ["reindex", "--auto"]
+        subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL, start_new_session=True)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
