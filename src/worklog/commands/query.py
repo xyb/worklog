@@ -186,16 +186,25 @@ def _ls_ids(con, args):
         out(_node_line(con, n, tags=not brief, sched=not brief))
 
 
-def _ls_build_query(args):
-    """Build the `wl ls` SQL + params from its ls-specific dimensions (--parent / --unscheduled /
-    --recent / --sort / --reverse + the default DONE-hide). The shared --tag/--kind/--status filter
-    is applied separately as a post-pass (make_node_filter). Returns (sql, params)."""
+def _ls_build_query(con, args):
+    """Build the `wl ls` SQL + params from its ls-specific dimensions (--parent / --root /
+    --unscheduled / --recent / --sort / --reverse + the default DONE-hide). The shared
+    --tag/--kind/--status filter is applied separately as a post-pass (make_node_filter).
+    Returns (sql, params)."""
     inc_cancel = getattr(args, "show_canceled", False)
     simple = {}
     if args.parent is not None:
         simple["parent_id"] = args.parent
     where, params = _db.clause(**simple)
     where.append("deleted_at IS NULL")  # hide soft-deleted nodes
+    if getattr(args, "root", None) is not None:
+        # --root: the whole subtree under this node (all descendants, flat), vs --parent (1 level)
+        desc = _collect_descendants(con, args.root)
+        if desc:
+            where.append(f"id IN ({','.join('?' * len(desc))})")
+            params.extend(desc)
+        else:
+            where.append("0")  # a leaf root has no descendants -> empty result
     if not args.status and not args.all:
         # default: list non-DONE only (DONE hidden); --show-canceled decides CANCELED visibility separately
         frag, p = _status_filter_sql(inc_cancel, hide_done=True)
@@ -254,7 +263,7 @@ def cmd_ls(args, con):
 
     # ls-specific dimensions (--parent / --unscheduled / --recent / --sort) build the SQL; the
     # shared --tag/--kind/--status filter is applied below as a post-pass via make_node_filter.
-    sql, params = _ls_build_query(args)
+    sql, params = _ls_build_query(con, args)
     rows = list(con.execute(sql, params))
     nf = make_node_filter(con, args)
     if nf:

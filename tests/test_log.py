@@ -418,3 +418,28 @@ class TestLogDateWords:
         code2, _, _ = cli("log", "1", "   ")
         assert code2 != 0
 
+
+
+class TestRetag:
+    """`wl retag #L<id> <tag>` — change a single log's tag (note/goal/summary/custom)."""
+
+    def test_retag_sets_tag(self, cli, tmp_db):
+        cli("add", "task")
+        cli("log", "1", "progress")
+        code, _, _ = cli("retag", "#L1", "goal")
+        assert code == 0
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT tag FROM log WHERE id=1").fetchone()["tag"] == "goal"
+
+    def test_retag_note_clears_to_null(self, cli, tmp_db):
+        cli("add", "task")
+        cli("log", "1", "progress")
+        cli("retag", "#L1", "summary")
+        cli("retag", "#L1", "note")  # note -> plain note (NULL)
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT tag FROM log WHERE id=1").fetchone()["tag"] is None
+
+    def test_retag_nonexistent_fails(self, cli):
+        cli("add", "task")
+        code, _, err = cli("retag", "#L999", "goal")
+        assert code != 0

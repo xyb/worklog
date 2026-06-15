@@ -503,12 +503,16 @@ def cmd_relation(args, con):
     was split out of / into / relates to that one)."""
     _require_node(con, args.id)
     rtype = getattr(args, "rtype", None)
-    if not rtype:
+    others_raw = list(args.others or [])
+    if rtype is None:
         _print_relations(con, args.id)
         return
-    rtype = _norm_relation_type(rtype)
+    if rtype not in _RELATION_TYPES:
+        # the type word was omitted: the first token is actually a node id → default to `related`
+        others_raw.insert(0, rtype)
+        rtype = "related"
     others = []
-    for raw in (args.others or []):
+    for raw in others_raw:
         s = str(raw).lstrip("#").strip()
         try:
             others.append(int(s))
@@ -835,6 +839,20 @@ def cmd_log_show(args, con):
         + _c(kind, "meta") + " "
         + _c(f"#{row['node_id']}", "id") + " " + _c(f"'{title}'", "meta"))
     out(row["body"])
+
+
+def cmd_retag(args, con):
+    """Change one log's `tag` directly (`wl retag #L282 goal`). The tag classifies a log's
+    role (goal / summary / a custom marker); a plain note has no tag. Passing `note` / `none`
+    / `-` / empty clears it back to a plain note (NULL). Accepts #L282 / L282 / 282."""
+    row = _db.get(con, "log", args.log_id)
+    if row is None:
+        sys.exit(f"✗ no log #L{args.log_id}")
+    raw = (args.tag or "").strip()
+    new = None if raw.lower() in ("", "-", "note", "none") else raw
+    _db.update(con, "log", args.log_id, {"tag": new})
+    con.commit()
+    out(_c("✓", "done") + " " + _c(f"#L{args.log_id}", "id") + f" tag → {new or 'note'}")
 
 
 def cmd_log_group(args, con):

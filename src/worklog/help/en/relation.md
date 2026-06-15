@@ -12,6 +12,7 @@ association between peers, not containment.
   wl relation 42 split-from 17       # #42 was split out of #17
   wl relation 17 split-into 42 43    # #17 split into #42 and #43
   wl relation 42 related 7 9         # #42 relates to #7 and #9
+  wl relation 42 7 9                  # same — `related` is the default type
   wl relation 42 split-from 17 --rm  # remove (from both sides)
 
 At creation, `wl add` takes a compound `--relation` so a new node links up in one shot

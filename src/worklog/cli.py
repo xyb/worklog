@@ -253,6 +253,7 @@ def _args_node_add(p):
 
 def _args_node_ls(p):
     p.add_argument("--parent", type=int, help="only direct children of this node")
+    p.add_argument("--root", type=int, help="all descendants of this node (recursive subtree, flat) — vs --parent (direct children only)")
     p.add_argument("--all", action="store_true", help="include DONE/CANCELED + remove the limit cap")
     p.add_argument("--limit", type=int, metavar="N", help="show only the first N (default 20; 0 = no cap)")
     p.add_argument("--top", type=int, metavar="N", help="take the top N under the current sort (often paired with --sort)")
@@ -357,7 +358,7 @@ _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format", "
 _HELP_FAMILY = {
     "start": "time", "stop": "time", "spent": "time", "active": "time", "wait": "time",
     "tick": "tracking",
-    "set": "prop", "unset": "prop", "unlink": "link", "relog": "log", "unlog": "log",
+    "set": "prop", "unset": "prop", "unlink": "link", "relog": "log", "unlog": "log", "retag": "log",
     "cancel": "done", "reopen": "done", "ancestors": "focus", "descendants": "focus",
     "date": "dateinfo",
     "themes": "admin", "init": "admin", "config": "admin", "migrate": "admin",
@@ -853,16 +854,16 @@ Common examples:
   wl relation 42 split-from 17          # #42 was split out of #17 (sets #17 split-into 42 too)
   wl relation 17 split-into 42 43       # #17 split into #42 and #43
   wl relation 42 related 7 9            # #42 relates to #7 and #9 (symmetric)
+  wl relation 42 7 9                    # same — `related` is the default type
   wl relation 42 split-from 17 --rm     # remove that relation (both sides)
 
-Types: split-from / split-into (inverses) · related (symmetric).
+Types: split-from / split-into (inverses) · related (symmetric, the default).
 
 More: `wl help relation`.""")
     rel.add_argument("id", type=int, help="the node whose relations to set / list")
     rel.add_argument("rtype", nargs="?",
         type=lambda s: s.replace("_", "-").lower(),   # accept split_from / SPLIT-FROM too
-        choices=["split-from", "split-into", "related"],
-        help="relation type; omit to list this node's relations")
+        help="relation type (split-from / split-into / related); omit the type word and `related` is assumed")
     rel.add_argument("others", nargs="*", metavar="other_id",
         help="the related node id(s)")
     rel.add_argument("--rm", action="store_true", help="remove the relation (from both sides)")
@@ -1073,7 +1074,8 @@ More: `wl help node`.""")
                         formatter_class=_WlHelpFormatter,
                         epilog="""\
 Common examples (shell-ls multi-dimensional):
-  wl ls --parent 45                  children of #45 (like ls dir/)
+  wl ls --parent 45                  direct children of #45 (one level, like ls dir/)
+  wl ls --root 45                    whole subtree under #45 (all descendants, recursive)
   wl ls --kind project               only projects · --tag work,dev (AND) · --status WAIT,LATER (any-of)
   wl ls -p A                         only P0 (A); -p A,B = any-of; -p P0 == -p A
   wl ls --unscheduled --kind task    unscheduled tasks (inbox)
@@ -1334,6 +1336,17 @@ Common examples:
 Timing lives in the clock table, not logs — to fix a clock interval use wl stop --at.
 Cannot move a log across nodes (that's unlog + log).""")
     _args_relog(rl)
+
+    rt = sub.add_parser("retag",
+        help="change one log's tag (goal / summary / custom; `note` clears to a plain note)",
+        description="Change a single log's `tag` directly — the tag classifies a log's role (goal / summary / a custom marker); a plain note has no tag. `note` / `none` / `-` / empty clears it back to a plain note.",
+        formatter_class=_WlHelpFormatter,
+        epilog="""\
+  wl retag #L282 goal      # mark this log as a goal
+  wl retag #L282 summary   # ... or a summary
+  wl retag #L282 note      # clear back to a plain note (note / none / - / "" all clear)""")
+    rt.add_argument("log_id", type=_log_id_arg, metavar="log_id", help="log id (#L282 / L282 / 282)")
+    rt.add_argument("tag", help="new tag (goal / summary / a custom marker; `note` clears it)")
 
     # ── metric: structured datapoints on a log (node → log → metric) ──
     mt = sub.add_parser("metric",
@@ -1765,6 +1778,7 @@ from .commands import (
     cmd_checkin,
     cmd_unlog,
     cmd_relog,
+    cmd_retag,
     _edit_in_editor,
     cmd_tick,
     _norm_rrule,
@@ -1853,6 +1867,7 @@ HANDLERS = {
     "tick": cmd_tick,
     "unlog": cmd_unlog,
     "relog": cmd_relog,
+    "retag": cmd_retag,
     "checkin": cmd_checkin,
     "sched": cmd_sched_group,
     "dateinfo": cmd_dateinfo,

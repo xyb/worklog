@@ -275,3 +275,28 @@ class TestLsBrief:
         assert ":important:" in full or "important" in full
         assert ":important:" not in brief
 
+
+
+class TestLsRoot:
+    """`wl ls --root <id>` — flat list of ALL descendants (recursive subtree)."""
+
+    def test_root_includes_nested_descendants(self, cli):
+        cli("add", "proj", "-k", "project")     # 1
+        cli("add", "task-a", "--parent", "1")   # 2
+        cli("add", "deep", "--parent", "2")     # 3 grandchild
+        cli("add", "orphan")                    # 4
+        code, out, _ = cli("ls", "--root", "1", "--all")
+        assert code == 0
+        assert "task-a" in out      # direct child
+        assert "deep" in out        # grandchild (recursive)
+        assert "orphan" not in out  # outside subtree
+        assert "proj" not in out    # root excluded (descendants only)
+
+    def test_root_vs_parent_one_level(self, cli):
+        cli("add", "proj", "-k", "project")     # 1
+        cli("add", "mid", "--parent", "1")      # 2
+        cli("add", "deep", "--parent", "2")     # 3
+        _, out_parent, _ = cli("ls", "--parent", "1", "--all")
+        assert "mid" in out_parent and "deep" not in out_parent
+        _, out_root, _ = cli("ls", "--root", "1", "--all")
+        assert "mid" in out_root and "deep" in out_root

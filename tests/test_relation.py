@@ -283,3 +283,26 @@ class TestAddRelationParse:
         code, _, err = cli("add", "child", "-k", "task", "--relation", "related abc")
         assert code != 0
         assert "not a node id" in err
+
+
+class TestRelationDefaultType:
+    """`related` is the default type: `wl relation <id> <others>` with no type word."""
+
+    def test_related_is_default_when_type_omitted(self, cli):
+        _mk(cli, 2)
+        code, _, _ = cli("relation", "2", "1")  # no type word -> related
+        assert code == 0
+        _, j, _ = cli("show", "1", "-o", "json")
+        assert json.loads(j)["relations"]["related"] == [2]
+
+    def test_related_default_multiple_ids(self, cli):
+        _mk(cli, 3)
+        cli("relation", "1", "2", "3")  # both, default related
+        _, j, _ = cli("show", "2", "-o", "json")
+        assert json.loads(j)["relations"]["related"] == [1]
+
+    def test_explicit_type_still_works(self, cli):
+        _mk(cli, 2)
+        cli("relation", "2", "split-from", "1")
+        _, j, _ = cli("show", "1", "-o", "json")
+        assert json.loads(j)["relations"]["split_into"] == [2]

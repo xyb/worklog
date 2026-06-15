@@ -25,6 +25,7 @@ from .state import (
     cmd_cancel,
     cmd_unlog,
     cmd_relog,
+    cmd_retag,
     cmd_active,
     cmd_node_edit,
     cmd_node_rm,

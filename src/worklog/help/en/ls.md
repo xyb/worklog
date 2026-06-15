@@ -7,7 +7,8 @@ see_also: tree, find, status, priority
 the `ls -t`/`-S`/`-r`-style view of your work.
 
   wl ls                        # open items, by priority then id
-  wl ls --parent 45            # children of #45 (like ls dir/)
+  wl ls --parent 45            # direct children of #45 (one level, like ls dir/)
+  wl ls --root 45              # whole subtree under #45 (all descendants, recursive)
   wl ls --ids 39 41 270        # specific ids, directly (like ls f1 f2)
   wl ls --sort updated --limit 10   # 10 most-recently-logged (like ls -t)
   wl ls --sort created -r --limit 5 # 5 newest
