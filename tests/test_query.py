@@ -428,3 +428,21 @@ class TestQueryHighlightTerms:
         code, out, _ = seeded("query", "alpha beta")
         line = next(l for l in out.splitlines() if "#4" in l)
         assert "*alpha*" in line and "*beta*" in line
+
+
+class TestQueryStaleIndex:
+    """#807: warn (on stderr) when the live node count != the indexed count, so a new node
+    that isn't in the vector index yet is explained instead of silently scoring 0.000."""
+
+    def test_warns_when_node_added_after_reindex(self, seeded):
+        seeded("reindex")                              # indexes #1-#3
+        seeded("add", "delta task", "-k", "task")      # #4 — not in the index
+        code, out, err = seeded("query", "alpha")
+        assert code == 0
+        assert "reindex" in err.lower()                # hint points at the fix
+        assert "#1 " in out                            # results still print on stdout (warning is stderr-only)
+
+    def test_no_warning_when_index_fresh(self, seeded):
+        seeded("reindex")
+        code, out, err = seeded("query", "alpha")
+        assert "reindex" not in err.lower()            # fresh index → no nag
