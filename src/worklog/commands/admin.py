@@ -118,6 +118,16 @@ def cmd_migrate(args, con):
     out(_c(f"✓ DB now at version {new_version} ({len(applied)} migration(s) applied).", "done"))
 
 
+def cmd_migrate_types(args, con):
+    """Backfill the type.*/date.* namespace onto existing nodes from their legacy kind
+    (idempotent; kind is left intact). The data half of the kind→type.* transition — run it
+    once so `wl ls --para` and friends see pre-existing nodes, not just newly-created ones."""
+    from ..node_type_backfill import backfill_node_types
+    c = backfill_node_types(con)
+    out(_c(f"✓ type.* backfill: {c['para']} para, {c['date']} date, {c['habit']} habit, "
+           f"{c['meetlog']} meetlog ({c['bare']} left bare)", "done"))
+
+
 def cmd_themes(args, con):
     """List all color themes, each rendering a one-line sample in its own palette for comparison."""
     req = args.theme or os.environ.get("WORKLOG_THEME") or "auto"

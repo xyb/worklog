@@ -367,7 +367,7 @@ _HELP_FAMILY = {
     "set": "prop", "unset": "prop", "unlink": "link", "relog": "log", "unlog": "log", "retag": "log",
     "cancel": "done", "reopen": "done", "ancestors": "focus", "descendants": "focus",
     "date": "dateinfo",
-    "themes": "admin", "init": "admin", "config": "admin", "migrate": "admin",
+    "themes": "admin", "init": "admin", "config": "admin", "migrate": "admin", "migrate-types": "admin",
     "print-completion": "admin",
     "tags": "tag", "props": "prop", "metrics": "metric",   # the cross-node "list all" lists
 }
@@ -606,6 +606,16 @@ to retry after a failed migration.
 Before applying to an existing DB, the runner snapshots it to a same-dir
 `<db>.pre-v<N>.bak` (N = the version before migrating), so a bad migration
 is recoverable. A fresh init (no data yet) is not backed up.""")
+
+    sub.add_parser("migrate-types",
+        help="backfill the type.* namespace onto existing nodes from their legacy kind (idempotent; one-off for the kind→type.* transition)",
+        formatter_class=_WlHelpFormatter,
+        epilog="""\
+Populates each existing node's type.para / type.date (+ date.period / date.start /
+date.end) / type.habit / type.meetlog from its current kind, writing through the
+validated prop API. Additive + idempotent: the kind column is left intact, so it's
+safe to re-run. New nodes already get these props at creation — run this once to give
+pre-existing nodes the same, so `wl ls --para` etc. see them too.""")
 
     cfgp = sub.add_parser("config",
         help="print resolved configuration: DB path, aliases path, XDG dirs, env vars, embedding",
@@ -1726,6 +1736,7 @@ User aliases: add [aliases] section to ~/.config/worklog/aliases.ini (e.g. d = d
 from . import commands
 from .commands import (
     cmd_migrate,
+    cmd_migrate_types,
     cmd_init,
     cmd_config,
     cmd_add,
@@ -1839,6 +1850,7 @@ def cmd_node(args, con):
 HANDLERS = {
     "config": cmd_config,
     "migrate": cmd_migrate,
+    "migrate-types": cmd_migrate_types,
     "init": cmd_init,
     "add": cmd_add,
     "log": cmd_log_group,
