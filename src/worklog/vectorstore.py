@@ -77,6 +77,12 @@ def clear(store):
     store.clear()
 
 
+def delete_nodes(store, node_ids):
+    """Remove all chunk rows for the given node ids (for incremental reindex: drop a changed
+    node's old chunks before re-adding, or evict a deleted node)."""
+    store.delete_nodes(node_ids)
+
+
 def load(store):
     return store.load()
 
@@ -170,6 +176,13 @@ class _LanceBackend:
         if TABLE in self._table_names():
             self.db.drop_table(TABLE)
 
+    def delete_nodes(self, node_ids):
+        tbl = self._table()
+        ids = [int(n) for n in node_ids]
+        if tbl is None or not ids:
+            return
+        tbl.delete("node_id IN (" + ",".join(str(n) for n in ids) + ")")
+
     def load(self):
         tbl = self._table()
         if tbl is None:
@@ -242,6 +255,14 @@ class _SqliteBackend:
 
     def clear(self):
         self.con.execute(f"DELETE FROM {TABLE}")
+        self.con.commit()
+
+    def delete_nodes(self, node_ids):
+        ids = [int(n) for n in node_ids]
+        if not ids:
+            return
+        ph = ",".join("?" * len(ids))
+        self.con.execute(f"DELETE FROM {TABLE} WHERE node_id IN ({ph})", ids)
         self.con.commit()
 
     def load(self):

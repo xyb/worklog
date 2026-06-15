@@ -1587,13 +1587,16 @@ More: `wl help find` (vs `wl ls --tag` precise filter / `wl ls --recent` by time
                     "installed, else a slower pure-Python SQLite fallback (no extra needed).",
         epilog="""\
 Common examples:
-  wl reindex                          # build/refresh the index with the configured backend
+  wl reindex                          # full rebuild with the configured backend
+  wl reindex --incremental            # cheap top-up: embed only new/changed nodes, drop deleted
   wl reindex --endpoint http://host:11434/v1/embeddings --model qwen3-embedding
 
 Vector backend: LanceDB (fast, the optional 'semantic' extra) on any Python 3.9–3.14 on Linux
 or Apple-Silicon macOS; falls back automatically to a pure-Python SQLite store where no LanceDB
 wheel exists (Intel macOS, musl/Alpine, …) — same results, slower at large scale.
 More: `wl query` to search; configure the backend in config.ini [embedding] / $WORKLOG_EMBED_*.""")
+    rx.add_argument("--incremental", action="store_true",
+                    help="embed only nodes new/changed since the last index (+ drop deleted) — the cheap day-to-day top-up vs a full rebuild")
 
     qy = sub.add_parser("query", parents=[embed_parent, output_parent],
         help="semantic search: nearest nodes by meaning (vs `find`'s keyword match)",

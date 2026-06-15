@@ -187,22 +187,32 @@ def _open_store(args):
         sys.exit(f"✗ {e}")
 
 
+def _chunk_rows(chunks, vecs, cfg, dim):
+    """Build vector-store rows from (chunk tuple, vector) pairs — shared by full + incremental."""
+    return [{"node_id": nid, "title": title, "status": st, "priority": pr,
+             "model": cfg["model"], "dim": dim, "vector": v, "chunk_text": text, "chunk_kind": kind}
+            for (nid, title, st, pr, kind, text), v in zip(chunks, vecs)]
+
+
 def cmd_reindex(args, con):
-    """(Re)build the semantic index: embed every node's chunks and replace the vector store."""
+    """(Re)build the semantic index. Default = full rebuild (embed every node, replace the
+    store). `--incremental` = embed only nodes new/changed since the last index + drop deleted
+    ones (the cheap day-to-day top-up; full is for first build / model change)."""
     cfg = _config.resolve_embedding_config(args)
     chunks = _node_chunks(con)
     if not chunks:
         out(_c("(nothing to index — no nodes yet)", "meta"))
         return
     db = _open_store(args)
+    if getattr(args, "incremental", False):
+        _reindex_incremental(con, db, cfg, chunks)
+        return
     try:
         vecs = _embed_with_progress([c[5] for c in chunks], cfg)
     except _embedding.EmbeddingError as e:
         sys.exit(f"✗ {e}")
     dim = len(vecs[0]) if vecs else 0
-    rows = [{"node_id": nid, "title": title, "status": st, "priority": pr,
-             "model": cfg["model"], "dim": dim, "vector": v, "chunk_text": text, "chunk_kind": kind}
-            for (nid, title, st, pr, kind, text), v in zip(chunks, vecs)]
+    rows = _chunk_rows(chunks, vecs, cfg, dim)
     _vs.clear(db)
     _vs.upsert(db, rows)
     n_nodes = len({c[0] for c in chunks})
@@ -211,6 +221,54 @@ def cmd_reindex(args, con):
         # No lancedb wheel here → the pure-Python fallback. Works, but nudge toward the fast store.
         out(_c("  (sqlite fallback backend — install the 'semantic' extra "
                "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
+
+
+def _reindex_incremental(con, db, cfg, chunks):
+    """Embed only the nodes whose chunk set changed since the last index, and evict deleted ones.
+    Dirty detection is a cheap text diff (no embedding): a node is dirty if its current set of
+    chunk texts differs from what's indexed; deleted = indexed node no longer live. Embeds just
+    the dirty nodes' chunks. Falls back to a full pass when the store is empty."""
+    im = _vs.index_model(db)
+    if im is None:                       # empty store → nothing to diff against, do a full build
+        try:
+            vecs = _embed_with_progress([c[5] for c in chunks], cfg)
+        except _embedding.EmbeddingError as e:
+            sys.exit(f"✗ {e}")
+        dim = len(vecs[0]) if vecs else 0
+        _vs.upsert(db, _chunk_rows(chunks, vecs, cfg, dim))
+        out(_c(f"✓ indexed {len({c[0] for c in chunks})} node(s) ({len(chunks)} chunks)", "done"))
+        return
+    if im[0] != cfg["model"]:
+        sys.exit(f"✗ index was built with model '{im[0]}' but config is '{cfg['model']}' — "
+                 f"run a full `wl reindex` (without --incremental) to rebuild with the new model")
+    by_node, cur_text = {}, {}
+    for c in chunks:
+        by_node.setdefault(c[0], []).append(c)
+        cur_text.setdefault(c[0], set()).add(c[5])
+    idx_text = {}
+    for r in _vs.load(db):
+        idx_text.setdefault(r["node_id"], set()).add(r["chunk_text"])
+    live, indexed = set(by_node), set(idx_text)
+    new = live - indexed
+    removed = indexed - live
+    changed = {nid for nid in (live & indexed) if cur_text[nid] != idx_text[nid]}
+    dirty = new | changed
+    if not dirty and not removed:
+        out(_c("✓ index already up to date", "done"))
+        return
+    dirty_chunks = [c for nid in dirty for c in by_node[nid]]
+    rows = []
+    if dirty_chunks:
+        try:
+            vecs = _embed_with_progress([c[5] for c in dirty_chunks], cfg)
+        except _embedding.EmbeddingError as e:
+            sys.exit(f"✗ {e}")
+        rows = _chunk_rows(dirty_chunks, vecs, cfg, im[1])
+    _vs.delete_nodes(db, changed | removed)   # drop changed nodes' stale chunks + deleted nodes
+    if rows:
+        _vs.upsert(db, rows)
+    out(_c(f"✓ incremental: +{len(new)} new, ~{len(changed)} changed, -{len(removed)} removed "
+           f"({len(dirty_chunks)} chunks embedded)", "done"))
 
 
 def cmd_query(args, con):
