@@ -1287,6 +1287,8 @@ recapping it warns "⚠ N changes after recap, consider rewriting". (`wl goal` i
 counterpart; week/month goals are `wl goal set <week>` / `<month> "..." …ids`.)""")
     rc.add_argument("text", nargs="?", help="no arg = read; with text = write the summary")
     rc.add_argument("-d", "--date", help="target day (YYYY-MM-DD / today / yesterday / 昨天 ...); default today")
+    rc.add_argument("--diff", action="store_true",
+                    help="list the plain-note logs added that day AFTER the recap was written (what `wl day`'s '⚠ N change(s) after recap' counts; excludes checkin/metric noise) — judge if a rewrite is warranted")
 
     tk = sub.add_parser("tick",
         help="quick check-in: add a log to each node today (batch habit check-in)",

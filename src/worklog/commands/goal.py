@@ -19,7 +19,7 @@ from ..queries import (
     _set_typed_log,
     _RESERVED_LOG_TAGS,
 )
-from ..helpers import _resolve_concrete_date
+from ..helpers import _resolve_concrete_date, _truncate_log_body
 from ..render import _c, out
 from .timenodes import _ensure_day, _ensure_today_day
 from .views import _goal_progress, _emit_goal_targets
@@ -136,6 +136,9 @@ def cmd_summary_prop(args, con):
         d = _tu.today_date()
         label = "today"
     nid = _ensure_day(con, d)
+    if getattr(args, "diff", False):
+        _recap_diff(con, nid, d.isoformat(), label)
+        return
     if not args.text:
         row = _latest_typed_log(con, nid, "summary")
         if not row or not row["body"]:
@@ -148,6 +151,39 @@ def cmd_summary_prop(args, con):
     con.commit()
     at = _db.get(con, "log", log_id)["logged_at"]
     out(_c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta"))
+
+
+def _recap_diff(con, nid, day_iso, label):
+    """`wl recap --diff`: list the plain-note logs added that day AFTER the recap was
+    written — the same set `wl day`'s '⚠ N change(s) after recap' counts (tag IS NULL,
+    logged_at > the summary's write time), minus metric-carrier logs (checkin / tick /
+    `metric add`), which are tracking noise, not missed prose. Lets you judge whether real
+    content was logged after recapping (rewrite) vs only cross-day status/clock churn (skip)."""
+    row = _latest_typed_log(con, nid, "summary")
+    if not row or not row["body"]:
+        out(_c(f"(no recap for {label} — nothing to diff)", "meta"))
+        return
+    at = row["logged_at"]
+    when = _tu.utc_to_local(at)[5:16] if at else "?"
+    rows = con.execute(
+        f"SELECT id, node_id, logged_at, body FROM log l "
+        f"WHERE l.logged_at > ? AND {_tu.local_day_sql('l.logged_at')} = ? "
+        f"AND l.tag IS NULL AND l.deleted_at IS NULL "
+        f"AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.log_id = l.id AND m.deleted_at IS NULL) "
+        f"ORDER BY l.logged_at, l.id",
+        (at, day_iso),
+    ).fetchall()
+    if not rows:
+        out(_c(f"(no changes after {label}'s recap, written {when})", "meta"))
+        return
+    out(_c(f"{len(rows)} change(s) after {label}'s recap (written {when}) — judge: real content → rewrite via wl recap; only churn → skip", "doing"))
+    for r in rows:
+        node = _db.get(con, "node", r["node_id"])
+        title = node["title"] if node else "?"
+        body = _truncate_log_body(r["body"], 0)
+        out("  " + _c(f"#L{r['id']}", "id") + " "
+            + _c(f"[{_tu.utc_to_local(r['logged_at'])[11:16]}]", "meta") + " "
+            + _c(f"#{r['node_id']} '{title}'", "meta") + ": " + body)
 
 
 # --- goal group: set / ls / rm for the reserved-tag logs (goal / summary) on ANY node.

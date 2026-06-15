@@ -192,3 +192,42 @@ class TestGoalReadEmpty:
         # bare `wl goal` on a fresh day (auto-created) with no goal log → the empty notice
         _, out, _ = cli("goal")
         assert "no goal set for today" in out
+
+
+class TestRecapDiff:
+    """#685: `wl recap --diff` lists the plain-note logs added AFTER the recap that day,
+    excluding checkin/metric-carrier noise — so you can judge if a rewrite is warranted."""
+
+    def _stale_recap(self, cli, tmp_db):
+        from datetime import date
+        cli("recap", "recap v1")
+        con = tmp_db.db_connect()
+        day = con.execute("SELECT id FROM node WHERE kind='day' AND title LIKE ?",
+                          (date.today().isoformat() + "%",)).fetchone()
+        con.execute("UPDATE log SET logged_at='2000-01-01 00:00:00' WHERE node_id=? AND tag='summary'",
+                    (day["id"],))
+        con.commit()
+        return con
+
+    def test_diff_shows_notes_excludes_checkin(self, cli, tmp_db):
+        con = self._stale_recap(cli, tmp_db)
+        cli("add", "work item", "-k", "task")
+        task = con.execute("SELECT id FROM node WHERE title='work item'").fetchone()
+        cli("log", str(task["id"]), "real missed note", "--keep-status")
+        cli("add", "workout", "-k", "habit")
+        hab = con.execute("SELECT id FROM node WHERE title='workout'").fetchone()
+        cli("tick", str(hab["id"]), "--note", "pullups x6")  # checkin carrier — should be filtered
+        code, out, _ = cli("recap", "--diff")
+        assert code == 0
+        assert "real missed note" in out          # genuine content surfaces
+        assert "pullups x6" not in out             # checkin/metric noise filtered out
+        assert "change(s) after" in out
+
+    def test_diff_clean_when_nothing_after(self, cli, tmp_db):
+        cli("recap", "all captured")
+        code, out, _ = cli("recap", "--diff")  # nothing logged after
+        assert code == 0 and "no changes after" in out.lower()
+
+    def test_diff_no_recap(self, cli):
+        code, out, _ = cli("recap", "--date", "2026-06-01", "--diff")
+        assert code == 0 and ("no recap" in out.lower() or "nothing to diff" in out.lower())
