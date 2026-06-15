@@ -253,11 +253,10 @@ def cmd_query(args, con):
     # WL#807: warn (on stderr, so stdout/JSON stays clean) when the index is out of date vs the
     # live DB — a node added/changed since the last `wl reindex` is absent from the vector side
     # (scores 0.000, only the keyword leg carries it), which is otherwise silent and confusing.
-    live_n = con.execute("SELECT count(*) FROM node WHERE deleted_at IS NULL").fetchone()[0]
-    indexed_n = len(vec_map)
-    if live_n != indexed_n:
-        print(f"⚠ semantic index may be stale ({live_n} live nodes vs {indexed_n} indexed) — "
-              f"run `wl reindex` so new/changed nodes match on meaning too", file=sys.stderr)
+    n_unindexed = con.execute("SELECT count(*) FROM node WHERE deleted_at IS NULL").fetchone()[0] - len(vec_map)
+    if n_unindexed > 0:
+        print(f"⚠ {n_unindexed} node(s) not indexed — run `wl reindex` (they match by keyword only, not meaning)",
+              file=sys.stderr)
 
     if getattr(args, "output", "text") == "json":
         rows = []
