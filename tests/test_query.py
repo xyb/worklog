@@ -414,3 +414,17 @@ class TestQueryKeywordPriority:
         code, out, _ = seeded("--color", "never", "query", "alpha")
         hit_lines = [l for l in out.splitlines() if "#" in l and l.lstrip()[0].isdigit()]
         assert "#1 " in hit_lines[0]   # unchanged: the alpha node still leads
+
+
+class TestQueryHighlightTerms:
+    """#809: title highlight uses the segmented terms (each word), so a non-contiguous
+    match (terms separated by other words) still lights up the matched parts."""
+
+    def test_separated_terms_highlight(self, seeded):
+        seeded("reindex")
+        seeded("add", "alpha gap beta", "-k", "task")   # both terms, separated by 'gap'
+        # plain (no color) marks matches as *term*; the raw-substring highlighter would miss
+        # 'alpha beta' (not contiguous) — per-term highlight lights 'alpha' and 'beta'
+        code, out, _ = seeded("query", "alpha beta")
+        line = next(l for l in out.splitlines() if "#4" in l)
+        assert "*alpha*" in line and "*beta*" in line

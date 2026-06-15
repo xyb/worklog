@@ -274,7 +274,7 @@ def cmd_query(args, con):
         h = vec_map.get(nid, {})
         # Pass the score as the node-line's `indent` so its hang-wrap counts the score width:
         # a wrapped title's continuation lines then align under the title, not column 0.
-        out(_node_line(con, n, indent=f"{h.get('score', 0.0):.3f}  ", hl=q))
+        out(_node_line(con, n, indent=f"{h.get('score', 0.0):.3f}  ", hl=terms))
         # show the best-matching chunk as the reason (the head chunk repeats title/body; a log
         # chunk pins which log), clipped to one line via the same _truncate_log_body `wl day`
         # uses, then highlighted per query term.

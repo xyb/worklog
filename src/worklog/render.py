@@ -288,7 +288,14 @@ def _hang_wrap(prefix, prefix_cols, title, *, hl=None, style=None, tail="", tail
     `(this month N/M)`); `tail_cols` is its PLAIN display width. The tail rides the last title
     line, but if it wouldn't fit it gets its own hang-indented continuation line — so it never
     spills to column 0 (the bug when callers blindly appended suffixes ignoring the wrap width)."""
-    render = (lambda t: _hl(t, hl)) if hl else (lambda t: _c(t, style))
+    # hl: a list/tuple of terms → per-term highlight (`_hl_terms`, lights non-contiguous matches);
+    # a plain string → one contiguous substring (`_hl`); falsy → no highlight.
+    if isinstance(hl, (list, tuple)):
+        render = lambda t: _hl_terms(t, hl)
+    elif hl:
+        render = lambda t: _hl(t, hl)
+    else:
+        render = lambda t: _c(t, style)
     avail = _term_width() - prefix_cols
     if _title_mode() == "clip":
         return prefix + render(_truncate_log_body(title, indent_cols=prefix_cols + tail_cols)) + tail
