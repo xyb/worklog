@@ -224,10 +224,15 @@ def cmd_metric_add(args, con):
 
 
 def cmd_metric_ls(args, con):
-    """List a node's metrics (default = this week; --all for everything; --tag filter)."""
+    """List metrics: a node's (default = this week; --all = everything; --tag filter), OR —
+    when the node is omitted — the same query across EVERY node, to locate all uses of a tag
+    (e.g. before renaming it). Global rows are prefixed with their node id."""
     node = args.node
-    _require_node(con, node)
-    simple = {"node_id": node}
+    glob = node is None  # node omitted -> cross-node search
+    simple = {}
+    if not glob:
+        _require_node(con, node)
+        simple["node_id"] = node
     if args.tag:
         simple["tag"] = args.tag.strip()
     where, params = _db.clause(**simple)
@@ -238,15 +243,20 @@ def cmd_metric_ls(args, con):
         params += [since, until]
     # ORDER BY at: a date-only `at` (no time given) sorts at the start of its day
     # — "no time" treated as day-start, consistent with the log.logged_at convention.
+    order = "node_id, at, id" if glob else "at, id"
     rows = list(con.execute(
-        f"SELECT * FROM metric WHERE {' AND '.join(where)} ORDER BY at, id", params))
+        f"SELECT * FROM metric WHERE {' AND '.join(where)} ORDER BY {order}", params))
     if not rows:
         filt = f" tag={args.tag}" if args.tag else ""
         scope = "" if args.all else " in window (use --all / --week / --month)"
-        out(_c(f"(node #{node} has no metrics{filt}{scope})", "meta"))
+        subj = "no metrics" if glob else f"node #{node} has no metrics"
+        out(_c(f"({subj}{filt}{scope})", "meta"))
         return
     for r in rows:
-        out(_line(r))
+        line = _line(r)
+        if glob:  # show which node each datapoint belongs to
+            line = _c(f"#{r['node_id']}", "id") + " " + line
+        out(line)
 
 
 def cmd_metric_edit(args, con):

@@ -683,3 +683,27 @@ class TestMetricEmptyTag:
         cli("add", "t", "-k", "task")
         code, _, err = cli("metric", "add", "1", "")
         assert code != 0 and "tag cannot be empty" in err
+
+
+class TestMetricLsGlobal:
+    """`wl metric ls --tag X` with the node omitted searches every node (locate a tag)."""
+
+    def test_global_ls_by_tag_spans_nodes(self, cli):
+        cli("add", "n1", "-k", "habit")
+        cli("add", "n2", "-k", "habit")
+        cli("metric", "add", "1", "pullups", "8")
+        cli("metric", "add", "2", "pullups", "5")
+        cli("metric", "add", "1", "glucose", "5.4")
+        code, out, _ = cli("metric", "ls", "--tag", "pullups", "--all")
+        assert code == 0
+        assert "#1" in out and "#2" in out      # both owning nodes shown
+        assert "pullups" in out
+        assert "glucose" not in out             # tag filter applied
+
+    def test_node_scoped_still_works(self, cli):
+        cli("add", "n1", "-k", "habit")
+        cli("add", "n2", "-k", "habit")
+        cli("metric", "add", "1", "pullups", "8")
+        cli("metric", "add", "2", "pullups", "5")
+        code, out, _ = cli("metric", "ls", "1", "--tag", "pullups", "--all")
+        assert code == 0 and "[pullups] 8" in out and "[pullups] 5" not in out  # only node 1's

@@ -1383,9 +1383,9 @@ A metric must hang off a log; without --on-log a (possibly empty-body) carrier l
                      help="attach to an existing log (#L<id>) instead of creating a carrier log")
     _ma.add_argument("--body", help="carrier log body (default empty); ignored with --on-log")
 
-    _ml = _msub.add_parser("ls", help="list a node's metrics (default: this week; --all for everything)",
+    _ml = _msub.add_parser("ls", help="list metrics: a node's (default this week), OR omit the node to find a tag across ALL nodes",
                            parents=[window])
-    _ml.add_argument("node", type=int, help="node id")
+    _ml.add_argument("node", type=int, nargs="?", help="node id; omit to search every node (pair with --tag to locate all uses of a tag)")
     _ml.add_argument("--tag", help="filter by tag")
     _ml.add_argument("--all", action="store_true", help="all datapoints (ignore the default this-week window)")
 

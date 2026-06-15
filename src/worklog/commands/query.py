@@ -1138,7 +1138,11 @@ def _show_detail(con, args, n):
             v = _tu.utc_to_local(n[k]) if k in ("created_at", "closed_at") else n[k]
             out("  " + _c(f"{k:9s}", "meta") + " " + _c(v))
     if n["body"]:
-        out("  " + _c("body:", "meta") + "     " + _c(n["body"]))
+        # align continuation lines under the value (prefix "  body:     " = 12 cols)
+        blines = n["body"].split("\n")
+        out("  " + _c("body:", "meta") + "     " + _c(blines[0]))
+        for bl in blines[1:]:
+            out(" " * 12 + _c(bl))
     tags = _node_tags(con, args.id)
     if tags:
         out("  " + _c("tags:", "meta") + "     " + _c(f":{':'.join(tags)}:", "tag"))

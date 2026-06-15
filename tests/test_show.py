@@ -195,3 +195,16 @@ class TestShowMultiId:
         assert "#1" in out and "t1" in out
         assert "#2" in out and "t2" in out
 
+
+
+class TestShowMultilineBody:
+    """#794: multi-line node.body — continuation lines indent under the value, not column 0."""
+
+    def test_body_continuation_lines_indented(self, cli):
+        cli("add", "task", "--body", "first line\nsecond line")
+        code, out, _ = cli("show", "1")
+        assert code == 0 and "body:" in out and "first line" in out
+        lines = out.split("\n")
+        cont = next(l for l in lines if l.strip() == "second line")
+        assert cont != "second line"                      # not flush-left at column 0
+        assert len(cont) - len(cont.lstrip()) >= 12       # aligned under the body value
