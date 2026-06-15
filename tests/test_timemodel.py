@@ -135,3 +135,17 @@ class TestValidation:
 def nt_span(level, period):
     from worklog import node_types as nt
     return nt.span_of(level, period)
+
+
+class TestLegacySkeletonDualWrites:
+    def test_ensure_day_populates_type_props_on_skeleton(self, con):
+        import datetime as _dt
+        from worklog.commands import timenodes
+        day_id = timenodes._ensure_day(con, _dt.date(2026, 6, 14))
+        # the day node + every ancestor level it created carries the new type.date/date.* props
+        dp = _props(con, day_id)
+        assert dp["type.date"] == "day" and dp["date.period"] == "2026-06-14"
+        # walk up: week ancestor has an explicit span pinned
+        wk = _db.get(con, "node", _db.get(con, "node", day_id)["parent_id"])
+        wp = _props(con, wk["id"])
+        assert wp["type.date"] == "week" and wp["date.start"] and wp["date.end"]

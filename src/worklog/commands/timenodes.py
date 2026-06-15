@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from .. import timeutil as _tu
 from .. import db_table as _db
+from .. import timemodel as _tm
 
 
 def _ensure_time_ancestors(con, d):
@@ -31,9 +32,11 @@ def _ensure_time_ancestors(con, d):
         row = _db.query_one(con, "node", cols="id", kind=kind, order=("id" if like else None), **cond)
         if row:
             return row["id"]
-        return _db.insert(con, "node", {
+        nid = _db.insert(con, "node", {
             "parent_id": parent_id, "title": new_title, "kind": kind, "created_at": _tu.utc_now(),
         })
+        _tm.write_time_props(con, nid, kind, new_title)   # dual-write the type.date/date.* namespace
+        return nid
 
     lt = _db.query_one(con, "node", cols="id", kind="lifetime", order="id")
     lt_id = lt["id"] if lt else None
@@ -57,6 +60,7 @@ def _ensure_day(con, d):
     nid = _db.insert(con, "node", {
         "parent_id": wk_id, "title": iso, "kind": "day", "created_at": _tu.utc_now(),
     })
+    _tm.write_time_props(con, nid, "day", iso)            # dual-write the type.date/date.* namespace
     con.commit()
     return nid
 

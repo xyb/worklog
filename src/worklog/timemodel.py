@@ -28,6 +28,20 @@ from . import timeutil as _tu
 from .queries import _upsert_prop
 
 
+def write_time_props(con, nid, level, period):
+    """Write a time node's type.date / date.* props (on creation). Shared by the new
+    find-or-create path and the legacy skeleton builder so both populate the namespace
+    identically: type.date always; date.period for a dated level; date.start/date.end for
+    the explicit-span levels (week/quarter/decade). No commit (caller owns the transaction)."""
+    _upsert_prop(con, nid, _nt.K_DATE, level)
+    if level != "lifetime" and period and _nt.valid_period(level, period):
+        _upsert_prop(con, nid, _nt.K_PERIOD, period)
+        if level in _nt.EXPLICIT_SPAN_LEVELS:
+            start, end = _nt.span_of(level, period)
+            _upsert_prop(con, nid, _nt.K_START, start)
+            _upsert_prop(con, nid, _nt.K_END, end)
+
+
 def find_time_node(con, level, period):
     """The id of the existing time node for ``(level, period)``, or None. ``lifetime``
     matches on level alone (the singleton); every other level matches level + period.
@@ -76,11 +90,5 @@ def ensure_time_node(con, level, period, *, strict=False):
         # kind is dual-written during the transition so legacy renderers still work.
         "parent_id": None, "title": title, "kind": level, "created_at": _tu.utc_now(),
     })
-    _upsert_prop(con, nid, _nt.K_DATE, level)
-    if level != "lifetime":
-        _upsert_prop(con, nid, _nt.K_PERIOD, period)
-    if level in _nt.EXPLICIT_SPAN_LEVELS:
-        start, end = _nt.span_of(level, period)
-        _upsert_prop(con, nid, _nt.K_START, start)
-        _upsert_prop(con, nid, _nt.K_END, end)
+    write_time_props(con, nid, level, period)
     return nid
