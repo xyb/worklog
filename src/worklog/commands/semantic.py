@@ -419,8 +419,14 @@ def _segment(text):
     when the `semantic` extra is installed, else a `\\w+` fallback (a CJK run stays one token,
     latin/space split) so highlighting still works and the core CLI never needs jieba."""
     try:
-        import jieba
+        import warnings
         import logging
+        with warnings.catch_warnings():
+            # jieba 0.42.1 ships invalid escape sequences ("\.", "\s") that Python 3.12+ flags as
+            # SyntaxWarning when it first compiles the module — jieba's bug, harmless, and it can't
+            # be filtered after the fact (it fires at compile time), so swallow it around the import.
+            warnings.simplefilter("ignore", SyntaxWarning)
+            import jieba
         jieba.setLogLevel(logging.WARNING)   # silence the one-time "Building prefix dict…" on stderr
     except ImportError:
         return re.findall(r"\w+", text, re.UNICODE)
