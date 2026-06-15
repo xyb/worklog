@@ -820,14 +820,32 @@ def cmd_log_ls(args, con):
             + _c(f"[{_tu.utc_to_local(r['logged_at'])}]", "meta") + " " + body)
 
 
+def cmd_log_show(args, con):
+    """Show one log entry's full (untruncated) content by its log id (`wl log show #L282`).
+    The list views (`wl logs`, `wl log ls`, `wl show` timeline) truncate each log to one
+    line; this prints the whole body. Accepts #L282 / L282 / 282."""
+    row = _db.get(con, "log", args.log_id)
+    if row is None:
+        sys.exit(f"✗ no log #L{args.log_id}")
+    node = _db.get(con, "node", row["node_id"])
+    title = node["title"] if node else "?"
+    kind = row["tag"] or "note"
+    out(_c(f"#L{row['id']}", "id") + " "
+        + _c(f"[{_tu.utc_to_local(row['logged_at'])}]", "meta") + " "
+        + _c(kind, "meta") + " "
+        + _c(f"#{row['node_id']}", "id") + " " + _c(f"'{title}'", "meta"))
+    out(row["body"])
+
+
 def cmd_log_group(args, con):
-    """Dispatch `wl log <add|ls|edit|rm>` (the metric-style entity group).
+    """Dispatch `wl log <add|ls|edit|rm|show>` (the metric-style entity group).
     `add` is the default verb (`wl log <id> "body"` == `wl log add <id> "body"`); `edit`
-    is `wl relog` and `rm` is `wl unlog` (both keep their top-level shortcuts)."""
+    is `wl relog` and `rm` is `wl unlog` (both keep their top-level shortcuts); `show`
+    prints one log's full content."""
     sub = getattr(args, "log_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl log <id> \"body\"  |  wl log <add|ls|edit|rm> … (see `wl log --help`)")
-    {"add": cmd_log, "ls": cmd_log_ls, "edit": cmd_relog, "rm": cmd_unlog}[sub](args, con)
+        sys.exit("✗ usage: wl log <id> \"body\"  |  wl log <add|ls|edit|rm|show> … (see `wl log --help`)")
+    {"add": cmd_log, "ls": cmd_log_ls, "edit": cmd_relog, "rm": cmd_unlog, "show": cmd_log_show}[sub](args, con)
 
 
 def cmd_active(args, con):

@@ -343,7 +343,7 @@ def _args_unlog(p):
 _DEFAULT_VERB_ENTITIES = {
     "link": ("add", frozenset(("add", "ls", "rm"))),
     "tag": ("add", frozenset(("add", "ls", "rm"))),
-    "log": ("add", frozenset(("add", "ls", "edit", "rm"))),
+    "log": ("add", frozenset(("add", "ls", "edit", "rm", "show"))),
     "sched": ("add", frozenset(("add", "ls", "rm"))),
     "agent": ("set", frozenset(("set", "ls", "rm", "context"))),
     # goal's default form writes/reads TODAY's goal (text, not an int id); set/ls/rm reach any node
@@ -662,6 +662,9 @@ More: `wl help log` (vs `wl tick` habit check-in / `wl logs` filterable stream).
         help="add a log entry (= the default wl log 42 \"body\")",
         description="Add a log entry to a node (auto TODO->DOING unless --keep-status; --date/--time backfill history). Also reachable as the default `wl log <id> \"body\"` (omit `add`; see `wl log -h`)."))
     _lgsub.add_parser("ls", help="list a node's logs (full view: wl logs --id <id>)").add_argument("id", type=int)
+    _lgsub.add_parser("show",
+        help="show one log entry's full (untruncated) content by log id (#L282)",
+        description="Print one log entry's complete, untruncated body by its log id (the list views truncate each log to one line). Accepts #L282 / L282 / 282.").add_argument("log_id", type=_log_id_arg, metavar="log_id", help="log id (#L282 / L282 / 282)")
     _args_relog(_lgsub.add_parser("edit",
         help="rewrite a log's body / time (= wl relog)",
         description="Rewrite an existing log's body or timestamp. Also: the top-level shortcut `wl relog`.",

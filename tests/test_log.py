@@ -35,6 +35,44 @@ class TestLog:
         assert len(row["body"]) > 500
 
 
+class TestLogShow:
+    """`wl log show #L<id>` — view a single log entry's full (untruncated) content.
+
+    The list views (`wl logs`, `wl log ls`, `wl show` timeline) truncate each log to
+    one line; this verb prints the whole body for one log."""
+
+    def test_show_prints_full_untruncated_body(self, cli):
+        long_body = "retrospective: " + "x" * 400
+        cli("add", "task")
+        cli("log", "1", long_body)
+        code, out, _ = cli("log", "show", "#L1")
+        assert code == 0
+        assert long_body in out
+        assert "…" not in out  # not the oneline-truncated form
+
+    def test_show_accepts_hash_L_and_bare_forms(self, cli):
+        cli("add", "task")
+        cli("log", "1", "hello full body world")
+        for form in ("#L1", "L1", "1"):
+            code, out, _ = cli("log", "show", form)
+            assert code == 0, f"form {form!r} failed"
+            assert "hello full body world" in out
+
+    def test_show_header_has_log_id_and_owning_node(self, cli):
+        cli("add", "my distinctive task title")
+        cli("log", "1", "some body content")
+        code, out, _ = cli("log", "show", "#L1")
+        assert "#L1" in out
+        assert "my distinctive task title" in out  # owning node title
+        assert "#1" in out  # owning node id
+
+    def test_show_nonexistent_log_fails(self, cli):
+        cli("add", "task")
+        code, _, err = cli("log", "show", "#L999")
+        assert code != 0
+        assert "999" in err or "no log" in err.lower()
+
+
 # ─── done / defer / start / stop ───
 
 

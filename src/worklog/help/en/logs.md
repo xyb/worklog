@@ -13,6 +13,7 @@ single-node history.
   wl logs --group day --by project             # group by day → project → task
   wl logs -d 2026-06-01                         # a single day (also --date)
   wl logs --id 42 -o json                       # machine-readable array of log rows
+  wl log show #L282                             # one log's full body (the stream truncates each to one line)
 
 Defaults to the last 7 days to avoid flooding; widen with the window flags (`wl help window`).
 `-o json` emits the matching log rows (id / node_id / logged_at / tag / body / node_title) as a
