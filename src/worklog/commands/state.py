@@ -248,7 +248,7 @@ def cmd_add(args, con):
     for t in tags:
         _db.upsert(con, "tag", {"node_id": node_id, "tag": t}, key=("node_id", "tag"))
     if args.proj:
-        _db.upsert(con, "prop", {"node_id": node_id, "key": "project", "value": args.proj}, key=("node_id", "key"))
+        _upsert_prop(con, node_id, "project", args.proj)
     # creation-time side effects, each returning its echo hint (order fixed by the output line below)
     sched_hint = _add_sched(con, node_id, args)
     link_hint = _add_link(con, node_id, args)
@@ -553,7 +553,11 @@ def cmd_set(args, con):
         at = _db.get(con, "log", log_id)["logged_at"]
         out(_c(f"✓ #{args.id} {args.key} (logged at {at}): {args.value}", "meta"))
         return
-    _upsert_prop(con, args.id, args.key, args.value)
+    try:
+        _upsert_prop(con, args.id, args.key, args.value)
+    except ValueError as e:
+        # the reserved type.*/date.* validator (or a shadow-field backstop) rejected the value
+        sys.exit(f"✗ {e}")
     con.commit()
     print(f"✓ #{args.id} {args.key}={args.value}")
 

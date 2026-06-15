@@ -11,6 +11,7 @@ import sqlite3
 import sys
 from . import timeutil as _tu
 from . import db_table as _db
+from . import node_types as _nt
 from .helpers import GENERIC_TAGS  # noqa: F401
 from .helpers import _resolve_concrete_date
 
@@ -453,6 +454,11 @@ def _upsert_prop(con, nid, key, value):
         raise ValueError(
             f"'{key}' is reserved, not a free UDA prop — {hint} "
             f"(storing it as a prop would create a misleading shadow of the real field)")
+    # The one chokepoint for the type.* / date.* reserved namespace: validate + normalize
+    # the value here so NO write path can poison a reserved key with an out-of-domain value
+    # (a bad type.para / type.date would silently break tree-building + views). Non-reserved
+    # user props pass straight through (free values).
+    value = _nt.validate_prop(key, value)
     _db.upsert(con, "prop", {"node_id": nid, "key": key, "value": value}, key=("node_id", "key"))
 
 
