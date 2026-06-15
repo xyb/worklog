@@ -73,6 +73,20 @@ class TestPropAtCreate:
         assert "type.para" in (out + err)
 
 
+class TestJsonExposesTypeProps:
+    def test_type_props_are_plain_props_no_special_field(self, cli):
+        # DESIGN: type.* gets no special treatment in JSON — it rides along in `props`
+        # with every other key/value, never promoted to its own top-level field.
+        cli("add", "x", "--para", "project", "--prop", "type.meetlog=dating")
+        import json
+        _, out, _ = cli("show", "1", "-o", "json")
+        d = json.loads(out)
+        assert d["props"]["type.para"] == "project"
+        assert d["props"]["type.meetlog"] == "dating"
+        assert "type" not in d            # no synthesized top-level "type"/"kind"-style field
+        assert "para" not in d
+
+
 class TestLsParaFilter:
     def _seed(self, cli):
         cli("add", "the project", "--para", "project")   # 1
