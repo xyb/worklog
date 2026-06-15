@@ -395,3 +395,22 @@ class TestSemanticInternals:
         code, out, err = cli("query", "anything")
         assert code != 0
         assert "boom" in (out + err)
+
+
+class TestQueryKeywordPriority:
+    """#759: a node matching ALL query terms surfaces top even if it's missing from (or weak
+    in) the vector index — exact full-term matches must not be lost to semantic dilution."""
+
+    def test_full_term_match_not_in_index_surfaces_first(self, seeded):
+        seeded("reindex")                                  # indexes #1-#3 only
+        seeded("add", "alpha beta combo", "-k", "task")    # #4, created AFTER reindex -> not in vector index
+        code, out, _ = seeded("--color", "never", "query", "alpha beta")
+        assert code == 0
+        hit_lines = [l for l in out.splitlines() if "#" in l and l.lstrip()[0].isdigit()]
+        assert "#4 " in hit_lines[0]   # both terms in its title -> full coverage -> ranks first
+
+    def test_single_term_still_ranks_match_first(self, seeded):
+        seeded("reindex")
+        code, out, _ = seeded("--color", "never", "query", "alpha")
+        hit_lines = [l for l in out.splitlines() if "#" in l and l.lstrip()[0].isdigit()]
+        assert "#1 " in hit_lines[0]   # unchanged: the alpha node still leads

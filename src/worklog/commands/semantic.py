@@ -133,32 +133,39 @@ def _expand_synonyms(terms):
 _KW_FIELD_WEIGHT = {"title": 3, "tag": 2, "body": 1, "log": 1}
 
 
-def _keyword_rank(con, terms):
-    """Lexical ranking: node_ids ordered by a field-weighted term-match score — a term in the
-    title counts more than one in a log (so a node *about* the term outranks one that merely
-    mentions it once), and matching more distinct terms accumulates. The exact-match side of
-    hybrid, catching names/ids/jargon that embeddings dilute. Ties broken by recency (id desc)."""
-    score = {}
+def _keyword_hits(con, terms):
+    """Per-node keyword match over title/body/log/tag with field weights. Returns
+    `{node_id: (score, n_terms_matched)}` for alive, non-canceled nodes — `score` is the
+    field-weighted sum (a term in the title counts more than one in a log), `n_terms_matched`
+    is how many DISTINCT query terms appear anywhere on the node (== len(terms) ⇒ full coverage).
+    The exact-match side of hybrid; full-coverage nodes get priority in cmd_query (WL#759)."""
+    score, covered = {}, {}
 
-    def add(nid, w):
+    def add(nid, w, term):
         score[nid] = score.get(nid, 0) + w
+        covered.setdefault(nid, set()).add(term)
 
     for t in terms:
         like = f"%{t}%"
         for r in con.execute("SELECT id FROM node WHERE deleted_at IS NULL AND title LIKE ?", (like,)):
-            add(r["id"], _KW_FIELD_WEIGHT["title"])
+            add(r["id"], _KW_FIELD_WEIGHT["title"], t)
         for r in con.execute("SELECT id FROM node WHERE deleted_at IS NULL AND body LIKE ?", (like,)):
-            add(r["id"], _KW_FIELD_WEIGHT["body"])
+            add(r["id"], _KW_FIELD_WEIGHT["body"], t)
         for r in con.execute("SELECT DISTINCT node_id FROM log WHERE deleted_at IS NULL AND body LIKE ?", (like,)):
-            add(r["node_id"], _KW_FIELD_WEIGHT["log"])
+            add(r["node_id"], _KW_FIELD_WEIGHT["log"], t)
         for r in con.execute("SELECT DISTINCT node_id FROM tag WHERE deleted_at IS NULL AND tag LIKE ?", (like,)):
-            add(r["node_id"], _KW_FIELD_WEIGHT["tag"])
+            add(r["node_id"], _KW_FIELD_WEIGHT["tag"], t)
     # drop canceled / missing nodes (a log/tag match can point at one)
     alive = {r["id"] for r in con.execute(
         "SELECT id FROM node WHERE deleted_at IS NULL AND status != 'CANCELED'")}
-    ranked = [nid for nid in score if nid in alive]
-    ranked.sort(key=lambda nid: (score[nid], nid), reverse=True)
-    return ranked
+    return {nid: (score[nid], len(covered[nid])) for nid in score if nid in alive}
+
+
+def _keyword_rank(con, terms):
+    """node_ids ordered by field-weighted keyword score (ties → recency, id desc). The keyword
+    leg of hybrid; see `_keyword_hits` for the per-node score + term coverage it's derived from."""
+    hits = _keyword_hits(con, terms)
+    return sorted(hits, key=lambda nid: (hits[nid][0], nid), reverse=True)
 
 
 def _rrf(ranked_lists, k=60):
@@ -227,8 +234,21 @@ def cmd_query(args, con):
     # vector side: rank every node by its best chunk; keyword side: lexical term match. Fuse w/ RRF.
     vec_hits = _vs.search(db, qvec, k=10 ** 9)   # all nodes ranked; threshold applied below, not here
     vec_map = {h["node_id"]: h for h in vec_hits}
-    vec_ids = [h["node_id"] for h in vec_hits if threshold is None or h["score"] >= threshold]
-    fused = _rrf([vec_ids, _keyword_rank(con, terms)])[:limit]
+    vec_ids_all = [h["node_id"] for h in vec_hits if threshold is None or h["score"] >= threshold]
+    # B (WL#759): cap the vector list — its long noisy tail (every node gets a rank) otherwise
+    # dilutes precise keyword hits through RRF, esp. for short Chinese queries on a small model.
+    vec_ids = vec_ids_all[: max(50, limit * 5)]
+    kw_hits = _keyword_hits(con, terms)
+    kw_ranked = sorted(kw_hits, key=lambda nid: (kw_hits[nid][0], nid), reverse=True)
+    # C (WL#759): nodes covering EVERY query term (an exact full match) lead, ordered by keyword
+    # field-weight — so a literal hit (e.g. a node titled "微信全量导出" for "微信导出") isn't
+    # buried under noisy semantic neighbors, and surfaces even when it's missing from the index.
+    nterms = len(terms)
+    full = sorted((nid for nid in kw_hits if nterms and kw_hits[nid][1] == nterms),
+                  key=lambda nid: (kw_hits[nid][0], nid), reverse=True)
+    fused_rest = _rrf([vec_ids, kw_ranked])
+    seen = set(full)
+    fused = (full + [n for n in fused_rest if n not in seen])[:limit]
 
     if getattr(args, "output", "text") == "json":
         rows = []
