@@ -160,7 +160,8 @@ class TestShowJson:
         _, out, _ = cli("show", "1", "-o", "json")
         import json
         d = json.loads(out)
-        assert d["props"] == {"owner": "xyb"}
+        # creating with -k project dual-writes the type.para role into the prop namespace
+        assert d["props"] == {"owner": "xyb", "type.para": "project"}
         assert d["links"] == ["Design doc"]
         assert [c["id"] for c in d["children"]] == [2]
         assert d["logs"] and d["logs"][0]["body"] == "did work"

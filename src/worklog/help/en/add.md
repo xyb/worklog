@@ -3,13 +3,15 @@ title: add — create a node (task/project/area/…)
 category: command
 see_also: node, para, priority, day
 ---
-`wl add "<title>"` creates a node. It's the shortcut for `wl node add`. The kind defaults
-to `task`; use `-k` for others (see `wl help para` for area/project/task).
+`wl add "<title>"` creates a node. It's the shortcut for `wl node add`. A bare add is a
+plain task; name a responsibility role with `--para area|project|task` (the same flag as
+`wl ls --para`; see `wl help para`).
 
 Common forms:
   wl add "ship the Q3 report"                 # simplest — a task
   wl add "review the PR" -p B -t work --sched today
-  wl add "Website revamp" -k project -p A -t work       # → e.g. #42
+  wl add "Website revamp" --para project -p A -t work   # → e.g. #42
+  wl add "dinner notes" --prop type.meetlog=dating      # set props at creation
   wl add "draft the homepage copy" --parent 42          # a task nested under it
   wl add "[meetlog] 09:30 tech sync" -k meetlog -p A -t work,meeting --parent <day_id>  # a meeting note
 
@@ -18,7 +20,8 @@ Compound flags do several steps in one shot (a retrospective entry):
     --log "root cause: stale token (PR#42)" --done --at 14:30
 
 Key options (full list: `wl add -h`):
-  -k kind · -p A/B/C priority · -t tags (comma, AND) · --parent <id> nest
+  --para area/project/task role · -p A/B/C priority · -t tags (comma, AND) · --parent <id> nest
+  --prop K=V set a prop (repeatable; bare K = existence prop)
   --sched <day> plan it (shows "planned" in wl day) · --deadline <date>
   --log "..." add a log now · --done (+ --at <ts>) close it now · --link "<doc>"
   --relation '<type> <id>…' relate to an existing node (split-from/split-into/related; both sides)

@@ -246,6 +246,11 @@ def make_node_filter(con, args):
     statuses = {s.strip().upper() for s in status.split(",") if s.strip()} if status else set()
     pris = _parse_priority_filter(priority) if priority else set()
     prop_conds = [_parse_prop_cond(s) for s in (getattr(args, "prop", None) or []) if s and s.strip()]
+    # --para is sugar for an exact type.para prop condition, so it filters on the new model
+    # (the same role create writes), not the legacy kind column.
+    para = getattr(args, "para", None)
+    if para:
+        prop_conds.append(("exact", _nt.K_PARA, para))
     if not wanted and not kind and not statuses and not pris and not prop_conds:
         return None
 

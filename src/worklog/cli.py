@@ -228,10 +228,16 @@ def _args_node_add(p):
     p.add_argument("title", help="the node's title, e.g. \"ship the Q3 report\" (quote if it has spaces)")
     p.add_argument("-k", "--kind", default="task",
                    help="what it is: task (default) / project / area / habit / meetlog / day")
+    p.add_argument("--para", choices=["area", "project", "task"],
+                   help="responsibility-line role — writes type.para (the same flag as `wl ls --para`); "
+                        "overrides -k for area/project/task")
     p.add_argument("-p", "--priority", choices=["A", "B", "C"],
                    help="priority: A = P0 (highest) / B = P1 / C = P2")
     p.add_argument("-t", "--tag", help="comma-separated tags, e.g. -t work or -t work,urgent (work/personal drive bucketing)")
     p.add_argument("--proj", help="project name (stored as a prop)")
+    p.add_argument("--prop", action="append", metavar="K=V|K", default=None,
+                   help="set a prop at creation (repeatable), e.g. --prop type.meetlog=dating; "
+                        "bare K (no =) sets an existence prop")
     p.add_argument("--parent", type=int, help="parent node id (nest under a project/area), e.g. --parent 103")
     p.add_argument("--status", help="initial status (default TODO); rarely needed at creation")
     p.add_argument("--scheduled", help="(rough hint, writes node.scheduled_date) scheduled time: YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
@@ -534,6 +540,8 @@ Good to know:
     filters = argparse.ArgumentParser(add_help=False)
     filters.add_argument("-t", "--tag", help="comma-separated tags, AND filter (e.g. -t work)")
     filters.add_argument("--kind", help="filter by kind (task/habit/meetlog/project/area/...)")
+    filters.add_argument("--para", choices=["area", "project", "task"],
+                         help="filter by responsibility role (the type.para prop; same flag as `wl add --para`)")
     filters.add_argument("--status", help="filter by status, comma = any-of (TODO/DOING/DONE/WAIT/LATER/CANCELED)")
     filters.add_argument("-p", "--priority", help="filter by priority, comma = any-of (A/B/C or P0/P1/P2)")
     filters.add_argument("--prop", action="append", metavar="K=V|K|GROUP.", default=None,
@@ -634,7 +642,7 @@ Config (aliases.ini) lives at $XDG_CONFIG_HOME/worklog/aliases.ini (default ~/.c
 Common examples:
   wl add "ship the Q3 report"                          # simplest — a task
   wl add "review the PR" -p B -t work --sched today    # priority, tag, plan for today
-  wl add "Website revamp" -k project -p A -t work      # a project (→ e.g. #42)
+  wl add "Website revamp" --para project -p A -t work  # a project (→ e.g. #42); --para = the type.para role
   wl add "draft the homepage copy" --parent 42         # nest a task under it
   wl add "split out of the big task" --relation 'split-from 42'   # relate to an existing node at creation (both sides)
   wl add "fixed the login bug" -p B --log "root cause: …" --done --at 14:30   # create + log + close
