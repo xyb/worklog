@@ -622,7 +622,10 @@ def workitem_sql(alias="n"):
     has_date = _ex("key='type.date'")
     has_habit = _ex("key='type.habit'")
     has_meetlog = _ex("key='type.meetlog'")
-    has_custom = _ex("key LIKE 'type.%' AND key NOT IN ('type.para','type.date','type.habit','type.meetlog')")
+    # length(key) > 5 mirrors legacy_kind's `len(k) > len(TYPE_NS)` guard: a bare 'type.' key
+    # (empty suffix) is NOT a custom kind, so it must not exclude the node from the work-item set.
+    has_custom = _ex("key LIKE 'type.%' AND length(key) > 5 "
+                     "AND key NOT IN ('type.para','type.date','type.habit','type.meetlog')")
     # legacy_kind precedence para > date > habit > meetlog > custom > task, restricted to the
     # task/habit/meetlog set: type.para='task' (role wins outright), OR — with no para and no time
     # level — a habit, a meetlog, or a bare node (no custom type.<x>). habit/meetlog outrank a

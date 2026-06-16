@@ -228,26 +228,29 @@ class TestUpgradeAutoBackfill:
 
 
 class TestWorkitemSqlEqualsLegacyKind:
-    """Drift guard: workitem_sql (SQL) must equal legacy_kind(props) IN (task,habit,meetlog)
-    (Python) for every boundary prop combination — the two encode the same precedence."""
+    """Drift guard (root fix for the recurring SQL-vs-Python divergence): workitem_sql must equal
+    legacy_kind(props) IN (task,habit,meetlog) for EVERY combination of the classification keys —
+    exhaustively, so no future edge combo (para+date, habit+custom, bare 'type.', …) can escape."""
 
-    def test_equivalence_across_prop_combos(self, tmp_db):
+    def test_equivalence_exhaustive(self, tmp_db):
+        import itertools
         from worklog import db_table as _db, timeutil as _tu, queries, node_types as nt
         tmp_db.ensure_db(); con = tmp_db.db_connect()
-        combos = [
-            {}, {"type.para": "task"}, {"type.para": "project"}, {"type.para": "area"},
-            {"type.date": "day"}, {"type.habit": "true"}, {"type.meetlog": "true"},
-            {"type.recipe": "true"},
-            {"type.para": "task", "type.date": "day"},
-            {"type.para": "task", "type.recipe": "true"},
-            {"type.habit": "true", "type.recipe": "true"},
-            {"type.meetlog": "true", "type.recipe": "true"},
-            {"type.para": "project", "type.habit": "true"},
-            {"type.date": "day", "type.habit": "true"},
-            {"type.habit": "true", "type.meetlog": "true"},
-        ]
-        for i, props in enumerate(combos, 1):
-            nid = _db.insert(con, "node", {"title": f"n{i}", "kind": "task", "created_at": _tu.utc_now()})
+        # each dimension's possible presence/value; the cross-product covers every precedence path
+        dims = {
+            "type.para":    [None, "area", "project", "task"],
+            "type.date":    [None, "day"],
+            "type.habit":   [None, "true"],
+            "type.meetlog": [None, "true"],
+            "type.recipe":  [None, "true"],   # a custom type.<x>
+            "type.":        [None, "x"],      # the degenerate bare-suffix key
+        }
+        keys = list(dims)
+        n = 0
+        for combo in itertools.product(*dims.values()):
+            props = {k: v for k, v in zip(keys, combo) if v is not None}
+            n += 1
+            nid = _db.insert(con, "node", {"title": f"n{n}", "kind": "task", "created_at": _tu.utc_now()})
             for k, v in props.items():
                 con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (nid, k, v))
             con.commit()
@@ -256,6 +259,7 @@ class TestWorkitemSqlEqualsLegacyKind:
             py_match = nt.legacy_kind(props) in ("task", "habit", "meetlog")
             assert sql_match == py_match, \
                 f"combo {props}: workitem_sql={sql_match} but legacy_kind={nt.legacy_kind(props)!r}"
+        assert n == 4 * 2 * 2 * 2 * 2 * 2   # 128 combinations, all checked
         con.close()
 
 
