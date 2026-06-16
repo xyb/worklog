@@ -100,7 +100,7 @@ def _node_bucket(con, nid):
 def _node_project(con, nid):
     """Return the project ancestor (id, title) of a node, or (None, '(unassigned)') if none."""
     for p in _ancestors_chain(con, nid):
-        if p["kind"] == "project":
+        if node_kind(con, p) == "project":
             return p["id"], p["title"]
     return None, "(unassigned)"
 

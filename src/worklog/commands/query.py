@@ -40,6 +40,7 @@ from ..queries import (
     _check_ids_exist,
     _collect_descendants,
     _has_tag,
+    node_kind,
     make_node_filter,
     nodes_with_tag,
     _insert_log,
@@ -93,7 +94,7 @@ def _node_to_dict(con, n):
     sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
     return {
         "id": nid,
-        "kind": n["kind"],
+        "kind": node_kind(con, n),
         "title": n["title"],
         "status": n["status"],
         "priority": n["priority"],
@@ -104,7 +105,7 @@ def _node_to_dict(con, n):
         "scheduled_date": n["scheduled_date"],  # local calendar day
         "deadline_date": n["deadline_date"],    # local calendar day
         "tags": _node_tags(con, nid),
-        "ancestors": [{"id": p["id"], "title": p["title"], "kind": p["kind"]}
+        "ancestors": [{"id": p["id"], "title": p["title"], "kind": node_kind(con, p)}
                       for p in _ancestors_chain(con, nid)[:-1]],
         # relation.* props surface under "relations" (resolved bidirectionally), not here
         "props": {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)
@@ -116,7 +117,7 @@ def _node_to_dict(con, n):
             "dates": list(dict.fromkeys(r["on_date"] for r in sched_rows if r["on_date"])),
             "rrules": list(dict.fromkeys(r["rrule"] for r in sched_rows if r["rrule"])),
         },
-        "children": [{"id": c["id"], "title": c["title"], "kind": c["kind"],
+        "children": [{"id": c["id"], "title": c["title"], "kind": node_kind(con, c),
                       "status": c["status"], "priority": c["priority"]}
                      for c in _db.query(con, "node", parent_id=nid, order="priority NULLS LAST, id")],
         "logs": [{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]}
@@ -135,7 +136,7 @@ def _node_summary_dict(con, n):
     sort by + tags. Full detail (props/links/logs/metrics/timeline) is `wl show -o json`.
     Same stable field names + timestamp convention (`*_at` UTC, `*_date` local)."""
     return {
-        "id": n["id"], "kind": n["kind"], "title": n["title"],
+        "id": n["id"], "kind": node_kind(con, n), "title": n["title"],
         "status": n["status"], "priority": n["priority"], "parent_id": n["parent_id"],
         "scheduled_date": n["scheduled_date"], "deadline_date": n["deadline_date"],
         "created_at": n["created_at"], "closed_at": n["closed_at"],
@@ -387,13 +388,13 @@ def cmd_focus(args, con):
     # self
     mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
     pri = _pri_marker(n["priority"]) + " "
-    out("▶ focus " + mk + " " + _c(f"#{n['id']}", "id") + " " + pri + _c(f"[{n['kind']}]", "kind") + " " + _c(n["title"], "header"))
+    out("▶ focus " + mk + " " + _c(f"#{n['id']}", "id") + " " + pri + _c(f"[{node_kind(con, n)}]", "kind") + " " + _c(n["title"], "header"))
 
     # downstream subtree. A day node has no real parent_id children — its
     # "contents" are that day's log activity, exactly like `wl tree` / `wl day`.
     # Expand it the same way so focusing a day shows everything done that day,
     # not just the few nodes whose parent_id happens to be the day.
-    if n["kind"] == "day":
+    if node_kind(con, n) == "day":
         out(_c("downstream (day activity):", "meta"))
         _print_day_activity(con, n, depth=0, max_depth=args.depth)
         children = []  # for the related-section exclude set below
@@ -438,7 +439,7 @@ def cmd_ancestors(args, con):
     for depth, node in enumerate(chain):
         indent = "  " * depth
         arrow = "▶ " if node["id"] == args.id else ""
-        out(f"{indent}{arrow}" + _c(f"#{node['id']}", "id") + " " + _c(f"[{node['kind']}]", "kind") + " " + _c(node["title"], "header" if node["id"] == args.id else None))
+        out(f"{indent}{arrow}" + _c(f"#{node['id']}", "id") + " " + _c(f"[{node_kind(con, node)}]", "kind") + " " + _c(node["title"], "header" if node["id"] == args.id else None))
 
 def cmd_descendants(args, con):
     """Show only the downstream subtree (node -> all descendants)."""
@@ -1124,7 +1125,7 @@ def _next_sched_fire(rules, start):
 def _show_detail(con, args, n):
     """`wl show` static detail block: header, status, ancestors, dates, body, tags, props (+ the
     nested relation sub-block), links, schedule, and direct children."""
-    out(_c(f"#{n['id']}", "id") + " " + _c(f"[{n['kind']}]", "kind") + " " + _c(n["title"], "header"))
+    out(_c(f"#{n['id']}", "id") + " " + _c(f"[{node_kind(con, n)}]", "kind") + " " + _c(n["title"], "header"))
     if n["status"]:
         st = _c(n["status"], _STATUS_STYLE.get(n["status"], "todo"))
         pr = " " + (_pri_marker(n["priority"]))

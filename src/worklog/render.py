@@ -238,7 +238,7 @@ from .helpers import (
     _status_marker, _sched_display, _fmt_dur,
     _term_width, _wrap_display, _title_mode, _truncate_log_body, _display_width,
 )
-from .queries import _has_tag, _node_clock_min, _node_tags
+from .queries import _has_tag, _node_clock_min, _node_tags, node_kind
 
 
 def _pri_marker(priority):
@@ -320,7 +320,8 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
     marker = _c(mk, "done" if done else _STATUS_STYLE.get(n["status"], "todo"))
     pri = _pri_marker(n["priority"])
     pri_plain = _pri_plain(n["priority"])
-    kind_plain = f"[{n['kind']}] " if (show_kind and n["kind"] != "task") else ""
+    nk = node_kind(con, n)   # derived from type.* props (the kind column is being phased out)
+    kind_plain = f"[{nk}] " if (show_kind and nk != "task") else ""
     kind = (_c(kind_plain.rstrip(), "kind") + " ") if kind_plain else ""
     nid = _c(f"#{n['id']}", "id")
     prefix = f"{indent}{marker} {pri} {nid} {kind}"
