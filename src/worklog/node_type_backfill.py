@@ -20,7 +20,7 @@ import re
 
 from . import db_table as _db
 from . import node_types as _nt
-from .queries import _upsert_prop
+from .queries import _upsert_prop, node_props
 
 # pull a canonical period token out of a (possibly decorated, e.g. "2026 年") legacy title
 _PERIOD_EXTRACT = {
@@ -75,3 +75,37 @@ def backfill_node_types(con):
             counts["bare"] += 1   # plain task (loose default), signal (retired), custom kinds
     con.commit()
     return counts
+
+
+def verify_roundtrip(con):
+    """Integrity check for the kind→type.* migration: for every live node whose original kind
+    is a *preserved* one (node_types.KNOWN_KINDS), the kind derived from its type.\\* props must
+    equal the column value. Returns ``(ok, mismatches, retired)``:
+
+    - ``mismatches``: ``(id, column_kind, derived_kind)`` for a KNOWN kind that failed to
+      round-trip — a real data-loss bug; ``ok`` is False if any exist.
+    - ``retired``: ``(id, column_kind)`` for ``signal`` / custom kinds that deliberately
+      collapse to a bare node (not data loss — ``signal`` is retired by design).
+
+    An empty ``mismatches`` means the type.* namespace losslessly represents every classified
+    node — the precondition for safely dropping the column. Read-only."""
+    mismatches, retired = [], []
+    for n in _db.query(con, "node", cols="id, kind"):
+        derived = _nt.legacy_kind(node_props(con, n["id"]))
+        if derived == n["kind"]:
+            continue
+        if n["kind"] in _nt.KNOWN_KINDS:
+            mismatches.append((n["id"], n["kind"], derived))
+        else:
+            retired.append((n["id"], n["kind"]))
+    return (not mismatches, mismatches, retired)
+
+
+def migrate_and_verify(con):
+    """The complete one-shot kind→type.* data migration: backfill the namespace, then verify
+    every classified node round-trips. Returns ``(counts, ok, mismatches, retired)``. Does NOT
+    drop the kind column — that structural step only happens once the code no longer reads it;
+    this proves the data is faithfully represented first."""
+    counts = backfill_node_types(con)
+    ok, mismatches, retired = verify_roundtrip(con)
+    return counts, ok, mismatches, retired

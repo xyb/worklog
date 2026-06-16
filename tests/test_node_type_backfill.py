@@ -130,6 +130,35 @@ class TestBackfill:
         con.close()
 
 
+class TestMigrateAndVerify:
+    def test_every_known_node_roundtrips(self, tmp_db):
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        ids = _seed(con)
+        counts, ok, mismatches, retired = bf.migrate_and_verify(con)
+        assert ok is True
+        assert mismatches == []
+        # signal is retired by design → reported as retired, not a mismatch
+        assert any(r[0] == ids["signal"] and r[1] == "signal" for r in retired)
+        # every KNOWN-kind node derives back to its original column kind
+        from worklog import node_types as nt, queries
+        for n in _db.query(con, "node", cols="id, kind"):
+            if n["kind"] in nt.KNOWN_KINDS:
+                assert nt.legacy_kind(queries.node_props(con, n["id"])) == n["kind"]
+        con.close()
+
+    def test_verify_catches_a_corrupted_node(self, tmp_db):
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        ids = _seed(con)
+        bf.backfill_node_types(con)
+        # corrupt: drop the project's type.para so it would derive to "task", not "project"
+        _db.delete(con, "prop", node_id=ids["project"], key="type.para")
+        con.commit()
+        ok, mismatches, retired = bf.verify_roundtrip(con)
+        assert ok is False
+        assert any(m[0] == ids["project"] and m[1] == "project" for m in mismatches)
+        con.close()
+
+
 class TestMigrateTypesCommand:
     def test_command_backfills_and_filter_works(self, cli, tmp_db):
         tmp_db.ensure_db()
