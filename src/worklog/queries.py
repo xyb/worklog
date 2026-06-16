@@ -615,13 +615,20 @@ def workitem_sql(alias="n"):
     its type.para is 'task' (the role wins regardless of any other dim), OR it has no para AND no
     time level AND no custom type.<x> (a bare node, or a pure habit/meetlog — those reserved keys
     aren't the 'custom' the last clause excludes)."""
-    a = alias
-    return (
-        f"(EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key='type.para' AND value='task' AND deleted_at IS NULL) "
-        f"OR (NOT EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key='type.para' AND deleted_at IS NULL) "
-        f"AND NOT EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key='type.date' AND deleted_at IS NULL) "
-        f"AND NOT EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key LIKE 'type.%' "
-        "AND key NOT IN ('type.para','type.date','type.habit','type.meetlog') AND deleted_at IS NULL)))")
+    def _ex(cond):  # EXISTS a live prop on this node matching cond
+        return "EXISTS(SELECT 1 FROM prop WHERE node_id=" + alias + ".id AND " + cond + " AND deleted_at IS NULL)"
+    para_task = _ex("key='type.para' AND value='task'")
+    has_para = _ex("key='type.para'")
+    has_date = _ex("key='type.date'")
+    has_habit = _ex("key='type.habit'")
+    has_meetlog = _ex("key='type.meetlog'")
+    has_custom = _ex("key LIKE 'type.%' AND key NOT IN ('type.para','type.date','type.habit','type.meetlog')")
+    # legacy_kind precedence para > date > habit > meetlog > custom > task, restricted to the
+    # task/habit/meetlog set: type.para='task' (role wins outright), OR — with no para and no time
+    # level — a habit, a meetlog, or a bare node (no custom type.<x>). habit/meetlog outrank a
+    # co-present custom type.<x>, so they stay in the set even when a custom prop also exists.
+    return (f"({para_task} OR (NOT {has_para} AND NOT {has_date} "
+            f"AND ({has_habit} OR {has_meetlog} OR NOT {has_custom})))")
 
 
 def sync_kind_column(con, nid):

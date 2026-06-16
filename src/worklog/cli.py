@@ -100,6 +100,7 @@ MIGRATIONS_DIR = Path(__file__).parent / "migrations"
 
 # ─── DB helpers (thin wrappers; impl lives in db.py) ───
 from . import db as _db
+from . import node_types as _node_types
 
 
 def db_connect() -> sqlite3.Connection:
@@ -127,30 +128,34 @@ def ensure_db():
     _ensure_type_props()
 
 
-# kinds that carry a classification (everything except a bare 'task' and the retired 'signal')
-_CLASSIFIED_KINDS = ("area", "project", "year", "quarter", "month", "week", "day",
-                     "lifetime", "decade", "habit", "meetlog")
+# kinds that carry a classification needing a type.* prop — KNOWN_KINDS minus the bare 'task'
+# (single-source: derived from node_types so a new kind can't be silently skipped by the guard).
+_CLASSIFIED_KINDS = tuple(sorted(_node_types.KNOWN_KINDS - {"task"}))
 
 
-def _ensure_type_props():  # pragma: no cover -- exercised via ensure_db in the suite; the OperationalError guard is for a dropped column
+# TODO(kind-column-drop): remove _ensure_type_props entirely when the migration that drops the
+# node.kind column lands — it's a transitional auto-backfill that reads that column.
+def _ensure_type_props():
     """Transitional upgrade step: an existing DB upgraded to the prop-derived model still has its
     nodes classified only by the legacy `kind` column until `wl migrate-types` runs — so the
     prop-based readers would misclassify every pre-existing node as a bare task. Auto-backfill the
     type.* namespace once, here, so installing the new build just works. Idempotent + cheap: a
-    LIMIT-1 guard skips the work once every classified node has its type.* props. Becomes a no-op
-    (and is removed) when the kind column is dropped."""
+    LIMIT-1 guard skips the work once every classified node has its type.* props."""
     con = db_connect()
     try:
         ph = ",".join("?" * len(_CLASSIFIED_KINDS))
-        row = con.execute(
-            f"SELECT 1 FROM node n WHERE n.deleted_at IS NULL AND n.kind IN ({ph}) "
-            "AND NOT EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key LIKE 'type.%' "
-            "AND deleted_at IS NULL) LIMIT 1", _CLASSIFIED_KINDS).fetchone()
+        try:
+            row = con.execute(
+                f"SELECT 1 FROM node n WHERE n.deleted_at IS NULL AND n.kind IN ({ph}) "
+                "AND NOT EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key LIKE 'type.%' "
+                "AND deleted_at IS NULL) LIMIT 1", _CLASSIFIED_KINDS).fetchone()
+        except sqlite3.OperationalError as e:
+            if "no such column" in str(e).lower():
+                return  # the kind column is already dropped → nothing to backfill from
+            raise       # a real error (locked / I/O / malformed) must NOT be swallowed
         if row:
             from .node_type_backfill import backfill_node_types
             backfill_node_types(con)   # commits
-    except sqlite3.OperationalError:
-        pass   # no `kind` column (already dropped) → nothing to backfill from
     finally:
         con.close()
 

@@ -225,3 +225,47 @@ class TestUpgradeAutoBackfill:
         con.close()
         _, out, _ = cli("projects")
         assert "legacy proj" in out
+
+
+class TestWorkitemSqlEqualsLegacyKind:
+    """Drift guard: workitem_sql (SQL) must equal legacy_kind(props) IN (task,habit,meetlog)
+    (Python) for every boundary prop combination — the two encode the same precedence."""
+
+    def test_equivalence_across_prop_combos(self, tmp_db):
+        from worklog import db_table as _db, timeutil as _tu, queries, node_types as nt
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        combos = [
+            {}, {"type.para": "task"}, {"type.para": "project"}, {"type.para": "area"},
+            {"type.date": "day"}, {"type.habit": "true"}, {"type.meetlog": "true"},
+            {"type.recipe": "true"},
+            {"type.para": "task", "type.date": "day"},
+            {"type.para": "task", "type.recipe": "true"},
+            {"type.habit": "true", "type.recipe": "true"},
+            {"type.meetlog": "true", "type.recipe": "true"},
+            {"type.para": "project", "type.habit": "true"},
+            {"type.date": "day", "type.habit": "true"},
+            {"type.habit": "true", "type.meetlog": "true"},
+        ]
+        for i, props in enumerate(combos, 1):
+            nid = _db.insert(con, "node", {"title": f"n{i}", "kind": "task", "created_at": _tu.utc_now()})
+            for k, v in props.items():
+                con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (nid, k, v))
+            con.commit()
+            sql_match = con.execute(
+                f"SELECT 1 FROM node n WHERE n.id=? AND ({queries.workitem_sql('n')})", (nid,)).fetchone() is not None
+            py_match = nt.legacy_kind(props) in ("task", "habit", "meetlog")
+            assert sql_match == py_match, \
+                f"combo {props}: workitem_sql={sql_match} but legacy_kind={nt.legacy_kind(props)!r}"
+        con.close()
+
+
+class TestEnsureTypePropsFutureSafe:
+    def test_survives_dropped_kind_column(self, tmp_db):
+        # after the eventual kind-column drop, the transitional auto-backfill guard must no-op
+        # gracefully (not crash) — and must NOT swallow a real OperationalError.
+        tmp_db.ensure_db()
+        con = tmp_db.db_connect()
+        con.execute("DROP INDEX idx_node_kind")   # the index must go before the column can be dropped
+        con.execute("ALTER TABLE node DROP COLUMN kind")
+        con.commit(); con.close()
+        tmp_db.ensure_db()   # guard hits 'no such column: kind' → returns cleanly, no raise
