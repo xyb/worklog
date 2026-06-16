@@ -79,12 +79,18 @@ def backfill_node_types(con):
     # node + props together). _upsert_prop above wrote the type.* props LIVE, which would leave
     # live prop rows hanging off a dead node — an internal inconsistency (and a phantom candidate
     # for prop-based lookups). Re-stamp the just-written reserved props on tombstoned nodes back to
-    # the node's own deleted_at, so prop state always matches node state and a future restore
-    # revives them together.
+    # the node's own deleted_at, so prop state always matches node state.
+    # NOTE (restore requirement): this leaves a tombstoned node's reserved props tombstoned. A
+    # future `wl node restore` MUST revive the spoke rows too (the inverse of soft_delete_node),
+    # or a restored project/meetlog would render as a bare task. Tracked as a follow-up.
+    # Scope the UPDATE to the EXACT reserved keys (not a LIKE 'type.%'/'date.%' prefix) so a user
+    # prop merely named like `date.foo` / `type.custom` is never touched.
+    reserved = sorted(_nt.RESERVED_KEYS)
+    placeholders = ",".join("?" * len(reserved))
     con.execute(
         "UPDATE prop SET deleted_at = (SELECT deleted_at FROM node WHERE node.id = prop.node_id) "
-        "WHERE (key LIKE 'type.%' OR key LIKE 'date.%') AND deleted_at IS NULL "
-        "AND node_id IN (SELECT id FROM node WHERE deleted_at IS NOT NULL)")
+        f"WHERE key IN ({placeholders}) AND deleted_at IS NULL "
+        "AND node_id IN (SELECT id FROM node WHERE deleted_at IS NOT NULL)", reserved)
     con.commit()
     return counts
 

@@ -139,6 +139,24 @@ class TestBackfill:
         assert ok is True                       # the tombstoned node still round-trips
         con.close()
 
+    def test_restamp_only_touches_canonical_reserved_keys(self, tmp_db):
+        # F1: a user prop merely NAMED like a reserved one (date.foo / type.custom) on a
+        # tombstoned node must NOT be re-tombstoned by the backfill's restamp.
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        from worklog import queries
+        pid = _legacy(con, "project", "archived")
+        con.commit()
+        _db.delete(con, "node", id=pid)
+        con.commit()
+        # a live user prop on the dead node that LOOKS reserved but isn't one of the 7 keys
+        queries._upsert_prop(con, pid, "date.foo", "bar")
+        con.commit()
+        bf.backfill_node_types(con)
+        row = con.execute("SELECT deleted_at FROM prop WHERE node_id=? AND key='date.foo'",
+                          (pid,)).fetchone()
+        assert row["deleted_at"] is None         # untouched — still live, not re-tombstoned
+        con.close()
+
     def test_idempotent(self, tmp_db):
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         ids = _seed(con)
