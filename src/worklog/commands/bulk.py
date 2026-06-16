@@ -50,6 +50,7 @@ from ..queries import (
     _status_filter_sql,
     _upsert_prop,
     write_kind_type_props,
+    sync_kind_column,
     _upsert_link,
     _delete_link,
 )
@@ -278,8 +279,11 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         counters["add"] += 1
         for t in spec.get("tags", []):
             _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
-        for k, v in (spec.get("props") or {}).items():
+        spec_props = spec.get("props") or {}
+        for k, v in spec_props.items():
             _upsert_prop(con, nid, k, str(v))
+        if any(k.startswith("type.") for k in spec_props):
+            sync_kind_column(con, nid)   # an imported type.* prop changed the derived kind
         for d in spec.get("links", []):
             _upsert_link(con, nid, d)
         for entry in spec.get("logs", []):
@@ -541,8 +545,12 @@ def _exec_update(con, o):
             if action == "set":
                 k, v = value
                 _upsert_prop(con, nid, k, v)
+                if k.startswith("type."):
+                    sync_kind_column(con, nid)
             else:
                 _db.delete(con, "prop", node_id=nid, key=value)
+                if str(value).startswith("type."):
+                    sync_kind_column(con, nid)
 
 def _fieldop_desc(action, field, value):
     if action == "clear":

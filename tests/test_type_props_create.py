@@ -42,6 +42,30 @@ class TestParaCreate:
         assert _kind(tmp_db, 1) == "task"
 
 
+class TestColumnStaysConsistentWithProps:
+    # FINDING 2: the kind column must never diverge from the kind derived from type.* props,
+    # or column-reading SQL lookups disagree with prop-deriving readers (split-brain).
+    def test_add_prop_type_para_syncs_column(self, cli, tmp_db):
+        cli("add", "x", "--prop", "type.para=project")     # --prop, not --para; kind defaulted task
+        assert _kind(tmp_db, 1) == "project"               # column re-derived, not left "task"
+        assert _props(tmp_db, 1)["type.para"] == "project"
+
+    def test_set_type_para_syncs_column(self, cli, tmp_db):
+        cli("add", "x")                                    # bare task, column=task
+        cli("set", "1", "type.para", "project")
+        assert _kind(tmp_db, 1) == "project"
+
+    def test_remove_type_para_reverts_column(self, cli, tmp_db):
+        cli("add", "x", "--para", "project")
+        assert _kind(tmp_db, 1) == "project"
+        cli("prop", "rm", "1", "type.para")
+        assert _kind(tmp_db, 1) == "task"                  # back to bare default
+
+    def test_add_prop_custom_type_syncs_column(self, cli, tmp_db):
+        cli("add", "dinner", "--prop", "type.recipe")
+        assert _kind(tmp_db, 1) == "recipe"                # custom kind preserved + column synced
+
+
 class TestNodeEditKindSyncsTypeProps:
     def test_edit_kind_project_to_task_clears_para(self, cli, tmp_db):
         cli("add", "x", "--para", "project")

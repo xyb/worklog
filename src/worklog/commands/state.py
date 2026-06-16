@@ -54,6 +54,7 @@ from ..queries import (
     _status_filter_sql,
     _upsert_prop,
     write_kind_type_props,
+    sync_kind_column,
     _strip_wikilink,
     _upsert_link,
     _delete_link,
@@ -271,6 +272,9 @@ def cmd_add(args, con):
             _upsert_prop(con, node_id, key, val.strip())
         except ValueError as e:
             sys.exit(f"✗ {e}")
+    # --prop may have set a classification prop (type.para=…) that the default kind column doesn't
+    # reflect; re-derive the column so it can't diverge from what readers compute from props.
+    sync_kind_column(con, node_id)
     # creation-time side effects, each returning its echo hint (order fixed by the output line below)
     sched_hint = _add_sched(con, node_id, args)
     link_hint = _add_link(con, node_id, args)
@@ -580,6 +584,8 @@ def cmd_set(args, con):
     except ValueError as e:
         # the reserved type.*/date.* validator (or a shadow-field backstop) rejected the value
         sys.exit(f"✗ {e}")
+    if args.key.startswith("type."):
+        sync_kind_column(con, args.id)   # a classification prop changed → keep the column in sync
     con.commit()
     print(f"✓ #{args.id} {args.key}={args.value}")
 
@@ -1130,6 +1136,8 @@ def cmd_prop_rm(args, con):
                else f"(#{args.id} has no {key})", "meta"))
         return
     n = _db.delete(con, "prop", node_id=args.id, key=key)
+    if n and key.startswith("type."):
+        sync_kind_column(con, args.id)   # removing a classification prop changes the derived kind
     con.commit()
     out(_c(f"✓ #{args.id} prop '{key}' removed" if n else f"(#{args.id} has no prop '{key}')", "meta"))
 

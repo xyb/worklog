@@ -565,6 +565,15 @@ def node_kind(con, n):
     return _nt.legacy_kind(node_props(con, nid))
 
 
+def sync_kind_column(con, nid):
+    """Re-stamp the legacy ``kind`` column to equal the kind DERIVED from this node's type.* props.
+    During the transition the column is a cache of ``legacy_kind`` — call this after any write that
+    changes a node's ``type.*`` props (``--prop type.para=…``, ``wl set type.*``, prop removal) so a
+    column-reading SQL lookup can never disagree with a prop-deriving reader (the split-brain).
+    No commit."""
+    _db.update(con, "node", nid, {"kind": _nt.legacy_kind(node_props(con, nid))})
+
+
 def _add_id_to_prop_list(con, nid, key, add_id):
     """Add `add_id` to the comma-list prop (nid, key); no-op if already present.
     No commit. Returns True if it was added."""
