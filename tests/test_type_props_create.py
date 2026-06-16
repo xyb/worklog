@@ -85,6 +85,14 @@ class TestNodeEditKindSyncsTypeProps:
         p = _props(tmp_db, 1)
         assert "type.para" not in p and p["type.habit"] == "true"
 
+    def test_edit_from_custom_kind_clears_stale_type_prop(self, cli, tmp_db):
+        cli("add", "x", "--prop", "type.recipe")          # custom kind
+        assert _kind(tmp_db, 1) == "recipe"
+        cli("node", "edit", "1", "-k", "project")
+        p = _props(tmp_db, 1)
+        assert "type.recipe" not in p                      # stale custom classification cleared
+        assert p["type.para"] == "project" and _kind(tmp_db, 1) == "project"
+
 
 class TestSoftTypeCreate:
     def test_habit_writes_existence_prop(self, cli, tmp_db):

@@ -1097,11 +1097,13 @@ def cmd_node_edit(args, con):
         sys.exit("✗ nothing to edit (give --title / --priority / --kind / --body / --scheduled / --deadline)")
     _db.update(con, "node", nid, changes)
     if "kind" in changes:
-        # keep the type.* namespace in sync with a kind edit: clear the old reserved classification
-        # props, then re-derive from the new kind (so node_kind / views don't split-brain).
+        # keep the type.* namespace in sync with a kind edit: clear ALL old classification props
+        # (the 7 reserved keys AND any custom type.<x>), then re-derive from the new kind, so no
+        # stale classification lingers and node_kind / views don't split-brain.
         node = _db.get(con, "node", nid)
-        for k in _nt.RESERVED_KEYS:
-            _db.delete(con, "prop", node_id=nid, key=k)
+        for r in _db.query(con, "prop", cols="key", node_id=nid):
+            if r["key"].startswith("type.") or r["key"] in _nt.RESERVED_KEYS:
+                _db.delete(con, "prop", node_id=nid, key=r["key"])
         write_kind_type_props(con, nid, changes["kind"], node["title"])
     con.commit()
     out(_c(f"✓ #{nid} updated: " + ", ".join(changes), "meta"))
