@@ -123,12 +123,15 @@ def cmd_migrate_types(args, con):
     verify every node round-trips (kind left intact; idempotent). The data half of the kind→
     type.* transition — run it once so `wl ls --para` and friends see pre-existing nodes too."""
     from ..node_type_backfill import migrate_and_verify
-    c, ok, mismatches, retired = migrate_and_verify(con)
+    c, ok, mismatches, retired, period_lost = migrate_and_verify(con)
     out(_c(f"✓ type.* backfill: {c['para']} para, {c['date']} date, {c['habit']} habit, "
            f"{c['meetlog']} meetlog ({c['bare']} left bare)", "done"))
     if retired:
         out(_c(f"  {len(retired)} node(s) with a retired/custom kind collapsed to a bare node "
                "(signal is removed by design)", "meta"))
+    if period_lost:
+        out(_c(f"  ⚠ {len(period_lost)} time node(s) had no canonical period in their title "
+               "(level + title kept, but date.period is unset)", "later"))
     if ok:
         out(_c("✓ verified: every classified node's type.* round-trips to its original kind", "done"))
     else:

@@ -75,6 +75,16 @@ def backfill_node_types(con):
             counts["meetlog"] += 1
         else:
             counts["bare"] += 1   # plain task (loose default), signal (retired), custom kinds
+    # Consistency: a tombstoned node's spoke rows are tombstoned too (soft_delete_node tombstones
+    # node + props together). _upsert_prop above wrote the type.* props LIVE, which would leave
+    # live prop rows hanging off a dead node — an internal inconsistency (and a phantom candidate
+    # for prop-based lookups). Re-stamp the just-written reserved props on tombstoned nodes back to
+    # the node's own deleted_at, so prop state always matches node state and a future restore
+    # revives them together.
+    con.execute(
+        "UPDATE prop SET deleted_at = (SELECT deleted_at FROM node WHERE node.id = prop.node_id) "
+        "WHERE (key LIKE 'type.%' OR key LIKE 'date.%') AND deleted_at IS NULL "
+        "AND node_id IN (SELECT id FROM node WHERE deleted_at IS NOT NULL)")
     con.commit()
     return counts
 
@@ -90,24 +100,31 @@ def verify_roundtrip(con):
       collapse to a bare node (not data loss — ``signal`` is retired by design).
 
     An empty ``mismatches`` means the type.* namespace losslessly represents every classified
-    node — the precondition for safely dropping the column. Read-only."""
-    mismatches, retired = [], []
-    for n in _db.query(con, "node", cols="id, kind", include_deleted=True):   # tombstoned too
-        derived = _nt.legacy_kind(node_props(con, n["id"]))
-        if derived == n["kind"]:
-            continue
-        if n["kind"] in _nt.KNOWN_KINDS:
-            mismatches.append((n["id"], n["kind"], derived))
-        else:
-            retired.append((n["id"], n["kind"]))
-    return (not mismatches, mismatches, retired)
+    node — the precondition for safely dropping the column. ``period_lost`` is a non-gating
+    warning list ``(id, level)`` of non-lifetime time nodes whose title yielded no canonical
+    ``date.period`` (the level + title survive, but date-range queries can't place them).
+    Read-only."""
+    mismatches, retired, period_lost = [], [], []
+    for n in _db.query(con, "node", cols="id, kind, deleted_at", include_deleted=True):  # tombstoned too
+        # Read props in the SAME tombstone state as the node: a live node is classified by its
+        # LIVE props (exactly what the renderers see — a tombstoned prop on a live node must NOT
+        # count, or verify would give false safety); a tombstoned node by its tombstoned props.
+        props = node_props(con, n["id"], include_deleted=n["deleted_at"] is not None)
+        derived = _nt.legacy_kind(props)
+        if derived != n["kind"]:
+            (mismatches if n["kind"] in _nt.KNOWN_KINDS else retired).append(
+                (n["id"], n["kind"], derived) if n["kind"] in _nt.KNOWN_KINDS else (n["id"], n["kind"]))
+        lvl = props.get(_nt.K_DATE)
+        if lvl and lvl != "lifetime" and _nt.K_PERIOD not in props:
+            period_lost.append((n["id"], lvl))
+    return (not mismatches, mismatches, retired, period_lost)
 
 
 def migrate_and_verify(con):
     """The complete one-shot kind→type.* data migration: backfill the namespace, then verify
-    every classified node round-trips. Returns ``(counts, ok, mismatches, retired)``. Does NOT
-    drop the kind column — that structural step only happens once the code no longer reads it;
-    this proves the data is faithfully represented first."""
+    every classified node round-trips. Returns ``(counts, ok, mismatches, retired, period_lost)``.
+    Does NOT drop the kind column — that structural step only happens once the code no longer
+    reads it; this proves the data is faithfully represented first."""
     counts = backfill_node_types(con)
-    ok, mismatches, retired = verify_roundtrip(con)
-    return counts, ok, mismatches, retired
+    ok, mismatches, retired, period_lost = verify_roundtrip(con)
+    return counts, ok, mismatches, retired, period_lost

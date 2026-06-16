@@ -519,10 +519,13 @@ def _prop_value(con, nid, key):
     return r["value"] if r else None
 
 
-def node_props(con, nid):
-    """A node's live props as a ``{key: value}`` dict — the read primitive behind the type.*
-    accessors (node_kind / role / time-level derivation)."""
-    return {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)}
+def node_props(con, nid, *, include_deleted=False):
+    """A node's props as a ``{key: value}`` dict — the read primitive behind the type.*
+    accessors (node_kind / role / time-level derivation). Live props only by default;
+    ``include_deleted=True`` also returns tombstoned prop rows (used when classifying a
+    tombstoned node, whose props are tombstoned to match it)."""
+    return {r["key"]: r["value"] for r in
+            _db.query(con, "prop", cols="key, value", node_id=nid, include_deleted=include_deleted)}
 
 
 def write_kind_type_props(con, nid, kind, title, *, para_role="__auto__"):

@@ -124,12 +124,19 @@ class TestBackfill:
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         pid = _legacy(con, "project", "archived project")
         con.commit()
-        _db.delete(con, "node", id=pid)        # soft-delete it
+        from worklog import queries
+        _db.delete(con, "node", id=pid)        # soft-delete node + its prop spokes
+        _db.delete(con, "prop", node_id=pid)   # (soft_delete_node would do this; simulate it)
         con.commit()
         bf.backfill_node_types(con)
-        assert _props(con, pid)["type.para"] == "project"
-        ok, mismatches, retired = bf.verify_roundtrip(con)
-        assert ok is True                      # the tombstoned node round-trips too
+        # C1: the type.para is written but kept TOMBSTONED to match the dead node (not live)
+        assert "type.para" not in _props(con, pid)                                   # not live
+        assert queries.node_props(con, pid, include_deleted=True)["type.para"] == "project"
+        row = con.execute("SELECT deleted_at FROM prop WHERE node_id=? AND key='type.para'",
+                          (pid,)).fetchone()
+        assert row["deleted_at"] is not None    # prop tombstone matches the node's
+        ok, mismatches, retired, period_lost = bf.verify_roundtrip(con)
+        assert ok is True                       # the tombstoned node still round-trips
         con.close()
 
     def test_idempotent(self, tmp_db):
@@ -148,7 +155,7 @@ class TestMigrateAndVerify:
     def test_every_known_node_roundtrips(self, tmp_db):
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         ids = _seed(con)
-        counts, ok, mismatches, retired = bf.migrate_and_verify(con)
+        counts, ok, mismatches, retired, period_lost = bf.migrate_and_verify(con)
         assert ok is True
         assert mismatches == []
         # signal is retired by design → reported as retired, not a mismatch
@@ -160,6 +167,15 @@ class TestMigrateAndVerify:
                 assert nt.legacy_kind(queries.node_props(con, n["id"])) == n["kind"]
         con.close()
 
+    def test_period_loss_is_surfaced(self, tmp_db):
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        wk = _legacy(con, "week", "freeform week with no canonical token")
+        con.commit()
+        counts, ok, mismatches, retired, period_lost = bf.migrate_and_verify(con)
+        assert ok is True                       # kind still round-trips (type.date=week)
+        assert any(p[0] == wk and p[1] == "week" for p in period_lost)   # but period loss reported
+        con.close()
+
     def test_verify_catches_a_corrupted_node(self, tmp_db):
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         ids = _seed(con)
@@ -167,7 +183,7 @@ class TestMigrateAndVerify:
         # corrupt: drop the project's type.para so it would derive to "task", not "project"
         _db.delete(con, "prop", node_id=ids["project"], key="type.para")
         con.commit()
-        ok, mismatches, retired = bf.verify_roundtrip(con)
+        ok, mismatches, retired, period_lost = bf.verify_roundtrip(con)
         assert ok is False
         assert any(m[0] == ids["project"] and m[1] == "project" for m in mismatches)
         con.close()

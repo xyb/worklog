@@ -118,10 +118,11 @@ def validate_prop(key, value):
             raise ValueError(f"invalid {key}: {value!r} (expected YYYY-MM-DD)")
         return value
     if key == K_PERIOD:
-        if level_of_period(value) is None:
+        level = level_of_period(value)
+        if level is None or not valid_period(level, value):   # real-date check, not just shape
             raise ValueError(
                 f"invalid {K_PERIOD}: {value!r} "
-                "(expected YYYY / YYYY-MM / YYYY-MM-DD / YYYY-Www / YYYY-Qn / YYYYs)")
+                "(expected a real YYYY / YYYY-MM / YYYY-MM-DD / YYYY-Www / YYYY-Qn / YYYYs)")
         return value
     return value
 
