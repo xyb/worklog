@@ -55,6 +55,7 @@ from ..queries import (
     _upsert_prop,
     write_kind_type_props,
     sync_kind_column,
+    node_kind,
     _strip_wikilink,
     _upsert_link,
     _delete_link,
@@ -1138,8 +1139,14 @@ def cmd_prop_rm(args, con):
                else f"(#{args.id} has no {key})", "meta"))
         return
     n = _db.delete(con, "prop", node_id=args.id, key=key)
-    if n and key.startswith("type."):
+    if n and (key.startswith("type.") or key.startswith("date.")):
         sync_kind_column(con, args.id)   # removing a classification prop changes the derived kind
+        # a structural classification key just changed what this node IS — surface it (non-blocking),
+        # since removing e.g. type.para demotes a project to a bare task, or type.date un-places a
+        # time node. Hint to stderr so stdout/JSON stays clean.
+        new_kind = node_kind(con, args.id)
+        print(f"⚠ #{args.id} is now '{new_kind}' (removing '{key}' changed its classification)",
+              file=sys.stderr)
     con.commit()
     out(_c(f"✓ #{args.id} prop '{key}' removed" if n else f"(#{args.id} has no prop '{key}')", "meta"))
 

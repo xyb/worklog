@@ -89,14 +89,15 @@ def backfill_node_types(con):
     # NOTE (restore requirement): this leaves a tombstoned node's reserved props tombstoned. A
     # future `wl node restore` MUST revive the spoke rows too (the inverse of soft_delete_node),
     # or a restored project/meetlog would render as a bare task. Tracked as a follow-up.
-    # Scope the UPDATE to the EXACT reserved keys (not a LIKE 'type.%'/'date.%' prefix) so a user
-    # prop merely named like `date.foo` / `type.custom` is never touched.
-    reserved = sorted(_nt.RESERVED_KEYS)
-    placeholders = ",".join("?" * len(reserved))
+    # Scope: the real discriminator is `deleted_at IS NULL` — on a tombstoned node the only LIVE
+    # props are the ones we just wrote (a user's own props were tombstoned when the node was
+    # soft-deleted). So matching `type.%`/`date.%` re-stamps every backfill write — the 7 reserved
+    # keys AND a custom `type.<x>` (which an earlier reserved-keys-only scope wrongly missed) —
+    # without touching a user's stray prop (already tombstoned, so excluded by `deleted_at IS NULL`).
     con.execute(
         "UPDATE prop SET deleted_at = (SELECT deleted_at FROM node WHERE node.id = prop.node_id) "
-        f"WHERE key IN ({placeholders}) AND deleted_at IS NULL "
-        "AND node_id IN (SELECT id FROM node WHERE deleted_at IS NOT NULL)", reserved)
+        "WHERE (key LIKE 'type.%' OR key LIKE 'date.%') AND deleted_at IS NULL "
+        "AND node_id IN (SELECT id FROM node WHERE deleted_at IS NOT NULL)")
     con.commit()
     return counts
 

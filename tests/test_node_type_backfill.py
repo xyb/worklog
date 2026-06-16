@@ -163,22 +163,25 @@ class TestBackfill:
         assert ok is True                       # the tombstoned node still round-trips
         con.close()
 
-    def test_restamp_only_touches_canonical_reserved_keys(self, tmp_db):
-        # F1: a user prop merely NAMED like a reserved one (date.foo / type.custom) on a
-        # tombstoned node must NOT be re-tombstoned by the backfill's restamp.
+    def test_restamp_tombstones_all_backfilled_props_on_dead_node_incl_custom(self, tmp_db):
+        # The re-stamp must tombstone EVERY prop backfill wrote on a tombstoned node so prop
+        # state matches node state — including a custom type.<x> (an earlier reserved-keys-only
+        # scope wrongly left it live). A live prop on a dead node is the inconsistency we fix.
         tmp_db.ensure_db(); con = tmp_db.db_connect()
-        from worklog import queries
-        pid = _legacy(con, "project", "archived")
+        rid = _legacy(con, "recipe", "archived recipe")     # custom kind → backfill writes type.recipe
         con.commit()
-        _db.delete(con, "node", id=pid)
-        con.commit()
-        # a live user prop on the dead node that LOOKS reserved but isn't one of the 7 keys
-        queries._upsert_prop(con, pid, "date.foo", "bar")
+        _db.delete(con, "node", id=rid)                     # soft-delete node + spoke props
         con.commit()
         bf.backfill_node_types(con)
-        row = con.execute("SELECT deleted_at FROM prop WHERE node_id=? AND key='date.foo'",
-                          (pid,)).fetchone()
-        assert row["deleted_at"] is None         # untouched — still live, not re-tombstoned
+        row = con.execute("SELECT deleted_at FROM prop WHERE node_id=? AND key='type.recipe'",
+                          (rid,)).fetchone()
+        assert row is not None and row["deleted_at"] is not None   # tombstoned to match the dead node
+        # no LIVE reserved/type/date prop may hang off any tombstoned node
+        bad = con.execute(
+            "SELECT COUNT(*) c FROM prop p JOIN node n ON n.id=p.node_id "
+            "WHERE n.deleted_at IS NOT NULL AND p.deleted_at IS NULL "
+            "AND (p.key LIKE 'type.%' OR p.key LIKE 'date.%')").fetchone()["c"]
+        assert bad == 0
         con.close()
 
     def test_idempotent(self, tmp_db):
