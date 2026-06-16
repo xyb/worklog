@@ -80,9 +80,9 @@ def backfill_node_types(con):
 
 
 def verify_roundtrip(con):
-    """Integrity check for the kind→type.* migration: for every live node whose original kind
-    is a *preserved* one (node_types.KNOWN_KINDS), the kind derived from its type.\\* props must
-    equal the column value. Returns ``(ok, mismatches, retired)``:
+    """Integrity check for the kind→type.* migration: for every node (live AND tombstoned)
+    whose original kind is a *preserved* one (node_types.KNOWN_KINDS), the kind derived from its
+    type.\\* props must equal the column value. Returns ``(ok, mismatches, retired)``:
 
     - ``mismatches``: ``(id, column_kind, derived_kind)`` for a KNOWN kind that failed to
       round-trip — a real data-loss bug; ``ok`` is False if any exist.

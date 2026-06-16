@@ -119,13 +119,24 @@ def cmd_migrate(args, con):
 
 
 def cmd_migrate_types(args, con):
-    """Backfill the type.*/date.* namespace onto existing nodes from their legacy kind
-    (idempotent; kind is left intact). The data half of the kind→type.* transition — run it
-    once so `wl ls --para` and friends see pre-existing nodes, not just newly-created ones."""
-    from ..node_type_backfill import backfill_node_types
-    c = backfill_node_types(con)
+    """Backfill the type.*/date.* namespace onto existing nodes from their legacy kind, then
+    verify every node round-trips (kind left intact; idempotent). The data half of the kind→
+    type.* transition — run it once so `wl ls --para` and friends see pre-existing nodes too."""
+    from ..node_type_backfill import migrate_and_verify
+    c, ok, mismatches, retired = migrate_and_verify(con)
     out(_c(f"✓ type.* backfill: {c['para']} para, {c['date']} date, {c['habit']} habit, "
            f"{c['meetlog']} meetlog ({c['bare']} left bare)", "done"))
+    if retired:
+        out(_c(f"  {len(retired)} node(s) with a retired/custom kind collapsed to a bare node "
+               "(signal is removed by design)", "meta"))
+    if ok:
+        out(_c("✓ verified: every classified node's type.* round-trips to its original kind", "done"))
+    else:
+        out(_c(f"✗ {len(mismatches)} node(s) did NOT round-trip — type.* would lose their "
+               "classification; do NOT drop the kind column:", "later"))
+        for nid, col, der in mismatches[:20]:
+            out(_c(f"    #{nid}: kind={col!r} but derived {der!r}", "later"))
+        sys.exit(1)
 
 
 def cmd_themes(args, con):
