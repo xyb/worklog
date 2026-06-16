@@ -33,6 +33,8 @@ import datetime as _dt
 import re
 
 # ── canonical key names ──────────────────────────────────────────────────────
+TYPE_NS = "type."     # the classification namespace prefix
+DATE_NS = "date."     # the time-value namespace prefix
 K_PARA = "type.para"
 K_DATE = "type.date"
 K_HABIT = "type.habit"
@@ -232,6 +234,11 @@ def legacy_kind(props) -> str:
         return "habit"
     if K_MEETLOG in props:
         return "meetlog"
+    # a custom classification carried as a generic type.<kind> existence prop (e.g. a node
+    # created with `--prop type.recipe`) — derive that kind, don't collapse it to a bare task.
+    for k in sorted(props):
+        if k.startswith(TYPE_NS) and k not in RESERVED_KEYS:
+            return k[len(TYPE_NS):]
     return "task"
 
 

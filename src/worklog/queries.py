@@ -551,6 +551,11 @@ def write_kind_type_props(con, nid, kind, title, *, para_role="__auto__"):
         _upsert_prop(con, nid, _nt.K_HABIT, "")
     elif kind == "meetlog":
         _upsert_prop(con, nid, _nt.K_MEETLOG, "")
+    elif kind and kind not in ("task", "signal"):
+        # a custom kind is preserved as a generic type.<kind> existence prop, so readers
+        # derive it instead of collapsing it to a bare task. (task = bare default; signal is
+        # the retired dead kind → bare.)
+        _upsert_prop(con, nid, "type." + kind, "true")
 
 
 def node_kind(con, n):

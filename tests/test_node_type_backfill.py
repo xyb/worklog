@@ -88,6 +88,20 @@ class TestBackfill:
         assert "date.period" not in p
         con.close()
 
+    def test_custom_kind_preserved_and_roundtrips(self, tmp_db):
+        # a custom kind is preserved as type.<kind> (not collapsed to bare task) → round-trips,
+        # so it is NOT reported as retired
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        rid = _legacy(con, "recipe", "carbonara")
+        sid = _legacy(con, "signal", "dead kind")
+        con.commit()
+        counts, ok, mismatches, retired, period_lost = bf.migrate_and_verify(con)
+        assert _props(con, rid)["type.recipe"] == "true"
+        assert ok is True and mismatches == []
+        assert not any(r[0] == rid for r in retired)      # custom preserved, not retired
+        assert any(r[0] == sid and r[1] == "signal" for r in retired)  # signal still retired→bare
+        con.close()
+
     def test_signal_and_kind_left_intact(self, tmp_db):
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         ids = _seed(con)

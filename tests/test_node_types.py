@@ -197,6 +197,11 @@ class TestAccessors:
         assert nt.legacy_kind({}) == "task"                      # bare node → plain task
         # precedence: para wins over a co-present soft type
         assert nt.legacy_kind({"type.para": "task", "type.habit": "true"}) == "task"
+        # a custom type.<kind> prop is derived (not collapsed to a bare task)
+        assert nt.legacy_kind({"type.recipe": "true"}) == "recipe"
+        assert nt.legacy_kind({"type.para": "task", "type.recipe": "true"}) == "task"  # para wins
+        # a non-type reserved-ish key (date.*) is NOT treated as a kind
+        assert nt.legacy_kind({"date.period": "2026-06"}) == "task"
 
     def test_display_ranks_ordered(self):
         # para rank: area < project < task; date rank: lifetime < ... < day

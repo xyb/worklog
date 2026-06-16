@@ -74,8 +74,13 @@ def backfill_node_types(con):
         elif kind == "meetlog":
             _upsert_prop(con, nid, _nt.K_MEETLOG, "")
             counts["meetlog"] += 1
+        elif kind and kind not in ("task", "signal"):
+            # custom kind → preserved as a generic type.<kind> existence prop (not collapsed to
+            # bare), so it round-trips and readers classify it. task/signal stay bare.
+            _upsert_prop(con, nid, "type." + kind, "true")
+            counts["bare"] += 1
         else:
-            counts["bare"] += 1   # plain task (loose default), signal (retired), custom kinds
+            counts["bare"] += 1   # plain task (loose default), signal (retired dead kind) → bare
     # Consistency: a tombstoned node's spoke rows are tombstoned too (soft_delete_node tombstones
     # node + props together). _upsert_prop above wrote the type.* props LIVE, which would leave
     # live prop rows hanging off a dead node — an internal inconsistency (and a phantom candidate
