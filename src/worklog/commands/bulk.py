@@ -49,6 +49,7 @@ from ..queries import (
     _sec_group,
     _status_filter_sql,
     _upsert_prop,
+    write_kind_type_props,
     _upsert_link,
     _delete_link,
 )
@@ -210,6 +211,7 @@ def _apply_execute(con, ops):
             if status == "DONE":
                 node_row["closed_at"] = now
             nid = _db.insert(con, "node", node_row)
+            write_kind_type_props(con, nid, kind, f["title"])   # dual-write the type.* namespace
             for t in f.get("tags", []):
                 _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
             for kind_, val in o["subs"]:
@@ -272,6 +274,7 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         if status == "DONE":
             node_row["closed_at"] = now
         nid = _db.insert(con, "node", node_row)
+        write_kind_type_props(con, nid, kind, title)   # dual-write the type.* namespace
         counters["add"] += 1
         for t in spec.get("tags", []):
             _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))

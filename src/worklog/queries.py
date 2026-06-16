@@ -519,6 +519,44 @@ def _prop_value(con, nid, key):
     return r["value"] if r else None
 
 
+def node_props(con, nid):
+    """A node's live props as a ``{key: value}`` dict — the read primitive behind the type.*
+    accessors (node_kind / role / time-level derivation)."""
+    return {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)}
+
+
+def write_kind_type_props(con, nid, kind, title, *, para_role="__auto__"):
+    """Populate the type.* namespace for a freshly-created node from its kind — the single
+    dual-write used by every creation path (add / import / apply) so they stay consistent.
+    ``para_role`` defaults to auto (area/project → that role; a plain task stays bare, the loose
+    default); callers with explicit intent (``wl add --para task``) pass it directly. Time levels
+    → type.date (+ date.period when the title is a canonical period, + date.start/date.end for
+    explicit-span levels); habit/meetlog → the existence prop; signal/custom → nothing."""
+    if para_role == "__auto__":
+        para_role = kind if kind in ("area", "project") else None
+    if para_role:
+        _upsert_prop(con, nid, _nt.K_PARA, para_role)
+    elif kind in _nt.DATE_LEVELS:
+        _upsert_prop(con, nid, _nt.K_DATE, kind)
+        if kind != "lifetime" and _nt.valid_period(kind, title):
+            _upsert_prop(con, nid, _nt.K_PERIOD, title)
+            if kind in _nt.EXPLICIT_SPAN_LEVELS:
+                start, end = _nt.span_of(kind, title)
+                _upsert_prop(con, nid, _nt.K_START, start)
+                _upsert_prop(con, nid, _nt.K_END, end)
+    elif kind == "habit":
+        _upsert_prop(con, nid, _nt.K_HABIT, "")
+    elif kind == "meetlog":
+        _upsert_prop(con, nid, _nt.K_MEETLOG, "")
+
+
+def node_kind(con, n):
+    """The node's legacy ``kind`` label derived from its type.* props (DESIGN: the kind column
+    is being phased out; readers derive the token from props). ``n`` is a node row or an id."""
+    nid = n if isinstance(n, int) else n["id"]
+    return _nt.legacy_kind(node_props(con, nid))
+
+
 def _add_id_to_prop_list(con, nid, key, add_id):
     """Add `add_id` to the comma-list prop (nid, key); no-op if already present.
     No commit. Returns True if it was added."""

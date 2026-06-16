@@ -13,7 +13,6 @@ from pathlib import Path
 from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
-from .. import node_types as _nt
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -53,6 +52,7 @@ from ..queries import (
     _sec_group,
     _status_filter_sql,
     _upsert_prop,
+    write_kind_type_props,
     _strip_wikilink,
     _upsert_link,
     _delete_link,
@@ -188,25 +188,6 @@ def _add_log_and_metrics(con, node_id, args, at_ts):
     return log_hint, metric_hint
 
 
-def _write_node_type_props(con, node_id, kind, title, para_role):
-    """Populate the type.* namespace that replaces `kind` at creation. `para_role` is the
-    responsibility role to record (None for a bare node) — kept separate from `kind` because a
-    bare `wl add` defaults kind to "task" but must stay type-less (DESIGN: loose default, no
-    type.para unless a role was asked for). Time levels → type.date (+ date.period when the
-    title is a canonical period); habit/meetlog → the existence prop. `signal` (being retired)
-    and unknown custom kinds write nothing. No commit (caller owns the transaction)."""
-    if para_role:
-        _upsert_prop(con, node_id, _nt.K_PARA, para_role)
-    elif kind in _nt.DATE_LEVELS:
-        _upsert_prop(con, node_id, _nt.K_DATE, kind)
-        if kind != "lifetime" and _nt.valid_period(kind, title):
-            _upsert_prop(con, node_id, _nt.K_PERIOD, title)
-    elif kind == "habit":
-        _upsert_prop(con, node_id, _nt.K_HABIT, "")      # existence prop → normalized to "true"
-    elif kind == "meetlog":
-        _upsert_prop(con, node_id, _nt.K_MEETLOG, "")
-
-
 def cmd_add(args, con):
     if not args.title or not args.title.strip():
         sys.exit("✗ title cannot be empty")
@@ -279,7 +260,7 @@ def cmd_add(args, con):
     # -k project/area; a bare add (default kind "task") stays type-less.
     para_role = args.para if getattr(args, "para", None) else (
         args.kind if args.kind in ("project", "area") else None)
-    _write_node_type_props(con, node_id, args.kind, args.title, para_role)
+    write_kind_type_props(con, node_id, args.kind, args.title, para_role=para_role)
     for spec in (getattr(args, "prop", None) or []):
         key, sep, val = spec.partition("=")
         key = key.strip()

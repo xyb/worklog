@@ -116,6 +116,12 @@ class TestPeriod:
         assert nt.valid_period("day", "2026-06") is False
         assert nt.valid_period("week", "2026-w24") is False  # canonical is uppercase W
 
+    def test_valid_period_rejects_shape_ok_but_unreal(self):
+        # matches the regex shape but isn't a real calendar period → rejected
+        assert nt.valid_period("week", "2026-W99") is False
+        assert nt.valid_period("month", "2026-13") is False
+        assert nt.valid_period("day", "2026-02-30") is False
+
     def test_lifetime_period_exempt(self):
         # lifetime is a singleton with no date; empty period is fine
         assert nt.valid_period("lifetime", "") is True
@@ -181,6 +187,16 @@ class TestAccessors:
                  "release": "v1", "date.period": "2026-06"}
         got = nt.type_props(props)
         assert got == {"type.para": "task", "type.habit": "true"}
+
+    def test_legacy_kind_derivation(self):
+        assert nt.legacy_kind({"type.para": "project"}) == "project"
+        assert nt.legacy_kind({"type.para": "area"}) == "area"
+        assert nt.legacy_kind({"type.date": "day"}) == "day"
+        assert nt.legacy_kind({"type.habit": "true"}) == "habit"
+        assert nt.legacy_kind({"type.meetlog": "dating"}) == "meetlog"
+        assert nt.legacy_kind({}) == "task"                      # bare node → plain task
+        # precedence: para wins over a co-present soft type
+        assert nt.legacy_kind({"type.para": "task", "type.habit": "true"}) == "task"
 
     def test_display_ranks_ordered(self):
         # para rank: area < project < task; date rank: lifetime < ... < day

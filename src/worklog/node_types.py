@@ -134,13 +134,21 @@ def level_of_period(period):
 
 
 def valid_period(level: str, period: str) -> bool:
-    """Whether ``period`` is a well-formed value for time ``level``. ``lifetime``
-    takes no period (empty string is valid); every other level must match its
-    canonical regex."""
+    """Whether ``period`` is a well-formed AND real value for time ``level``. ``lifetime``
+    takes no period (empty string is valid). Every other level must match its canonical regex
+    *and* denote a real calendar period — ``2026-W99`` / ``2026-13`` match the shape but aren't
+    real, so they're rejected here (``span_of`` is the real-date oracle). This keeps it the single
+    truthful gate every writer relies on before calling ``span_of``."""
     if level == "lifetime":
         return period in ("", None)
     rx = _PERIOD_RE.get(level)
-    return bool(rx and isinstance(period, str) and rx.fullmatch(period))
+    if not (rx and isinstance(period, str) and rx.fullmatch(period)):
+        return False
+    try:
+        span_of(level, period)   # raises on a shape-valid but unreal period (week 99, month 13, …)
+        return True
+    except ValueError:
+        return False
 
 
 def span_of(level, period):
@@ -151,6 +159,7 @@ def span_of(level, period):
     if level == "lifetime":
         return (None, None)
     if level == "day":
+        _dt.date.fromisoformat(period)        # validate it's a real calendar date (raises otherwise)
         return (period, period)
     if level == "month":
         y, m = int(period[:4]), int(period[5:7])
@@ -200,6 +209,23 @@ def is_meetlog(props) -> bool:
 def type_props(props) -> dict:
     """The ``type.*`` subset of a props dict (drops ``date.*`` and user props)."""
     return {k: v for k, v in props.items() if k.startswith("type.")}
+
+
+def legacy_kind(props) -> str:
+    """Derive the single legacy ``kind`` label from a node's type.* props — the bridge for
+    the (few) paths that still want one token (sort order, the title-line tag, the retiring
+    ``kind`` JSON field) while the column is phased out. Precedence mirrors how the old
+    mutually-exclusive kind was assigned: a PARA role, else a time level, else a soft type,
+    else a bare ``task``. Kept here so the mapping has one definition."""
+    if K_PARA in props:
+        return props[K_PARA]
+    if K_DATE in props:
+        return props[K_DATE]
+    if K_HABIT in props:
+        return "habit"
+    if K_MEETLOG in props:
+        return "meetlog"
+    return "task"
 
 
 def para_rank(role) -> int:
