@@ -107,10 +107,15 @@ def _find_similar_open(con, title, kind):
     if not nt:
         return []
     rows = con.execute(
-        "SELECT * FROM node WHERE kind IN ('task','project') "
+        # derived kind IN ('task','project'), column-free: an explicit type.para=task/project,
+        # OR a bare node (no type.* classification at all → a plain task).
+        "SELECT * FROM node n WHERE "
+        "(EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.para' "
+        "        AND value IN ('task','project') AND deleted_at IS NULL) "
+        " OR NOT EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key LIKE 'type.%' AND deleted_at IS NULL)) "
         # project status is NULL (DESIGN §40); NULL NOT IN (...) is NULL, not TRUE, so
         # guard explicitly or projects would never match.
-        "AND (status IS NULL OR status NOT IN ('DONE','CANCELED')) AND deleted_at IS NULL ORDER BY id"
+        "AND (n.status IS NULL OR n.status NOT IN ('DONE','CANCELED')) AND n.deleted_at IS NULL ORDER BY id"
     ).fetchall()
     hits = []
     for r in rows:

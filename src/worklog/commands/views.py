@@ -41,6 +41,10 @@ from ..queries import (
     _collect_descendants,
     _has_tag,
     node_kind,
+    nodes_with_type,
+    time_node_by_period,
+    node_has_type,
+    workitem_sql,
     make_node_filter,
     nodes_with_tag,
     _has_checkin,
@@ -277,13 +281,13 @@ def _day_goals_dict(con, day):
     if s and s["body"]:
         d["summary"] = s["body"]
         d["summary_at"] = s["logged_at"]   # UTC instant
-    wk = _db.query_one(con, "node", cols="id, parent_id", id=day["parent_id"], kind="week") if day["parent_id"] else None
-    if wk:
+    wk = _db.get(con, "node", day["parent_id"]) if day["parent_id"] else None
+    if wk and node_kind(con, wk) == "week":
         wg = _latest_typed_log(con, wk["id"], "goal")
         if wg and wg["body"]:
             d["week_goal"] = wg["body"]
-        mo = _db.query_one(con, "node", cols="id", id=wk["parent_id"], kind="month") if wk["parent_id"] else None
-        if mo:
+        mo = _db.get(con, "node", wk["parent_id"]) if wk["parent_id"] else None
+        if mo and node_kind(con, mo) == "month":
             mg = _latest_typed_log(con, mo["id"], "goal")
             if mg and mg["body"]:
                 d["month_goal"] = mg["body"]
@@ -354,15 +358,15 @@ def _emit_day_header(con, day, target):
             if newer:
                 out(_c(f"  > ⚠ {newer} change(s) after recap; consider rewriting via wl recap", "doing"))
     # the week's and month's goal — same `goal` tag on the ancestor week / month node
-    wk = _db.query_one(con, "node", cols="id, parent_id", id=day["parent_id"], kind="week") if day["parent_id"] else None
-    if wk:
+    wk = _db.get(con, "node", day["parent_id"]) if day["parent_id"] else None
+    if wk and node_kind(con, wk) == "week":
         wg = _latest_typed_log(con, wk["id"], "goal")
         if wg and wg["body"]:
             out(_c(_header_blockquote(wg["body"], _DAY_MARKERS["week"]), "meta")
                 + _c(_goal_progress(con, wk["id"], wg["body"]), "meta"))
             _emit_goal_targets(con, wk["id"])
-        mo = _db.query_one(con, "node", cols="id", id=wk["parent_id"], kind="month") if wk["parent_id"] else None
-        if mo:
+        mo = _db.get(con, "node", wk["parent_id"]) if wk["parent_id"] else None
+        if mo and node_kind(con, mo) == "month":
             mg = _latest_typed_log(con, mo["id"], "goal")
             if mg and mg["body"]:
                 out(_c(_header_blockquote(mg["body"], _DAY_MARKERS["month"]), "meta")
@@ -379,10 +383,10 @@ def _collect_day_items(con, target, inc_cancel):
     cancel_sql = (" AND " + cfrag) if cfrag else ""
     rows = con.execute(
         rf"""SELECT log.node_id, log.logged_at, log.body,
-                   node.title, node.status, node.priority, node.kind
+                   node.title, node.status, node.priority
             FROM log JOIN node ON log.node_id = node.id
             WHERE {_tu.local_day_sql('log.logged_at')} = ?
-              AND node.kind IN ('task', 'habit', 'meetlog')
+              AND ({workitem_sql('node')})
               AND log.deleted_at IS NULL AND node.deleted_at IS NULL
               {cancel_sql}
             ORDER BY log.logged_at, log.node_id""",
@@ -412,7 +416,7 @@ def cmd_day(args, con):
             sys.exit(f"✗ invalid date '{args.date}' (use YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow)")
     else:
         target = _tu.today()
-    day = _db.query_one(con, "node", kind="day", title__like=target + "%", order="id")
+    day = time_node_by_period(con, "day", target)
     is_json = getattr(args, "output", "text") == "json"
     # header (date context + the day/week/month goal + recap cascade); json gathers these separately
     if not is_json:
@@ -530,7 +534,7 @@ def _tree_by(con, by, nf=None):
                 out(_node_line(con, n))
 
     elif by == "project":
-        projects = _db.query(con, "node", kind="project", order="priority NULLS LAST, id")
+        projects = nodes_with_type(con, "type.para", "project", order="priority NULLS LAST, id")
         if not projects:
             print("(no project nodes)")
             return
@@ -561,7 +565,9 @@ def _tree_by(con, by, nf=None):
             if not ids:
                 out("    " + _c("(no linked tasks)", "meta"))
         # orphans: task/meetlog/habit not attached to any project
-        orphans = _db.query(con, "node", kind__in=("task", "meetlog", "habit"), order="priority NULLS LAST, id")
+        orphans = con.execute(
+            f"SELECT * FROM node n WHERE n.deleted_at IS NULL AND ({workitem_sql('n')}) "
+            "ORDER BY priority NULLS LAST, id").fetchall()
         orphans = [n for n in orphans if n["id"] not in claimed]
         if nf:
             orphans = [n for n in orphans if nf(n["id"])]
@@ -713,10 +719,10 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
     cfrag, cparams = _status_filter_sql(include_canceled=include_canceled, col="node.status")
     cancel_sql = (" AND " + cfrag) if cfrag else ""
     rows = con.execute(
-        rf"""SELECT log.node_id, log.body, node.title, node.status, node.priority, node.kind
+        rf"""SELECT log.node_id, log.body, node.title, node.status, node.priority
             FROM log JOIN node ON log.node_id = node.id
             WHERE {_tu.local_day_sql('log.logged_at')} = ?
-              AND node.kind IN ('task', 'habit', 'meetlog')
+              AND ({workitem_sql('node')})
               AND log.deleted_at IS NULL AND node.deleted_at IS NULL
               {cancel_sql}
             ORDER BY log.node_id""",
@@ -761,9 +767,10 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
     To drill into an area's projects use --root <area>; for other days use --root <week/month>. CANCELED excluded by default."""
     from datetime import date
 
-    life = _db.query_one(con, "node", kind="lifetime", order="id")
-    has_day = _db.exists(con, "node", kind="day")
-    has_month = _db.exists(con, "node", kind="month")
+    _life = nodes_with_type(con, "type.date", "lifetime", order="id")
+    life = _life[0] if _life else None
+    has_day = bool(nodes_with_type(con, "type.date", "day", cols="n.id"))
+    has_month = bool(nodes_with_type(con, "type.date", "month", cols="n.id"))
     if not life and not has_day and not has_month:
         # Nothing anchors the timeline/areas overview. Be honest about *why* it's empty: a
         # brand-new DB vs. nodes that exist but aren't in the overview's scope yet — never
@@ -785,7 +792,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
 
     # timeline -> path to today (year -> quarter -> month -> week -> day) + today's activity; if no day node today, fall back to the latest month
     today = _tu.today()
-    dayn = _db.query_one(con, "node", kind="day", title__like=today + "%", order="id")
+    dayn = time_node_by_period(con, "day", today)
     if dayn:
         chain = [n for n in _ancestors_chain(con, dayn["id"]) if node_kind(con, n) != "lifetime"]
         for d, n in enumerate(chain):
@@ -794,7 +801,8 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
         day_depth = base + len(chain) - 1
         _print_day_activity(con, dayn, day_depth, max_depth=day_depth + 1, log_tail=log_tail, full=full)
     else:
-        mon = _db.query_one(con, "node", kind="month", order="title DESC")
+        _mon = nodes_with_type(con, "type.date", "month", order="title DESC")
+        mon = _mon[0] if _mon else None
         if mon:
             out(_node_line(con, mon, indent="  " * base, sched=True))
 

@@ -162,3 +162,28 @@ class TestLsParaFilter:
         _, out, _ = cli("ls", "--para", "task")
         # #2 is a bare task with no type.para → not matched (loose default has no role)
         assert "#2" not in out
+
+
+class TestReadersAreColumnFree:
+    """Lock the invariant: views/filters derive kind from type.* props, never the kind column.
+    Corrupt the column to a bogus value; correct readers must be unaffected."""
+
+    def _bogus_column(self, tmp_db):
+        con = tmp_db.db_connect()
+        con.execute("UPDATE node SET kind='ZZZ'")
+        con.commit(); con.close()
+
+    def test_projects_filter_day_derive_from_props(self, cli, tmp_db):
+        cli("add", "Big Project", "--para", "project")          # 1
+        cli("add", "a task", "--parent", "1")                   # 2
+        cli("add", "morning run", "-k", "habit")                # 3
+        self._bogus_column(tmp_db)                              # column now lies
+        # wl projects (raw-SQL reader) still finds the project via type.para
+        code, out, _ = cli("projects")
+        assert code == 0 and "Big Project" in out
+        # wl ls --para project still filters correctly
+        _, lsout, _ = cli("ls", "--para", "project")
+        assert "Big Project" in lsout and "morning run" not in lsout
+        # wl kinds derives the counts from props, not the bogus column
+        _, kout, _ = cli("kinds")
+        assert "ZZZ" not in kout and "project" in kout and "habit" in kout

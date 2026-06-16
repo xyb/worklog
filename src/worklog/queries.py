@@ -62,7 +62,9 @@ def _project_members(con, proj_id):
     """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""
     ids = set()
     proj_tags = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=proj_id)} - GENERIC_TAGS
-    for r in _db.query(con, "node", cols="id", parent_id=proj_id, kind__in=("task", "meetlog", "habit")):
+    for r in con.execute(
+            f"SELECT id FROM node n WHERE n.parent_id=? AND n.deleted_at IS NULL AND ({workitem_sql('n')})",
+            (proj_id,)):
         ids.add(r["id"])
     if proj_tags:
         for r in nodes_with_tag(con, proj_tags, kinds=("task", "meetlog", "habit"), cols="id"):
@@ -161,10 +163,13 @@ def nodes_with_tag(con, tags, *, kinds=None, cols="*", order=None):
     ids = sorted({r["node_id"] for r in _db.query(con, "tag", cols="node_id", tag__in=tag_list)})
     if not ids:
         return []
-    conds = {"id__in": ids}
     if kinds is not None:
-        conds["kind__in"] = list(kinds)
-    return _db.query(con, "node", cols=cols, order=order, **conds)
+        # restrict by DERIVED kind (column-free): filter the id list, then read
+        want = set(kinds)
+        ids = [i for i in ids if node_kind(con, i) in want]
+        if not ids:
+            return []
+    return _db.query(con, "node", cols=cols, order=order, id__in=ids)
 
 
 # every spoke table references node_id; soft-deleting a node tombstones these too —
@@ -261,7 +266,7 @@ def make_node_filter(con, args):
             return cache[nid]
         n = _db.get(con, "node", nid)
         res = n is not None
-        if res and kind and n["kind"] != kind:
+        if res and kind and node_kind(con, nid) != kind:   # derived, column-free
             res = False
         if res and statuses and n["status"] not in statuses:
             res = False
@@ -563,6 +568,52 @@ def node_kind(con, n):
     is being phased out; readers derive the token from props). ``n`` is a node row or an id."""
     nid = n if isinstance(n, int) else n["id"]
     return _nt.legacy_kind(node_props(con, nid))
+
+
+def nodes_with_type(con, key, value=None, *, cols="*", order=None):
+    """Live nodes carrying the prop ``key`` (optionally ``=value``) — the column-free replacement
+    for the old ``_db.query(con,'node',kind=…)`` single-value lookups (``type.para=project``,
+    ``type.date=day``, ``type.habit`` existence, …). Tombstone-filtered on both node and prop."""
+    sql = (f"SELECT {cols} FROM node n WHERE n.deleted_at IS NULL AND EXISTS("
+           "SELECT 1 FROM prop WHERE node_id=n.id AND key=? AND deleted_at IS NULL"
+           + (" AND value=?" if value is not None else "") + ")")
+    params = [key] + ([value] if value is not None else [])
+    if order:
+        sql += f" ORDER BY {order}"
+    return con.execute(sql, params).fetchall()
+
+
+def time_node_by_period(con, level, period, *, cols="*"):
+    """The live time node of ``level`` whose ``date.period`` == ``period`` (e.g. day
+    ``2026-06-14``, month ``2026-06``) — the column-free replacement for the old
+    ``kind=<level>, title__like=…`` time-node lookup. Returns a Row, or None."""
+    return con.execute(
+        f"SELECT {cols} FROM node n WHERE n.deleted_at IS NULL "
+        "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' AND value=? AND deleted_at IS NULL) "
+        "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='date.period' AND value=? AND deleted_at IS NULL) "
+        "ORDER BY n.id LIMIT 1", (level, period)).fetchone()
+
+
+def node_has_type(con, nid, key, value=None):
+    """Whether node ``nid`` has the (live) prop ``key`` (optionally ``=value``)."""
+    if value is None:
+        return _db.exists(con, "prop", node_id=nid, key=key)
+    return _db.exists(con, "prop", node_id=nid, key=key, value=value)
+
+
+def workitem_sql(alias="n"):
+    """SQL predicate: the node (table aliased ``alias``) has DERIVED kind task/habit/meetlog — an
+    actionable work item — expressed purely from type.* props (column-free). Mirrors legacy_kind:
+    a work item is NOT a para container (area/project), NOT a time node (type.date), and NOT a
+    custom-typed node (a lone type.<x>); a bare node and type.para=task both qualify, and
+    type.habit/type.meetlog stay in the set (not excluded by the third clause)."""
+    a = alias
+    return (
+        f"NOT EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key='type.para' "
+        "AND value IN ('area','project') AND deleted_at IS NULL) "
+        f"AND NOT EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key='type.date' AND deleted_at IS NULL) "
+        f"AND NOT EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key LIKE 'type.%' "
+        "AND key NOT IN ('type.para','type.date','type.habit','type.meetlog') AND deleted_at IS NULL)")
 
 
 def sync_kind_column(con, nid):

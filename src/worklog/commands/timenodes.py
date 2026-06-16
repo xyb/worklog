@@ -27,9 +27,12 @@ def _ensure_time_ancestors(con, d):
 
     def _get_or_make(kind, match, new_title, parent_id, *, like=False):
         # lenient reuse: year matches a `2026%` LIKE probe (any title style); the rest match
-        # the exact ISO title. Single-table read via db_table (tombstone filter automatic).
-        cond = {"title__like": match} if like else {"title": match}
-        row = _db.query_one(con, "node", cols="id", kind=kind, order=("id" if like else None), **cond)
+        # the exact ISO title. Reuse keyed on the DERIVED time level (type.date prop), column-free.
+        op = "LIKE" if like else "="
+        row = con.execute(
+            f"SELECT n.id FROM node n WHERE n.deleted_at IS NULL AND n.title {op} ? "
+            "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' "
+            "AND value=? AND deleted_at IS NULL) ORDER BY n.id LIMIT 1", (match, kind)).fetchone()
         if row:
             return row["id"]
         nid = _db.insert(con, "node", {
@@ -38,7 +41,10 @@ def _ensure_time_ancestors(con, d):
         _tm.write_time_props(con, nid, kind, new_title)   # dual-write the type.date/date.* namespace
         return nid
 
-    lt = _db.query_one(con, "node", cols="id", kind="lifetime", order="id")
+    lt = con.execute(
+        "SELECT n.id FROM node n WHERE n.deleted_at IS NULL AND EXISTS(SELECT 1 FROM prop "
+        "WHERE node_id=n.id AND key='type.date' AND value='lifetime' AND deleted_at IS NULL) "
+        "ORDER BY n.id LIMIT 1").fetchone()
     lt_id = lt["id"] if lt else None
     yr_id = _get_or_make("year", f"{y}%", str(y), lt_id, like=True)
     qr_id = _get_or_make("quarter", f"{y}-Q{q}", f"{y}-Q{q}", yr_id)
@@ -53,7 +59,10 @@ def _ensure_day(con, d):
     building the full time skeleton (year→quarter→month→week) above it so it never
     dangles. Works for any date, not just today — back-fills past days too."""
     iso = d.isoformat()
-    r = _db.query_one(con, "node", cols="id", kind="day", title__like=iso + "%", order="id")
+    r = con.execute(
+        "SELECT n.id FROM node n WHERE n.deleted_at IS NULL AND n.title LIKE ? "
+        "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' "
+        "AND value='day' AND deleted_at IS NULL) ORDER BY n.id LIMIT 1", (iso + "%",)).fetchone()
     if r:
         return r["id"]
     wk_id = _ensure_time_ancestors(con, d)

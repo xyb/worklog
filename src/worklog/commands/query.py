@@ -41,6 +41,8 @@ from ..queries import (
     _collect_descendants,
     _has_tag,
     node_kind,
+    nodes_with_type,
+    workitem_sql,
     make_node_filter,
     nodes_with_tag,
     _insert_log,
@@ -333,7 +335,7 @@ def cmd_find(args, con):
         n = _db.get(con, "node", nid)
         if not n:
             continue  # a hit on a live spoke row whose node is soft-deleted (or missing) — skip
-        if args.kind and n["kind"] != args.kind:
+        if args.kind and node_kind(con, n["id"]) != args.kind:   # derived, column-free
             continue
         if not inc_cancel and n["status"] == "CANCELED":
             continue
@@ -527,7 +529,8 @@ def cmd_projects(args, con):
         since = resolved_since
     else:
         since = None
-    where = "WHERE kind = 'project' AND deleted_at IS NULL"
+    where = ("WHERE EXISTS(SELECT 1 FROM prop WHERE node_id=node.id AND key='type.para' "
+             "AND value='project' AND deleted_at IS NULL) AND node.deleted_at IS NULL")
     proj_params = []
     if not args.all:
         frag, p = _status_filter_sql(inc_cancel, hide_done=True)
@@ -614,8 +617,12 @@ _KIND_DISPLAY_ORDER = ["lifetime", "decade", "year", "quarter", "month", "week",
 def cmd_kinds(args, con):
     """List the node kinds in use + a live-node count for each — an overview of what's in the DB
     (the `projects`-style list, but for kinds). Custom kinds sort after the known ones."""
-    rows = con.execute("SELECT kind, COUNT(*) c FROM node WHERE deleted_at IS NULL GROUP BY kind").fetchall()
+    # DERIVED kind per node (column-free): count legacy_kind(props) over all live nodes
+    from collections import Counter
+    counts = Counter(node_kind(con, r["id"])
+                     for r in _db.query(con, "node", cols="id"))
     order = {k: i for i, k in enumerate(_KIND_DISPLAY_ORDER)}
+    rows = [{"kind": k, "c": c} for k, c in counts.items()]
     rows = sorted(rows, key=lambda r: (order.get(r["kind"], len(order)), r["kind"]))
     if getattr(args, "output", "text") == "json":
         import json
@@ -675,7 +682,7 @@ def cmd_changes(args, con):
         return bool(ts) and since <= _tu.local_day_of(ts) <= until
 
     out(_c(f"📅 {since} ~ {until} change summary", "header"))
-    projects = _db.query(con, "node", kind="project", order="priority NULLS LAST, id")
+    projects = nodes_with_type(con, "type.para", "project", order="priority NULLS LAST, id")
 
     any_output = False
     for proj in projects:
@@ -730,7 +737,7 @@ def _summary_buckets(con, args):
         # ts is a UTC *_at instant -> compare on its local calendar day
         return bool(ts) and since <= _tu.local_day_of(ts) <= until
 
-    sql = "SELECT * FROM node WHERE kind IN ('task','meetlog','habit') AND deleted_at IS NULL"
+    sql = f"SELECT * FROM node n WHERE n.deleted_at IS NULL AND ({workitem_sql('n')})"
     sm_params = []
     frag, p = _status_filter_sql(include_canceled=inc_cancel)
     if frag:
@@ -868,7 +875,7 @@ def _render_summary(con, args, b):
                 _print_block(pd, pp, p_worked=pw)
     elif done_map or pend_map:
         out(_c("\n=== by project ===", "header"))
-        projects = _db.query(con, "node", kind="project", order="priority NULLS LAST, id")
+        projects = nodes_with_type(con, "type.para", "project", order="priority NULLS LAST, id")
         # by default dedup by task id: a task appearing in multiple projects is listed only in the first match;
         # --no-dedup restores the old behavior (task repeated in each project bucket).
         dedup = not getattr(args, "no_dedup", False)
@@ -1057,7 +1064,7 @@ def cmd_logs(args, con):
     grouped = getattr(args, "group", "none") == "day"
     cols = "log.id, log.node_id, log.logged_at, log.tag, log.body, node.title"
     if grouped:
-        cols += ", node.status, node.priority, node.kind"
+        cols += ", node.status, node.priority"
     sql = f"SELECT {cols} FROM log JOIN node ON log.node_id = node.id"
     if where:
         sql += " WHERE " + " AND ".join(where)
