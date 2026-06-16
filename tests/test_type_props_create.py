@@ -42,6 +42,26 @@ class TestParaCreate:
         assert _kind(tmp_db, 1) == "task"
 
 
+class TestNodeEditKindSyncsTypeProps:
+    def test_edit_kind_project_to_task_clears_para(self, cli, tmp_db):
+        cli("add", "x", "--para", "project")
+        assert _props(tmp_db, 1)["type.para"] == "project"
+        cli("node", "edit", "1", "-k", "task")
+        assert "type.para" not in _props(tmp_db, 1)        # re-derived: task is bare
+        assert _kind(tmp_db, 1) == "task"
+
+    def test_edit_kind_task_to_project_adds_para(self, cli, tmp_db):
+        cli("add", "x")                                    # bare task
+        cli("node", "edit", "1", "-k", "project")
+        assert _props(tmp_db, 1)["type.para"] == "project"
+
+    def test_edit_kind_to_habit_sets_existence(self, cli, tmp_db):
+        cli("add", "x", "--para", "project")
+        cli("node", "edit", "1", "-k", "habit")
+        p = _props(tmp_db, 1)
+        assert "type.para" not in p and p["type.habit"] == "true"
+
+
 class TestSoftTypeCreate:
     def test_habit_writes_existence_prop(self, cli, tmp_db):
         cli("add", "morning workout", "-k", "habit")

@@ -13,6 +13,7 @@ from pathlib import Path
 from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
+from .. import node_types as _nt
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -1089,6 +1090,13 @@ def cmd_node_edit(args, con):
     if not changes:
         sys.exit("✗ nothing to edit (give --title / --priority / --kind / --body / --scheduled / --deadline)")
     _db.update(con, "node", nid, changes)
+    if "kind" in changes:
+        # keep the type.* namespace in sync with a kind edit: clear the old reserved classification
+        # props, then re-derive from the new kind (so node_kind / views don't split-brain).
+        node = _db.get(con, "node", nid)
+        for k in _nt.RESERVED_KEYS:
+            _db.delete(con, "prop", node_id=nid, key=k)
+        write_kind_type_props(con, nid, changes["kind"], node["title"])
     con.commit()
     out(_c(f"✓ #{nid} updated: " + ", ".join(changes), "meta"))
 

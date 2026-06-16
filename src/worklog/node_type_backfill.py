@@ -27,6 +27,7 @@ _PERIOD_EXTRACT = {
     "day": re.compile(r"(\d{4}-\d{2}-\d{2})"),
     "week": re.compile(r"(\d{4}-W\d{2})"),
     "quarter": re.compile(r"(\d{4}-Q[1-4])"),
+    "decade": re.compile(r"(\d{4}s)"),       # e.g. "2020s"
     "month": re.compile(r"(\d{4}-\d{2})"),
     "year": re.compile(r"(\d{4})"),
 }

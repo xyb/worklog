@@ -97,10 +97,20 @@ class TestBackfill:
         assert _db.get(con, "node", ids["project"])["kind"] == "project"
         con.close()
 
-    def test_decade_gets_level_only(self, tmp_db):
-        # decade has no canonical title token we trust to parse → level only (rare; fix up by hand)
+    def test_decade_backfills_period_and_span(self, tmp_db):
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         dc = _legacy(con, "decade", "2020s")
+        con.commit()
+        bf.backfill_node_types(con)
+        p = _props(con, dc)
+        assert p["type.date"] == "decade"
+        assert p["date.period"] == "2020s"
+        assert p["date.start"] == "2020-01-01" and p["date.end"] == "2029-12-31"
+        con.close()
+
+    def test_decade_unparseable_title_level_only(self, tmp_db):
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        dc = _legacy(con, "decade", "the twenties")   # no canonical token
         con.commit()
         bf.backfill_node_types(con)
         p = _props(con, dc)
