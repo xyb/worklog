@@ -124,6 +124,35 @@ def db_init(con: sqlite3.Connection) -> None:
 
 def ensure_db():
     _db.ensure_db(DB_PATH, MIGRATIONS_DIR)
+    _ensure_type_props()
+
+
+# kinds that carry a classification (everything except a bare 'task' and the retired 'signal')
+_CLASSIFIED_KINDS = ("area", "project", "year", "quarter", "month", "week", "day",
+                     "lifetime", "decade", "habit", "meetlog")
+
+
+def _ensure_type_props():  # pragma: no cover -- exercised via ensure_db in the suite; the OperationalError guard is for a dropped column
+    """Transitional upgrade step: an existing DB upgraded to the prop-derived model still has its
+    nodes classified only by the legacy `kind` column until `wl migrate-types` runs — so the
+    prop-based readers would misclassify every pre-existing node as a bare task. Auto-backfill the
+    type.* namespace once, here, so installing the new build just works. Idempotent + cheap: a
+    LIMIT-1 guard skips the work once every classified node has its type.* props. Becomes a no-op
+    (and is removed) when the kind column is dropped."""
+    con = db_connect()
+    try:
+        ph = ",".join("?" * len(_CLASSIFIED_KINDS))
+        row = con.execute(
+            f"SELECT 1 FROM node n WHERE n.deleted_at IS NULL AND n.kind IN ({ph}) "
+            "AND NOT EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key LIKE 'type.%' "
+            "AND deleted_at IS NULL) LIMIT 1", _CLASSIFIED_KINDS).fetchone()
+        if row:
+            from .node_type_backfill import backfill_node_types
+            backfill_node_types(con)   # commits
+    except sqlite3.OperationalError:
+        pass   # no `kind` column (already dropped) → nothing to backfill from
+    finally:
+        con.close()
 
 
 def _user_alias_map():

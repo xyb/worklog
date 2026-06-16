@@ -470,6 +470,12 @@ def _upsert_prop(con, nid, key, value):
     # user props pass straight through (free values).
     value = _nt.validate_prop(key, value)
     _db.upsert(con, "prop", {"node_id": nid, "key": key, "value": value}, key=("node_id", "key"))
+    # Side-effect chokepoint: writing a type.* classification prop changes the node's derived
+    # kind, so refresh the kind-column cache HERE — not at each caller. This is what stops the
+    # recurring "a new write site forgot to sync" bug: any path that writes a type.* prop through
+    # this one primitive stays consistent automatically.
+    if key.startswith("type."):
+        sync_kind_column(con, nid)
 
 
 # --- task↔task relations (relation.* props) ---------------------------------
@@ -603,17 +609,19 @@ def node_has_type(con, nid, key, value=None):
 
 def workitem_sql(alias="n"):
     """SQL predicate: the node (table aliased ``alias``) has DERIVED kind task/habit/meetlog — an
-    actionable work item — expressed purely from type.* props (column-free). Mirrors legacy_kind:
-    a work item is NOT a para container (area/project), NOT a time node (type.date), and NOT a
-    custom-typed node (a lone type.<x>); a bare node and type.para=task both qualify, and
-    type.habit/type.meetlog stay in the set (not excluded by the third clause)."""
+    actionable work item — expressed purely from type.* props (column-free). Must match
+    node_types.legacy_kind's precedence (para > date > habit > meetlog > custom > task) exactly,
+    so it equals ``legacy_kind(props) IN ('task','habit','meetlog')``: a node is a work item iff
+    its type.para is 'task' (the role wins regardless of any other dim), OR it has no para AND no
+    time level AND no custom type.<x> (a bare node, or a pure habit/meetlog — those reserved keys
+    aren't the 'custom' the last clause excludes)."""
     a = alias
     return (
-        f"NOT EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key='type.para' "
-        "AND value IN ('area','project') AND deleted_at IS NULL) "
+        f"(EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key='type.para' AND value='task' AND deleted_at IS NULL) "
+        f"OR (NOT EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key='type.para' AND deleted_at IS NULL) "
         f"AND NOT EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key='type.date' AND deleted_at IS NULL) "
         f"AND NOT EXISTS(SELECT 1 FROM prop WHERE node_id={a}.id AND key LIKE 'type.%' "
-        "AND key NOT IN ('type.para','type.date','type.habit','type.meetlog') AND deleted_at IS NULL)")
+        "AND key NOT IN ('type.para','type.date','type.habit','type.meetlog') AND deleted_at IS NULL)))")
 
 
 def sync_kind_column(con, nid):

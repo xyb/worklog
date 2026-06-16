@@ -275,12 +275,9 @@ def cmd_add(args, con):
         if not key:
             continue
         try:
-            _upsert_prop(con, node_id, key, val.strip())
+            _upsert_prop(con, node_id, key, val.strip())   # a type.* prop auto-syncs the kind column
         except ValueError as e:
             sys.exit(f"✗ {e}")
-    # --prop may have set a classification prop (type.para=…) that the default kind column doesn't
-    # reflect; re-derive the column so it can't diverge from what readers compute from props.
-    sync_kind_column(con, node_id)
     # creation-time side effects, each returning its echo hint (order fixed by the output line below)
     sched_hint = _add_sched(con, node_id, args)
     link_hint = _add_link(con, node_id, args)
@@ -586,12 +583,10 @@ def cmd_set(args, con):
         out(_c(f"✓ #{args.id} {args.key} (logged at {at}): {args.value}", "meta"))
         return
     try:
-        _upsert_prop(con, args.id, args.key, args.value)
+        _upsert_prop(con, args.id, args.key, args.value)   # a type.* prop auto-syncs the kind column
     except ValueError as e:
         # the reserved type.*/date.* validator (or a shadow-field backstop) rejected the value
         sys.exit(f"✗ {e}")
-    if args.key.startswith("type."):
-        sync_kind_column(con, args.id)   # a classification prop changed → keep the column in sync
     con.commit()
     print(f"✓ #{args.id} {args.key}={args.value}")
 

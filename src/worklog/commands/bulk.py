@@ -217,9 +217,7 @@ def _apply_execute(con, ops):
                 _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
             for kind_, val in o["subs"]:
                 _apply_sub(con, nid, kind_, val)
-            # a sub @prop may have set a classification prop (type.para=…) → keep the column in sync
-            if any(k == "prop" and str(v).startswith("type.") for k, v in o["subs"]):
-                sync_kind_column(con, nid)
+            # (a sub @prop type.* auto-syncs the kind column via _upsert_prop)
             counts["add"] += 1
             stack[depth] = nid
     except Exception as e:
@@ -282,11 +280,8 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         counters["add"] += 1
         for t in spec.get("tags", []):
             _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
-        spec_props = spec.get("props") or {}
-        for k, v in spec_props.items():
-            _upsert_prop(con, nid, k, str(v))
-        if any(k.startswith("type.") for k in spec_props):
-            sync_kind_column(con, nid)   # an imported type.* prop changed the derived kind
+        for k, v in (spec.get("props") or {}).items():
+            _upsert_prop(con, nid, k, str(v))   # a type.* prop auto-syncs the kind column
         for d in spec.get("links", []):
             _upsert_link(con, nid, d)
         for entry in spec.get("logs", []):
@@ -547,13 +542,11 @@ def _exec_update(con, o):
         elif field == "prop":
             if action == "set":
                 k, v = value
-                _upsert_prop(con, nid, k, v)
-                if k.startswith("type."):
-                    sync_kind_column(con, nid)
+                _upsert_prop(con, nid, k, v)   # a type.* prop auto-syncs the kind column
             else:
                 _db.delete(con, "prop", node_id=nid, key=value)
                 if str(value).startswith("type."):
-                    sync_kind_column(con, nid)
+                    sync_kind_column(con, nid)   # delete path: not through _upsert_prop, sync here
 
 def _fieldop_desc(action, field, value):
     if action == "clear":

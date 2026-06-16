@@ -187,3 +187,41 @@ class TestReadersAreColumnFree:
         # wl kinds derives the counts from props, not the bogus column
         _, kout, _ = cli("kinds")
         assert "ZZZ" not in kout and "project" in kout and "habit" in kout
+
+
+class TestWorkitemMatchesLegacyKind:
+    def test_para_task_with_date_is_still_a_workitem(self, tmp_db):
+        # a node with BOTH type.para=task and type.date=day: legacy_kind='task' (para wins),
+        # so workitem_sql MUST include it too (the divergence fix).
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        from worklog import db_table as _db, timeutil as _tu, queries, node_types as nt
+        nid = _db.insert(con, "node", {"title": "x", "kind": "task", "created_at": _tu.utc_now()})
+        queries._upsert_prop(con, nid, "type.para", "task")
+        queries._upsert_prop(con, nid, "type.date", "day")
+        con.commit()
+        props = queries.node_props(con, nid)
+        assert nt.legacy_kind(props) == "task"
+        row = con.execute(
+            f"SELECT 1 FROM node n WHERE n.id=? AND ({queries.workitem_sql('n')})", (nid,)).fetchone()
+        assert row is not None      # workitem_sql agrees with legacy_kind — no split-brain
+        con.close()
+
+
+class TestUpgradeAutoBackfill:
+    def test_legacy_kind_only_node_is_backfilled_on_next_command(self, cli, tmp_db):
+        # a pre-migration node (kind only, no type.*) must get type.* auto-populated so the
+        # prop-based readers don't misclassify it after an upgrade.
+        tmp_db.ensure_db()
+        con = tmp_db.db_connect()
+        from worklog import db_table as _db, timeutil as _tu
+        pid = _db.insert(con, "node", {"title": "legacy proj", "kind": "project",
+                                       "priority": "A", "created_at": _tu.utc_now()})
+        con.commit(); con.close()
+        cli("ls")   # any command → ensure_db → auto-backfill
+        from worklog import queries
+        con = tmp_db.db_connect()
+        assert queries.node_props(con, pid).get("type.para") == "project"
+        # and the prop-based reader now finds it
+        con.close()
+        _, out, _ = cli("projects")
+        assert "legacy proj" in out
