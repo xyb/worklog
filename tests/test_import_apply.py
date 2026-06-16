@@ -121,6 +121,18 @@ class TestApply:
         c = con.execute("SELECT parent_id, status FROM node WHERE title='subtask'").fetchone()
         assert c["parent_id"] == p["id"] and c["status"] == "DONE"
 
+    def test_apply_add_with_type_prop_syncs_kind_column(self, cli, tmp_db):
+        # a `+` node carrying @prop type.para=project must sync the kind column, or
+        # column-reading readers (wl projects) miss it
+        code, out, _ = self._apply(cli,
+            "+ [ ] new-thing\n"
+            "  @prop type.para=project\n")
+        assert code == 0
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT kind FROM node WHERE title='new-thing'").fetchone()
+        assert row["kind"] == "project"      # synced from the type.para prop, not left "task"
+        con.close()
+
     def test_apply_anchor_parent(self, cli, tmp_db):
         cli("add", "project", "-k", "project")  # id 1
         code, out, _ = self._apply(cli,

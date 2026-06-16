@@ -237,8 +237,8 @@ def legacy_kind(props) -> str:
     # a custom classification carried as a generic type.<kind> existence prop (e.g. a node
     # created with `--prop type.recipe`) — derive that kind, don't collapse it to a bare task.
     for k in sorted(props):
-        if k.startswith(TYPE_NS) and k not in RESERVED_KEYS:
-            return k[len(TYPE_NS):]
+        if k.startswith(TYPE_NS) and k not in RESERVED_KEYS and len(k) > len(TYPE_NS):
+            return k[len(TYPE_NS):]   # non-empty suffix only (a bare "type." is not a kind)
     return "task"
 
 

@@ -217,6 +217,9 @@ def _apply_execute(con, ops):
                 _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
             for kind_, val in o["subs"]:
                 _apply_sub(con, nid, kind_, val)
+            # a sub @prop may have set a classification prop (type.para=…) → keep the column in sync
+            if any(k == "prop" and str(v).startswith("type.") for k, v in o["subs"]):
+                sync_kind_column(con, nid)
             counts["add"] += 1
             stack[depth] = nid
     except Exception as e:
