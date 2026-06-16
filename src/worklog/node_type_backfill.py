@@ -46,10 +46,12 @@ def _period_from_title(level, title):
 
 
 def backfill_node_types(con):
-    """Backfill type.*/date.* for every live node from its kind. No-op-safe to re-run.
-    Returns a per-category count dict. Commits."""
+    """Backfill type.*/date.* for EVERY node from its kind — including soft-deleted (tombstoned)
+    ones, so a node restored after the kind column is dropped is still classified correctly
+    (skipping them would silently misclassify a restored project/meetlog as a bare task). No-op-
+    safe to re-run. Returns a per-category count dict. Commits."""
     counts = {"para": 0, "date": 0, "habit": 0, "meetlog": 0, "bare": 0}
-    for n in _db.query(con, "node", cols="id, kind, title"):
+    for n in _db.query(con, "node", cols="id, kind, title", include_deleted=True):
         nid, kind, title = n["id"], n["kind"], n["title"]
         if kind in ("area", "project"):
             _upsert_prop(con, nid, _nt.K_PARA, kind)
@@ -90,7 +92,7 @@ def verify_roundtrip(con):
     An empty ``mismatches`` means the type.* namespace losslessly represents every classified
     node — the precondition for safely dropping the column. Read-only."""
     mismatches, retired = [], []
-    for n in _db.query(con, "node", cols="id, kind"):
+    for n in _db.query(con, "node", cols="id, kind", include_deleted=True):   # tombstoned too
         derived = _nt.legacy_kind(node_props(con, n["id"]))
         if derived == n["kind"]:
             continue

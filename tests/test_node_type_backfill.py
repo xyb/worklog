@@ -118,6 +118,20 @@ class TestBackfill:
         assert "date.period" not in p          # nothing parseable → left unset (kind still has it)
         con.close()
 
+    def test_tombstoned_nodes_are_backfilled(self, tmp_db):
+        # a soft-deleted project must still get type.para, so restoring it after the column
+        # is dropped doesn't silently reclassify it as a bare task
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        pid = _legacy(con, "project", "archived project")
+        con.commit()
+        _db.delete(con, "node", id=pid)        # soft-delete it
+        con.commit()
+        bf.backfill_node_types(con)
+        assert _props(con, pid)["type.para"] == "project"
+        ok, mismatches, retired = bf.verify_roundtrip(con)
+        assert ok is True                      # the tombstoned node round-trips too
+        con.close()
+
     def test_idempotent(self, tmp_db):
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         ids = _seed(con)
