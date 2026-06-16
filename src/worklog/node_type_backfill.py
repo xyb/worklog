@@ -102,31 +102,47 @@ def backfill_node_types(con):
     return counts
 
 
-def verify_roundtrip(con):
-    """Integrity check for the kind→type.* migration: for every node (live AND tombstoned)
-    whose original kind is a *preserved* one (node_types.KNOWN_KINDS), the kind derived from its
-    type.\\* props must equal the column value. Returns ``(ok, mismatches, retired, period_lost)``:
+def snapshot_kinds(con):
+    """``{node_id: kind}`` for every node (live + tombstoned), read straight from the column.
+    Capture this BEFORE backfill: backfill writes type.* props, and _upsert_prop's sync rewrites
+    the kind column to the derived value, so after backfill the column no longer holds the
+    original. verify_roundtrip must compare the derived kind against THIS snapshot, not the
+    (possibly-rewritten) live column — otherwise a node that entered backfill with a conflicting
+    reserved prop would have its column silently rewritten and verify would compare derived-vs-
+    rewritten (a tautology) and miss the loss."""
+    return {r["id"]: r["kind"]
+            for r in _db.query(con, "node", cols="id, kind", include_deleted=True)}
 
-    - ``mismatches``: ``(id, column_kind, derived_kind)`` for a KNOWN kind that failed to
-      round-trip — a real data-loss bug; ``ok`` is False if any exist.
-    - ``retired``: ``(id, column_kind)`` for ``signal`` / custom kinds that deliberately
-      collapse to a bare node (not data loss — ``signal`` is retired by design).
 
-    An empty ``mismatches`` means the type.* namespace losslessly represents every classified
-    node — the precondition for safely dropping the column. ``period_lost`` is a non-gating
-    warning list ``(id, level)`` of non-lifetime time nodes whose title yielded no canonical
-    ``date.period`` (the level + title survive, but date-range queries can't place them).
-    Read-only."""
+def verify_roundtrip(con, original_kinds=None):
+    """Integrity check for the kind→type.* migration: for every node (live AND tombstoned) whose
+    *original* kind is a preserved one (node_types.KNOWN_KINDS), the kind derived from its type.\\*
+    props must equal that original kind. ``original_kinds`` is the pre-backfill snapshot from
+    :func:`snapshot_kinds`; pass it so the comparison is against the ORIGINAL kind, not the live
+    column (which backfill's sync may have rewritten — see snapshot_kinds). When omitted, falls
+    back to the live column (fine for a read-only check on an already-migrated DB).
+
+    Returns ``(ok, mismatches, retired, period_lost)``:
+    - ``mismatches``: ``(id, orig_kind, derived_kind)`` for a KNOWN kind that failed to round-trip
+      — a real data-loss bug; ``ok`` is False if any exist.
+    - ``retired``: ``(id, orig_kind)`` for ``signal`` / custom kinds that deliberately collapse to
+      a bare node (not data loss — ``signal`` is retired by design).
+    - ``period_lost``: non-gating ``(id, level)`` for non-lifetime time nodes with no
+      ``date.period`` (level + title survive; date-range queries can't place them).
+
+    An empty ``mismatches`` means type.* losslessly represents every classified node — the
+    precondition for safely dropping the column. Read-only."""
     mismatches, retired, period_lost = [], [], []
     for n in _db.query(con, "node", cols="id, kind, deleted_at", include_deleted=True):  # tombstoned too
+        orig = original_kinds.get(n["id"]) if original_kinds is not None else n["kind"]
         # Read props in the SAME tombstone state as the node: a live node is classified by its
         # LIVE props (exactly what the renderers see — a tombstoned prop on a live node must NOT
         # count, or verify would give false safety); a tombstoned node by its tombstoned props.
         props = node_props(con, n["id"], include_deleted=n["deleted_at"] is not None)
         derived = _nt.legacy_kind(props)
-        if derived != n["kind"]:
-            (mismatches if n["kind"] in _nt.KNOWN_KINDS else retired).append(
-                (n["id"], n["kind"], derived) if n["kind"] in _nt.KNOWN_KINDS else (n["id"], n["kind"]))
+        if derived != orig:
+            (mismatches if orig in _nt.KNOWN_KINDS else retired).append(
+                (n["id"], orig, derived) if orig in _nt.KNOWN_KINDS else (n["id"], orig))
         lvl = props.get(_nt.K_DATE)
         if lvl and lvl != "lifetime" and _nt.K_PERIOD not in props:
             period_lost.append((n["id"], lvl))
@@ -134,10 +150,12 @@ def verify_roundtrip(con):
 
 
 def migrate_and_verify(con):
-    """The complete one-shot kind→type.* data migration: backfill the namespace, then verify
-    every classified node round-trips. Returns ``(counts, ok, mismatches, retired, period_lost)``.
-    Does NOT drop the kind column — that structural step only happens once the code no longer
-    reads it; this proves the data is faithfully represented first."""
+    """The complete one-shot kind→type.* data migration: snapshot the original kinds, backfill the
+    namespace, then verify every classified node round-trips against that pre-backfill snapshot.
+    Returns ``(counts, ok, mismatches, retired, period_lost)``. Does NOT drop the kind column —
+    that structural step only happens once the code no longer reads it; this proves the data is
+    faithfully represented first."""
+    original_kinds = snapshot_kinds(con)
     counts = backfill_node_types(con)
-    ok, mismatches, retired, period_lost = verify_roundtrip(con)
+    ok, mismatches, retired, period_lost = verify_roundtrip(con, original_kinds)
     return counts, ok, mismatches, retired, period_lost

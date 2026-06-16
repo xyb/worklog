@@ -221,6 +221,20 @@ class TestMigrateAndVerify:
         assert any(p[0] == wk and p[1] == "week" for p in period_lost)   # but period loss reported
         con.close()
 
+    def test_verify_catches_conflicting_prebackfill_prop(self, tmp_db):
+        # A1: a node entering backfill with a CONFLICTING reserved prop (e.g. kind=week but a
+        # stray type.para=project) — backfill's sync would rewrite the column week→project, and a
+        # verify against the live column would tautologically pass. migrate_and_verify snapshots
+        # the ORIGINAL kind first, so it now CATCHES the loss (ok=False).
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        wk = _legacy(con, "week", "2026-W24")
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (wk, "type.para", "project"))
+        con.commit()
+        counts, ok, mismatches, retired, period_lost = bf.migrate_and_verify(con)
+        assert ok is False                       # the gate refuses — original 'week' was not preserved
+        assert any(m[0] == wk and m[1] == "week" for m in mismatches)
+        con.close()
+
     def test_verify_catches_a_corrupted_node(self, tmp_db):
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         ids = _seed(con)
