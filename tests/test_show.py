@@ -147,8 +147,7 @@ class TestShowJson:
         import json
         d = json.loads(out)
         assert code == 0 and isinstance(d, dict)
-        # WL#765/#901: no collapsed `kind`; classification is the orthogonal `type` facet (a bare
-        # task → {}).
+        # classification is the orthogonal `type` facet (a bare task → {}).
         assert d["id"] == 1 and d["title"] == "json task"
         assert "kind" not in d and d["type"] == {}
         assert d["priority"] == "A"

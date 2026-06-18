@@ -1,9 +1,10 @@
-"""Backfill: derive the type.*/date.* namespace for existing nodes from their legacy
-kind, through the validated write API. Additive (kind untouched) + idempotent.
+"""Backfill: derive the type.*/date.* namespace for existing nodes from the legacy
+``node.kind`` column, through the validated write API. Additive (the column is left
+untouched) + idempotent.
 
-The ``kind`` column was dropped in migration 0011, so these tests run against a
-**v10** schema (migrations 0001–0010) where the column still exists — that is the
-exact state migration 0011 sees when it invokes this backfill module. ``_v10_db``
+That column was dropped in migration 0011, so these tests run against a
+**v10** schema (migrations 0001–0010) where it still exists — the exact state
+migration 0011 sees when it invokes this backfill module. ``_v10_db``
 builds that schema (mirrors ``test_migrations.TestMigration0011DropKind._v10_db``)."""
 from __future__ import annotations
 
@@ -28,9 +29,9 @@ def _v10_db(tmp_path):
     return con
 
 
-def _legacy(con, kind, title):
-    """Insert a pre-type.* node the old way (kind column only, no type.* props)."""
-    return _db.insert(con, "node", {"title": title, "kind": kind, "created_at": _tu.utc_now()})
+def _legacy(con, legacy_type, title):
+    """Insert a pre-type.* node the old way (only the ``kind`` column set, no type.* props)."""
+    return _db.insert(con, "node", {"title": title, "kind": legacy_type, "created_at": _tu.utc_now()})
 
 
 def _props(con, nid):
@@ -113,12 +114,12 @@ class TestBackfill:
         assert "date.period" not in p
         con.close()
 
-    def test_custom_kind_preserved_and_roundtrips(self, tmp_path):
-        # a custom kind is preserved as type.<kind> (not collapsed to bare task) → round-trips,
+    def test_custom_type_preserved_and_roundtrips(self, tmp_path):
+        # a custom legacy value is preserved as type.<x> (not collapsed to bare task) → round-trips,
         # so it is NOT reported as retired
         con = _v10_db(tmp_path)
         rid = _legacy(con, "recipe", "carbonara")
-        sid = _legacy(con, "signal", "dead kind")
+        sid = _legacy(con, "signal", "retired sentinel")
         con.commit()
         counts, ok, mismatches, retired, period_lost = bf.migrate_and_verify(con)
         assert _props(con, rid)["type.recipe"] == "true"
@@ -127,12 +128,12 @@ class TestBackfill:
         assert any(r[0] == sid and r[1] == "signal" for r in retired)  # signal still retired→bare
         con.close()
 
-    def test_signal_and_kind_left_intact(self, tmp_path):
+    def test_signal_and_column_left_intact(self, tmp_path):
         con = _v10_db(tmp_path)
         ids = _seed(con)
         bf.backfill_node_types(con)
-        assert _props(con, ids["signal"]) == {}          # retired kind → no type.*
-        # kind column is left untouched (additive backfill)
+        assert _props(con, ids["signal"]) == {}          # retired (signal) → no type.*
+        # the ``kind`` column is left untouched (additive backfill)
         assert _db.get(con, "node", ids["project"])["kind"] == "project"
         con.close()
 
@@ -164,7 +165,7 @@ class TestBackfill:
         bf.backfill_node_types(con)
         p = _props(con, wk)
         assert p["type.date"] == "week"
-        assert "date.period" not in p          # nothing parseable → left unset (kind still has it)
+        assert "date.period" not in p          # nothing parseable → left unset (level still kept)
         con.close()
 
     def test_tombstoned_nodes_are_backfilled(self, tmp_path):
@@ -193,7 +194,7 @@ class TestBackfill:
         # state matches node state — including a custom type.<x> (an earlier reserved-keys-only
         # scope wrongly left it live). A live prop on a dead node is the inconsistency we fix.
         con = _v10_db(tmp_path)
-        rid = _legacy(con, "recipe", "archived recipe")     # custom kind → backfill writes type.recipe
+        rid = _legacy(con, "recipe", "archived recipe")     # custom legacy value → backfill writes type.recipe
         con.commit()
         _db.delete(con, "node", id=rid)                     # soft-delete node + spoke props
         con.commit()
@@ -230,7 +231,7 @@ class TestMigrateAndVerify:
         assert mismatches == []
         # signal is retired by design → reported as retired, not a mismatch
         assert any(r[0] == ids["signal"] and r[1] == "signal" for r in retired)
-        # every KNOWN-kind node derives back to its original column kind
+        # every node whose original column value is a preserved one derives back to that value
         from worklog import node_types as nt, queries
         for n in _db.query(con, "node", cols="id, kind"):
             if n["kind"] in nt.KNOWN_KINDS:
@@ -242,15 +243,15 @@ class TestMigrateAndVerify:
         wk = _legacy(con, "week", "freeform week with no canonical token")
         con.commit()
         counts, ok, mismatches, retired, period_lost = bf.migrate_and_verify(con)
-        assert ok is True                       # kind still round-trips (type.date=week)
+        assert ok is True                       # still round-trips (type.date=week)
         assert any(p[0] == wk and p[1] == "week" for p in period_lost)   # but period loss reported
         con.close()
 
     def test_verify_catches_conflicting_prebackfill_prop(self, tmp_path):
-        # A1: a node entering backfill with a CONFLICTING reserved prop (e.g. kind=week but a
+        # A1: a node entering backfill with a CONFLICTING reserved prop (e.g. column='week' but a
         # stray type.para=project) — backfill's sync would rewrite the column week→project, and a
         # verify against the live column would tautologically pass. migrate_and_verify snapshots
-        # the ORIGINAL kind first, so it now CATCHES the loss (ok=False).
+        # the original column value first, so it now CATCHES the loss (ok=False).
         con = _v10_db(tmp_path)
         wk = _legacy(con, "week", "2026-W24")
         con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (wk, "type.para", "project"))

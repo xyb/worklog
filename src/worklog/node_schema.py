@@ -1,4 +1,4 @@
-"""Declarative node JSON contract (WL#765 / WL#901).
+"""Declarative node JSON contract.
 
 One ``NodeView`` dataclass is the single source of truth for every ``-o json`` node payload:
 fields are declared once, tagged by view (``core`` / ``summary`` / ``full``) via

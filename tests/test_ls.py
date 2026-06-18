@@ -213,8 +213,8 @@ class TestLsJson:
         code, out, _ = cli("ls", "-o", "json")
         d = json.loads(out)
         assert code == 0 and isinstance(d, list) and len(d) == 2
-        # WL#765/#901: summary payload is the NodeView contract — orthogonal `type` facet, NOT a
-        # collapsed `kind` token.
+        # summary payload is the NodeView contract — an orthogonal `type` facet, not a single
+        # collapsed token.
         assert set(d[0].keys()) >= {"id", "type", "title", "status", "priority", "tags"}
         assert "kind" not in d[0]
         assert isinstance(d[0]["type"], dict)

@@ -304,7 +304,7 @@ def _emit_day_json(con, target, day, items, sched_ids):
         n = it["node"]
         tasks.append({
             # day's node row is partial (id is the dict key), so build the facet from nid directly
-            # rather than via node_view; the orthogonal type facet (WL#765/#901).
+            # rather than via node_view; the orthogonal type facet.
             "id": nid, "title": n["title"], "status": n["status"],
             "priority": n["priority"], "type": _type_facet(node_props(con, nid)),
             "planned": nid in sched_ids,

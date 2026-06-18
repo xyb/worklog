@@ -276,13 +276,13 @@ class TestCheckinPerItemActuallyRuns:
         assert "already checked in" in out
 
 
-class TestCheckinAllKinds:
+class TestCheckinAllTypes:
     def test_checkin_all_types_includes_task(self, cli, monkeypatch):
         from datetime import date
         today = date.today().isoformat()
         cli("add", "t-task")
         cli("sched", "1", today)
-        # --all-types → kinds = {habit, task, meetlog}; the scheduled task should be collected
+        # --all-types → types = {habit, task, meetlog}; the scheduled task should be collected
         monkeypatch.setattr("builtins.input", lambda *a: "n")
         _, out, _ = cli("checkin", "--all-types", "--per-item")
         # reaching the per-item path is good enough; 1 item collected
@@ -300,9 +300,9 @@ class TestCheckinCollectAlreadyLogged:
         from worklog import cli as wl
         con = wl.db_connect()
         # mock args
-        class A: kind = None; all_types = False; show_canceled = False
-        # _checkin_collect returns (rows, today, kinds)
-        rows, today_str, kinds = wl._checkin_collect(con, A())
+        class A: all_types = False; show_canceled = False
+        # _checkin_collect returns (rows, today, types)
+        rows, today_str, types = wl._checkin_collect(con, A())
         assert rows
         assert rows[0]["already"] is True
 

@@ -374,9 +374,9 @@ class TestSemanticInternals:
             chunks = semantic._node_chunks(con)
         finally:
             con.close()
-        kinds = {(c[0], c[4]) for c in chunks}
-        assert (1, "head") in kinds          # head chunk still produced
-        assert (1, "log") not in kinds        # the whitespace-only log produced no chunk
+        fields = {(c[0], c[4]) for c in chunks}
+        assert (1, "head") in fields          # head chunk still produced
+        assert (1, "log") not in fields        # the whitespace-only log produced no chunk
 
     def test_embed_batched_without_progress_callback(self, monkeypatch):
         from worklog.commands import semantic

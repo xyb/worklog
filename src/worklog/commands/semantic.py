@@ -139,7 +139,7 @@ def _keyword_hits(con, terms):
     `{node_id: (score, n_terms_matched)}` for alive, non-canceled nodes — `score` is the
     field-weighted sum (a term in the title counts more than one in a log), `n_terms_matched`
     is how many DISTINCT query terms appear anywhere on the node (== len(terms) ⇒ full coverage).
-    The exact-match side of hybrid; full-coverage nodes get priority in cmd_query (WL#759)."""
+    The exact-match side of hybrid; full-coverage nodes get priority in cmd_query."""
     score, covered = {}, {}
 
     def add(nid, w, term):
@@ -353,12 +353,12 @@ def cmd_query(args, con):
     vec_hits = _vs.search(db, qvec, k=10 ** 9)   # all nodes ranked; threshold applied below, not here
     vec_map = {h["node_id"]: h for h in vec_hits}
     vec_ids_all = [h["node_id"] for h in vec_hits if threshold is None or h["score"] >= threshold]
-    # B (WL#759): cap the vector list — its long noisy tail (every node gets a rank) otherwise
+    # B: cap the vector list — its long noisy tail (every node gets a rank) otherwise
     # dilutes precise keyword hits through RRF, esp. for short Chinese queries on a small model.
     vec_ids = vec_ids_all[: max(50, limit * 5)]
     kw_hits = _keyword_hits(con, terms)
     kw_ranked = sorted(kw_hits, key=lambda nid: (kw_hits[nid][0], nid), reverse=True)
-    # C (WL#759): nodes covering EVERY query term (an exact full match) lead, ordered by keyword
+    # C: nodes covering EVERY query term (an exact full match) lead, ordered by keyword
     # field-weight — so a literal hit (e.g. a node titled "微信全量导出" for "微信导出") isn't
     # buried under noisy semantic neighbors, and surfaces even when it's missing from the index.
     nterms = len(terms)
@@ -368,7 +368,7 @@ def cmd_query(args, con):
     seen = set(full)
     fused = (full + [n for n in fused_rest if n not in seen])[:limit]
 
-    # WL#807: warn (on stderr, so stdout/JSON stays clean) when the index is out of date vs the
+    # warn (on stderr, so stdout/JSON stays clean) when the index is out of date vs the
     # live DB — a node added/changed since the last `wl reindex` is absent from the vector side
     # (scores 0.000, only the keyword leg carries it), which is otherwise silent and confusing.
     n_unindexed = con.execute("SELECT count(*) FROM node WHERE deleted_at IS NULL").fetchone()[0] - len(vec_map)

@@ -99,7 +99,7 @@ def _node_to_dict(con, n):
     sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
     # The contract + key order live in node_schema.NodeView; here we just populate the full-only
     # fields (their sub-queries belong with the other readers). A field not declared on NodeView
-    # can't be emitted — the guard against silent drift (WL#765/#901).
+    # can't be emitted — the guard against silent drift.
     nv = _node_view(con, n, _FULL)   # core + summary + orthogonal type facet already populated
     nv.body = n["body"]
     nv.ancestors = [{"id": p["id"], "title": p["title"], "type": _type_facet(node_props(con, p["id"]))}
@@ -132,7 +132,7 @@ def _node_to_dict(con, n):
 def _node_summary_dict(con, n):
     """Compact node form for list output (`wl ls -o json`): identity + the fields you filter /
     sort by + tags. Full detail (props/links/logs/metrics/timeline) is `wl show -o json`. The
-    single declarative contract is `node_schema.NodeView` (WL#765/#901): classification is the
+    single declarative contract is `node_schema.NodeView`: classification is the
     orthogonal `type` facet object (the independent `type.*` facets)."""
     return _node_view(con, n, _SUMMARY).to_dict(_SUMMARY)
 
@@ -610,7 +610,7 @@ def cmd_types(args, con):
     """List the ``type.*`` / ``date.*`` classification props in use + counts — the RAW vocabulary
     grouped by key, each facet shown on its own. Exposes the underlying namespaced
     props directly (no auto-mapping): a node appears under every facet it carries, so the orthogonal
-    model is visible (a habit task counts under both ``type.para=task`` and ``type.habit``). WL#901."""
+    model is visible (a habit task counts under both ``type.para=task`` and ``type.habit``)."""
     from collections import OrderedDict
     rows = con.execute(
         "SELECT key, value, COUNT(*) c FROM prop "

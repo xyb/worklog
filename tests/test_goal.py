@@ -33,9 +33,9 @@ class TestGoalRecapTick:
             (today.isoformat() + "%",)).fetchone()
         assert day["parent_id"] is not None, "day dangled with no parent"
         from worklog import cli as wl
-        kinds = [queries.node_type_from_props(queries.node_props(con, n["id"])) for n in wl._ancestors_chain(con, day["id"])]
+        types = [queries.node_type_from_props(queries.node_props(con, n["id"])) for n in wl._ancestors_chain(con, day["id"])]
         for k in ("year", "quarter", "month", "week"):
-            assert k in kinds, f"time ancestor '{k}' missing from chain {kinds}"
+            assert k in types, f"time ancestor '{k}' missing from chain {types}"
         # day's direct parent is the week
         assert queries.node_type_from_props(queries.node_props(con, day["parent_id"])) == "week"
 

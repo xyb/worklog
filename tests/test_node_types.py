@@ -1,5 +1,5 @@
 """Tests for the type.* reserved-property namespace (node_types) — the single
-source of truth that replaces the old scattered `kind` constants."""
+source of truth for node classification."""
 from __future__ import annotations
 
 import datetime as _dt
@@ -197,10 +197,10 @@ class TestAccessors:
         assert queries.node_type_from_props({}) == "task"                      # bare node → plain task
         # precedence: para wins over a co-present soft type
         assert queries.node_type_from_props({"type.para": "task", "type.habit": "true"}) == "task"
-        # a custom type.<kind> prop is derived (not collapsed to a bare task)
+        # a custom type.<x> prop is derived (not collapsed to a bare task)
         assert queries.node_type_from_props({"type.recipe": "true"}) == "recipe"
         assert queries.node_type_from_props({"type.para": "task", "type.recipe": "true"}) == "task"  # para wins
-        # a non-type reserved-ish key (date.*) is NOT treated as a kind
+        # a non-type reserved-ish key (date.*) does NOT define a node_type
         assert queries.node_type_from_props({"date.period": "2026-06"}) == "task"
 
     def test_display_ranks_ordered(self):

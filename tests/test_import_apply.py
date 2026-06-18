@@ -47,10 +47,9 @@ class TestImport:
         t = con.execute("SELECT parent_id FROM node WHERE title='task under P'").fetchone()
         assert t["parent_id"] == proj["id"]
 
-    def test_import_classifies_via_props_not_kind(self, cli, tmp_db):
-        # WL#901: import carries the real type.* props (no `kind` field). Classification derives
-        # from them, and the TODO-default is derived too: a bare node / habit → TODO, a project /
-        # date node → not.
+    def test_import_classifies_via_props(self, cli, tmp_db):
+        # import carries the real type.* props. Classification derives from them, and the
+        # TODO-default is derived too: a bare node / habit → TODO, a project / date node → not.
         import json, tempfile, os
         from worklog import queries
         spec = {"add": [
@@ -71,7 +70,7 @@ class TestImport:
         assert info("proj") == ("project", None)    # project: classified, no TODO default
         assert info("bare") == ("task", "TODO")      # bare work item → TODO
         assert info("run") == ("habit", "TODO")       # habit work item → TODO
-        # a type.date import auto-completes the span from the canonical title (no kind bridge needed)
+        # a type.date import auto-completes the span from the canonical title (straight from type.*)
         wk = con.execute("SELECT id FROM node WHERE title='2026-W25'").fetchone()
         assert info("2026-W25")[0] == "week"
         assert queries._prop_value(con, wk["id"], "date.period") == "2026-W25"
@@ -153,8 +152,8 @@ class TestApply:
         assert c["parent_id"] == p["id"] and c["status"] == "DONE"
 
     def test_apply_add_with_type_para_prop_classifies(self, cli, tmp_db):
-        # a `+` node carrying @prop type.para=project derives kind=project (the kind
-        # column is gone; classification reads back from the type.* props)
+        # a `+` node carrying @prop type.para=project derives node_type=project
+        # (classification reads back from the type.* props)
         from worklog import node_types as nt, queries
         code, out, _ = self._apply(cli,
             "+ [ ] new-thing\n"

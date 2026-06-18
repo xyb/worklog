@@ -372,23 +372,23 @@ class TestSchedHelpers:
 class TestSchedHelpersDirect:
     """direct unit tests for _sched_anchor / _sched_fires / _sched_level."""
 
-    def test_sched_kind_someday(self):
+    def test_sched_level_someday(self):
         from worklog import cli as wl
         assert wl._sched_level("someday") == "someday"
 
-    def test_sched_kind_quarter(self):
+    def test_sched_level_quarter(self):
         from worklog import cli as wl
         assert wl._sched_level("2026-Q2") == "quarter"
 
-    def test_sched_kind_year(self):
+    def test_sched_level_year(self):
         from worklog import cli as wl
         assert wl._sched_level("2026") == "year"
 
-    def test_sched_kind_fuzzy(self):
+    def test_sched_level_fuzzy(self):
         from worklog import cli as wl
         assert wl._sched_level("下月") == "fuzzy"
 
-    def test_sched_kind_empty(self):
+    def test_sched_level_empty(self):
         from worklog import cli as wl
         assert wl._sched_level("") is None
         assert wl._sched_level(None) is None

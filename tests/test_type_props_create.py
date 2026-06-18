@@ -1,8 +1,8 @@
 """`wl add` populates the type.* namespace that is the SOLE source of node
 classification (the legacy `kind` column was dropped in migration 0011): --para
 writes type.para, --prop sets any other classification (soft type / time level /
-custom), and a bare add stays a type-less plain task. Kind is always *derived* from
-props via queries.node_type_from_props — never stored in a column."""
+custom), and a bare add stays a type-less plain task. node_type is always *derived*
+from props via queries.node_type_from_props — never stored in a column."""
 from __future__ import annotations
 
 from worklog import node_types as nt, queries
@@ -16,8 +16,8 @@ def _props(tmp_db, nid):
     return {r["key"]: r["value"] for r in rows}
 
 
-def _kind(tmp_db, nid):
-    """The node's DERIVED kind (column-free) — what every reader now uses."""
+def _ntype(tmp_db, nid):
+    """The node's DERIVED node_type (column-free) — what every reader now uses."""
     con = tmp_db.db_connect()
     k = queries.node_type_from_props(queries.node_props(con, nid))
     con.close()
@@ -28,39 +28,39 @@ class TestParaCreate:
     def test_para_writes_type_para(self, cli, tmp_db):
         cli("add", "Website revamp", "--para", "project")
         assert _props(tmp_db, 1)["type.para"] == "project"
-        assert _kind(tmp_db, 1) == "project"            # derived from the prop
+        assert _ntype(tmp_db, 1) == "project"            # derived from the prop
 
     def test_para_area(self, cli, tmp_db):
         cli("add", "an area", "--para", "area")
-        assert _kind(tmp_db, 1) == "area"
+        assert _ntype(tmp_db, 1) == "area"
 
     def test_bare_add_has_no_type_para(self, cli, tmp_db):
         cli("add", "just a task")
         p = _props(tmp_db, 1)
         assert "type.para" not in p                     # loose default: a bare node, no role
-        assert _kind(tmp_db, 1) == "task"
+        assert _ntype(tmp_db, 1) == "task"
 
 
-class TestKindIsDerivedFromProps:
-    def test_add_prop_type_para_derives_kind(self, cli, tmp_db):
+class TestNodeTypeIsDerivedFromProps:
+    def test_add_prop_type_para_derives_type(self, cli, tmp_db):
         cli("add", "x", "--prop", "type.para=project")     # --prop, not --para
-        assert _kind(tmp_db, 1) == "project"
+        assert _ntype(tmp_db, 1) == "project"
         assert _props(tmp_db, 1)["type.para"] == "project"
 
-    def test_set_type_para_derives_kind(self, cli, tmp_db):
+    def test_set_type_para_derives_type(self, cli, tmp_db):
         cli("add", "x")                                    # bare task
         cli("set", "1", "type.para", "project")
-        assert _kind(tmp_db, 1) == "project"
+        assert _ntype(tmp_db, 1) == "project"
 
     def test_remove_type_para_reverts_to_bare(self, cli, tmp_db):
         cli("add", "x", "--para", "project")
-        assert _kind(tmp_db, 1) == "project"
+        assert _ntype(tmp_db, 1) == "project"
         cli("prop", "rm", "1", "type.para")
-        assert _kind(tmp_db, 1) == "task"                  # back to bare default
+        assert _ntype(tmp_db, 1) == "task"                  # back to bare default
 
-    def test_add_prop_custom_type_derives_kind(self, cli, tmp_db):
+    def test_add_prop_custom_type_derives_type(self, cli, tmp_db):
         cli("add", "dinner", "--prop", "type.recipe")
-        assert _kind(tmp_db, 1) == "recipe"                # custom kind preserved
+        assert _ntype(tmp_db, 1) == "recipe"                # custom type preserved
 
 
 class TestNodeEditPara:
@@ -69,7 +69,7 @@ class TestNodeEditPara:
         assert _props(tmp_db, 1)["type.para"] == "project"
         cli("node", "edit", "1", "--para", "task")
         assert _props(tmp_db, 1)["type.para"] == "task"    # role replaced
-        assert _kind(tmp_db, 1) == "task"
+        assert _ntype(tmp_db, 1) == "task"
 
     def test_edit_para_task_to_project(self, cli, tmp_db):
         cli("add", "x", "--para", "task")
@@ -81,12 +81,12 @@ class TestSoftTypeCreate:
     def test_habit_via_prop(self, cli, tmp_db):
         cli("add", "morning workout", "--prop", "type.habit=true")
         assert _props(tmp_db, 1)["type.habit"] == "true"
-        assert _kind(tmp_db, 1) == "habit"
+        assert _ntype(tmp_db, 1) == "habit"
 
     def test_meetlog_via_prop(self, cli, tmp_db):
         cli("add", "[meetlog] sync", "--prop", "type.meetlog=true")
         assert _props(tmp_db, 1)["type.meetlog"] == "true"
-        assert _kind(tmp_db, 1) == "meetlog"
+        assert _ntype(tmp_db, 1) == "meetlog"
 
 
 class TestPropAtCreate:
@@ -112,20 +112,20 @@ class TestPropAtCreate:
     def test_time_level_via_prop(self, cli, tmp_db):
         cli("add", "2026-06-14", "--prop", "type.date=day")
         assert _props(tmp_db, 1)["type.date"] == "day"
-        assert _kind(tmp_db, 1) == "day"
+        assert _ntype(tmp_db, 1) == "day"
 
 
-class TestAddEchoesDerivedKind:
+class TestAddEchoesDerivedType:
     def test_echo_reflects_prop_classification(self, cli):
-        # the ✓ add line reports the DERIVED kind (post --prop), not a stored column
+        # the ✓ add line reports the DERIVED node_type (post --prop), not a stored column
         _, out, _ = cli("add", "morning run", "--prop", "type.habit")
         assert "habit" in out
 
 
 class TestJsonExposesTypeProps:
-    def test_type_facet_object_no_collapsed_kind(self, cli):
-        # WL#765/#901: classification is the orthogonal `type` facet object (type.* prefix
-        # stripped), NOT a collapsed `kind` token. The raw type.* keys also still ride in `props`.
+    def test_type_facet_object_not_collapsed(self, cli):
+        # classification is the orthogonal `type` facet object (type.* prefix stripped), not a
+        # single collapsed token. The raw type.* keys also still ride in `props`.
         cli("add", "x", "--para", "project", "--prop", "type.meetlog=dating")
         import json
         _, out, _ = cli("show", "1", "-o", "json")
@@ -164,8 +164,8 @@ class TestLsParaFilter:
 
 
 class TestReadersAreColumnFree:
-    """Lock the invariant: views/filters derive kind from type.* props. With the kind column gone,
-    these readers must work purely off props."""
+    """Lock the invariant: views/filters derive node_type from type.* props. With no column to
+    read, these readers must work purely off props."""
 
     def test_projects_filter_day_derive_from_props(self, cli, tmp_db):
         cli("add", "Big Project", "--para", "project")          # 1
@@ -177,12 +177,12 @@ class TestReadersAreColumnFree:
         # wl ls --para project filters correctly
         _, lsout, _ = cli("ls", "--para", "project")
         assert "Big Project" in lsout and "morning run" not in lsout
-        # wl types exposes the raw type.* facets grouped by key (no collapse to a derived kind)
+        # wl types exposes the raw type.* facets grouped by key (no collapse to a single node_type)
         _, kout, _ = cli("types")
         assert "type.para" in kout and "project" in kout and "type.habit" in kout
 
 
-class TestWorkitemMatchesLegacyKind:
+class TestWorkitemMatchesNodeType:
     def test_para_task_with_date_is_still_a_workitem(self, tmp_db):
         # a node with BOTH type.para=task and type.date=day: node_type_from_props='task' (para wins),
         # so workitem_sql MUST include it too (the divergence fix).
@@ -200,7 +200,7 @@ class TestWorkitemMatchesLegacyKind:
         con.close()
 
 
-class TestWorkitemSqlEqualsLegacyKind:
+class TestWorkitemSqlEqualsNodeType:
     """Drift guard (root fix for the recurring SQL-vs-Python divergence): workitem_sql must equal
     node_type_from_props(props) IN (task,habit,meetlog) for EVERY combination of the classification keys —
     exhaustively, so no future edge combo (para+date, habit+custom, bare 'type.', …) can escape."""

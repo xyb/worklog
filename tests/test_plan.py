@@ -1,7 +1,7 @@
 """Tests for structured goal targets: a goal log can carry, explicitly at write time,
 the node ids it aims to deliver — stored as `goal` metrics (value_num = node id, metric order =
 priority). No text parsing; it degrades to text-only when no ids are given. Week/month/year goals
-are the same `goal` tag on the ancestor node (the level is the node's kind)."""
+are the same `goal` tag on the ancestor node (the level is the node's type)."""
 from datetime import date
 
 

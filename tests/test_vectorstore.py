@@ -22,9 +22,9 @@ def store(tmp_path, request):
 
 
 def _chunk(node_id, vec, *, title="t", status="TODO", priority="A",
-           text="chunk text", kind="log", model="m", dim=2):
+           text="chunk text", field="log", model="m", dim=2):
     return {"node_id": node_id, "title": title, "status": status, "priority": priority,
-            "model": model, "dim": dim, "vector": vec, "chunk_text": text, "chunk_field": kind}
+            "model": model, "dim": dim, "vector": vec, "chunk_text": text, "chunk_field": field}
 
 
 class TestBackendSelection:
@@ -54,9 +54,9 @@ class TestBackendSelection:
 class TestStore:
     def test_upsert_then_load_multiple_chunks_per_node(self, store):
         vs.upsert(store, [
-            _chunk(1, [1.0, 0.0], text="head one", kind="head"),
-            _chunk(1, [0.0, 1.0], text="log a", kind="log"),
-            _chunk(2, [1.0, 1.0], text="head two", kind="head"),
+            _chunk(1, [1.0, 0.0], text="head one", field="head"),
+            _chunk(1, [0.0, 1.0], text="log a", field="log"),
+            _chunk(2, [1.0, 1.0], text="head two", field="head"),
         ])
         rows = vs.load(store)
         assert len(rows) == 3
@@ -109,9 +109,9 @@ class TestMaxPoolSearch:
         # node 1 has a weak head chunk + a strong log chunk aligned with the query;
         # max-pool must score node 1 by its BEST (the log) chunk, not an average.
         vs.upsert(store, [
-            _chunk(1, [0.1, 1.0], title="n1", text="off-topic head", kind="head"),
-            _chunk(1, [1.0, 0.0], title="n1", text="the matching log", kind="log"),
-            _chunk(2, [0.0, 1.0], title="n2", text="n2 head", kind="head"),
+            _chunk(1, [0.1, 1.0], title="n1", text="off-topic head", field="head"),
+            _chunk(1, [1.0, 0.0], title="n1", text="the matching log", field="log"),
+            _chunk(2, [0.0, 1.0], title="n2", text="n2 head", field="head"),
         ])
         hits = vs.search(store, [1.0, 0.0], k=2)
         assert hits[0]["node_id"] == 1

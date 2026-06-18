@@ -10,7 +10,7 @@ class TestAdd:
         assert "#1" in out
         assert "test task" in out
 
-    def test_add_default_kind_is_task(self, cli):
+    def test_add_default_type_is_task(self, cli):
         code, out, _ = cli("add", "default task")
         assert code == 0
         assert "#1" in out
@@ -34,8 +34,8 @@ class TestAdd:
 
         from worklog import node_types as nt, queries
         con = tmp_db.db_connect()
-        for nid, kind in [(1, "lifetime"), (2, "year"), (3, "quarter"), (4, "month"), (5, "week"), (6, "day")]:
-            assert queries.node_type_from_props(queries.node_props(con, nid)) == kind
+        for nid, ntype in [(1, "lifetime"), (2, "year"), (3, "quarter"), (4, "month"), (5, "week"), (6, "day")]:
+            assert queries.node_type_from_props(queries.node_props(con, nid)) == ntype
 
         # tree path
         path = con.execute("SELECT label FROM v_node_path WHERE id=6").fetchone()
@@ -218,7 +218,7 @@ class TestAddDuplicateWarning:
         _, out, _ = cli("add", "duplicate target")
         assert "similar open" not in out  # the only match is DONE, so no warning
 
-    def test_habit_kind_not_checked(self, cli):
+    def test_habit_type_not_checked(self, cli):
         cli("add", "drink water", "--prop", "type.habit=true")
         _, out, _ = cli("add", "drink water", "--prop", "type.habit=true")
         assert "similar open" not in out  # dedup check is task/project only
