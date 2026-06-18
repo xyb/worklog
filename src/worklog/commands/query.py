@@ -14,6 +14,7 @@ from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
 from .. import node_types as _nt
+from ..node_schema import node_view as _node_view, SUMMARY as _SUMMARY
 from .metric import _fmt_value, metric_rows
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
 from ..helpers import (
@@ -134,15 +135,10 @@ def _node_to_dict(con, n):
 
 def _node_summary_dict(con, n):
     """Compact node form for list output (`wl ls -o json`): identity + the fields you filter /
-    sort by + tags. Full detail (props/links/logs/metrics/timeline) is `wl show -o json`.
-    Same stable field names + timestamp convention (`*_at` UTC, `*_date` local)."""
-    return {
-        **node_core_dict(con, n),                   # id, kind, title, status, priority (shared contract)
-        "parent_id": n["parent_id"],
-        "scheduled_date": n["scheduled_date"], "deadline_date": n["deadline_date"],
-        "created_at": n["created_at"], "closed_at": n["closed_at"],
-        "tags": _node_tags(con, n["id"]),
-    }
+    sort by + tags. Full detail (props/links/logs/metrics/timeline) is `wl show -o json`. The
+    single declarative contract is `node_schema.NodeView` (WL#765/#901): classification is the
+    orthogonal `type` facet object, not a collapsed `kind`."""
+    return _node_view(con, n, _SUMMARY).to_dict(_SUMMARY)
 
 
 def _emit_nodes_json(con, rows):
