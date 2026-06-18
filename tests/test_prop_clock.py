@@ -39,9 +39,11 @@ class TestPropGroup:
         column — e.g. a `status` prop next to the real status). Both `wl set` and `wl prop set`
         reject reserved names with a pointer to the right command; nothing is written."""
         cli("add", "t")
+        # `kind` is intentionally NOT here: it's retired (no column to shadow), so a `kind` prop
+        # is just a free UDA now, not a rejected reserved field (WL#901).
         for key, val in [("status", "LATER"), ("priority", "A"), ("tags", "work"),
                          ("title", "x"), ("parent", "3"), ("scheduled", "today"),
-                         ("deadline", "2026-06-09"), ("kind", "habit")]:
+                         ("deadline", "2026-06-09")]:
             code, _, err = cli("set", "1", key, val)
             assert code != 0 and "reserved" in err, f"{key} not rejected"
             code, _, err = cli("prop", "set", "1", key, val)   # same guard via prop set

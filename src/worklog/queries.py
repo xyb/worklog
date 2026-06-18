@@ -430,7 +430,6 @@ _RESERVED_PROP_KEYS = {
     "tags": "real tags — use `wl tag <id> +x -y`",
     "status": "node status — use `wl done` / `defer` / `reopen` / `start` / `wait` / `cancel`",
     "priority": "node field — use `wl node edit <id> -p A|B|C`",
-    "kind": "node classification — use `--para` / `--prop type.<x>` (the kind column is gone)",
     "title": "node field — use `wl node edit <id> --title …`",
     "body": "node field — use `wl node edit <id> --body …`",
     "scheduled": "node field — use `wl sched` / `wl defer` / `wl node edit <id> --scheduled …`",
