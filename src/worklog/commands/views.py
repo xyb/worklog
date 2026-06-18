@@ -13,6 +13,7 @@ from pathlib import Path
 from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
+from ..node_schema import node_view as _node_view, type_facet as _type_facet, CORE as _CORE
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
@@ -41,7 +42,7 @@ from ..queries import (
     _collect_descendants,
     _has_tag,
     node_kind,
-    node_core_dict,
+    node_props,
     nodes_with_type,
     time_node_by_period,
     node_has_type,
@@ -109,7 +110,7 @@ def _emit_tree_json(con, args):
         roots = [r for r in roots if r["status"] != "CANCELED"]
 
     def node_json(n, depth):
-        d = node_core_dict(con, n)   # id, kind, title, status, priority (shared contract)
+        d = _node_view(con, n, _CORE).to_dict(_CORE)   # id, title, status, priority, type (NodeView contract)
         if depth < max_depth:
             kids = _db.query(con, "node", parent_id=n["id"], order="priority NULLS LAST, id")
             kids = [c for c in kids if inc_cancel or c["status"] != "CANCELED"]
@@ -302,8 +303,10 @@ def _emit_day_json(con, target, day, items, sched_ids):
     for nid, it in items.items():
         n = it["node"]
         tasks.append({
+            # day's node row is partial (id is the dict key), so build the facet from nid directly
+            # rather than via node_view; kind → orthogonal type facet (WL#765/#901).
             "id": nid, "title": n["title"], "status": n["status"],
-            "priority": n["priority"], "kind": node_kind(con, nid),
+            "priority": n["priority"], "type": _type_facet(node_props(con, nid)),
             "planned": nid in sched_ids,
             "logs": list(it["logs"]),
             "clock_min": _node_clock_min(con, nid, target),

@@ -58,6 +58,19 @@ class NodeView:
     created_at: str     = _f(SUMMARY, default=None)
     closed_at: str      = _f(SUMMARY, default=None)
     tags: list          = _f(SUMMARY, default_factory=list)
+    # ── full: the whole node + its graph (`wl show -o json`). The caller populates these (their
+    #    sub-queries live in commands/query.py); NodeView just declares the contract + order. ──
+    body: str        = _f(FULL, default=None)
+    ancestors: list  = _f(FULL, default_factory=list)
+    props: dict      = _f(FULL, default_factory=dict)
+    relations: dict  = _f(FULL, default_factory=dict)
+    backrels: list   = _f(FULL, default_factory=list)
+    links: list      = _f(FULL, default_factory=list)
+    schedule: dict   = _f(FULL, default_factory=dict)
+    children: list   = _f(FULL, default_factory=list)
+    logs: list       = _f(FULL, default_factory=list)
+    metrics: list    = _f(FULL, default_factory=list)
+    clock: list      = _f(FULL, default_factory=list)
 
     def to_dict(self, view=SUMMARY) -> dict:
         """Project to a plain dict for the given view, in declaration order. Only fields tagged for

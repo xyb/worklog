@@ -595,20 +595,6 @@ def node_kind(con, n):
     return _nt.legacy_kind(node_props(con, nid))
 
 
-#: the universal node-identity fields, in canonical JSON order. Every `-o json` node payload
-#: (show / ls / tree / day / projects / summary) starts with exactly these — the single contract
-#: so adding/renaming a core field is one edit, not 5 (DESIGN §19.1; WL#765).
-NODE_CORE_FIELDS = ("id", "kind", "title", "status", "priority")
-
-
-def node_core_dict(con, n):
-    """The 5 universal identity fields of a node, in the canonical order shared by every JSON
-    payload. Builders layer on top: ``{**node_core_dict(con, n), ...extra fields}``. ``kind`` is
-    derived (column-free)."""
-    return {"id": n["id"], "kind": node_kind(con, n), "title": n["title"],
-            "status": n["status"], "priority": n["priority"]}
-
-
 def nodes_with_type(con, key, value=None, *, cols="*", order=None):
     """Live nodes carrying the prop ``key`` (optionally ``=value``) — the column-free replacement
     for the old ``_db.query(con,'node',kind=…)`` single-value lookups (``type.para=project``,

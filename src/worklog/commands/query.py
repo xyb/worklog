@@ -14,7 +14,7 @@ from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
 from .. import node_types as _nt
-from ..node_schema import node_view as _node_view, SUMMARY as _SUMMARY
+from ..node_schema import node_view as _node_view, type_facet as _type_facet, SUMMARY as _SUMMARY, FULL as _FULL
 from .metric import _fmt_value, metric_rows
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
 from ..helpers import (
@@ -43,7 +43,6 @@ from ..queries import (
     _collect_descendants,
     _has_tag,
     node_kind,
-    node_core_dict,
     node_props,
     nodes_with_type,
     workitem_sql,
@@ -98,39 +97,36 @@ def _node_to_dict(con, n):
     emitted in full (no tail elision) — machine output wants everything."""
     nid = n["id"]
     sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
-    return {
-        **node_core_dict(con, n),                   # id, kind, title, status, priority (shared contract)
-        "parent_id": n["parent_id"],
-        "body": n["body"],
-        "created_at": n["created_at"],          # UTC instant
-        "closed_at": n["closed_at"],            # UTC instant
-        "scheduled_date": n["scheduled_date"],  # local calendar day
-        "deadline_date": n["deadline_date"],    # local calendar day
-        "tags": _node_tags(con, nid),
-        "ancestors": [{"id": p["id"], "title": p["title"], "kind": node_kind(con, p)}
-                      for p in _ancestors_chain(con, nid)[:-1]],
-        # relation.* props surface under "relations" (resolved bidirectionally), not here
-        "props": {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)
-                  if r["key"] not in _RELATION_KEY_LABEL},
-        "relations": {k.replace("-", "_"): v for k, v in relation_view(con, nid).items()},
-        "backrels": _backrels(con, nid),   # node ids whose text references this node
-        "links": [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid)],
-        "schedule": {
-            "dates": list(dict.fromkeys(r["on_date"] for r in sched_rows if r["on_date"])),
-            "rrules": list(dict.fromkeys(r["rrule"] for r in sched_rows if r["rrule"])),
-        },
-        "children": [{"id": c["id"], "title": c["title"], "kind": node_kind(con, c),
-                      "status": c["status"], "priority": c["priority"]}
-                     for c in _db.query(con, "node", parent_id=nid, order="priority NULLS LAST, id")],
-        "logs": [{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]}
-                 for r in _db.query(con, "log", cols="id, logged_at, body, tag", node_id=nid, order="id")],
-        "metrics": [{"log_id": r["log_id"], "tag": r["tag"], "value_num": r["value_num"],
-                     "value_text": r["value_text"], "unit": r["unit"], "note": r["note"], "at": r["at"]}
-                    for r in _db.query(con, "metric", cols="log_id, tag, value_num, value_text, unit, note, at",
-                                       node_id=nid, order="id")],
-        "clock": [{"start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"]}
-                  for r in _db.query(con, "clock", cols="start_at, end_at, elapsed_sec", node_id=nid, order="id")],
+    # The contract + key order live in node_schema.NodeView; here we just populate the full-only
+    # fields (their sub-queries belong with the other readers). A field not declared on NodeView
+    # can't be emitted — the guard against silent drift (WL#765/#901).
+    nv = _node_view(con, n, _FULL)   # core + summary + orthogonal type facet already populated
+    nv.body = n["body"]
+    nv.ancestors = [{"id": p["id"], "title": p["title"], "type": _type_facet(node_props(con, p["id"]))}
+                    for p in _ancestors_chain(con, nid)[:-1]]
+    # relation.* props surface under "relations" (resolved bidirectionally), not in props
+    nv.props = {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)
+                if r["key"] not in _RELATION_KEY_LABEL}
+    nv.relations = {k.replace("-", "_"): v for k, v in relation_view(con, nid).items()}
+    nv.backrels = _backrels(con, nid)   # node ids whose text references this node
+    nv.links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid)]
+    nv.schedule = {
+        "dates": list(dict.fromkeys(r["on_date"] for r in sched_rows if r["on_date"])),
+        "rrules": list(dict.fromkeys(r["rrule"] for r in sched_rows if r["rrule"])),
     }
+    nv.children = [{"id": c["id"], "title": c["title"],
+                    "type": _type_facet(node_props(con, c["id"])),
+                    "status": c["status"], "priority": c["priority"]}
+                   for c in _db.query(con, "node", parent_id=nid, order="priority NULLS LAST, id")]
+    nv.logs = [{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]}
+               for r in _db.query(con, "log", cols="id, logged_at, body, tag", node_id=nid, order="id")]
+    nv.metrics = [{"log_id": r["log_id"], "tag": r["tag"], "value_num": r["value_num"],
+                   "value_text": r["value_text"], "unit": r["unit"], "note": r["note"], "at": r["at"]}
+                  for r in _db.query(con, "metric", cols="log_id, tag, value_num, value_text, unit, note, at",
+                                     node_id=nid, order="id")]
+    nv.clock = [{"start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"]}
+                for r in _db.query(con, "clock", cols="start_at, end_at, elapsed_sec", node_id=nid, order="id")]
+    return nv.to_dict(_FULL)
 
 
 def _node_summary_dict(con, n):

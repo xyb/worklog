@@ -365,6 +365,8 @@ class TestDayJson:
         assert d["goal_progress"] == {"done": 0, "total": 1}
         t = next(t for t in d["tasks"] if t["id"] == 2)
         assert t["planned"] is True and t["logs"] == ["did it"]
+        # WL#765/#901: day tasks carry the orthogonal type facet, no collapsed kind
+        assert "kind" not in t and isinstance(t["type"], dict)
 
     def test_day_json_empty_day(self, cli):
         import json

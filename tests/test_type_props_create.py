@@ -123,18 +123,19 @@ class TestAddEchoesDerivedKind:
 
 
 class TestJsonExposesTypeProps:
-    def test_type_props_are_plain_props_no_special_field(self, cli):
-        # DESIGN: type.* gets no special treatment — it rides along in `props` with every other
-        # key/value. JSON still exposes a DERIVED top-level `kind` (computed from props), but no
-        # synthesized `type` / `para` field.
+    def test_type_facet_object_no_collapsed_kind(self, cli):
+        # WL#765/#901: classification is the orthogonal `type` facet object (type.* prefix
+        # stripped), NOT a collapsed `kind` token. The raw type.* keys also still ride in `props`.
         cli("add", "x", "--para", "project", "--prop", "type.meetlog=dating")
         import json
         _, out, _ = cli("show", "1", "-o", "json")
         d = json.loads(out)
+        # orthogonal facet: both para and meetlog present, not collapsed to one token
+        assert d["type"] == {"para": "project", "meetlog": "dating"}
+        assert "kind" not in d
+        # raw type.* still available in props
         assert d["props"]["type.para"] == "project"
         assert d["props"]["type.meetlog"] == "dating"
-        assert "type" not in d
-        assert "para" not in d
 
 
 class TestLsParaFilter:
