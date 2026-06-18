@@ -350,6 +350,13 @@ def cmd_find(args, con):
         out(_c(f"'{q}' {total} hits (showing first {limit}; use --all or --limit 0 to see all):", "header"))
     else:
         out(_c(f"'{q}' {total} hits:", "header"))
+    if _is_json(args):
+        _emit_json([{
+            "id": n["id"], "title": n["title"], "type": node_type(con, n),
+            "status": n["status"], "priority": n["priority"],
+            "matched_fields": sorted(hits[n["id"]]),
+        } for n in rows])
+        return
     for n in rows:
         nid = n["id"]
         where = hits[nid]
@@ -377,8 +384,18 @@ def cmd_focus(args, con):
         sys.exit(f"✗ node #{args.id} not found")
 
     chain = _ancestors_chain(con, args.id)
-    # upstream path (excludes self)
     upstream = chain[:-1]
+
+    if _is_json(args):
+        children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
+        _emit_json({
+            "node": _node_summary_dict(con, n),
+            "upstream": [{"id": p["id"], "title": p["title"], "type": node_type(con, p)} for p in upstream],
+            "downstream": [_node_summary_dict(con, c) for c in children],
+        })
+        return
+
+    # upstream path (excludes self)
     if upstream:
         out(_c("upstream:", "meta") + " " + " / ".join(_c(f"#{p['id']}", "id") + " " + _c(p['title']) for p in upstream))
 
@@ -433,6 +450,10 @@ def cmd_ancestors(args, con):
     chain = _ancestors_chain(con, args.id)
     if not chain:
         sys.exit(f"✗ node #{args.id} not found")
+    if _is_json(args):
+        _emit_json([{"id": p["id"], "title": p["title"], "type": node_type(con, p),
+                     "status": p["status"], "priority": p["priority"]} for p in chain])
+        return
     for depth, node in enumerate(chain):
         indent = "  " * depth
         arrow = "▶ " if node["id"] == args.id else ""
@@ -443,6 +464,11 @@ def cmd_descendants(args, con):
     n = _db.get(con, "node", args.id)
     if not n:
         sys.exit(f"✗ node #{args.id} not found")
+    if _is_json(args):
+        desc_ids = sorted(_collect_descendants(con, args.id))
+        nodes = [_db.get(con, "node", nid) for nid in desc_ids]
+        _emit_nodes_json(con, [nd for nd in nodes if nd])
+        return
     _print_tree(con, n, depth=0, max_depth=args.depth)
 
 def cmd_agenda(args, con):
@@ -500,7 +526,18 @@ def cmd_agenda(args, con):
 
     hits.sort(key=lambda x: (x[0], x[1]["id"]))
     if not hits and not (args.someday and someday):
-        out(_c(f"(nothing scheduled between {start} and {end})", "meta"))
+        if _is_json(args):
+            _emit_json({"range": {"start": start, "end": end}, "items": [], "someday": []})
+        else:
+            out(_c(f"(nothing scheduled between {start} and {end})", "meta"))
+        return
+    if _is_json(args):
+        sd = [_node_summary_dict(con, nd) for nd, od in sorted(someday, key=lambda x: x[0]["id"])] if args.someday else []
+        _emit_json({
+            "range": {"start": start, "end": end},
+            "items": [_node_summary_dict(con, nd) for _, nd, od in hits],
+            "someday": sd,
+        })
         return
     out(_c(f"agenda {start} → {end}:", "header"))
     for _, n, od in hits:
@@ -685,10 +722,9 @@ def cmd_changes(args, con):
     def in_win(ts):
         return bool(ts) and since <= _tu.local_day_of(ts) <= until
 
-    out(_c(f"📅 {since} ~ {until} change summary", "header"))
     projects = nodes_with_type(con, "type.para", "project", order="priority NULLS LAST, id")
 
-    any_output = False
+    buckets = []
     for proj in projects:
         members = _project_members(con, proj["id"])
         done, added_open, logged = [], [], 0
@@ -707,7 +743,22 @@ def cmd_changes(args, con):
                 logged += 1
         if not (done or added_open or logged):
             continue
-        any_output = True
+        buckets.append((proj, done, added_open, logged))
+
+    if _is_json(args):
+        _emit_json([{
+            "project": _node_summary_dict(con, proj),
+            "done": [_node_summary_dict(con, n) for n in done],
+            "added_open": [_node_summary_dict(con, n) for n in added_open],
+            "logged": logged,
+        } for proj, done, added_open, logged in buckets])
+        return
+
+    out(_c(f"📅 {since} ~ {until} change summary", "header"))
+    if not buckets:
+        out(_c("(no project changes in window)", "meta"))
+        return
+    for proj, done, added_open, logged in buckets:
         pri = _pri_marker(proj["priority"]) + " "
         out("\n▸ " + pri + _c(proj["title"], "header"))
         if done:
@@ -716,9 +767,6 @@ def cmd_changes(args, con):
             out(f"  + added open {len(added_open)}: " + _c(", ".join(f"#{n['id']} {n['title']}" for n in added_open)))
         if logged:
             out("  " + _c(f"· {logged} node(s) with progress logs", "meta"))
-
-    if not any_output:
-        out(_c("(no project changes in window)", "meta"))
 
 
 

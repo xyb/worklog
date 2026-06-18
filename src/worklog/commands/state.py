@@ -12,6 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .. import timeutil as _tu
+from .output import _is_json, _emit_json
 from .. import db_table as _db
 from .. import node_types as _nt
 from ..helpers import (
@@ -287,6 +288,10 @@ def cmd_add(args, con):
     log_hint, metric_hint = _add_log_and_metrics(con, node_id, args, at_ts)
 
     con.commit()
+    if _is_json(args):
+        from .query import _node_summary_dict
+        _emit_json(_node_summary_dict(con, _db.get(con, "node", node_id)))
+        return
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
     # echo the node's DERIVED type (post --prop) so a `--prop type.habit` add reports "habit", not "task"
     echo_type = node_type(con, node_id)
@@ -336,6 +341,10 @@ def cmd_log(args, con):
         nm = attach_metric_specs(con, log_id, args.id, specs, at=log_at)
         metric_hint = f" + {nm} metric(s)"
     con.commit()
+    if _is_json(args):
+        row = _db.get(con, "log", log_id)
+        _emit_json({"id": log_id, "node_id": args.id, "body": row["body"], "logged_at": row["logged_at"]})
+        return
     print(f"✓ log added to #{args.id}{auto_progress_hint}{metric_hint}  @{_tu.local_now()[:16]}")
 
 def cmd_done(args, con):
@@ -366,8 +375,12 @@ def cmd_defer(args, con):
     for nid in ids:
         _db.update(con, "node", nid, {"status": "LATER", "scheduled_date": when})
     con.commit()
-    for nid in ids:
-        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " → LATER, scheduled " + _c(_sched_display(when), "planned"))
+    if _is_json(args):
+        from .query import _node_summary_dict
+        _emit_json([_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids])
+    else:
+        for nid in ids:
+            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " → LATER, scheduled " + _c(_sched_display(when), "planned"))
 
 def cmd_start(args, con):
     ids = _ids_list(args)
@@ -389,8 +402,12 @@ def cmd_start(args, con):
         _db.insert(con, "clock", {"node_id": nid, "start_at": ts})
         started.append(nid)
     con.commit()
-    for nid in started:
-        print(f"✓ #{nid} → DOING, clocked in{note}")
+    if _is_json(args) and started:
+        from .query import _node_summary_dict
+        _emit_json([_node_summary_dict(con, _db.get(con, "node", nid)) for nid in started])
+    else:
+        for nid in started:
+            print(f"✓ #{nid} → DOING, clocked in{note}")
 
 def cmd_stop(args, con):
     ids = _ids_list(args)
@@ -410,8 +427,12 @@ def cmd_stop(args, con):
             sys.exit(f"✗ --at {stop_ts} is earlier than the clock start {row['start_at']} (#{nid})")
         secs = max(60, int((stopped - started).total_seconds()))  # floor at 1 min
         _db.update(con, "clock", row["id"], {"end_at": stop_ts, "elapsed_sec": secs})
-        print(f"✓ #{nid} stopped, elapsed {secs // 60} min")
+        if not _is_json(args):
+            print(f"✓ #{nid} stopped, elapsed {secs // 60} min")
     con.commit()
+    if _is_json(args):
+        from .query import _node_summary_dict
+        _emit_json([_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids])
 
 def cmd_spent(args, con):
     """Record a past time spent without opening a live CLOCK pair (retrospective entries).
@@ -647,6 +668,9 @@ def cmd_tag_ls(args, con):
     """List a node's real tags — the read verb of the tag group (= bare `wl tag <id>`)."""
     _require_node(con, args.id)
     tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+    if _is_json(args):
+        _emit_json(tags)
+        return
     out(_c(f"#{args.id} tags: " + (":".join(tags) if tags else "(none)"), "meta"))
 
 
@@ -866,7 +890,10 @@ def cmd_log_ls(args, con):
     stream (`#L<id> [time] body`); for the full filterable / windowed view use `wl logs
     --id <id>` (presets, --since/--until, --by-task, --group, …)."""
     _require_node(con, args.id)
-    rows = _db.query(con, "log", cols="id, logged_at, body", node_id=args.id, order="logged_at")
+    rows = _db.query(con, "log", cols="id, logged_at, body, tag", node_id=args.id, order="logged_at")
+    if _is_json(args):
+        _emit_json([{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]} for r in rows])
+        return
     if not rows:
         out(_c(f"#{args.id} has no logs", "meta"))
         return
@@ -1019,8 +1046,12 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
     label = msg or ("reopened → " + new_status if reopen else "→ " + new_status)
     note = f" @{_tu.utc_to_local(at_ts)[11:16]}" if at_ts else ""
     log_hint = " + log" if log_body else ""
-    for nid in ids:
-        print(f"✓ #{nid} {label}{note}{log_hint}")
+    if _is_json(args):
+        from .query import _node_summary_dict
+        _emit_json([_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids])
+    else:
+        for nid in ids:
+            print(f"✓ #{nid} {label}{note}{log_hint}")
 
 
 # --- scheduled time: precise dates + fuzzy granularity (month/week/quarter/year/someday) ---
@@ -1146,6 +1177,9 @@ def cmd_prop_ls(args, con):
     shown inline by `wl show`)."""
     _require_node(con, args.id)
     rows = _db.query(con, "prop", cols="key, value", node_id=args.id, order="key")
+    if _is_json(args):
+        _emit_json([{"key": r["key"], "value": r["value"]} for r in rows])
+        return
     if not rows:
         out(_c(f"(#{args.id} has no props)", "meta"))
         return
@@ -1544,6 +1578,9 @@ def cmd_link_ls(args, con):
     """List a node's vault-doc links. Read primitive for link (also shown by `wl show`)."""
     _require_node(con, args.id)
     rows = _db.query(con, "link", cols="vault_doc", node_id=args.id, order="vault_doc")
+    if _is_json(args):
+        _emit_json([r["vault_doc"] for r in rows])
+        return
     if not rows:
         out(_c(f"(#{args.id} has no links)", "meta"))
         return

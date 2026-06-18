@@ -26,6 +26,7 @@ from .. import db_table as _db
 from ..helpers import _resolve_concrete_date, _resolve_window
 from ..queries import _require_node, _has_checkin
 from ..render import _c, out
+from .output import _is_json, _emit_json
 
 _CARRIER_TYPE = "metric"  # log.tag marking an auto-created metric carrier log
 CHECKIN_TAG = "checkin"   # reserved metric tag: the structured "done today" signal
@@ -247,10 +248,20 @@ def cmd_metric_ls(args, con):
     rows = list(con.execute(
         f"SELECT * FROM metric WHERE {' AND '.join(where)} ORDER BY {order}", params))
     if not rows:
+        if _is_json(args):
+            _emit_json([])
+            return
         filt = f" tag={args.tag}" if args.tag else ""
         scope = "" if args.all else " in window (use --all / --week / --month)"
         subj = "no metrics" if glob else f"node #{node} has no metrics"
         out(_c(f"({subj}{filt}{scope})", "meta"))
+        return
+    if _is_json(args):
+        _emit_json([{
+            "id": r["id"], "node_id": r["node_id"], "log_id": r["log_id"],
+            "tag": r["tag"], "value_num": r["value_num"], "value_text": r["value_text"],
+            "unit": r["unit"], "note": r["note"], "at": r["at"],
+        } for r in rows])
         return
     for r in rows:
         line = _line(r)

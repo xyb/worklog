@@ -10,6 +10,7 @@ from ..helpers import _resolve_concrete_date
 from ..render import _c, out
 from .state import _ids_list
 from .views import _WEEKDAY_ABBR
+from .output import _is_json, _emit_json
 
 
 def cmd_sched(args, con):
@@ -70,6 +71,9 @@ def cmd_sched_ls(args, con):
     _check_ids_exist(con, [args.id])
     rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id,
                      order="on_date NULLS LAST, rrule")
+    if _is_json(args):
+        _emit_json([{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows])
+        return
     if not rows:
         out(_c(f"#{args.id} has no schedule", "meta"))
         return

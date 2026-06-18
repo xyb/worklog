@@ -23,6 +23,7 @@ from ..helpers import _resolve_concrete_date, _truncate_log_body
 from ..render import _c, out
 from .timenodes import _ensure_day, _ensure_today_day
 from .views import _goal_progress, _emit_goal_targets
+from .output import _is_json, _emit_json
 
 
 _GOAL_ID_MENTION = re.compile(r"(?:WL)?#(\d+)")
@@ -103,6 +104,9 @@ def cmd_goal(args, con):
     text = getattr(args, "text", None)
     if not text:
         row = _latest_typed_log(con, nid, "goal")
+        if _is_json(args):
+            _emit_json({"body": row["body"], "logged_at": row["logged_at"]} if (row and row["body"]) else None)
+            return
         if not (row and row["body"]):
             out(_c("(no goal set for today)", "meta"))
             return
@@ -223,6 +227,14 @@ def cmd_goal_ls(args, con):
     """List a node's reserved-tag logs (current goal / summary) — the read verb of the goal group.
     Each shows its latest typed log (the current value)."""
     _require_node(con, args.id)
+    if _is_json(args):
+        result = {}
+        for field in _RESERVED_LOG_TAGS:
+            row = _latest_typed_log(con, args.id, field)
+            if row and row["body"]:
+                result[field] = {"body": row["body"], "logged_at": row["logged_at"]}
+        _emit_json(result)
+        return
     shown = False
     for field in _RESERVED_LOG_TAGS:
         row = _latest_typed_log(con, args.id, field)

@@ -71,6 +71,47 @@ Time-window flags `--since` / `--until` / `--week` / `--month` are global (paren
 `summary` deduplicates a multi-project task by default (`--no-dedup` to disable). Humans (TTY)
 keep verbose output — `--color auto` gives AI plain text automatically.
 
+## ⭐ Machine-readable JSON output (`-o json`)
+
+`-o json` is a **global flag** — place before the command (`wl -o json ls`) or after (`wl ls -o json`); both work for every command.
+
+**Read commands** — pipe to `jq` for filtering:
+
+```fish
+wl ls -o json                       # [{id, title, type, status, priority, tags, ...}]
+wl show 42 -o json                  # full node: props, logs, metrics, links, schedule, relations
+wl find "skill" -o json             # [{id, title, type, status, priority, matched_fields}]
+wl focus 42 -o json                 # {node, upstream: [...], downstream: [...]}
+wl ancestors 42 -o json             # [{id, title, type, status, priority}]
+wl descendants 42 -o json           # flat list of all descendant nodes
+wl agenda today 2026-12-31 -o json  # {range: {start, end}, items: [...], someday: [...]}
+wl changes --week 2026-W22 -o json  # [{project, done: [...], added_open: [...], logged: N}]
+wl goal ls 42 -o json               # {goal: {body, logged_at}, summary: {body, logged_at}}
+wl goal -o json                     # today's goal: {body, logged_at} or null
+wl prop ls 42 -o json               # [{key, value}]
+wl log ls 42 -o json                # [{id, logged_at, tag, body}]
+wl link ls 42 -o json               # ["vault doc name", ...]
+wl tag ls 42 -o json                # ["tag1", "tag2", ...]
+wl sched ls 42 -o json              # [{on_date, rrule}]
+wl metric ls 42 -o json             # [{id, node_id, log_id, tag, value_num, value_text, unit, note, at}]
+wl projects -o json                 # project cards
+wl tags -o json                     # [{tag, count}]
+wl props -o json                    # [{key, count}]
+wl metrics -o json                  # [{tag, count}]
+wl tree -o json                     # full tree as nested JSON
+wl day -o json                      # day view as JSON
+```
+
+**Write commands** emit the affected node(s) in summary form:
+
+```fish
+wl add "task" -o json               # {id, title, type, status, priority, tags, ...}
+wl done 42 -o json                  # [{id, title, status, ...}] (one per id)
+wl cancel 42 -o json / wl reopen 42 -o json / wl defer 42 next-week -o json
+wl start 42 -o json / wl stop 42 -o json
+wl log 42 "progress" -o json        # {id, node_id, body, logged_at}
+```
+
 ## ⭐ Bulk loading — DO NOT loop `wl add`
 
 When loading a day's worklog or multiple nodes, **use the bulk entry, not dozens of `wl add`
