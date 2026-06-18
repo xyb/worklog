@@ -41,6 +41,7 @@ from ..queries import (
     _collect_descendants,
     _has_tag,
     node_kind,
+    node_core_dict,
     nodes_with_type,
     time_node_by_period,
     node_has_type,
@@ -108,8 +109,7 @@ def _emit_tree_json(con, args):
         roots = [r for r in roots if r["status"] != "CANCELED"]
 
     def node_json(n, depth):
-        d = {"id": n["id"], "kind": node_kind(con, n), "title": n["title"],
-             "status": n["status"], "priority": n["priority"]}
+        d = node_core_dict(con, n)   # id, kind, title, status, priority (shared contract)
         if depth < max_depth:
             kids = _db.query(con, "node", parent_id=n["id"], order="priority NULLS LAST, id")
             kids = [c for c in kids if inc_cancel or c["status"] != "CANCELED"]

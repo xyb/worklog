@@ -42,6 +42,7 @@ from ..queries import (
     _collect_descendants,
     _has_tag,
     node_kind,
+    node_core_dict,
     node_props,
     nodes_with_type,
     workitem_sql,
@@ -97,11 +98,7 @@ def _node_to_dict(con, n):
     nid = n["id"]
     sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
     return {
-        "id": nid,
-        "kind": node_kind(con, n),
-        "title": n["title"],
-        "status": n["status"],
-        "priority": n["priority"],
+        **node_core_dict(con, n),                   # id, kind, title, status, priority (shared contract)
         "parent_id": n["parent_id"],
         "body": n["body"],
         "created_at": n["created_at"],          # UTC instant
@@ -140,8 +137,8 @@ def _node_summary_dict(con, n):
     sort by + tags. Full detail (props/links/logs/metrics/timeline) is `wl show -o json`.
     Same stable field names + timestamp convention (`*_at` UTC, `*_date` local)."""
     return {
-        "id": n["id"], "kind": node_kind(con, n), "title": n["title"],
-        "status": n["status"], "priority": n["priority"], "parent_id": n["parent_id"],
+        **node_core_dict(con, n),                   # id, kind, title, status, priority (shared contract)
+        "parent_id": n["parent_id"],
         "scheduled_date": n["scheduled_date"], "deadline_date": n["deadline_date"],
         "created_at": n["created_at"], "closed_at": n["closed_at"],
         "tags": _node_tags(con, n["id"]),
