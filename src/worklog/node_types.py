@@ -202,8 +202,8 @@ def date_props_for(level, period) -> dict:
     keeps only its level, exactly as before).
 
     This is the SINGLE definition of the period→span mapping. Every path that completes a time
-    node — create_node, write_kind_type_props (import/apply), write_time_props (find-or-create /
-    recap), the kind→type.* backfill, and ``wl set type.date`` — derives its date.* props here so
+    node — create_node, sync_time_node_dates (import/apply props), write_time_props (find-or-create
+    / recap), the type.* backfill, and ``wl set type.date`` — derives its date.* props here so
     they can never diverge (a span tweak or a new explicit-span level is a one-line change)."""
     if not level or level == "lifetime" or not period or not valid_period(level, period):
         return {}

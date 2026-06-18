@@ -93,7 +93,7 @@ class TestSmallGaps:
     def test_apply_dryrun_with_ref_map(self, cli, tmp_path):
         """dry-run + add with ref → ref displayed"""
         import json as _json
-        spec = {"add": [{"ref": "P", "title": "RP", "kind": "project"}]}
+        spec = {"add": [{"ref": "P", "title": "RP", "props": {"type.para": "project"}}]}
         p = tmp_path / "ok.json"
         p.write_text(_json.dumps(spec))
         _, out, _ = cli("import", str(p), "--dry-run")

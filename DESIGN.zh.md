@@ -229,10 +229,10 @@ dev ai sync strategy reflection reading family health morning_check slack_scan
 ```json
 {
   "add": [
-    { "ref": "p1", "title": "...", "kind": "project", "priority": "A",
-      "tags": [...], "props": {...}, "links": [...], "logs": [...],
+    { "ref": "p1", "title": "...", "priority": "A",
+      "tags": [...], "props": {"type.para": "project"}, "links": [...], "logs": [...],
       "children": [ {...嵌套子节点...} ] },
-    { "title": "...", "kind": "task", "parent_ref": "p1" }
+    { "title": "...", "parent_ref": "p1" }
   ],
   "update": [
     { "id": 45, "status": "DONE", "parent": 6, "add_tags": [...], "remove_tags": [...], "add_logs": [...], "add_links": [...] }
@@ -242,6 +242,7 @@ dev ai sync strategy reflection reading family health morning_check slack_scan
 
 约定：
 
+- **分类 = `props` 里的 `type.*` 键**（没有 `kind` 字段）：`{"type.para":"project"}`（或 `area`/`task`）、`{"type.date":"day"}`（week/month/…）、`{"type.habit":"true"}`、`{"type.meetlog":"true"}`；无 `type.*` 的裸节点就是普通 task。`type.date` 会按 title 自动补全 `date.period`/区间
 - **父子两种表达并存**：`children` 嵌套（父 id 自动传子，灌时间分层天然用）+ `ref`/`parent_ref`（同批次临时引用，扁平交叉用）。`ref` 必须先定义后引用
 - **status=DONE 自动写 closed_at**（add 跟 update 都是）
 - **update 可改字段**：`status`/`priority`/`title`/`scheduled_at`/`deadline_at`/`body`/`parent`(move, 校验存在) + `add_tags`/`remove_tags`/`add_logs`/`add_links`。⚠️ 没列在白名单的 key 被静默忽略——`parent` 曾漏在白名单导致 move 静默失败（2026-05-29 修），加字段务必同步白名单
@@ -260,8 +261,8 @@ dev ai sync strategy reflection reading family health morning_check slack_scan
 
 ### 18.1 新增 `+` / 删除 `-` / 锚 ` `：节点行
 
-`<前缀><缩进>[marker] [#pri] #id [kind] title :tags:`（marker 必有；`+` 无 #id，`-`/锚 必有 #id）。
-富字段子行 `@log <文本>` / `@link <doc>` / `@prop k=v`（附到上一个 `+`/锚 节点）。
+`<前缀><缩进>[marker] [#pri] #id title :tags:`（marker 必有；`+` 无 #id，`-`/锚 必有 #id）。
+富字段子行 `@log <文本>` / `@link <doc>` / `@prop k=v`（附到上一个 `+`/锚 节点）。分类用 `@prop type.*` 设置（如 `@prop type.para=project`），节点行上不再有分类 token。
 marker → status：`[ ]`TODO `[x]`DONE `[/]`DOING `[>]`LATER `[?]`WAIT `[-]`CANCELED。
 
 ```

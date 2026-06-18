@@ -50,7 +50,7 @@ from ..queries import (
     _sec_group,
     _status_filter_sql,
     _upsert_prop,
-    write_kind_type_props,
+    node_type_from_props,
     sync_time_node_dates,
     DATE_SYNC_KEYS,
     _upsert_link,
@@ -115,8 +115,9 @@ def cmd_import(args, con):
 
 # --- wl-diff format (apply) ---
 # line format: <prefix><indent><node line>  prefix: '+' add, '~' update, '-' delete, ' ' context anchor
-# node line: [marker] [#pri] #id [kind] title :tags:   (marker required, others optional)
-# rich-field sub-lines: <indent>@log/@link/@prop <value>  (attached to the previous node)
+# node line: [marker] [#pri] #id title :tags:   (marker required, others optional)
+# rich-field sub-lines: <indent>@log/@link/@prop <value>  (attached to the previous node);
+# classification is set via @prop type.* (e.g. @prop type.para=project), not a token on the line
 _MARKER_STATUS = {" ": "TODO", "x": "DONE", "/": "DOING", ">": "LATER", "?": "WAIT", "-": "CANCELED"}
 
 def _apply_validate(con, ops):
@@ -205,18 +206,17 @@ def _apply_execute(con, ops):
             # pfx == "+": add new node
             parent_id = stack.get(depth - 1) if depth > 0 else None
             status = _MARKER_STATUS.get(f.get("marker", " "), "TODO")
-            kind = f.get("kind", "task")
             now = _tu.utc_now()
             nid = create_node(
                 con, title=f["title"], parent_id=parent_id, status=status,
                 priority=f.get("priority"), created_at=now,
                 closed_at=now if status == "DONE" else None,
             )
-            write_kind_type_props(con, nid, kind, f["title"])   # populate the type.* namespace
+            # classification is carried by @prop type.* sub-lines (applied below), not a token
             for t in f.get("tags", []):
                 _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
-            for kind_, val in o["subs"]:
-                _apply_sub(con, nid, kind_, val)
+            for directive, val in o["subs"]:
+                _apply_sub(con, nid, directive, val)
 
             counts["add"] += 1
             stack[depth] = nid
@@ -251,9 +251,10 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
     title = spec.get("title")
     if not title:
         raise ValueError(f"node missing title: {spec}")
-    kind = spec.get("kind", "task")
+    # classification comes from the real type.* props; default a work item (task / habit) to TODO,
+    # derived from those props — a date/area/project/meetlog doesn't.
     status = spec.get("status")
-    if not status and kind in ("task", "habit"):
+    if not status and node_type_from_props(spec.get("props") or {}) in ("task", "habit"):
         status = "TODO"
     sched = _norm_sched(spec.get("scheduled"))  # normalize + validate (raises in dry-run)
     # parent: explicit parent_id > parent_ref (same batch) > recursively-passed parent_id
@@ -273,7 +274,6 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
             deadline_date=spec.get("deadline"), body=spec.get("body"),
             created_at=now, closed_at=now if status == "DONE" else None,
         )
-        write_kind_type_props(con, nid, kind, title)   # populate the type.* namespace
         counters["add"] += 1
         for t in spec.get("tags", []):
             _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
@@ -282,8 +282,8 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
             _upsert_prop(con, nid, k, str(v))
             sub_keys.add(k)
         if sub_keys & DATE_SYNC_KEYS:
-            # a raw type.date/date.period prop bypasses write_kind_type_props' completion — re-sync
-            # so an imported time node gets its date.period/start/end (findable by date queries).
+            # a type.date/date.period prop sets the level but not the derived span — complete it so
+            # an imported time node gets its date.period/start/end (findable by date queries).
             sync_time_node_dates(con, nid)
         for d in spec.get("links", []):
             _upsert_link(con, nid, d)
@@ -370,10 +370,6 @@ def _parse_node_line(body):
     m = re.match(r"^#(\d+)\s*", body)
     if m:
         f["id"] = int(m.group(1))
-        body = body[m.end():]
-    m = re.match(r"^\[([a-z_]+)\]\s*", body)
-    if m:
-        f["kind"] = m.group(1)
         body = body[m.end():]
     m = re.search(r"\s*:([\w:]+):\s*$", body)
     if m:
@@ -562,12 +558,12 @@ def _fieldop_desc(action, field, value):
         return f"prop {value[0]}={value[1]}"
     return f"{field}->{value}"
 
-def _apply_sub(con, nid, kind, val):
-    if kind == "log":
+def _apply_sub(con, nid, directive, val):
+    if directive == "log":
         _insert_log(con, nid, val)
-    elif kind == "link":
+    elif directive == "link":
         _upsert_link(con, nid, val)
-    elif kind == "prop":
+    elif directive == "prop":
         if "=" in val:
             k, v = val.split("=", 1)
             k = k.strip()

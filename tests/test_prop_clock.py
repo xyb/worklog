@@ -76,7 +76,7 @@ class TestPropGroup:
         """The importer shares the same backstop (via _upsert_prop): a `props` block naming a
         reserved field is refused, not silently turned into a shadow prop."""
         import json, tempfile, os
-        spec = {"add": [{"title": "child", "kind": "task", "props": {"status": "LATER"}}]}
+        spec = {"add": [{"title": "child", "props": {"status": "LATER"}}]}
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(spec, f); f.close()
         code, _, err = cli("import", f.name)

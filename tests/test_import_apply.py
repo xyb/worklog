@@ -7,10 +7,10 @@ class TestImport:
     def test_import_nested_children(self, cli, tmp_db):
         import json, tempfile, os
         spec = {"add": [
-            {"ref": "m", "title": "2026-05", "kind": "month", "children": [
-                {"ref": "p", "title": "project", "kind": "project", "priority": "A", "tags": ["work"],
+            {"ref": "m", "title": "2026-05", "props": {"type.date": "month"}, "children": [
+                {"ref": "p", "title": "project", "props": {"type.para": "project"}, "priority": "A", "tags": ["work"],
                  "children": [
-                     {"title": "children", "kind": "task", "priority": "B", "status": "DONE",
+                     {"title": "children", "priority": "B", "status": "DONE",
                       "tags": ["x"], "logs": ["finished"]}
                  ]}
             ]}
@@ -34,8 +34,8 @@ class TestImport:
     def test_import_parent_ref(self, cli, tmp_db):
         import json, tempfile, os
         spec = {"add": [
-            {"ref": "proj", "title": "P", "kind": "project"},
-            {"title": "task under P", "kind": "task", "parent_ref": "proj"},
+            {"ref": "proj", "title": "P", "props": {"type.para": "project"}},
+            {"title": "task under P", "parent_ref": "proj"},
         ]}
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(spec, f); f.close()
@@ -46,6 +46,37 @@ class TestImport:
         proj = con.execute("SELECT id FROM node WHERE title='P'").fetchone()
         t = con.execute("SELECT parent_id FROM node WHERE title='task under P'").fetchone()
         assert t["parent_id"] == proj["id"]
+
+    def test_import_classifies_via_props_not_kind(self, cli, tmp_db):
+        # WL#901: import carries the real type.* props (no `kind` field). Classification derives
+        # from them, and the TODO-default is derived too: a bare node / habit → TODO, a project /
+        # date node → not.
+        import json, tempfile, os
+        from worklog import queries
+        spec = {"add": [
+            {"ref": "p", "title": "proj", "props": {"type.para": "project"}},
+            {"title": "bare"},                                   # no type.* → plain task
+            {"title": "run", "props": {"type.habit": "true"}},
+            {"title": "2026-W25", "props": {"type.date": "week"}, "parent_ref": "p"},
+        ]}
+        f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
+        json.dump(spec, f); f.close()
+        code, _, _ = cli("import", f.name)
+        os.unlink(f.name)
+        assert code == 0
+        con = tmp_db.db_connect()
+        def info(title):
+            r = con.execute("SELECT id, status FROM node WHERE title=?", (title,)).fetchone()
+            return queries.node_type_from_props(queries.node_props(con, r["id"])), r["status"]
+        assert info("proj") == ("project", None)    # project: classified, no TODO default
+        assert info("bare") == ("task", "TODO")      # bare work item → TODO
+        assert info("run") == ("habit", "TODO")       # habit work item → TODO
+        # a type.date import auto-completes the span from the canonical title (no kind bridge needed)
+        wk = con.execute("SELECT id FROM node WHERE title='2026-W25'").fetchone()
+        assert info("2026-W25")[0] == "week"
+        assert queries._prop_value(con, wk["id"], "date.period") == "2026-W25"
+        assert queries._prop_value(con, wk["id"], "date.start") == "2026-06-15"
+        con.close()
 
     def test_import_update(self, cli, tmp_db):
         cli("add", "task")
@@ -76,7 +107,7 @@ class TestImport:
 
     def test_import_dry_run_no_write(self, cli, tmp_db):
         import json, tempfile, os
-        spec = {"add": [{"title": "should-not-write", "kind": "task"}]}
+        spec = {"add": [{"title": "should-not-write"}]}
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(spec, f); f.close()
         code, out, _ = cli("import", f.name, "--dry-run")
@@ -88,8 +119,8 @@ class TestImport:
     def test_import_bad_parent_ref_rolls_back(self, cli, tmp_db):
         import json, tempfile, os
         spec = {"add": [
-            {"title": "good", "kind": "task"},
-            {"title": "bad", "kind": "task", "parent_ref": "does not exist"},
+            {"title": "good"},
+            {"title": "bad", "parent_ref": "does not exist"},
         ]}
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
         json.dump(spec, f); f.close()
@@ -113,7 +144,7 @@ class TestApply:
 
     def test_apply_add_nested(self, cli, tmp_db):
         code, out, _ = self._apply(cli,
-            "+ [ ] [#A] [project] P :work:\n"
+            "+ [ ] [#A] P :work:\n"
             "+   [x] [#A] subtask :x:\n")
         assert code == 0 and "added 2" in out
         con = tmp_db.db_connect()
@@ -136,8 +167,8 @@ class TestApply:
 
     def test_apply_add_with_type_date_prop_completes_period(self, cli, tmp_db):
         # regression: a `+` node carrying a raw @prop type.date=week must still get its
-        # date.period/start/end derived (the bare-prop path bypassed write_kind_type_props'
-        # completion until sync_time_node_dates was wired in).
+        # date.period/start/end derived — the prop path sets the level, sync_time_node_dates
+        # completes the span.
         from worklog import queries
         code, out, _ = self._apply(cli,
             "+ [ ] 2026-W25\n"
@@ -163,7 +194,7 @@ class TestApply:
     def test_apply_anchor_parent(self, cli, tmp_db):
         cli("add", "project", "--para", "project")  # id 1
         code, out, _ = self._apply(cli,
-            "  #1 [project] project\n"
+            "  #1 project\n"
             "+   [ ] [#B] new subtask\n")
         assert code == 0 and "added 1" in out
         con = tmp_db.db_connect()
@@ -410,7 +441,7 @@ class TestApplyAndImportEdges:
     def test_import_dry_run(self, cli, tmp_path):
         import json as _json
         p = tmp_path / "ok.json"
-        p.write_text(_json.dumps({"add": [{"title": "from-import", "kind": "task"}]}))
+        p.write_text(_json.dumps({"add": [{"title": "from-import"}]}))
         _, out, _ = cli("import", str(p), "--dry-run")
         assert "dry-run" in out
 
@@ -459,7 +490,7 @@ class TestImportEdges:
 
     def test_import_with_links_props_tags(self, cli, tmp_path):
         import json as _json
-        spec = {"add": [{"title": "rich", "kind": "task", "tags": ["foo"],
+        spec = {"add": [{"title": "rich", "tags": ["foo"],
                           "props": {"k": "v"}, "links": ["DocA"]}]}
         p = tmp_path / "rich.json"
         p.write_text(_json.dumps(spec))
@@ -625,8 +656,8 @@ class TestImportNodeRefMap:
     def test_import_with_parent_ref(self, cli, tmp_path):
         import json as _json
         spec = {"add": [
-            {"ref": "P", "title": "Parent", "kind": "project"},
-            {"parent_ref": "P", "title": "Child", "kind": "task"},
+            {"ref": "P", "title": "Parent", "props": {"type.para": "project"}},
+            {"parent_ref": "P", "title": "Child"},
         ]}
         p = tmp_path / "ref.json"
         p.write_text(_json.dumps(spec))
@@ -636,7 +667,7 @@ class TestImportNodeRefMap:
 
     def test_import_unresolved_parent_ref(self, cli, tmp_path):
         import json as _json
-        spec = {"add": [{"parent_ref": "X", "title": "orphan", "kind": "task"}]}
+        spec = {"add": [{"parent_ref": "X", "title": "orphan"}]}
         p = tmp_path / "bad.json"
         p.write_text(_json.dumps(spec))
         code, _, _ = cli("import", str(p))
@@ -644,7 +675,7 @@ class TestImportNodeRefMap:
 
     def test_import_missing_title(self, cli, tmp_path):
         import json as _json
-        spec = {"add": [{"kind": "task"}]}  # missing title
+        spec = {"add": [{}]}  # missing title
         p = tmp_path / "bad.json"
         p.write_text(_json.dumps(spec))
         code, _, _ = cli("import", str(p))

@@ -357,10 +357,10 @@ Reuse these when a new command needs the functionality; do not write another cop
 ```json
 {
   "add": [
-    { "ref": "p1", "title": "...", "kind": "project", "priority": "A",
-      "tags": [...], "props": {...}, "links": [...], "logs": [...],
+    { "ref": "p1", "title": "...", "priority": "A",
+      "tags": [...], "props": {"type.para": "project"}, "links": [...], "logs": [...],
       "children": [ {... nested child nodes ...} ] },
-    { "title": "...", "kind": "task", "parent_ref": "p1" }
+    { "title": "...", "parent_ref": "p1" }
   ],
   "update": [
     { "id": 45, "status": "DONE", "parent": 6, "add_tags": [...], "remove_tags": [...], "add_logs": [...], "add_links": [...] }
@@ -370,6 +370,7 @@ Reuse these when a new command needs the functionality; do not write another cop
 
 Conventions:
 
+- **Classification = `props` with `type.*` keys** (no `kind` field): `{"type.para":"project"}` (or `area`/`task`), `{"type.date":"day"}` (week/month/…), `{"type.habit":"true"}`, `{"type.meetlog":"true"}`; a bare node (no `type.*`) is a plain task. A `type.date` prop auto-completes its `date.period`/span from the title.
 - **Two parent-child notations coexist**: `children` nesting (parent id auto-propagates to children — natural for time-hierarchy loads) + `ref`/`parent_ref` (in-batch temporary references — flat cross-section loads). `ref` must be defined before use.
 - **`status=DONE` auto-writes `closed_at`** (in both add and update)
 - **Update-able fields**: `status` / `priority` / `title` / `scheduled_at` / `deadline_at` / `body` / `parent` (move, validates existence) + `add_tags` / `remove_tags` / `add_logs` / `add_links`. ⚠️ Keys not in the whitelist are silently ignored — `parent` was once missing from the whitelist and caused moves to silently fail (later fixed); when adding fields, sync the whitelist.
@@ -388,8 +389,8 @@ When adding import fields (new node attribute / update operation), keep `_import
 
 ### 18.1 Add `+` / delete `-` / anchor ` `: the node line
 
-`<prefix><indent>[marker] [#pri] #id [kind] title :tags:` (marker required; `+` has no `#id`; `-` / anchor must have `#id`).
-Rich-field sub-lines: `@log <text>` / `@link <doc>` / `@prop k=v` (attached to the preceding `+` / anchor node).
+`<prefix><indent>[marker] [#pri] #id title :tags:` (marker required; `+` has no `#id`; `-` / anchor must have `#id`).
+Rich-field sub-lines: `@log <text>` / `@link <doc>` / `@prop k=v` (attached to the preceding `+` / anchor node). Classification is set via `@prop type.*` (e.g. `@prop type.para=project`), not a token on the node line.
 marker → status: `[ ]`=TODO, `[x]`=DONE, `[/]`=DOING, `[>]`=LATER, `[?]`=WAIT, `[-]`=CANCELED.
 
 ```

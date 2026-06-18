@@ -495,7 +495,7 @@ class TestMetricImport:
 
     def test_import_log_with_metrics(self, cli, tmp_db, tmp_path):
         self._import(cli, tmp_path, {"add": [
-            {"title": "bg", "kind": "habit", "logs": [
+            {"title": "bg", "props": {"type.habit": "true"}, "logs": [
                 {"body": "fasting", "date": "2026-06-01",
                  "metrics": [{"tag": "glucose", "value": 5.4, "unit": "mmol/L"}, {"tag": "checkin"}]}
             ]}
@@ -510,7 +510,7 @@ class TestMetricImport:
 
     def test_import_node_level_metrics_single_carrier(self, cli, tmp_db, tmp_path):
         self._import(cli, tmp_path, {"add": [
-            {"title": "cgm", "kind": "habit", "metrics": [
+            {"title": "cgm", "props": {"type.habit": "true"}, "metrics": [
                 {"tag": "glucose", "value": 5.1, "at": "2026-06-01 00:05"},
                 {"tag": "glucose", "value": 5.3, "at": "2026-06-01 00:10"},
                 {"tag": "glucose", "value": 6.0, "at": "2026-06-01 00:15"},
@@ -524,7 +524,7 @@ class TestMetricImport:
 
     def test_import_text_value(self, cli, tmp_db, tmp_path):
         self._import(cli, tmp_path, {"add": [
-            {"title": "mood", "kind": "habit", "metrics": [{"tag": "mood", "value": "good"}]}
+            {"title": "mood", "props": {"type.habit": "true"}, "metrics": [{"tag": "mood", "value": "good"}]}
         ]})
         con = tmp_db.db_connect()
         m = con.execute("SELECT * FROM metric").fetchone()
@@ -532,7 +532,7 @@ class TestMetricImport:
 
     def test_import_metric_missing_tag_rejected(self, cli, tmp_path):
         code, _, err = self._import(cli, tmp_path, {"add": [
-            {"title": "x", "kind": "task", "metrics": [{"value": 5}]}
+            {"title": "x", "metrics": [{"value": 5}]}
         ]})
         assert code != 0 and "tag" in err
 

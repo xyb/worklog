@@ -531,30 +531,6 @@ def node_props(con, nid, *, include_deleted=False):
             _db.query(con, "prop", cols="key, value", node_id=nid, include_deleted=include_deleted)}
 
 
-def write_kind_type_props(con, nid, kind, title, *, para_role="__auto__"):
-    """Populate the type.* namespace for a freshly-created node from a classification token — the
-    single write used by every creation path (add / import / apply) so they stay consistent.
-    ``para_role`` defaults to auto (area/project → that role; a plain task stays bare, the loose
-    default); callers with explicit intent (``wl add --para task``) pass it directly. Time levels
-    → type.date (+ date.period when the title is a canonical period, + date.start/date.end for
-    explicit-span levels); habit/meetlog → the existence prop; signal/custom → nothing."""
-    if para_role == "__auto__":
-        para_role = kind if kind in ("area", "project") else None
-    if para_role:
-        _upsert_prop(con, nid, _nt.K_PARA, para_role)
-    elif kind in _nt.DATE_LEVELS:
-        _upsert_prop(con, nid, _nt.K_DATE, kind)
-        for key, val in _nt.date_props_for(kind, title).items():
-            _upsert_prop(con, nid, key, val)
-    elif kind == "habit":
-        _upsert_prop(con, nid, _nt.K_HABIT, "")
-    elif kind == "meetlog":
-        _upsert_prop(con, nid, _nt.K_MEETLOG, "")
-    elif kind and kind not in ("task", "signal"):
-        # a custom type is preserved as a generic type.<kind> existence prop, so readers
-        # derive it instead of collapsing it to a bare task. (task = bare default; signal
-        # maps to bare.)
-        _upsert_prop(con, nid, "type." + kind, "true")
 
 
 #: the reserved date keys whose write must trigger a time-node re-sync (see sync_time_node_dates)

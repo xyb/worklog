@@ -8,14 +8,15 @@ calls.** `--dry-run` first, then apply/import once. Two formats:
 ```fish
 echo '{
   "add": [
-    {"ref":"p","title":"data-viz","kind":"project","priority":"A","tags":["work","viz"],
-     "children":[{"title":"login fix","kind":"task","priority":"A","status":"DONE","tags":["P0"],"logs":["root cause..."]}]},
-    {"title":"digestive system","kind":"task","parent_ref":"p","tags":["viz"]}
+    {"ref":"p","title":"data-viz","props":{"type.para":"project"},"priority":"A","tags":["work","viz"],
+     "children":[{"title":"login fix","priority":"A","status":"DONE","tags":["P0"],"logs":["root cause..."]}]},
+    {"title":"digestive system","parent_ref":"p","tags":["viz"]}
   ],
   "update": [{"id":14,"status":"DONE","parent":6,"add_tags":["urgent"],"remove_tags":["old"]}]
 }' | wl import -
 ```
 
+- **classification = `props` with `type.*` keys** (no `kind` field): `{"type.para":"project"}` (or `area`/`task`), `{"type.date":"day"}` (week/month/…), `{"type.habit":"true"}`, `{"type.meetlog":"true"}`; a bare node (no `type.*`) is a plain task
 - `children` nesting (parent id auto-propagates) + `ref`/`parent_ref` (in-batch reference)
 - a log entry may carry `"metrics":[{"tag":"glucose","value":5.4,"unit":"mmol/L"}]`; a node may
   carry node-level `"metrics":[...]` (one carrier log → N datapoints)
@@ -24,9 +25,10 @@ echo '{
 ## `wl apply <file|->` (wl-diff, same format as `wl` output — lightweight edits for humans/AI)
 
 ```
-  #6 [day] 2026-05-29 Friday      ← anchor: locate existing node as parent, don't modify
+  #6 2026-05-29 Friday            ← anchor: locate existing node as parent, don't modify
 +   [x] [#A] morning-check          ← add (indent = child), [x]=DONE; for planned use `wl sched`, not a :planned: tag
 +     @log check key points
++     @prop type.para=project       ← classification = @prop type.* (no token on the node line)
 ~ [x] #14                         ← change #14 status (single-line shorthand)
 ~ #20                             ← complex update: lock + field operations
   priority A
