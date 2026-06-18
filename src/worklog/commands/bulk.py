@@ -26,7 +26,7 @@ from ..helpers import (
     _resolve_window,
     _sched_anchor,
     _sched_display,
-    _sched_kind,
+    _sched_level,
     _sched_sort_key,
     _status_marker,
     _term_width,

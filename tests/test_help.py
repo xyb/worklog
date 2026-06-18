@@ -170,7 +170,7 @@ class TestHelpRendering:
         monkeypatch.setattr(render, "_CONSOLE", object())   # color on (truthy console)
         r = H._md_inline("status [/] and **go** and `wl ls`")
         assert "[header]go[/header]" in r        # bold → strong "header" style (visible)
-        assert "[kind]wl ls[/kind]" in r         # inline code → bright cyan ("kind")
+        assert "[type]wl ls[/type]" in r         # inline code → bright cyan ("type")
         assert r"\[/]" in r                      # the literal [/] is escaped, not a stray tag
 
     @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
@@ -183,9 +183,9 @@ class TestHelpRendering:
         assert "[done]" in H._md_inline("finish with `[x]`")
         assert "[doing]" in H._md_inline("in progress `[/]`")
         # a bare `wl <subcommand>` → command color when it's a real command…
-        assert "[kind]wl day[/kind]" in H._md_inline("run wl day now")
+        assert "[type]wl day[/type]" in H._md_inline("run wl day now")
         # …but prose like "wl maps" (not a command) stays body, not mis-colored
-        assert "[kind]wl maps" not in H._md_inline("wl maps the tree")
+        assert "[type]wl maps" not in H._md_inline("wl maps the tree")
 
     @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
                         reason="rich not installed")
@@ -245,11 +245,11 @@ class TestArgparseHelpColor:
             assert s in out, f"{s!r} missing from colorized help"
         assert S("usage:", "header") in out          # usage label → bold bright-white
         assert S("options:", "header") in out         # section header → bold bright-white
-        assert S("--help", "kind") in out             # option flag → cyan
-        assert S("add", "kind") in out                # subcommand-choice name → cyan
+        assert S("--help", "type") in out             # option flag → cyan
+        assert S("add", "type") in out                # subcommand-choice name → cyan
         assert S("[/]", "doing") in out and S("[x]", "done") in out   # markers → real status color
         assert S("[#A]", "pri_a") in out              # priority marker → its color
-        assert S("wl day", "kind") in out             # `wl day` (real command) → cyan
+        assert S("wl day", "type") in out             # `wl day` (real command) → cyan
         assert S("wl bogus", "body") in out           # `wl bogus` (not a command) → stays body
 
     @pytest.mark.skipif(not __import__("worklog.render", fromlist=["_RICH_AVAIL"])._RICH_AVAIL,
@@ -287,7 +287,7 @@ class TestArgparseHelpColor:
         out = colorize_help("run **now** with `wl day` and *maybe* read [docs](http://x)\n")
         assert Style.parse(th["header"]).render("now") in out    # **bold** → strong header
         assert Style.parse("italic").render("maybe") in out      # *italic*
-        assert Style.parse(th["kind"]).render("wl day") in out   # `code` / command → cyan
+        assert Style.parse(th["type"]).render("wl day") in out   # `code` / command → cyan
         assert "**" not in out and "`" not in out                # markers consumed, not literal
         assert "docs" in out and "http://x" in out               # link text + url preserved
 
@@ -365,7 +365,7 @@ class TestArgparseHelpColor:
         monkeypatch.delenv("NO_COLOR", raising=False)
         monkeypatch.setenv("WORKLOG_COLOR", "always")
         if render._RICH_AVAIL:
-            assert render.help_palette(theme_name="dark")["kind"] == "bright_cyan"
+            assert render.help_palette(theme_name="dark")["type"] == "bright_cyan"
 
     def test_argv_color_theme_scan(self, monkeypatch):
         from worklog.commands.help import _argv_color_theme
@@ -384,7 +384,7 @@ class TestHelpRenderingMore:
         monkeypatch.setattr(render, "_CONSOLE", object())   # color on
         r = H._md_inline("see [the docs](http://example.com) here")
         assert "[underline]the docs[/underline]" in r        # link text underlined
-        assert "[kind]http://example.com[/kind]" in r        # the URL styled as a target
+        assert "[type]http://example.com[/type]" in r        # the URL styled as a target
         r2 = H._md_inline("visit http://example.com now")
         assert "[underline]http://example.com[/underline]" in r2   # bare URL underlined
 

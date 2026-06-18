@@ -14,7 +14,7 @@ from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
 from ..node_schema import node_view as _node_view, type_facet as _type_facet, CORE as _CORE
-from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
+from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -27,7 +27,7 @@ from ..helpers import (
     _resolve_window,
     _sched_anchor,
     _sched_display,
-    _sched_kind,
+    _sched_level,
     _sched_sort_key,
     _status_marker,
     _term_width,
@@ -550,7 +550,7 @@ def _tree_by(con, by, nf=None):
                 ids.add(r["id"])
             # (b) task/meetlog/habit sharing a semantic tag
             if proj_tags:
-                for r in nodes_with_tag(con, proj_tags, kinds=("task", "meetlog", "habit"), cols="id"):
+                for r in nodes_with_tag(con, proj_tags, types=("task", "meetlog", "habit"), cols="id"):
                     ids.add(r["id"])
             if nf:
                 ids = {i for i in ids if nf(i)}
@@ -581,7 +581,7 @@ def _tree_by(con, by, nf=None):
 
     elif by == "direction":
         for direction in ("work", "personal"):
-            rows = nodes_with_tag(con, direction, kinds=("task", "meetlog", "habit", "project"),
+            rows = nodes_with_tag(con, direction, types=("task", "meetlog", "habit", "project"),
                                   order="priority NULLS LAST, id")
             if nf:
                 rows = [n for n in rows if nf(n["id"])]
@@ -602,7 +602,7 @@ def _tree_children(con, node, include_canceled=False):
     rows = list(con.execute(sql, sql_params))
 
     def key(r):
-        if node_type(con, r) in _TIME_KINDS:
+        if node_type(con, r) in _TIME_LEVELS:
             return (0, r["title"], 0)
         pr = {"A": 0, "B": 1, "C": 2}.get(r["priority"], 3)
         return (1, pr, r["id"])
@@ -611,7 +611,7 @@ def _tree_children(con, node, include_canceled=False):
 
 # fuzzy time nodes a task can be pinned at via scheduled_date (day is handled separately
 # by _print_day_activity, which also folds in that day's logged activity).
-_FUZZY_TIME_KINDS = ("year", "quarter", "month", "week")
+_FUZZY_TIME_LEVELS = ("year", "quarter", "month", "week")
 
 
 def _pinned_at(con, node):
@@ -620,7 +620,7 @@ def _pinned_at(con, node):
     parent_id tree, not under the time node, so tree / focus on the time node would
     otherwise miss them — which led to creating duplicates when checking 'is anything
     already scheduled this month'. Returns [] for non-time / day nodes."""
-    if node_type(con, node) not in _FUZZY_TIME_KINDS:
+    if node_type(con, node) not in _FUZZY_TIME_LEVELS:
         return []
     return _db.query(con, "node", scheduled_date=node["title"], order="priority NULLS LAST, id")
 
@@ -673,7 +673,7 @@ def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log
     if root_node is not None:
         for tnid in universe:
             tn = _db.get(con, "node", tnid)
-            if not tn or node_type(con, tn) not in _FUZZY_TIME_KINDS:
+            if not tn or node_type(con, tn) not in _FUZZY_TIME_LEVELS:
                 continue
             matched = [p for p in _pinned_at(con, tn)
                        if (include_canceled or p["status"] != "CANCELED") and nf(p["id"])]
@@ -837,7 +837,7 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
         if sortk:
             groups = sorted(groups, key=lambda kv: sortk(kv[1]["title"]))
         for _, g in groups:
-            out("    ▸ " + _c(g["title"], "kind"))
+            out("    ▸ " + _c(g["title"], "type"))
             for nid, it in g["tasks"].items():
                 n = it["node"]
                 logs = it["logs"]

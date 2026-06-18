@@ -102,7 +102,7 @@ def _maxpool(scored, k, threshold):
     (highest-cosine) chunk — so a node surfaces on the strength of its most relevant
     passage, never diluted by an averaged whole-node vector. ``scored`` yields
     (row_dict, cosine_score); rows expose node_id/title/status/priority and (for a
-    store built by the current chunk-level reindex) chunk_text/chunk_kind. Returns up
+    store built by the current chunk-level reindex) chunk_text/chunk_field. Returns up
     to k node hits sorted by score desc, dropping nodes whose best chunk < threshold."""
     best = {}
     for r, score in scored:
@@ -114,7 +114,7 @@ def _maxpool(scored, k, threshold):
                 "priority": r["priority"] or None, "score": score,
                 # .get: a store built by an older (node-level, pre-chunk) reindex lacks these
                 # columns — degrade to no match-reason rather than crash; `wl reindex` upgrades it.
-                "chunk_text": r.get("chunk_text", ""), "chunk_kind": r.get("chunk_kind", ""),
+                "chunk_text": r.get("chunk_text", ""), "chunk_field": r.get("chunk_field", ""),
             }
     hits = [h for h in best.values() if threshold is None or h["score"] >= threshold]
     hits.sort(key=lambda h: h["score"], reverse=True)
@@ -161,7 +161,7 @@ class _LanceBackend:
             {"node_id": r["node_id"], "title": r["title"] or "", "status": r["status"] or "",
              "priority": r["priority"] or "", "model": r["model"], "dim": r["dim"],
              "vector": list(r["vector"]), "chunk_text": r["chunk_text"] or "",
-             "chunk_kind": r["chunk_kind"] or ""}
+             "chunk_field": r["chunk_field"] or ""}
             for r in rows
         ]
         if not data:
@@ -231,7 +231,7 @@ class _SqliteBackend:
         self.con.execute(
             f"CREATE TABLE IF NOT EXISTS {TABLE} ("
             "node_id INTEGER, title TEXT, status TEXT, priority TEXT, "
-            "model TEXT, dim INTEGER, vector TEXT, chunk_text TEXT, chunk_kind TEXT)"
+            "model TEXT, dim INTEGER, vector TEXT, chunk_text TEXT, chunk_field TEXT)"
         )
         self.con.commit()
 
@@ -240,14 +240,14 @@ class _SqliteBackend:
         data = [
             (r["node_id"], r["title"] or "", r["status"] or "", r["priority"] or "",
              r["model"], r["dim"], json.dumps(list(r["vector"])),
-             r["chunk_text"] or "", r["chunk_kind"] or "")
+             r["chunk_text"] or "", r["chunk_field"] or "")
             for r in rows
         ]
         if not data:
             return
         self.con.executemany(
             f"INSERT INTO {TABLE} "
-            "(node_id, title, status, priority, model, dim, vector, chunk_text, chunk_kind) "
+            "(node_id, title, status, priority, model, dim, vector, chunk_text, chunk_field) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             data,
         )
@@ -267,14 +267,14 @@ class _SqliteBackend:
 
     def load(self):
         rows = self.con.execute(
-            f"SELECT node_id, title, status, priority, model, dim, vector, chunk_text, chunk_kind "
+            f"SELECT node_id, title, status, priority, model, dim, vector, chunk_text, chunk_field "
             f"FROM {TABLE}"
         ).fetchall()
         return [
             {"node_id": r["node_id"], "title": r["title"], "status": r["status"],
              "priority": r["priority"], "model": r["model"], "dim": r["dim"],
              "vector": json.loads(r["vector"]), "chunk_text": r["chunk_text"],
-             "chunk_kind": r["chunk_kind"]}
+             "chunk_field": r["chunk_field"]}
             for r in rows
         ]
 
@@ -288,13 +288,13 @@ class _SqliteBackend:
 
         def scored():
             for r in self.con.execute(
-                f"SELECT node_id, title, status, priority, chunk_text, chunk_kind, vector FROM {TABLE}"
+                f"SELECT node_id, title, status, priority, chunk_text, chunk_field, vector FROM {TABLE}"
             ):
                 v = json.loads(r["vector"])
                 dot = sum(a * b for a, b in zip(q, v))
                 vn = math.sqrt(sum(x * x for x in v)) or 1.0
                 yield ({"node_id": r["node_id"], "title": r["title"], "status": r["status"],
                         "priority": r["priority"], "chunk_text": r["chunk_text"],
-                        "chunk_kind": r["chunk_kind"]}, dot / (qn * vn))
+                        "chunk_field": r["chunk_field"]}, dot / (qn * vn))
 
         return _maxpool(scored(), k, threshold)

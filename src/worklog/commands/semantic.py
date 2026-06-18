@@ -33,7 +33,7 @@ def _node_chunks(con):
     `log` chunk per log entry, each prefixed with `title · tags` so a short log keeps
     enough context to stand on its own. Search max-pools chunks back to nodes, so a
     node surfaces on its single most relevant passage instead of an averaged blur.
-    Returns list of (node_id, title, status, priority, chunk_kind, chunk_text)."""
+    Returns list of (node_id, title, status, priority, chunk_field, chunk_text)."""
     nodes = con.execute(
         "SELECT id, title, body, status, priority FROM node WHERE deleted_at IS NULL ORDER BY id"
     ).fetchall()
@@ -191,8 +191,8 @@ def _open_store(args):
 def _chunk_rows(chunks, vecs, cfg, dim):
     """Build vector-store rows from (chunk tuple, vector) pairs — shared by full + incremental."""
     return [{"node_id": nid, "title": title, "status": st, "priority": pr,
-             "model": cfg["model"], "dim": dim, "vector": v, "chunk_text": text, "chunk_kind": kind}
-            for (nid, title, st, pr, kind, text), v in zip(chunks, vecs)]
+             "model": cfg["model"], "dim": dim, "vector": v, "chunk_text": text, "chunk_field": field}
+            for (nid, title, st, pr, field, text), v in zip(chunks, vecs)]
 
 
 def cmd_reindex(args, con):
@@ -385,7 +385,7 @@ def cmd_query(args, con):
             h = vec_map.get(nid, {})
             rows.append({"id": nid, "title": n["title"], "status": n["status"], "priority": n["priority"],
                          "score": round(h.get("score", 0.0), 4),
-                         "matched_kind": h.get("chunk_kind", ""), "matched_text": h.get("chunk_text", "")})
+                         "matched_field": h.get("chunk_field", ""), "matched_text": h.get("chunk_text", "")})
         print(json.dumps(rows, ensure_ascii=False, indent=2))
         return
 
@@ -407,7 +407,7 @@ def cmd_query(args, con):
         chunk = h.get("chunk_text", "")
         if chunk:
             flat = " ".join(chunk.split())
-            label = f"↳ {h.get('chunk_kind', '')}:"
+            label = f"↳ {h.get('chunk_field', '')}:"
             # width-clip the chunk exactly like `wl day` clips a log line (shared _truncate_log_body),
             # accounting for the indent+label width, then render via the shared detail-line format.
             body = _truncate_log_body(flat, indent_cols=_display_width("    " + label + " "))

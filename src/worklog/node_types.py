@@ -49,7 +49,7 @@ RESERVED_KEYS = frozenset({K_PARA, K_DATE, K_HABIT, K_MEETLOG, K_PERIOD, K_START
 # ── value domains (in display order) ─────────────────────────────────────────
 #: responsibility-line roles, coarse → fine
 PARA_ROLES = ("area", "project", "task")
-#: time levels, coarse → fine (matches the old ``_TIME_KINDS`` set)
+#: time levels, coarse → fine (matches the old ``_TIME_LEVELS`` set)
 DATE_LEVELS = ("lifetime", "decade", "year", "quarter", "month", "week", "day")
 #: existence-based soft subtypes
 SOFT_TYPES = ("habit", "meetlog")

@@ -67,7 +67,7 @@ def _project_members(con, proj_id):
             (proj_id,)):
         ids.add(r["id"])
     if proj_tags:
-        for r in nodes_with_tag(con, proj_tags, kinds=("task", "meetlog", "habit"), cols="id"):
+        for r in nodes_with_tag(con, proj_tags, types=("task", "meetlog", "habit"), cols="id"):
             ids.add(r["id"])
     return ids
 
@@ -152,10 +152,10 @@ def _has_tag(con, nid, tag):
     return _db.exists(con, "tag", node_id=nid, tag=tag)
 
 
-def nodes_with_tag(con, tags, *, kinds=None, cols="*", order=None):
+def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
     """Nodes carrying ANY of `tags` (a str or an iterable) — the single-table
     decomposition of `node JOIN tag`: collect node ids from the tag table, then
-    read those nodes. `kinds` further restricts by derived kind; `cols` / `order` pass
+    read those nodes. `types` further restricts by derived kind; `cols` / `order` pass
     through to the node read. Returns list[Row] (deduped by node; empty tags → [])."""
     tag_list = [tags] if isinstance(tags, str) else list(tags)
     if not tag_list:
@@ -163,9 +163,9 @@ def nodes_with_tag(con, tags, *, kinds=None, cols="*", order=None):
     ids = sorted({r["node_id"] for r in _db.query(con, "tag", cols="node_id", tag__in=tag_list)})
     if not ids:
         return []
-    if kinds is not None:
+    if types is not None:
         # restrict by DERIVED kind (column-free): filter the id list, then read
-        want = set(kinds)
+        want = set(types)
         ids = [i for i in ids if node_type(con, i) in want]
         if not ids:
             return []

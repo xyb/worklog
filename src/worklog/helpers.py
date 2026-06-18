@@ -361,7 +361,7 @@ def _norm_sched(s):
     raise ValueError(
         f"unrecognized scheduled time '{s}' (use YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / +N / -2w / next-week / next-month / next-quarter)")
 
-def _sched_kind(s):
+def _sched_level(s):
     """Normalized value -> granularity: day/week/month/quarter/year/someday/fuzzy"""
     import re as _re
     if not s:
@@ -383,7 +383,7 @@ def _sched_kind(s):
 def _sched_anchor(s):
     """Normalized value -> anchor date (for sorting). someday/fuzzy -> far-future, sorts last."""
     import datetime as _dt
-    k = _sched_kind(s)
+    k = _sched_level(s)
     try:
         if k == "day":
             return s
@@ -404,13 +404,13 @@ def _sched_anchor(s):
 def _sched_sort_key(s):
     """Sort key (anchor date, granularity rank). Coarser granularities sort later; someday/fuzzy last. Callers compose final keys."""
     rank = {"day": 0, "week": 1, "month": 2, "quarter": 3, "year": 4, "someday": 9, "fuzzy": 9}
-    return (_sched_anchor(s), rank.get(_sched_kind(s), 9))
+    return (_sched_anchor(s), rank.get(_sched_level(s), 9))
 
 def _sched_display(s):
     """Display: precise dates show MM-DD only (current-year context); fuzzy values shown as-is (month/week/quarter/year/someday)."""
     if not s:
         return ""
-    return s[5:] if _sched_kind(s) == "day" else s
+    return s[5:] if _sched_level(s) == "day" else s
 
 
 def _fmt_dur(minutes):
@@ -444,5 +444,5 @@ def _log_full(args):
 
 # SQL / kind constants shared between command modules
 _ORDER_BY_PRI_ID = "ORDER BY priority NULLS LAST, id"
-_TIME_KINDS = {"lifetime", "decade", "year", "quarter", "month", "week", "day"}
+_TIME_LEVELS = {"lifetime", "decade", "year", "quarter", "month", "week", "day"}
 

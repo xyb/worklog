@@ -16,7 +16,7 @@ from .. import db_table as _db
 from .. import node_types as _nt
 from ..node_schema import node_view as _node_view, type_facet as _type_facet, SUMMARY as _SUMMARY, FULL as _FULL
 from .metric import _fmt_value, metric_rows
-from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
+from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -29,7 +29,7 @@ from ..helpers import (
     _resolve_window,
     _sched_anchor,
     _sched_display,
-    _sched_kind,
+    _sched_level,
     _sched_sort_key,
     _status_marker,
     _term_width,
@@ -387,7 +387,7 @@ def cmd_focus(args, con):
     # self
     mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
     pri = _pri_marker(n["priority"]) + " "
-    out("▶ focus " + mk + " " + _c(f"#{n['id']}", "id") + " " + pri + _c(f"[{node_type(con, n)}]", "kind") + " " + _c(n["title"], "header"))
+    out("▶ focus " + mk + " " + _c(f"#{n['id']}", "id") + " " + pri + _c(f"[{node_type(con, n)}]", "type") + " " + _c(n["title"], "header"))
 
     # downstream subtree. A day node has no real parent_id children — its
     # "contents" are that day's log activity, exactly like `wl tree` / `wl day`.
@@ -438,7 +438,7 @@ def cmd_ancestors(args, con):
     for depth, node in enumerate(chain):
         indent = "  " * depth
         arrow = "▶ " if node["id"] == args.id else ""
-        out(f"{indent}{arrow}" + _c(f"#{node['id']}", "id") + " " + _c(f"[{node_type(con, node)}]", "kind") + " " + _c(node["title"], "header" if node["id"] == args.id else None))
+        out(f"{indent}{arrow}" + _c(f"#{node['id']}", "id") + " " + _c(f"[{node_type(con, node)}]", "type") + " " + _c(node["title"], "header" if node["id"] == args.id else None))
 
 def cmd_descendants(args, con):
     """Show only the downstream subtree (node -> all descendants)."""
@@ -492,7 +492,7 @@ def cmd_agenda(args, con):
                 and n["status"] in ("DONE", "CANCELED")
                 and not (inc_cancel and n["status"] == "CANCELED")):
             continue
-        kind = _sched_kind(val)
+        kind = _sched_level(val)
         if kind in ("someday", "fuzzy"):
             someday.append((n, val))
             continue
@@ -636,7 +636,7 @@ def cmd_types(args, con):
             body = f"{sum(c for _, c in vs)} ({len(vs)} distinct)"
         else:
             body = " · ".join(f"{v} {c}" for v, c in vs)
-        out(_c(f"{k:13}", "kind") + " " + _c(body, "meta"))
+        out(_c(f"{k:13}", "type") + " " + _c(body, "meta"))
 
 
 def _list_vocab(con, table, col, *, output, style, sort_by_count=True):
@@ -1136,7 +1136,7 @@ def _next_sched_fire(rules, start):
 def _show_detail(con, args, n):
     """`wl show` static detail block: header, status, ancestors, dates, body, tags, props (+ the
     nested relation sub-block), links, schedule, and direct children."""
-    out(_c(f"#{n['id']}", "id") + " " + _c(f"[{node_type(con, n)}]", "kind") + " " + _c(n["title"], "header"))
+    out(_c(f"#{n['id']}", "id") + " " + _c(f"[{node_type(con, n)}]", "type") + " " + _c(n["title"], "header"))
     if n["status"]:
         st = _c(n["status"], _STATUS_STYLE.get(n["status"], "todo"))
         pr = " " + (_pri_marker(n["priority"]))

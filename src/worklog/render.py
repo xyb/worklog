@@ -23,14 +23,14 @@ except ImportError:
     _RICH_AVAIL = False
 
 # theme = semantic element -> rich style. No "default" theme; default is auto, probes terminal bg and resolves to dark/light/mono.
-_THEME_KEYS = "done doing later wait todo canceled pri_a pri_b pri_c id kind tag hit header meta planned clock body title italic underline derived".split()
+_THEME_KEYS = "done doing later wait todo canceled pri_a pri_b pri_c id type tag hit header meta planned clock body title italic underline derived".split()
 THEMES = {
     # dark: dark background, use bright_* for contrast
     "dark": {
         "done": "bright_green", "doing": "bright_yellow", "later": "bright_cyan", "wait": "grey50",
         "todo": "default", "canceled": "strike grey50",
         "pri_a": "bold bright_red", "pri_b": "bright_yellow", "pri_c": "grey50",
-        "id": "green", "kind": "bright_cyan", "tag": "bright_magenta", "hit": "bold black on bright_yellow",
+        "id": "green", "type": "bright_cyan", "tag": "bright_magenta", "hit": "bold black on bright_yellow",
         "header": "bold bright_white", "meta": "grey50", "planned": "bright_blue", "clock": "bright_green",
         "body": "grey70",   # help prose: slightly grey so bold-white + colored refs stand out
         "title": "bold bright_white underline",   # wl help topic title (underline replaces the ─ rule)
@@ -42,7 +42,7 @@ THEMES = {
         "done": "green4", "doing": "dark_orange3", "later": "blue", "wait": "grey42",
         "todo": "default", "canceled": "strike grey42",
         "pri_a": "bold red3", "pri_b": "dark_orange3", "pri_c": "grey42",
-        "id": "dark_green", "kind": "dark_cyan", "tag": "purple", "hit": "bold black on yellow3",
+        "id": "dark_green", "type": "dark_cyan", "tag": "purple", "hit": "bold black on yellow3",
         "header": "bold grey15", "meta": "grey42", "planned": "blue", "clock": "green4",
         "body": "grey30",   # help prose: slightly grey so bold + colored refs stand out
         "title": "bold grey15 underline",   # wl help topic title (underline replaces the ─ rule)
@@ -227,7 +227,7 @@ def _hl_terms(text, terms):
 def _detail_line(label, content, *, indent="    "):
     """One indented detail line shown UNDER a node line: ``<indent><label> <content>`` with the
     label dimmed (the "meta" style). The single building block for the match/snippet rows that
-    `wl find` (``body:`` / ``log:`` / ``tag:`` …) and `wl query` (``↳ <kind>:``) print, so every
+    `wl find` (``body:`` / ``log:`` / ``tag:`` …) and `wl query` (``↳ <field>:``) print, so every
     command renders its sub-lines identically instead of re-inlining the indent+label format.
     ``content`` is passed through already-rendered (e.g. via `_snippet` / `_hl` / `_hl_terms`)."""
     return indent + _c(label, "meta") + " " + content
@@ -261,7 +261,7 @@ def _pri_plain(priority):
 def _node_activity_prefix(n, nid, indent, *, done=False):
     """The ``<indent><marker> #<id> <pri> `` prefix the day / activity renderers print before a
     node's title, then feed to `_hang_wrap`. NOTE this is the activity layout (id BEFORE priority,
-    no kind) — distinct from `_node_line`'s list layout (priority before id) — shared by
+    no type tag) — distinct from `_node_line`'s list layout (priority before id) — shared by
     `_print_day_activity` and `_render_day_group` so the two can't drift. ``nid`` is passed
     explicitly (the callers key on it; their row ``n`` may not carry an ``id`` column). ``done=True``
     forces the ``[x]`` check-marker (a habit checked-in that day). Returns ``(styled_prefix,
@@ -309,10 +309,10 @@ def _hang_wrap(prefix, prefix_cols, title, *, hl=None, style=None, tail="", tail
     return s + tail
 
 
-def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, planned=False, clock=True, sched=False, hl=None):
+def _node_line(con, n, *, indent="", done=False, show_type=True, tags=False, planned=False, clock=True, sched=False, hl=None):
     """Unified node-line rendering (sole source per DESIGN.md §6).
 
-    Format: <indent><marker> [#pri] #<id> [kind] <title>[ ·planned][ @sched][ [Xh Ym]][ :tags:]
+    Format: <indent><marker> [#pri] #<id> [type] <title>[ ·planned][ @sched][ [Xh Ym]][ :tags:]
     Everywhere that "lists tasks" goes through this; do not roll your own. hl=query highlights matches in title (used by find).
     clock defaults True: shows total duration [Xh Ym] when there's a CLOCK or log span; 0 hides it.
     """
@@ -320,14 +320,14 @@ def _node_line(con, n, *, indent="", done=False, show_kind=True, tags=False, pla
     marker = _c(mk, "done" if done else _STATUS_STYLE.get(n["status"], "todo"))
     pri = _pri_marker(n["priority"])
     pri_plain = _pri_plain(n["priority"])
-    nk = node_type(con, n)   # derived from type.* props (the kind column is being phased out)
-    kind_plain = f"[{nk}] " if (show_kind and nk != "task") else ""
-    kind = (_c(kind_plain.rstrip(), "kind") + " ") if kind_plain else ""
+    ntype = node_type(con, n)   # single representative type token, derived from type.* props
+    type_plain = f"[{ntype}] " if (show_type and ntype != "task") else ""
+    type_str = (_c(type_plain.rstrip(), "type") + " ") if type_plain else ""
     nid = _c(f"#{n['id']}", "id")
-    prefix = f"{indent}{marker} {pri} {nid} {kind}"
+    prefix = f"{indent}{marker} {pri} {nid} {type_str}"
     # hanging-indent column = display width of the plain prefix (everything left of the title).
     # Continuation lines (wrap mode) align here so a long title doesn't break tree indentation.
-    prefix_cols = _display_width(f"{indent}{mk} {pri_plain} #{n['id']} {kind_plain}")
+    prefix_cols = _display_width(f"{indent}{mk} {pri_plain} #{n['id']} {type_plain}")
     # accumulate trailing suffixes as one tail (styled + its plain width) so _hang_wrap can keep
     # the whole line within the terminal — a long title no longer pushes the suffix off the edge
     tail, tail_plain = "", ""

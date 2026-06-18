@@ -123,12 +123,12 @@ def _commands():
         except Exception:  # pragma: no cover - cli always importable at runtime
             _COMMANDS = frozenset()
     return _COMMANDS
-# `code` → "kind" (bright cyan, theme-aware) so it's brighter than the dim body; **bold** →
+# `code` → "type" (bright cyan, theme-aware) so it's brighter than the dim body; **bold** →
 # the strong "header" style (plain [bold]=ESC[1m is too faint); *italic* → italic.
-_MD_STYLE = {"`": "kind", "**": "header", "*": "italic"}
+_MD_STYLE = {"`": "type", "**": "header", "*": "italic"}
 # a `code` span that is exactly a status marker renders in that status's real color (the same
 # styles `wl ls` / `wl day` print), so the status legend matches the rest of wl; anything else
-# in backticks is "kind" (bright cyan). Mirrors render._STATUS_STYLE.
+# in backticks is "type" (bright cyan). Mirrors render._STATUS_STYLE.
 _MARKER_STYLE = {"[ ]": "todo", "[/]": "doing", "[x]": "done",
                  "[>]": "later", "[?]": "wait", "[-]": "canceled"}
 
@@ -167,10 +167,10 @@ def _md_inline(text):
             out_parts.append(_c(tok[len(mark):-len(mark)], _MD_STYLE[mark]))
         elif tok.startswith("["):
             lm = re.match(r"\[([^\]]+)\]\(([^)]+)\)", tok)
-            out_parts.append(_c(lm.group(1), "underline") + " " + _c(lm.group(2), "kind"))
+            out_parts.append(_c(lm.group(1), "underline") + " " + _c(lm.group(2), "type"))
         elif tok.startswith("wl"):   # `wl <subcommand>` — color as a command only if real
             sub = tok.split()[1] if len(tok.split()) > 1 else ""
-            out_parts.append(_c(tok, "kind" if sub in _commands() else "body"))
+            out_parts.append(_c(tok, "type" if sub in _commands() else "body"))
         else:  # bare URL
             out_parts.append(_c(tok, "underline"))
         pos = m.end()
@@ -226,7 +226,7 @@ def _render_topic(topic, meta, body, lang, show_see_also=True):
         rows.append(cur)
         for i, grp in enumerate(rows):
             prefix = _c(label, "meta") if i == 0 else " " * len(label)
-            out(prefix + _c(" · ", "meta").join(_c(t, "kind") for t in grp))
+            out(prefix + _c(" · ", "meta").join(_c(t, "type") for t in grp))
 
 
 def _render_index(lang):
@@ -250,7 +250,7 @@ def _topic_row(topic, title, width):
     namecol = "    " + f"{topic:<{width}}"   # indent + padded name = the hang column
     chunks = _greedy_wrap(desc, max(_render.help_width() - len(namecol), 11), "", "")
     # the topic id is a `wl help <topic>` entry → same bright-cyan as See-also links
-    out(namecol[:4] + _c(f"{topic:<{width}}", "kind") + _c(chunks[0], "meta"))
+    out(namecol[:4] + _c(f"{topic:<{width}}", "type") + _c(chunks[0], "meta"))
     for ch in chunks[1:]:
         out(" " * len(namecol) + _c(ch, "meta"))
 
@@ -336,25 +336,25 @@ def _help_token_ansi(tok, pal):
     as wl help topics) plus the argparse heuristics (wl-command / marker / option flag)."""
     if tok.startswith("`"):                          # `code` (a status marker keeps its color)
         inner = tok[1:-1]
-        return _render.style_ansi(inner, pal[_MARKER_STYLE.get(inner, "kind")])
+        return _render.style_ansi(inner, pal[_MARKER_STYLE.get(inner, "type")])
     if tok.startswith("**"):                         # **bold** → strong header style
         return _render.style_ansi(tok[2:-2], pal["header"])
     if tok.startswith("*"):                          # *italic* (pal-routed: mono → no styling)
         return _render.style_ansi(tok[1:-1], pal["italic"])
     if tok.startswith("[") and "](" in tok:          # [text](url)
         lm = re.match(r"\[([^\]]+)\]\(([^)]+)\)", tok)
-        return _render.style_ansi(lm.group(1), pal["underline"]) + " " + _render.style_ansi(lm.group(2), pal["kind"])
+        return _render.style_ansi(lm.group(1), pal["underline"]) + " " + _render.style_ansi(lm.group(2), pal["type"])
     if tok.startswith("http"):                       # bare URL
         return _render.style_ansi(tok, pal["underline"])
     if tok.startswith("wl"):                         # `wl <subcommand>` — cyan only if it's real
         parts = tok.split()
         sub = parts[1] if len(parts) > 1 else ""
-        return _render.style_ansi(tok, pal["kind" if sub in _commands() else "body"])
+        return _render.style_ansi(tok, pal["type" if sub in _commands() else "body"])
     if tok in _PRI_MARKER_STYLE:
         return _render.style_ansi(tok, pal[_PRI_MARKER_STYLE[tok]])
     if tok in _MARKER_STYLE:
         return _render.style_ansi(tok, pal[_MARKER_STYLE[tok]])
-    return _render.style_ansi(tok, pal["kind"])    # an option flag
+    return _render.style_ansi(tok, pal["type"])    # an option flag
 
 
 def _color_help_line(line, pal):
@@ -491,7 +491,7 @@ def colorize_help(text):
             cm = _HELP_CHOICE.match(line)
             if cm:   # a subcommand-choice row: name in cyan, the rest inline-colorized
                 rest = _color_help_line(cm.group(3), pal) if cm.group(3) else ""
-                lines.append(cm.group(1) + _render.style_ansi(cm.group(2), pal["kind"]) + rest)
+                lines.append(cm.group(1) + _render.style_ansi(cm.group(2), pal["type"]) + rest)
             else:
                 lines.append(_color_help_line(line, pal))   # option rows + indented prose
     return "\n".join(lines)
@@ -512,8 +512,8 @@ def cmd_help(args, con=None):
         _render_core_topics(lang, core)
         n = len(_list_topics(lang))
         out("")
-        out(_c(f"  {n} topics total — ", "meta") + _c("wl help --all", "kind")
-            + _c(" lists them all · ", "meta") + _c("wl help <topic>", "kind") + _c(" reads one", "meta"))
+        out(_c(f"  {n} topics total — ", "meta") + _c("wl help --all", "type")
+            + _c(" lists them all · ", "meta") + _c("wl help <topic>", "type") + _c(" reads one", "meta"))
         return
     topic = topic.strip().lower()
     p = _topic_path(topic, lang)

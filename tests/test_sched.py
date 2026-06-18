@@ -158,9 +158,9 @@ class TestFuzzySchedule:
         assert wl._norm_sched("tomorrow") == (today + dt.timedelta(days=1)).isoformat()
         assert wl._norm_sched("以后") == "someday"
         # 下周/下月/下季 (next week/month/quarter, Chinese date aliases) normalize to the corresponding granularity formats
-        assert wl._sched_kind(wl._norm_sched("下周")) == "week"
-        assert wl._sched_kind(wl._norm_sched("下月")) == "month"
-        assert wl._sched_kind(wl._norm_sched("下季")) == "quarter"
+        assert wl._sched_level(wl._norm_sched("下周")) == "week"
+        assert wl._sched_level(wl._norm_sched("下月")) == "month"
+        assert wl._sched_level(wl._norm_sched("下季")) == "quarter"
 
     def test_norm_rejects_invalid(self, tmp_db):
         wl = tmp_db
@@ -168,14 +168,14 @@ class TestFuzzySchedule:
             with pytest.raises(ValueError):
                 wl._norm_sched(bad)
 
-    def test_sched_kind(self, tmp_db):
+    def test_sched_level(self, tmp_db):
         wl = tmp_db
-        assert wl._sched_kind("2026-06-15") == "day"
-        assert wl._sched_kind("2026-06") == "month"
-        assert wl._sched_kind("2026-W23") == "week"
-        assert wl._sched_kind("2026-Q3") == "quarter"
-        assert wl._sched_kind("2026") == "year"
-        assert wl._sched_kind("someday") == "someday"
+        assert wl._sched_level("2026-06-15") == "day"
+        assert wl._sched_level("2026-06") == "month"
+        assert wl._sched_level("2026-W23") == "week"
+        assert wl._sched_level("2026-Q3") == "quarter"
+        assert wl._sched_level("2026") == "year"
+        assert wl._sched_level("someday") == "someday"
 
     def test_sort_key_exact_before_fuzzy(self, tmp_db):
         wl = tmp_db
@@ -324,7 +324,7 @@ class TestSched:
 
 
 class TestSchedHelpers:
-    """_sched_kind / _sched_anchor / _sched_fires / _norm_rrule edge coverage."""
+    """_sched_level / _sched_anchor / _sched_fires / _norm_rrule edge coverage."""
 
     def test_sched_recur_weekly(self, cli):
         """weekly:Mon,Wed,Fri rule normalization + write"""
@@ -370,28 +370,28 @@ class TestSchedHelpers:
 
 
 class TestSchedHelpersDirect:
-    """direct unit tests for _sched_anchor / _sched_fires / _sched_kind."""
+    """direct unit tests for _sched_anchor / _sched_fires / _sched_level."""
 
     def test_sched_kind_someday(self):
         from worklog import cli as wl
-        assert wl._sched_kind("someday") == "someday"
+        assert wl._sched_level("someday") == "someday"
 
     def test_sched_kind_quarter(self):
         from worklog import cli as wl
-        assert wl._sched_kind("2026-Q2") == "quarter"
+        assert wl._sched_level("2026-Q2") == "quarter"
 
     def test_sched_kind_year(self):
         from worklog import cli as wl
-        assert wl._sched_kind("2026") == "year"
+        assert wl._sched_level("2026") == "year"
 
     def test_sched_kind_fuzzy(self):
         from worklog import cli as wl
-        assert wl._sched_kind("下月") == "fuzzy"
+        assert wl._sched_level("下月") == "fuzzy"
 
     def test_sched_kind_empty(self):
         from worklog import cli as wl
-        assert wl._sched_kind("") is None
-        assert wl._sched_kind(None) is None
+        assert wl._sched_level("") is None
+        assert wl._sched_level(None) is None
 
     def test_sched_anchor_year(self):
         from worklog import cli as wl

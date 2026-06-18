@@ -24,7 +24,7 @@ def store(tmp_path, request):
 def _chunk(node_id, vec, *, title="t", status="TODO", priority="A",
            text="chunk text", kind="log", model="m", dim=2):
     return {"node_id": node_id, "title": title, "status": status, "priority": priority,
-            "model": model, "dim": dim, "vector": vec, "chunk_text": text, "chunk_kind": kind}
+            "model": model, "dim": dim, "vector": vec, "chunk_text": text, "chunk_field": kind}
 
 
 class TestBackendSelection:
@@ -61,7 +61,7 @@ class TestStore:
         rows = vs.load(store)
         assert len(rows) == 3
         n1 = [r for r in rows if r["node_id"] == 1]
-        assert {r["chunk_kind"] for r in n1} == {"head", "log"}
+        assert {r["chunk_field"] for r in n1} == {"head", "log"}
 
     def test_clear(self, store):
         vs.upsert(store, [_chunk(1, [1.0, 0.0])])
@@ -117,7 +117,7 @@ class TestMaxPoolSearch:
         assert hits[0]["node_id"] == 1
         assert hits[0]["score"] == pytest.approx(1.0, abs=1e-4)        # the log chunk, not diluted
         assert hits[0]["chunk_text"] == "the matching log"            # best chunk = the reason
-        assert hits[0]["chunk_kind"] == "log"
+        assert hits[0]["chunk_field"] == "log"
 
     def test_one_row_per_node(self, store):
         # three chunks for node 1, one for node 2 → exactly two node hits

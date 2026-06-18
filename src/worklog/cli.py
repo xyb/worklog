@@ -84,7 +84,7 @@ from .helpers import (
     _is_brief,
     _resolve_log_tail,
     _norm_sched,
-    _sched_kind,
+    _sched_level,
     _sched_anchor,
     _sched_sort_key,
     _sched_display,
