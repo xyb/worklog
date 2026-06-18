@@ -107,25 +107,24 @@ class TestGoalTargets:
 
 class TestGoalIdHint:
     """We never parse #ids from the prose into storage, but if the goal text NAMES live nodes that
-    aren't structured targets yet, we print TWO ready-to-run lines: append to the goal now, or the
-    one-shot form for next time."""
+    aren't structured targets yet, we print TWO ready-to-run commands, each alone on its own line
+    (copy-paste-able): set them on the goal now, or the one-shot form for next time."""
 
     def test_hint_offers_two_commands(self, cli, tmp_db):
         cli("add", "a")          # #1
         cli("add", "b")          # #2
         _, out, _ = cli("goal", "ship #1 and draft #2")
         assert "💡" in out
-        # the one-shot form (next time) — stable, copy-paste-runnable
-        assert 'next time: wl goal "ship #1 and draft #2" 1 2' in out
-        # the set-ids form references the real day node id + --ids
+        # each command on its own line (no label prefix) — copy-paste-runnable
+        assert '\n  wl goal "ship #1 and draft #2" 1 2' in out
         con = tmp_db.db_connect()
-        assert f"set ids:   wl goal set {_day_id(con)} --ids 1 2" in out
+        assert f'\n  wl goal set {_day_id(con)} --ids 1 2' in out
 
     def test_hint_only_for_unstructured_ids(self, cli):
         cli("add", "a")          # #1
         cli("add", "b")          # #2
         _, out, _ = cli("goal", "ship #1 and draft #2", "1")  # #1 already structured
-        assert 'next time: wl goal "ship #1 and draft #2" 2' in out  # only #2 suggested
+        assert '\n  wl goal "ship #1 and draft #2" 2' in out  # only #2 suggested
 
     def test_no_hint_when_all_structured(self, cli):
         cli("add", "a")          # #1
@@ -140,18 +139,19 @@ class TestGoalIdHint:
         assert f"wl goal set {_day_id(con)} --ids <id" in out
 
     def test_pr_and_dead_ids_get_only_the_generic_nudge(self, cli):
-        # PR#9 (glued) and #999 (dead) aren't real targets → no concrete "set ids:" suggestion,
+        # PR#9 (glued) and #999 (dead) aren't real targets → no concrete set-ids command,
         # but the goal has no targets so the generic nudge still shows
         _, out, _ = cli("goal", "merge PR#9 and ship #999")
-        assert "set ids:" not in out           # no concrete id suggested for PR#9/#999
-        assert "no target nodes" in out         # generic nudge instead
+        assert "set them on this goal" not in out   # no concrete id command for PR#9/#999
+        assert "no target nodes" in out             # generic nudge instead
 
     def test_hint_on_goal_set(self, cli):
         cli("add", "m", "--prop", "type.date=month")         # #1
         cli("add", "a")          # #2
         _, out, _ = cli("goal", "set", "1", "deliver #2")
-        assert 'next time: wl goal set 1 "deliver #2" 2' in out
-        assert "set ids:   wl goal set 1 --ids 2" in out
+        # each command alone on its own line (copy-paste-able)
+        assert '\n  wl goal set 1 "deliver #2" 2' in out
+        assert "\n  wl goal set 1 --ids 2" in out
 
     def test_no_hint_for_summary(self, cli):
         cli("add", "a")          # #1

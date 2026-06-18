@@ -85,12 +85,13 @@ def _goal_id_hint(con, body, already, set_stem, full_stem):
     if ids:
         shown = " ".join(f"#{i}" for i in ids)
         tail = " ".join(str(i) for i in ids)
-        out(_c(f"  💡 {shown} in the text aren't structured targets yet:", "meta"))
-        out(f"     set ids:   {set_stem} {tail}")
-        out(f"     next time: {full_stem} {tail}")
+        out(_c(f"  💡 {shown} in the text aren't structured targets yet — set them on this goal:", "meta"))
+        out(f"  {set_stem} {tail}")
+        out(_c("  (or include them inline next time:)", "meta"))
+        out(f"  {full_stem} {tail}")
     elif not already:
-        out(_c(f"  💡 no target nodes — link the goal to the tasks it delivers "
-               f"(priority order): {set_stem} <id…>", "meta"))
+        out(_c("  💡 no target nodes — link the goal to the tasks it delivers (priority order):", "meta"))
+        out(f"  {set_stem} <id…>")
 
 
 def cmd_goal(args, con):

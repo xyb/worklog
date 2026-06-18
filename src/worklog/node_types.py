@@ -129,14 +129,15 @@ def validate_prop(key, value):
     return value
 
 
-def existence_empty_hint(key, value):
+def existence_empty_hint(nid, key, value):
     """A custom ``type.<x>`` facet written with an empty value is allowed (it still works), but
     ``=true`` is the canonical existence marker — same as ``type.habit`` / ``type.meetlog``, which
-    auto-normalize to ``"true"``. Returns a one-line nudge for the command layer to surface on
-    stderr, or None. (Reserved keys never hit this: para/date reject an empty value, habit/meetlog
-    already became ``"true"``.)"""
+    auto-normalize to ``"true"``. Returns ``(explanation, command)`` for the command layer to print
+    on two lines (the command alone on its own line, copy-paste-ready), or None. (Reserved keys
+    never hit this: para/date reject an empty value, habit/meetlog already became ``"true"``.)"""
     if key.startswith(TYPE_NS) and key not in RESERVED_KEYS and value in (None, ""):
-        return f"`{key}` set with no value — existence facets are usually `{key}=true`"
+        return (f"`{key}` set with no value — existence facets are usually `true`; fix with:",
+                f"wl set {nid} {key} true")
     return None
 
 

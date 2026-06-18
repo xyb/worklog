@@ -223,9 +223,6 @@ def cmd_add(args, con):
                 # don't silently drop a conflicting earlier value (e.g. --proj X + --prop project=Y)
                 out(_c(f"⚠ {key}={val} overrides earlier {key}={props[key]}", "later"))
             props[key] = val
-            _h = _nt.existence_empty_hint(key, val)
-            if _h:
-                print(f"  tip: {_h}", file=sys.stderr)
     if args.deadline:
         deadline = args.deadline
     else:
@@ -301,6 +298,12 @@ def cmd_add(args, con):
         for r in similar[:5]:
             out("  " + _node_line(con, r, sched=True))
         out(_c("  if it's the same thing: wl sched <id> <day> to reschedule, or wl link / wl log it", "meta"))
+    # nudge (with a copy-paste fix on its own line) when a custom type.* facet was created empty
+    for _k, _v in props.items():
+        _h = _nt.existence_empty_hint(node_id, _k, _v)
+        if _h:
+            print(f"  tip: {_h[0]}", file=sys.stderr)
+            print(f"  {_h[1]}", file=sys.stderr)
 
 def cmd_log(args, con):
     _require_node(con, args.id)
@@ -603,9 +606,10 @@ def cmd_set(args, con):
         sys.exit(f"✗ {e}")
     con.commit()
     print(f"✓ #{args.id} {args.key}={args.value}")
-    _h = _nt.existence_empty_hint(args.key, args.value)
+    _h = _nt.existence_empty_hint(args.id, args.key, args.value)
     if _h:
-        print(f"  tip: {_h}", file=sys.stderr)
+        print(f"  tip: {_h[0]}", file=sys.stderr)
+        print(f"  {_h[1]}", file=sys.stderr)
 
 def cmd_tag(args, con):
     """Add/remove real tags on a node (the tag table): `wl tag <id> +work -planned`.

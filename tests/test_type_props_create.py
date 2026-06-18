@@ -99,16 +99,18 @@ class TestPropAtCreate:
         assert _props(tmp_db, 1)["type.habit"] == "true"
 
     def test_custom_type_empty_value_runs_but_hints_true(self, cli, tmp_db):
-        # a custom type.<x> with no value is allowed (stored as ""), but a stderr tip suggests =true
-        code, _, err = cli("add", "dinner", "--prop", "type.recipe")
+        # a custom type.<x> with no value is allowed (stored as ""), but a stderr tip gives a
+        # copy-paste fix command to set the canonical `true`
+        code, _, err = cli("add", "dinner", "--prop", "type.recipe")   # node #1
         assert code == 0 and _props(tmp_db, 1).get("type.recipe") == ""
-        assert "type.recipe=true" in err and "tip" in err
-        # reserved existence (type.habit) auto-normalizes → no tip; `wl set` hints the same
+        # command alone on its own line (copy-paste-able), separate from the explanation
+        assert "tip" in err and "\n  wl set 1 type.recipe true" in err
+        # reserved existence (type.habit) auto-normalizes → no tip; `wl set` hints the same way
         _, _, err2 = cli("add", "run", "--prop", "type.habit")
         assert "tip" not in err2
-        cli("add", "x")
+        cli("add", "x")                                                # node #3
         _, _, err3 = cli("set", "3", "type.pet", "")
-        assert "type.pet=true" in err3
+        assert "\n  wl set 3 type.pet true" in err3
 
     def test_prop_repeatable(self, cli, tmp_db):
         cli("add", "x", "--prop", "release=v0.7.0", "--prop", "type.meetlog=dating")
