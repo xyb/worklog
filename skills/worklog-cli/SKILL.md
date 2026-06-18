@@ -82,7 +82,7 @@ typical day-handling workflow → `references/bulk.md`.
 - **⚠️ Verify an id is a `wl` node before any mutating command.** A bare `#NNN` collides with the harness TaskList / session / Linear / PR id spaces — `wl show <id>` first, or you mutate the wrong node.
 - **⚠️ For dates near now, let `wl` read the clock — don't hand-type them** (an AI's "today" drifts to its session start). Today = bare `wl day`, set with `today`; nearby days = `yesterday`/`tomorrow` or signed deltas (`wl day -1`, `wl sched 42 +2`, `wl log 42 "..." --date -1`). Use `YYYY-MM-DD` only for a fixed/far date (run `date` first). Absolute dates in human-facing **text** still stay `YYYY-MM-DD`.
 - **No silent bulk delete / modification** — confirm with the user via `wl show <id>` before destructive changes
-- **Don't bypass `wl` and `sqlite3` the DB directly for writes** — the DB (default `~/.local/share/worklog/worklog.db`, or wherever `$WORKLOG_DB` / `--db PATH` points) is the source of truth; schema lives in `DESIGN.md`
+- **Never bypass `wl` to touch the DB directly — neither `sqlite3` reads nor writes.** `wl` is the only supported interface; for anything missing, add/extend a `wl` command rather than querying the file. The DB (default `~/.local/share/worklog/worklog.db`, or wherever `$WORKLOG_DB` / `--db PATH` points) is the source of truth; its schema is an internal detail, not a query surface.
 - **Don't run `wl reset`** (drops the DB) unless explicitly requested
 - Before any bulk write, **`--dry-run` first**, especially for update/delete
 

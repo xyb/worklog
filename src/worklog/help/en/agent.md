@@ -80,5 +80,4 @@ just burns tokens). `wl agent set` / `rm` delete that cache on every bind / rebi
 the next prompt re-fetches and re-injects. On the common (cached) path it spawns nothing.
 
 **Status line.** Pipe your status-line command's stdin JSON through `statusline-wl.sh`; it appends
-` 📌WL#<id>`. It calls `wl` per refresh (simple, dependency-light); for a faster segment, adapt
-that script to read the binding from the DB directly.
+` 📌WL#<id>` by calling `wl agent context` (simple, dependency-light — no direct DB access).

@@ -7,8 +7,8 @@
 #   input=$(cat)
 #   printf '%s' "$input" | sh ~/.claude/statusline-wl.sh    # → ' 📌WL#42'
 #
-# Note: this spawns `wl` (Python) per refresh — simplest + dependency-light. For a faster segment,
-# query the DB directly (see `wl help agent`). If `wl` isn't on PATH, set $WL_BIN.
+# Note: this spawns `wl` (Python) per refresh — simplest + dependency-light. If `wl` isn't on PATH,
+# set $WL_BIN.
 WL="${WL_BIN:-wl}"
 sid=$(cat | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
 [ -z "$sid" ] && exit 0
