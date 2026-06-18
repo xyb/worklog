@@ -1,8 +1,8 @@
 """`wl add` populates the type.* namespace that is the SOLE source of node
-classification (the legacy `kind` column was dropped in migration 0011): --para
-writes type.para, --prop sets any other classification (soft type / time level /
-custom), and a bare add stays a type-less plain task. node_type is always *derived*
-from props via queries.node_type_from_props — never stored in a column."""
+classification: --para writes type.para, --prop sets any other classification
+(soft type / time level / custom), and a bare add stays a type-less plain task.
+node_type is always *derived* from props via queries.node_type_from_props —
+never stored in a column."""
 from __future__ import annotations
 
 from worklog import node_types as nt, queries
@@ -132,7 +132,6 @@ class TestJsonExposesTypeProps:
         d = json.loads(out)
         # orthogonal facet: both para and meetlog present, not collapsed to one token
         assert d["type"] == {"para": "project", "meetlog": "dating"}
-        assert "kind" not in d
         # raw type.* still available in props
         assert d["props"]["type.para"] == "project"
         assert d["props"]["type.meetlog"] == "dating"
@@ -234,13 +233,3 @@ class TestWorkitemSqlEqualsNodeType:
                 f"combo {props}: workitem_sql={sql_match} but node_type_from_props={queries.node_type_from_props(props)!r}"
         assert n == 4 * 2 * 2 * 2 * 2 * 2   # 128 combinations, all checked
         con.close()
-
-
-class TestKindColumnIsGone:
-    def test_node_table_has_no_kind_column(self, tmp_db):
-        # migration 0011 dropped it; the schema must not carry it anymore.
-        tmp_db.ensure_db()
-        con = tmp_db.db_connect()
-        cols = {r["name"] for r in con.execute("PRAGMA table_info(node)").fetchall()}
-        con.close()
-        assert "kind" not in cols

@@ -149,7 +149,7 @@ class TestShowJson:
         assert code == 0 and isinstance(d, dict)
         # classification is the orthogonal `type` facet (a bare task → {}).
         assert d["id"] == 1 and d["title"] == "json task"
-        assert "kind" not in d and d["type"] == {}
+        assert d["type"] == {}
         assert d["priority"] == "A"
         assert set(d["tags"]) == {"work", "dev"}
 

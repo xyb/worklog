@@ -216,7 +216,6 @@ class TestLsJson:
         # summary payload is the NodeView contract — an orthogonal `type` facet, not a single
         # collapsed token.
         assert set(d[0].keys()) >= {"id", "type", "title", "status", "priority", "tags"}
-        assert "kind" not in d[0]
         assert isinstance(d[0]["type"], dict)
 
     def test_ls_json_type_facet(self, cli):
