@@ -11,7 +11,7 @@ def con():
     c = sqlite3.connect(":memory:")
     c.row_factory = sqlite3.Row
     c.execute("CREATE TABLE t (id INTEGER PRIMARY KEY AUTOINCREMENT, "
-              "name TEXT, kind TEXT, n INTEGER, parent INTEGER, deleted_at TEXT)")
+              "name TEXT, category TEXT, n INTEGER, parent INTEGER, deleted_at TEXT)")
     return c
 
 
@@ -79,17 +79,17 @@ class TestUpdate:
 
 class TestDelete:
     def test_delete_with_conds(self, con):
-        _seed(con, [{"name": "a", "kind": "x"}, {"name": "b", "kind": "x"}, {"name": "c", "kind": "y"}])
-        rc = dt.delete(con, "t", kind="x")
+        _seed(con, [{"name": "a", "category": "x"}, {"name": "b", "category": "x"}, {"name": "c", "category": "y"}])
+        rc = dt.delete(con, "t", category="x")
         assert rc == 2
-        assert dt.count(con, "t") == 1  # the two kind=x rows are tombstoned (hidden from reads)
+        assert dt.count(con, "t") == 1  # the two category=x rows are tombstoned (hidden from reads)
 
     def test_delete_without_conds_refused(self, con):
         with pytest.raises(ValueError):
             dt.delete(con, "t")
 
     def test_delete_is_soft_and_reversible(self, con):
-        dt.insert(con, "t", {"name": "a", "kind": "x"})
+        dt.insert(con, "t", {"name": "a", "category": "x"})
         dt.delete(con, "t", id=1)
         # row still physically present, just tombstoned — invisible to reads…
         assert dt.get(con, "t", 1) is None
@@ -124,18 +124,18 @@ class TestDelete:
 
 class TestQueryFilters:
     def test_eq_and_multiple_anded(self, con):
-        _seed(con, [{"name": "a", "kind": "task"}, {"name": "a", "kind": "habit"}])
-        rows = dt.query(con, "t", name="a", kind="task")
-        assert len(rows) == 1 and rows[0]["kind"] == "task"
+        _seed(con, [{"name": "a", "category": "task"}, {"name": "a", "category": "habit"}])
+        rows = dt.query(con, "t", name="a", category="task")
+        assert len(rows) == 1 and rows[0]["category"] == "task"
 
     def test_in(self, con):
-        _seed(con, [{"kind": "task"}, {"kind": "habit"}, {"kind": "meetlog"}])
-        rows = dt.query(con, "t", kind__in=["task", "habit"])
-        assert {r["kind"] for r in rows} == {"task", "habit"}
+        _seed(con, [{"category": "task"}, {"category": "habit"}, {"category": "meetlog"}])
+        rows = dt.query(con, "t", category__in=["task", "habit"])
+        assert {r["category"] for r in rows} == {"task", "habit"}
 
     def test_empty_in_matches_nothing(self, con):
-        _seed(con, [{"kind": "task"}])
-        assert dt.query(con, "t", kind__in=[]) == []
+        _seed(con, [{"category": "task"}])
+        assert dt.query(con, "t", category__in=[]) == []
 
     def test_none_eq_becomes_is_null(self, con):
         _seed(con, [{"name": "a", "parent": None}, {"name": "b", "parent": 5}])
@@ -174,8 +174,8 @@ class TestClause:
         assert dt.clause() == ([], [])
 
     def test_eq_and_ops(self):
-        frags, params = dt.clause(kind="task", status__ne="DONE", n__ge=3)
-        assert frags == ["kind = ?", "status != ?", "n >= ?"]
+        frags, params = dt.clause(category="task", status__ne="DONE", n__ge=3)
+        assert frags == ["category = ?", "status != ?", "n >= ?"]
         assert params == ["task", "DONE", 3]
 
     def test_in_and_null(self):
@@ -185,8 +185,8 @@ class TestClause:
 
     def test_composable_with_manual_fragments(self, con):
         # the intended use: helper conds + a hand-written subquery fragment
-        _seed(con, [{"name": "a", "kind": "task"}, {"name": "b", "kind": "habit"}])
-        frags, params = dt.clause(kind="task")
+        _seed(con, [{"name": "a", "category": "task"}, {"name": "b", "category": "habit"}])
+        frags, params = dt.clause(category="task")
         frags.append("name IN (SELECT name FROM t WHERE name = ?)")
         params.append("a")
         sql = "SELECT * FROM t WHERE " + " AND ".join(frags)
@@ -221,9 +221,9 @@ class TestConvenience:
         assert dt.exists(con, "t", name="zzz") is False
 
     def test_count(self, con):
-        _seed(con, [{"kind": "x"}, {"kind": "x"}, {"kind": "y"}])
+        _seed(con, [{"category": "x"}, {"category": "x"}, {"category": "y"}])
         assert dt.count(con, "t") == 3
-        assert dt.count(con, "t", kind="x") == 2
+        assert dt.count(con, "t", category="x") == 2
 
     def test_no_conds_finds_all(self, con):
         _seed(con, [{"name": "a"}, {"name": "b"}])

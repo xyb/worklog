@@ -13,7 +13,7 @@ selects an operator (`ge`/`le`/`gt`/`lt`/`ne`/`like`/`is`/`in`). `col=None`
 (and `col__ne=None`) become `IS NULL` / `IS NOT NULL` — never the always-false
 `= NULL`.
 
-    query(con, "node", parent_id=5, kind__in=["task", "habit"], order="id")
+    query(con, "node", parent_id=5, category__in=["task", "habit"], order="id")
     exists(con, "tag", node_id=n, tag=t)
     get(con, "node", 42)
 
@@ -80,7 +80,7 @@ def clause(**conds):
     conditions here — safe, no manual col / ? / param three-way alignment — then
     AND your own fragments onto the returned list. Returns (list[str], list).
 
-        frags, params = clause(kind="task", status__ne="DONE")
+        frags, params = clause(category="task", status__ne="DONE")
         frags.append("id IN (SELECT node_id FROM tag WHERE tag = ?)"); params.append(t)
         sql = "SELECT * FROM node" + (" WHERE " + " AND ".join(frags) if frags else "")
     """
