@@ -223,6 +223,9 @@ def cmd_add(args, con):
                 # don't silently drop a conflicting earlier value (e.g. --proj X + --prop project=Y)
                 out(_c(f"⚠ {key}={val} overrides earlier {key}={props[key]}", "later"))
             props[key] = val
+            _h = _nt.existence_empty_hint(key, val)
+            if _h:
+                print(f"  tip: {_h}", file=sys.stderr)
     if args.deadline:
         deadline = args.deadline
     else:
@@ -600,6 +603,9 @@ def cmd_set(args, con):
         sys.exit(f"✗ {e}")
     con.commit()
     print(f"✓ #{args.id} {args.key}={args.value}")
+    _h = _nt.existence_empty_hint(args.key, args.value)
+    if _h:
+        print(f"  tip: {_h}", file=sys.stderr)
 
 def cmd_tag(args, con):
     """Add/remove real tags on a node (the tag table): `wl tag <id> +work -planned`.
