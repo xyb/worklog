@@ -6,7 +6,6 @@ the optional 'semantic' extra). Both failure modes — backend unreachable, extr
 installed — are turned into a single clean `sys.exit` message here, never a traceback."""
 from __future__ import annotations
 
-import json
 import os
 import re
 import sys
@@ -20,6 +19,7 @@ from .. import render
 from ..render import _c, _node_line, _hl_terms, _detail_line, out
 from ..helpers import _truncate_log_body, _display_width
 from ..xdg import _resolve_vec_db_path
+from .output import _is_json, _emit_json
 
 # Batch bounds for embedding: a CHARACTER budget (≈ equal work / batch, the basis for an
 # even progress bar) plus a node cap (keeps a single request's payload reasonable).
@@ -376,7 +376,7 @@ def cmd_query(args, con):
         print(f"⚠ {n_unindexed} node(s) not indexed — run `wl reindex` (they match by keyword only, not meaning)",
               file=sys.stderr)
 
-    if getattr(args, "output", "text") == "json":
+    if _is_json(args):
         rows = []
         for nid in fused:
             n = _db.get(con, "node", nid)
@@ -386,7 +386,7 @@ def cmd_query(args, con):
             rows.append({"id": nid, "title": n["title"], "status": n["status"], "priority": n["priority"],
                          "score": round(h.get("score", 0.0), 4),
                          "matched_field": h.get("chunk_field", ""), "matched_text": h.get("chunk_text", "")})
-        print(json.dumps(rows, ensure_ascii=False, indent=2))
+        _emit_json(rows)
         return
 
     if not fused:

@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sqlite3
@@ -16,6 +15,7 @@ from .. import db_table as _db
 from .. import node_types as _nt
 from ..node_schema import node_view as _node_view, type_facet as _type_facet, SUMMARY as _SUMMARY, FULL as _FULL
 from .metric import _fmt_value, metric_rows
+from .output import _is_json, _emit_json
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
@@ -138,13 +138,12 @@ def _node_summary_dict(con, n):
 
 
 def _emit_nodes_json(con, rows):
-    import json
-    print(json.dumps([_node_summary_dict(con, n) for n in rows], ensure_ascii=False, indent=2))
+    _emit_json([_node_summary_dict(con, n) for n in rows])
 
 
 def cmd_show(args, con):
     ids = _ids_list(args)
-    if getattr(args, "output", "text") == "json":
+    if _is_json(args):
         # machine-readable: one object per id, an array when several were asked for
         nodes = []
         for nid in ids:
@@ -152,8 +151,7 @@ def cmd_show(args, con):
             if not n:
                 sys.exit(f"✗ node #{nid} not found")
             nodes.append(_node_to_dict(con, n))
-        import json
-        print(json.dumps(nodes[0] if len(nodes) == 1 else nodes, ensure_ascii=False, indent=2))
+        _emit_json(nodes[0] if len(nodes) == 1 else nodes)
         return
     # multiple ids: show each in turn, blank-line separated; same rendering
     for i, nid in enumerate(ids):
@@ -169,7 +167,7 @@ def _ls_ids(con, args):
         r = _db.get(con, "node", nid)
         if r:
             rows.append(r)
-    if getattr(args, "output", "text") == "json":
+    if _is_json(args):
         _emit_nodes_json(con, rows)   # empty list → [] (valid machine output)
         return
     if not rows:
@@ -262,7 +260,7 @@ def cmd_ls(args, con):
     nf = make_node_filter(con, args)
     if nf:
         rows = [n for n in rows if nf(n["id"])]
-    if getattr(args, "output", "text") == "json":
+    if _is_json(args):
         # machine output: honor an explicit --limit/--top, but skip the display-only default 20-cap
         if getattr(args, "limit", None) or getattr(args, "top", None):
             rows, _ = _apply_top_limit(rows, args)
@@ -539,7 +537,7 @@ def cmd_projects(args, con):
         proj_params,
     ).fetchall()
     if not projects:
-        print("[]" if getattr(args, "output", "text") == "json" else "(no active projects)")
+        print("[]" if _is_json(args) else "(no active projects)")
         return
 
     # collect per-project stats -> apply --since/--top/--limit -> render (text or json)
@@ -582,14 +580,13 @@ def cmd_projects(args, con):
 
     items, total_items = _apply_top_limit(items, args)
 
-    if getattr(args, "output", "text") == "json":
-        import json
-        print(json.dumps([
+    if _is_json(args):
+        _emit_json([
             {**_node_summary_dict(con, proj),
              "counts": {"done": done, "doing": doing, "pending": pending, "total": total},
              "latest_activity": recent}   # UTC instant (latest log / closed / created)
             for proj, done, doing, pending, total, recent in items
-        ], ensure_ascii=False, indent=2))
+        ])
         return
 
     _print_truncation_hint(len(items), total_items)
@@ -621,10 +618,9 @@ def cmd_types(args, con):
         by_key.setdefault(r["key"], []).append((r["value"], r["c"]))
     # type.* facets first (the classification), then date.* time values; alphabetical within each
     keys = sorted(by_key, key=lambda k: (0 if k.startswith("type.") else 1, k))
-    if getattr(args, "output", "text") == "json":
-        import json
-        print(json.dumps([{"key": k, "value": v, "count": c}
-                          for k in keys for v, c in by_key[k]], ensure_ascii=False, indent=2))
+    if _is_json(args):
+        _emit_json([{"key": k, "value": v, "count": c}
+                    for k in keys for v, c in by_key[k]])
         return
     if not keys:
         print("(no type.*/date.* props yet)")
@@ -654,8 +650,7 @@ def _list_vocab(con, table, col, *, output, style, sort_by_count=True):
     key = (lambda r: (-r["c"], str(r["v"]))) if sort_by_count else (lambda r: str(r["v"]))
     rows = sorted(rows, key=key)
     if output == "json":
-        import json
-        print(json.dumps([{col: r["v"], "count": r["c"]} for r in rows], ensure_ascii=False, indent=2))
+        _emit_json([{col: r["v"], "count": r["c"]} for r in rows])
         return
     if not rows:
         print("(none)")
@@ -779,8 +774,7 @@ def _emit_summary_json(con, b):
     added_open, pending, clock_min = b["added_open"], b["pending"], b["clock_min"]
     # machine view: window + totals + by-direction done counts + flat done/pending node lists
     # (group by parent/project from the summaries if needed; the text view does the grouping).
-    import json
-    print(json.dumps({
+    _emit_json({
         "since": since, "until": until,
         "totals": {"done": len(done), "doing": len(doing),
                    "added_open": len(added_open), "clock_min": clock_min},
@@ -788,7 +782,7 @@ def _emit_summary_json(con, b):
                          for d in ("work", "personal")},
         "done": [_node_summary_dict(con, n) for n in done],
         "pending": [_node_summary_dict(con, n) for n in pending],
-    }, ensure_ascii=False, indent=2))
+    })
 
 
 def _render_summary(con, args, b):
@@ -926,7 +920,7 @@ def _render_summary(con, args, b):
 def cmd_summary(args, con):
     """Time-window summary: aggregate counts + sliced by direction/project + completion list (input for weekly / monthly reports)."""
     b = _summary_buckets(con, args)
-    if getattr(args, "output", "text") == "json":
+    if _is_json(args):
         _emit_summary_json(con, b)
         return
     _render_summary(con, args, b)
@@ -1022,11 +1016,10 @@ def _render_logs(con, args, rows):
 
 def _emit_logs_json(rows):
     """`wl logs -o json`: one flat object per log row (empty window → [])."""
-    import json
-    print(json.dumps([
+    _emit_json([
         {"id": r["id"], "node_id": r["node_id"], "logged_at": r["logged_at"],
          "tag": r["tag"], "body": r["body"], "node_title": r["title"]}
-        for r in rows], ensure_ascii=False, indent=2))   # empty window → [] (valid output)
+        for r in rows])
 
 
 
@@ -1084,7 +1077,7 @@ def cmd_logs(args, con):
     if nf:
         rows = [r for r in rows if nf(r["node_id"])]
 
-    if getattr(args, "output", "text") == "json":
+    if _is_json(args):
         _emit_logs_json(rows)
         return
 

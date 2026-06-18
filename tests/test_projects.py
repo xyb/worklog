@@ -132,6 +132,20 @@ class TestVocabLists:
         _, out, _ = cli("tags", "-o", "json")
         assert {"tag": "work", "count": 1} in json.loads(out)
 
+    def test_props_json(self, cli):
+        cli("add", "a")
+        cli("set", "1", "owner", "xyb")
+        import json
+        _, out, _ = cli("props", "-o", "json")
+        assert {"key": "owner", "count": 1} in json.loads(out)
+
+    def test_metrics_json(self, cli):
+        cli("add", "a")
+        cli("log", "1", "x", "--metric", "pullups 8")
+        import json
+        _, out, _ = cli("metrics", "-o", "json")
+        assert {"tag": "pullups", "count": 1} in json.loads(out)
+
     def test_empty(self, cli):
         _, out, _ = cli("tags")
         assert "(none)" in out

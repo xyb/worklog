@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sqlite3
@@ -65,6 +64,7 @@ from ..queries import (
     _upsert_prop,
 )
 from .metric import _fmt_value, metric_rows
+from .output import _is_json, _emit_json
 from ..render import (
     _PRI_STYLE,
     _STATUS_STYLE,
@@ -95,7 +95,6 @@ def _emit_tree_json(con, args):
     `--root` → that subtree (default depth 3); else the top-level forest (default depth 2).
     Honors `--depth` and `--show-canceled`; ignores the text-view `--by` / tag/status filters
     (for filtered flat data use `wl ls -o json`)."""
-    import json
     inc_cancel = getattr(args, "show_canceled", False)
     if args.root is not None:
         root = _db.get(con, "node", args.root)
@@ -117,11 +116,11 @@ def _emit_tree_json(con, args):
             d["children"] = [node_json(c, depth + 1) for c in kids]
         return d
 
-    print(json.dumps([node_json(r, 0) for r in roots], ensure_ascii=False, indent=2))
+    _emit_json([node_json(r, 0) for r in roots])
 
 
 def cmd_tree(args, con):
-    if getattr(args, "output", "text") == "json":
+    if _is_json(args):
         _emit_tree_json(con, args)
         return
     # explicit --status overrides the default CANCELED hide so the filtered tree can
@@ -298,7 +297,6 @@ def _day_goals_dict(con, day):
 def _emit_day_json(con, target, day, items, sched_ids):
     """`wl day -o json`: the day's meta + the tasks active that day (each with its logs that day,
     planned flag, clock minutes) + the day's total clock. Machine view of `wl day`."""
-    import json
     tasks = []
     for nid, it in items.items():
         n = it["node"]
@@ -314,7 +312,7 @@ def _emit_day_json(con, target, day, items, sched_ids):
     clock_sec = con.execute(
         f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock "
         f"WHERE {_tu.local_day_sql('end_at')} = ? AND {_db.ALIVE}", (target,)).fetchone()["s"]
-    print(json.dumps({
+    _emit_json({
         "date": target,
         "weekday": _cn_weekday(target),
         "nature": _day_nature(con, target),
@@ -324,7 +322,7 @@ def _emit_day_json(con, target, day, items, sched_ids):
         **_day_goals_dict(con, day),
         "tasks": tasks,
         "clock_min_total": int(clock_sec / 60),
-    }, ensure_ascii=False, indent=2))
+    })
 
 
 def _emit_day_header(con, day, target):
@@ -420,7 +418,7 @@ def cmd_day(args, con):
     else:
         target = _tu.today()
     day = time_node_by_period(con, "day", target)
-    is_json = getattr(args, "output", "text") == "json"
+    is_json = _is_json(args)
     # header (date context + the day/week/month goal + recap cascade); json gathers these separately
     if not is_json:
         _emit_day_header(con, day, target)
