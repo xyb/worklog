@@ -1665,10 +1665,10 @@ More: `wl help logs` (vs `wl day` structured view / `wl show <id>` single-node t
     lg.add_argument("--limit", type=int, metavar="N",
                     help="show only the first N logs (for non --by-task cases, to prevent flooding)")
 
-    sub.add_parser("kinds", parents=[output_parent],
-        help="list the node kinds in use + a count of each (overview of what's in the DB)",
+    sub.add_parser("types", parents=[output_parent],
+        help="list the type.*/date.* classification props in use + counts (raw, grouped by key)",
         formatter_class=_WlHelpFormatter,
-        epilog="Like `wl projects` but for kinds. `-o json` for the machine list. Filter by role with `wl ls --para <role>`, or by classification prop with `wl ls --prop type.<x>` (e.g. type.meetlog / type.date=day).")
+        epilog="The raw classification vocabulary grouped by `type.*`/`date.*` key — no auto-mapping to a collapsed `kind`, so a node shows under every facet it carries. `-o json` for the machine list. Filter by role with `wl ls --para <role>`, or by classification prop with `wl ls --prop type.<x>`.")
 
     sub.add_parser("tags", parents=[output_parent],
         help="list every tag in use + a count of nodes carrying it",
@@ -1766,7 +1766,7 @@ from .commands import (
     _show_one,
     cmd_ls,
     cmd_projects,
-    cmd_kinds,
+    cmd_types,
     cmd_tags,
     cmd_props,
     cmd_metrics,
@@ -1871,7 +1871,7 @@ HANDLERS = {
     "ls": cmd_ls,
     "tree": cmd_tree,
     "projects": cmd_projects,
-    "kinds": cmd_kinds,
+    "types": cmd_types,
     "tags": cmd_tags,
     "props": cmd_props,
     "metrics": cmd_metrics,

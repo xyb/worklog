@@ -62,7 +62,7 @@ from .query import (
     cmd_descendants,
     cmd_agenda,
     cmd_projects,
-    cmd_kinds,
+    cmd_types,
     cmd_tags,
     cmd_props,
     cmd_metrics,

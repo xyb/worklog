@@ -70,22 +70,21 @@ class TestProjectsJson:
         assert json.loads(out) == []
 
 
-class TestKinds:
-    def test_kinds_lists_with_counts_in_canonical_order(self, cli):
-        cli("add", "t1"); cli("add", "t2")
+class TestTypes:
+    def test_types_groups_raw_facets_by_key(self, cli):
+        cli("add", "t1"); cli("add", "t2")   # bare tasks carry NO type.* prop → absent from output
         cli("add", "p", "--para", "project"); cli("add", "a", "--para", "area")
-        code, out, _ = cli("kinds")
+        code, out, _ = cli("types")
         assert code == 0
-        assert "task" in out and "2" in out and "project" in out and "area" in out
-        # canonical order: area (container) before task (leaf)
-        assert out.index("area") < out.index("task")
+        # raw type.para facet with per-value counts; no collapse, no auto-mapped "task" for bares
+        assert "type.para" in out and "project" in out and "area" in out
 
-    def test_kinds_json(self, cli):
-        cli("add", "t")
+    def test_types_json(self, cli):
+        cli("add", "p", "--para", "project")   # a bare task would have no facet → []
         import json
-        _, out, _ = cli("kinds", "-o", "json")
+        _, out, _ = cli("types", "-o", "json")
         d = json.loads(out)
-        assert {"kind": "task", "count": 1} in d
+        assert {"key": "type.para", "value": "project", "count": 1} in d
 
 
 class TestVocabLists:
@@ -122,10 +121,10 @@ class TestVocabLists:
         assert "(none)" in out
 
 
-class TestKindsEmpty:
-    def test_kinds_on_empty_db(self, cli):
-        code, out, _ = cli("kinds")
-        assert code == 0 and "no nodes yet" in out
+class TestTypesEmpty:
+    def test_types_on_empty_db(self, cli):
+        code, out, _ = cli("types")
+        assert code == 0 and "no type.*/date.* props yet" in out
 
 
 class TestProjectsLimitWindow:

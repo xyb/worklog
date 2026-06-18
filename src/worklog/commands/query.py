@@ -606,30 +606,37 @@ def cmd_projects(args, con):
         out(_c(f"#{proj['id']:<3d}", "id") + " " + pri + " " + _c(proj["title"], "header") + " — " + _c(stat, "meta"))
 
 
-# canonical display order for `wl kinds` (time hierarchy first, then containers, then leaves)
-_KIND_DISPLAY_ORDER = ["lifetime", "decade", "year", "quarter", "month", "week", "day",
-                       "area", "project", "task", "meetlog", "habit", "signal"]
-
-
-def cmd_kinds(args, con):
-    """List the node kinds in use + a live-node count for each — an overview of what's in the DB
-    (the `projects`-style list, but for kinds). Custom kinds sort after the known ones."""
-    # DERIVED kind per node (column-free): count legacy_kind(props) over all live nodes
-    from collections import Counter
-    counts = Counter(node_kind(con, r["id"])
-                     for r in _db.query(con, "node", cols="id"))
-    order = {k: i for i, k in enumerate(_KIND_DISPLAY_ORDER)}
-    rows = [{"kind": k, "c": c} for k, c in counts.items()]
-    rows = sorted(rows, key=lambda r: (order.get(r["kind"], len(order)), r["kind"]))
+def cmd_types(args, con):
+    """List the ``type.*`` / ``date.*`` classification props in use + counts — the RAW vocabulary
+    grouped by key, NOT collapsed into a single derived kind. Exposes the underlying namespaced
+    props directly (no auto-mapping): a node appears under every facet it carries, so the orthogonal
+    model is visible (a habit task counts under both ``type.para=task`` and ``type.habit``). WL#901."""
+    from collections import OrderedDict
+    rows = con.execute(
+        "SELECT key, value, COUNT(*) c FROM prop "
+        "WHERE deleted_at IS NULL AND (key LIKE 'type.%' OR key LIKE 'date.%') "
+        "GROUP BY key, value ORDER BY key, c DESC, value").fetchall()
+    by_key = OrderedDict()
+    for r in rows:
+        by_key.setdefault(r["key"], []).append((r["value"], r["c"]))
+    # type.* facets first (the classification), then date.* time values; alphabetical within each
+    keys = sorted(by_key, key=lambda k: (0 if k.startswith("type.") else 1, k))
     if getattr(args, "output", "text") == "json":
         import json
-        print(json.dumps([{"kind": r["kind"], "count": r["c"]} for r in rows], ensure_ascii=False, indent=2))
+        print(json.dumps([{"key": k, "value": v, "count": c}
+                          for k in keys for v, c in by_key[k]], ensure_ascii=False, indent=2))
         return
-    if not rows:
-        print("(no nodes yet)")
+    if not keys:
+        print("(no type.*/date.* props yet)")
         return
-    for r in rows:
-        out(_c(f"{r['kind']:9}", "kind") + " " + _c(str(r["c"]), "meta"))
+    for k in keys:
+        vs = by_key[k]
+        # date.period/start/end are high-cardinality time values — show the total, not every value
+        if k.startswith("date.") and len(vs) > 6:
+            body = f"{sum(c for _, c in vs)} ({len(vs)} distinct)"
+        else:
+            body = " · ".join(f"{v} {c}" for v, c in vs)
+        out(_c(f"{k:13}", "kind") + " " + _c(body, "meta"))
 
 
 def _list_vocab(con, table, col, *, output, style, sort_by_count=True):

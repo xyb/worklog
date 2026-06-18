@@ -177,9 +177,9 @@ class TestReadersAreColumnFree:
         # wl ls --para project filters correctly
         _, lsout, _ = cli("ls", "--para", "project")
         assert "Big Project" in lsout and "morning run" not in lsout
-        # wl kinds derives the counts from props
-        _, kout, _ = cli("kinds")
-        assert "project" in kout and "habit" in kout
+        # wl types exposes the raw type.* facets grouped by key (no collapse to a derived kind)
+        _, kout, _ = cli("types")
+        assert "type.para" in kout and "project" in kout and "type.habit" in kout
 
 
 class TestWorkitemMatchesLegacyKind:
