@@ -102,7 +102,7 @@ def _node_bucket(con, nid):
 def _node_project(con, nid):
     """Return the project ancestor (id, title) of a node, or (None, '(unassigned)') if none."""
     for p in _ancestors_chain(con, nid):
-        if node_kind(con, p) == "project":
+        if node_type(con, p) == "project":
             return p["id"], p["title"]
     return None, "(unassigned)"
 
@@ -166,7 +166,7 @@ def nodes_with_tag(con, tags, *, kinds=None, cols="*", order=None):
     if kinds is not None:
         # restrict by DERIVED kind (column-free): filter the id list, then read
         want = set(kinds)
-        ids = [i for i in ids if node_kind(con, i) in want]
+        ids = [i for i in ids if node_type(con, i) in want]
         if not ids:
             return []
     return _db.query(con, "node", cols=cols, order=order, id__in=ids)
@@ -525,7 +525,7 @@ def _prop_value(con, nid, key):
 
 def node_props(con, nid, *, include_deleted=False):
     """A node's props as a ``{key: value}`` dict — the read primitive behind the type.*
-    accessors (node_kind / role / time-level derivation). Live props only by default;
+    accessors (node_type / role / time-level derivation). Live props only by default;
     ``include_deleted=True`` also returns tombstoned prop rows (used when classifying a
     tombstoned node, whose props are tombstoned to match it)."""
     return {r["key"]: r["value"] for r in
@@ -588,11 +588,33 @@ def sync_time_node_dates(con, nid):
             _db.delete(con, "prop", node_id=nid, key=key)
 
 
-def node_kind(con, n):
-    """The node's legacy ``kind`` label derived from its type.* props (DESIGN: the kind column
-    is being phased out; readers derive the token from props). ``n`` is a node row or an id."""
+def node_type_from_props(props) -> str:
+    """Derive a node's single representative type token from its orthogonal ``type.*`` props — the
+    bridge for the (few) internal paths + the display tag that still want one label while the
+    orthogonal model is the source of truth. Precedence: a PARA role, else a time level, else a
+    soft type (habit/meetlog), else a custom ``type.<x>``, else a bare ``task``. Pure (props in,
+    token out); the data-layer home for the single-token type derivation that used to live in node_types (kept out of the pure
+    types module so that module stays purely orthogonal accessors)."""
+    if _nt.K_PARA in props:
+        return props[_nt.K_PARA]
+    if _nt.K_DATE in props:
+        return props[_nt.K_DATE]
+    if _nt.K_HABIT in props:
+        return "habit"
+    if _nt.K_MEETLOG in props:
+        return "meetlog"
+    # a custom classification carried as a generic type.<x> existence prop (e.g. `--prop type.recipe`)
+    for k in sorted(props):
+        if k.startswith(_nt.TYPE_NS) and k not in _nt.RESERVED_KEYS and len(k) > len(_nt.TYPE_NS):
+            return k[len(_nt.TYPE_NS):]   # non-empty suffix only (a bare "type." is not a type)
+    return "task"
+
+
+def node_type(con, n):
+    """The node's single representative type token, derived from its ``type.*`` props (the kind
+    column is gone; readers derive the token). ``n`` is a node row or an id."""
     nid = n if isinstance(n, int) else n["id"]
-    return _nt.legacy_kind(node_props(con, nid))
+    return node_type_from_props(node_props(con, nid))
 
 
 def nodes_with_type(con, key, value=None, *, cols="*", order=None):
@@ -629,8 +651,8 @@ def node_has_type(con, nid, key, value=None):
 def workitem_sql(alias="n"):
     """SQL predicate: the node (table aliased ``alias``) has DERIVED kind task/habit/meetlog — an
     actionable work item — expressed purely from type.* props (column-free). Must match
-    node_types.legacy_kind's precedence (para > date > habit > meetlog > custom > task) exactly,
-    so it equals ``legacy_kind(props) IN ('task','habit','meetlog')``: a node is a work item iff
+    node_types.node_type_from_props's precedence (para > date > habit > meetlog > custom > task) exactly,
+    so it equals ``node_type_from_props(props) IN ('task','habit','meetlog')``: a node is a work item iff
     its type.para is 'task' (the role wins regardless of any other dim), OR it has no para AND no
     time level AND no custom type.<x> (a bare node, or a pure habit/meetlog — those reserved keys
     aren't the 'custom' the last clause excludes)."""
@@ -641,11 +663,11 @@ def workitem_sql(alias="n"):
     has_date = _ex("key='type.date'")
     has_habit = _ex("key='type.habit'")
     has_meetlog = _ex("key='type.meetlog'")
-    # length(key) > 5 mirrors legacy_kind's `len(k) > len(TYPE_NS)` guard: a bare 'type.' key
+    # length(key) > 5 mirrors node_type_from_props's `len(k) > len(TYPE_NS)` guard: a bare 'type.' key
     # (empty suffix) is NOT a custom kind, so it must not exclude the node from the work-item set.
     has_custom = _ex("key LIKE 'type.%' AND length(key) > 5 "
                      "AND key NOT IN ('type.para','type.date','type.habit','type.meetlog')")
-    # legacy_kind precedence para > date > habit > meetlog > custom > task, restricted to the
+    # node_type_from_props precedence para > date > habit > meetlog > custom > task, restricted to the
     # task/habit/meetlog set: type.para='task' (role wins outright), OR — with no para and no time
     # level — a habit, a meetlog, or a bare node (no custom type.<x>). habit/meetlog outrank a
     # co-present custom type.<x>, so they stay in the set even when a custom prop also exists.

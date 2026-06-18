@@ -14,7 +14,7 @@ def _restore_legacy_kind_column(tmp_db, con):
     con.execute("ALTER TABLE node ADD COLUMN kind TEXT")
     for (nid,) in con.execute("SELECT id FROM node").fetchall():
         con.execute("UPDATE node SET kind=? WHERE id=?",
-                    (nt.legacy_kind(queries.node_props(con, nid)), nid))
+                    (queries.node_type_from_props(queries.node_props(con, nid)), nid))
     con.commit()
 
 

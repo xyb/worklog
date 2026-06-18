@@ -234,7 +234,7 @@ class TestMigrateAndVerify:
         from worklog import node_types as nt, queries
         for n in _db.query(con, "node", cols="id, kind"):
             if n["kind"] in nt.KNOWN_KINDS:
-                assert nt.legacy_kind(queries.node_props(con, n["id"])) == n["kind"]
+                assert queries.node_type_from_props(queries.node_props(con, n["id"])) == n["kind"]
         con.close()
 
     def test_period_loss_is_surfaced(self, tmp_path):

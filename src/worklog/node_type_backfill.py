@@ -20,7 +20,7 @@ import re
 
 from . import db_table as _db
 from . import node_types as _nt
-from .queries import _upsert_prop, node_props
+from .queries import _upsert_prop, node_props, node_type_from_props
 
 # pull a canonical period token out of a (possibly decorated, e.g. "2026 年") legacy title
 _PERIOD_EXTRACT = {
@@ -102,7 +102,7 @@ def backfill_node_types(con, commit=True):
 def snapshot_kinds(con):
     """``{node_id: kind}`` for every node (live + tombstoned), read from the kind column. Capture
     this BEFORE backfill so verify_roundtrip compares the derived kind against the ORIGINAL one
-    (backfill writes type.* props, which changes what legacy_kind derives; pinning the pre-backfill
+    (backfill writes type.* props, which changes what node_type_from_props derives; pinning the pre-backfill
     truth also guards a node that entered backfill carrying a conflicting reserved prop). NOTE:
     this SELECTs ``node.kind`` — valid ONLY on a pre-0011 (v10) DB, e.g. inside migration 0011 or
     its tests; never on a migrated v11 DB, where the column has been dropped."""
@@ -135,7 +135,7 @@ def verify_roundtrip(con, original_kinds=None):
         # LIVE props (exactly what the renderers see — a tombstoned prop on a live node must NOT
         # count, or verify would give false safety); a tombstoned node by its tombstoned props.
         props = node_props(con, n["id"], include_deleted=n["deleted_at"] is not None)
-        derived = _nt.legacy_kind(props)
+        derived = node_type_from_props(props)
         if derived != orig:
             (mismatches if orig in _nt.KNOWN_KINDS else retired).append(
                 (n["id"], orig, derived) if orig in _nt.KNOWN_KINDS else (n["id"], orig))

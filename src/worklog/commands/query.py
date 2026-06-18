@@ -42,7 +42,7 @@ from ..queries import (
     _check_ids_exist,
     _collect_descendants,
     _has_tag,
-    node_kind,
+    node_type,
     node_props,
     nodes_with_type,
     workitem_sql,
@@ -387,13 +387,13 @@ def cmd_focus(args, con):
     # self
     mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
     pri = _pri_marker(n["priority"]) + " "
-    out("▶ focus " + mk + " " + _c(f"#{n['id']}", "id") + " " + pri + _c(f"[{node_kind(con, n)}]", "kind") + " " + _c(n["title"], "header"))
+    out("▶ focus " + mk + " " + _c(f"#{n['id']}", "id") + " " + pri + _c(f"[{node_type(con, n)}]", "kind") + " " + _c(n["title"], "header"))
 
     # downstream subtree. A day node has no real parent_id children — its
     # "contents" are that day's log activity, exactly like `wl tree` / `wl day`.
     # Expand it the same way so focusing a day shows everything done that day,
     # not just the few nodes whose parent_id happens to be the day.
-    if node_kind(con, n) == "day":
+    if node_type(con, n) == "day":
         out(_c("downstream (day activity):", "meta"))
         _print_day_activity(con, n, depth=0, max_depth=args.depth)
         children = []  # for the related-section exclude set below
@@ -438,7 +438,7 @@ def cmd_ancestors(args, con):
     for depth, node in enumerate(chain):
         indent = "  " * depth
         arrow = "▶ " if node["id"] == args.id else ""
-        out(f"{indent}{arrow}" + _c(f"#{node['id']}", "id") + " " + _c(f"[{node_kind(con, node)}]", "kind") + " " + _c(node["title"], "header" if node["id"] == args.id else None))
+        out(f"{indent}{arrow}" + _c(f"#{node['id']}", "id") + " " + _c(f"[{node_type(con, node)}]", "kind") + " " + _c(node["title"], "header" if node["id"] == args.id else None))
 
 def cmd_descendants(args, con):
     """Show only the downstream subtree (node -> all descendants)."""
@@ -1136,7 +1136,7 @@ def _next_sched_fire(rules, start):
 def _show_detail(con, args, n):
     """`wl show` static detail block: header, status, ancestors, dates, body, tags, props (+ the
     nested relation sub-block), links, schedule, and direct children."""
-    out(_c(f"#{n['id']}", "id") + " " + _c(f"[{node_kind(con, n)}]", "kind") + " " + _c(n["title"], "header"))
+    out(_c(f"#{n['id']}", "id") + " " + _c(f"[{node_type(con, n)}]", "kind") + " " + _c(n["title"], "header"))
     if n["status"]:
         st = _c(n["status"], _STATUS_STYLE.get(n["status"], "todo"))
         pr = " " + (_pri_marker(n["priority"]))

@@ -2,7 +2,7 @@
 classification (the legacy `kind` column was dropped in migration 0011): --para
 writes type.para, --prop sets any other classification (soft type / time level /
 custom), and a bare add stays a type-less plain task. Kind is always *derived* from
-props via node_types.legacy_kind — never stored in a column."""
+props via queries.node_type_from_props — never stored in a column."""
 from __future__ import annotations
 
 from worklog import node_types as nt, queries
@@ -19,7 +19,7 @@ def _props(tmp_db, nid):
 def _kind(tmp_db, nid):
     """The node's DERIVED kind (column-free) — what every reader now uses."""
     con = tmp_db.db_connect()
-    k = nt.legacy_kind(queries.node_props(con, nid))
+    k = queries.node_type_from_props(queries.node_props(con, nid))
     con.close()
     return k
 
@@ -184,7 +184,7 @@ class TestReadersAreColumnFree:
 
 class TestWorkitemMatchesLegacyKind:
     def test_para_task_with_date_is_still_a_workitem(self, tmp_db):
-        # a node with BOTH type.para=task and type.date=day: legacy_kind='task' (para wins),
+        # a node with BOTH type.para=task and type.date=day: node_type_from_props='task' (para wins),
         # so workitem_sql MUST include it too (the divergence fix).
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         from worklog import db_table as _db, timeutil as _tu, queries, node_types as nt
@@ -193,16 +193,16 @@ class TestWorkitemMatchesLegacyKind:
         queries._upsert_prop(con, nid, "type.date", "day")
         con.commit()
         props = queries.node_props(con, nid)
-        assert nt.legacy_kind(props) == "task"
+        assert queries.node_type_from_props(props) == "task"
         row = con.execute(
             f"SELECT 1 FROM node n WHERE n.id=? AND ({queries.workitem_sql('n')})", (nid,)).fetchone()
-        assert row is not None      # workitem_sql agrees with legacy_kind — no split-brain
+        assert row is not None      # workitem_sql agrees with node_type_from_props — no split-brain
         con.close()
 
 
 class TestWorkitemSqlEqualsLegacyKind:
     """Drift guard (root fix for the recurring SQL-vs-Python divergence): workitem_sql must equal
-    legacy_kind(props) IN (task,habit,meetlog) for EVERY combination of the classification keys —
+    node_type_from_props(props) IN (task,habit,meetlog) for EVERY combination of the classification keys —
     exhaustively, so no future edge combo (para+date, habit+custom, bare 'type.', …) can escape."""
 
     def test_equivalence_exhaustive(self, tmp_db):
@@ -229,9 +229,9 @@ class TestWorkitemSqlEqualsLegacyKind:
             con.commit()
             sql_match = con.execute(
                 f"SELECT 1 FROM node n WHERE n.id=? AND ({queries.workitem_sql('n')})", (nid,)).fetchone() is not None
-            py_match = nt.legacy_kind(props) in ("task", "habit", "meetlog")
+            py_match = queries.node_type_from_props(props) in ("task", "habit", "meetlog")
             assert sql_match == py_match, \
-                f"combo {props}: workitem_sql={sql_match} but legacy_kind={nt.legacy_kind(props)!r}"
+                f"combo {props}: workitem_sql={sql_match} but node_type_from_props={queries.node_type_from_props(props)!r}"
         assert n == 4 * 2 * 2 * 2 * 2 * 2   # 128 combinations, all checked
         con.close()
 

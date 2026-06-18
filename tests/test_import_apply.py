@@ -131,7 +131,7 @@ class TestApply:
         assert code == 0
         con = tmp_db.db_connect()
         nid = con.execute("SELECT id FROM node WHERE title='new-thing'").fetchone()["id"]
-        assert nt.legacy_kind(queries.node_props(con, nid)) == "project"
+        assert queries.node_type_from_props(queries.node_props(con, nid)) == "project"
         con.close()
 
     def test_apply_add_with_type_date_prop_completes_period(self, cli, tmp_db):

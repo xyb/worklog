@@ -5,7 +5,7 @@ from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
 from .metric import checkin_metric
-from ..queries import _has_checkin, _insert_log, node_kind
+from ..queries import _has_checkin, _insert_log, node_type
 from ..render import _c, out
 from .views import _scheduled_node_ids
 
@@ -65,7 +65,7 @@ def _checkin_collect(con, args):
         n = _db.get(con, "node", nid)
         if not n:
             continue
-        nk = node_kind(con, n)
+        nk = node_type(con, n)
         if nk not in kinds:
             continue
         if n["status"] == "CANCELED" and not getattr(args, "show_canceled", False):

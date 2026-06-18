@@ -58,7 +58,7 @@ class TestNodeEdit:
         r = con.execute("SELECT body, deadline_date FROM node WHERE id=1").fetchone()
         assert (r["body"], r["deadline_date"]) == ("b", "2026-06-30")
         from worklog import node_types as nt, queries
-        assert nt.legacy_kind(queries.node_props(con, 1)) == "habit"
+        assert queries.node_type_from_props(queries.node_props(con, 1)) == "habit"
         con.close()
         cli("node", "edit", "1", "--deadline", "")  # clear deadline
         con = tmp_db.db_connect()

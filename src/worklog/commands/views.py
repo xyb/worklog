@@ -41,7 +41,7 @@ from ..queries import (
     _check_ids_exist,
     _collect_descendants,
     _has_tag,
-    node_kind,
+    node_type,
     node_props,
     nodes_with_type,
     time_node_by_period,
@@ -283,12 +283,12 @@ def _day_goals_dict(con, day):
         d["summary"] = s["body"]
         d["summary_at"] = s["logged_at"]   # UTC instant
     wk = _db.get(con, "node", day["parent_id"]) if day["parent_id"] else None
-    if wk and node_kind(con, wk) == "week":
+    if wk and node_type(con, wk) == "week":
         wg = _latest_typed_log(con, wk["id"], "goal")
         if wg and wg["body"]:
             d["week_goal"] = wg["body"]
         mo = _db.get(con, "node", wk["parent_id"]) if wk["parent_id"] else None
-        if mo and node_kind(con, mo) == "month":
+        if mo and node_type(con, mo) == "month":
             mg = _latest_typed_log(con, mo["id"], "goal")
             if mg and mg["body"]:
                 d["month_goal"] = mg["body"]
@@ -362,14 +362,14 @@ def _emit_day_header(con, day, target):
                 out(_c(f"  > ⚠ {newer} change(s) after recap; consider rewriting via wl recap", "doing"))
     # the week's and month's goal — same `goal` tag on the ancestor week / month node
     wk = _db.get(con, "node", day["parent_id"]) if day["parent_id"] else None
-    if wk and node_kind(con, wk) == "week":
+    if wk and node_type(con, wk) == "week":
         wg = _latest_typed_log(con, wk["id"], "goal")
         if wg and wg["body"]:
             out(_c(_header_blockquote(wg["body"], _DAY_MARKERS["week"]), "meta")
                 + _c(_goal_progress(con, wk["id"], wg["body"]), "meta"))
             _emit_goal_targets(con, wk["id"])
         mo = _db.get(con, "node", wk["parent_id"]) if wk["parent_id"] else None
-        if mo and node_kind(con, mo) == "month":
+        if mo and node_type(con, mo) == "month":
             mg = _latest_typed_log(con, mo["id"], "goal")
             if mg and mg["body"]:
                 out(_c(_header_blockquote(mg["body"], _DAY_MARKERS["month"]), "meta")
@@ -402,7 +402,7 @@ def _collect_day_items(con, target, inc_cancel):
     for nid in sched_ids:
         if nid not in items:
             nr = _db.query_one(con, "node", cols="id AS node_id, title, status, priority", id=nid)
-            if nr and node_kind(con, nid) in ("task", "habit", "meetlog"):
+            if nr and node_type(con, nid) in ("task", "habit", "meetlog"):
                 if not inc_cancel and nr["status"] == "CANCELED":
                     continue
                 items[nid] = {"node": nr, "logs": []}
@@ -602,7 +602,7 @@ def _tree_children(con, node, include_canceled=False):
     rows = list(con.execute(sql, sql_params))
 
     def key(r):
-        if node_kind(con, r) in _TIME_KINDS:
+        if node_type(con, r) in _TIME_KINDS:
             return (0, r["title"], 0)
         pr = {"A": 0, "B": 1, "C": 2}.get(r["priority"], 3)
         return (1, pr, r["id"])
@@ -620,7 +620,7 @@ def _pinned_at(con, node):
     parent_id tree, not under the time node, so tree / focus on the time node would
     otherwise miss them — which led to creating duplicates when checking 'is anything
     already scheduled this month'. Returns [] for non-time / day nodes."""
-    if node_kind(con, node) not in _FUZZY_TIME_KINDS:
+    if node_type(con, node) not in _FUZZY_TIME_KINDS:
         return []
     return _db.query(con, "node", scheduled_date=node["title"], order="priority NULLS LAST, id")
 
@@ -629,7 +629,7 @@ def _print_tree(con, node, depth, max_depth, *, include_canceled=False, log_tail
     out(_node_line(con, node, indent="  " * depth, sched=True))
     if max_depth is not None and depth >= max_depth:
         return
-    if node_kind(con, node) == "day":  # day has no real children (empty); expand today's log activity instead
+    if node_type(con, node) == "day":  # day has no real children (empty); expand today's log activity instead
         _print_day_activity(con, node, depth, max_depth,
                             include_canceled=include_canceled, log_tail=log_tail, full=full)
         return
@@ -673,7 +673,7 @@ def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log
     if root_node is not None:
         for tnid in universe:
             tn = _db.get(con, "node", tnid)
-            if not tn or node_kind(con, tn) not in _FUZZY_TIME_KINDS:
+            if not tn or node_type(con, tn) not in _FUZZY_TIME_KINDS:
                 continue
             matched = [p for p in _pinned_at(con, tn)
                        if (include_canceled or p["status"] != "CANCELED") and nf(p["id"])]
@@ -737,7 +737,7 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
     ind = "  " * (depth + 1)
     for nid, t in tasks.items():
         n = t["r"]
-        is_habit = node_kind(con, nid) == "habit"
+        is_habit = node_type(con, nid) == "habit"
         # habit done today = has a structured check-in metric that day (not "any log")
         done = is_habit and _has_checkin(con, nid, target)
         mh = mh_plain = ""
@@ -797,7 +797,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
     today = _tu.today()
     dayn = time_node_by_period(con, "day", today)
     if dayn:
-        chain = [n for n in _ancestors_chain(con, dayn["id"]) if node_kind(con, n) != "lifetime"]
+        chain = [n for n in _ancestors_chain(con, dayn["id"]) if node_type(con, n) != "lifetime"]
         for d, n in enumerate(chain):
             out(_node_line(con, n, indent="  " * (base + d), sched=True))
         # today: only tasks, no log expansion (logs are for drill-down: wl day / wl tree --root <day> --depth big)
@@ -812,7 +812,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
     # areas one level only (no project expansion)
     if life:
         for a in _tree_children(con, life, include_canceled=include_canceled):
-            if node_kind(con, a) == "area":
+            if node_type(con, a) == "area":
                 out(_node_line(con, a, indent="  " * base, sched=True))
 
 def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=None, full=False, day=None):
@@ -841,7 +841,7 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
             for nid, it in g["tasks"].items():
                 n = it["node"]
                 logs = it["logs"]
-                nk_habit = node_kind(con, nid) == "habit"
+                nk_habit = node_type(con, nid) == "habit"
                 # habit done today = has a structured check-in metric that day (not "any log")
                 done = nk_habit and day and _has_checkin(con, nid, day)
                 hint = hint_plain = ""

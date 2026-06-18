@@ -33,11 +33,11 @@ class TestGoalRecapTick:
             (today.isoformat() + "%",)).fetchone()
         assert day["parent_id"] is not None, "day dangled with no parent"
         from worklog import cli as wl
-        kinds = [nt.legacy_kind(queries.node_props(con, n["id"])) for n in wl._ancestors_chain(con, day["id"])]
+        kinds = [queries.node_type_from_props(queries.node_props(con, n["id"])) for n in wl._ancestors_chain(con, day["id"])]
         for k in ("year", "quarter", "month", "week"):
             assert k in kinds, f"time ancestor '{k}' missing from chain {kinds}"
         # day's direct parent is the week
-        assert nt.legacy_kind(queries.node_props(con, day["parent_id"])) == "week"
+        assert queries.node_type_from_props(queries.node_props(con, day["parent_id"])) == "week"
 
     def test_auto_day_reuses_existing_year_any_title_style(self, cli, tmp_db):
         """Lenient year lookup: an existing year titled 'YYYY 年' (or any 'YYYY…') is

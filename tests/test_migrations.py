@@ -548,8 +548,8 @@ class TestMigration0011DropKind:
         assert db.db_version(con) == 11
         pid = con.execute("SELECT id FROM node WHERE title='Site'").fetchone()["id"]
         wid = con.execute("SELECT id FROM node WHERE title='2026-W01'").fetchone()["id"]
-        assert nt.legacy_kind(queries.node_props(con, pid)) == "project"   # derived from type.para
-        assert nt.legacy_kind(queries.node_props(con, wid)) == "week"      # derived from type.date
+        assert queries.node_type_from_props(queries.node_props(con, pid)) == "project"   # derived from type.para
+        assert queries.node_type_from_props(queries.node_props(con, wid)) == "week"      # derived from type.date
         con.close()
 
     def test_aborts_and_keeps_kind_on_roundtrip_failure(self, tmp_path):

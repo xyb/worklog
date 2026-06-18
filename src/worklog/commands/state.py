@@ -53,7 +53,8 @@ from ..queries import (
     _sec_group,
     _status_filter_sql,
     _upsert_prop,
-    node_kind,
+    node_type,
+    node_type_from_props,
     sync_time_node_dates,
     _strip_wikilink,
     _upsert_link,
@@ -233,15 +234,15 @@ def cmd_add(args, con):
     _eff = dict(props)
     if para:
         _eff[_nt.K_PARA] = para
-    derived_kind = _nt.legacy_kind(_eff)
+    derived_type = node_type_from_props(_eff)
     # Default a work item (task / habit) to TODO — but NOT a time node / meetlog / area / project.
     status = args.status
-    if not status and derived_kind in ("task", "habit"):
+    if not status and derived_type in ("task", "habit"):
         status = "TODO"
     # Duplicate check (warn only, never block): a related open task/project may already exist,
     # pinned at @month/@someday and easy to miss. Probe with the DERIVED kind so a date/meetlog
     # add isn't searched as a task. Run before insert so the new node can't match itself.
-    similar = _find_similar_open(con, args.title, derived_kind)
+    similar = _find_similar_open(con, args.title, derived_type)
     # --done overrides status directly (one-shot retrospective entry)
     if getattr(args, "done", False):
         status = "DONE"
@@ -288,12 +289,12 @@ def cmd_add(args, con):
     con.commit()
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
     # echo the node's DERIVED kind (post --prop) so a `--prop type.habit` add reports "habit", not "task"
-    echo_kind = node_kind(con, node_id)
-    out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{echo_kind} '{args.title}'")
+    echo_type = node_type(con, node_id)
+    out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{echo_type} '{args.title}'")
         + st + sched_hint + link_hint + rel_hint + log_hint + metric_hint
         + _c(f"  @{_tu.local_now()[:16]}", "meta"))   # stamp "now" so the caller (esp. an AI) sees the real current time
     if similar:
-        out(_c(f"⚠ {len(similar)} similar open {echo_kind}(s) already exist — reuse instead of duplicating?", "later"))
+        out(_c(f"⚠ {len(similar)} similar open {echo_type}(s) already exist — reuse instead of duplicating?", "later"))
         for r in similar[:5]:
             out("  " + _node_line(con, r, sched=True))
         out(_c("  if it's the same thing: wl sched <id> <day> to reschedule, or wl link / wl log it", "meta"))
@@ -1116,7 +1117,7 @@ def cmd_node_edit(args, con):
         changes["para"] = para
         # The type.* model is orthogonal, so --para does NOT auto-clear a node's OTHER
         # classification (type.date / type.habit / type.meetlog) — but a node that is e.g. a
-        # meetlog AND now type.para=project reads inconsistently (legacy_kind shows the role by
+        # meetlog AND now type.para=project reads inconsistently (node_type_from_props shows the role by
         # precedence, yet `--prop type.meetlog` / checkin still match it). Surface it so the user
         # can clear the stale one with `wl prop rm` rather than silently leaving a hybrid.
         _LABELS = {_nt.K_DATE: "type.date", _nt.K_HABIT: "type.habit", _nt.K_MEETLOG: "type.meetlog"}
@@ -1162,8 +1163,8 @@ def cmd_prop_rm(args, con):
         # a structural classification key just changed what this node IS — surface it (non-blocking),
         # since removing e.g. type.para demotes a project to a bare task, or type.date un-places a
         # time node. Hint to stderr so stdout/JSON stays clean.
-        new_kind = node_kind(con, args.id)
-        print(f"⚠ #{args.id} is now '{new_kind}' (removing '{key}' changed its classification)",
+        new_type = node_type(con, args.id)
+        print(f"⚠ #{args.id} is now '{new_type}' (removing '{key}' changed its classification)",
               file=sys.stderr)
     con.commit()
     out(_c(f"✓ #{args.id} prop '{key}' removed" if n else f"(#{args.id} has no prop '{key}')", "meta"))

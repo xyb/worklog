@@ -20,7 +20,7 @@ class TestAdd:
         cli("add", "test project", "--para", "project", "-p", "A", "-t", "work")
         con = tmp_db.db_connect()
         row = con.execute("SELECT * FROM node WHERE id=1").fetchone()
-        assert nt.legacy_kind(queries.node_props(con, 1)) == "project"
+        assert queries.node_type_from_props(queries.node_props(con, 1)) == "project"
         assert row["priority"] == "A"
 
     def test_add_time_hierarchy(self, cli, tmp_db):
@@ -35,7 +35,7 @@ class TestAdd:
         from worklog import node_types as nt, queries
         con = tmp_db.db_connect()
         for nid, kind in [(1, "lifetime"), (2, "year"), (3, "quarter"), (4, "month"), (5, "week"), (6, "day")]:
-            assert nt.legacy_kind(queries.node_props(con, nid)) == kind
+            assert queries.node_type_from_props(queries.node_props(con, nid)) == kind
 
         # tree path
         path = con.execute("SELECT label FROM v_node_path WHERE id=6").fetchone()

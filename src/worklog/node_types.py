@@ -241,28 +241,6 @@ def type_props(props) -> dict:
     return {k: v for k, v in props.items() if k.startswith("type.")}
 
 
-def legacy_kind(props) -> str:
-    """Derive the single legacy ``kind`` label from a node's type.* props — the bridge for
-    the (few) paths that still want one token (sort order, the title-line tag, the retiring
-    ``kind`` JSON field) while the column is phased out. Precedence mirrors how the old
-    mutually-exclusive kind was assigned: a PARA role, else a time level, else a soft type,
-    else a bare ``task``. Kept here so the mapping has one definition."""
-    if K_PARA in props:
-        return props[K_PARA]
-    if K_DATE in props:
-        return props[K_DATE]
-    if K_HABIT in props:
-        return "habit"
-    if K_MEETLOG in props:
-        return "meetlog"
-    # a custom classification carried as a generic type.<kind> existence prop (e.g. a node
-    # created with `--prop type.recipe`) — derive that kind, don't collapse it to a bare task.
-    for k in sorted(props):
-        if k.startswith(TYPE_NS) and k not in RESERVED_KEYS and len(k) > len(TYPE_NS):
-            return k[len(TYPE_NS):]   # non-empty suffix only (a bare "type." is not a kind)
-    return "task"
-
-
 def para_rank(role) -> int:
     """Display-order rank of a ``type.para`` role (unknown sorts last)."""
     return _PARA_RANK.get(role, len(PARA_ROLES))
