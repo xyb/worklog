@@ -98,7 +98,7 @@ wl tick 39                            # check in one habit today (writes a check
 wl tick 39 40 41 --note "…"           # bulk check-in
 wl checkin                            # default multi-select (↑↓ space enter)
 wl checkin --per-item                 # alt: one-by-one y/n/note/q prompt
-wl checkin --all-kinds                # not limited to habit kind
+wl checkin --all-kinds                # not limited to the habit type (task/meetlog too)
 ```
 
 ## Goal / summary keep history (reserved-tag logs, not props)
@@ -107,7 +107,7 @@ Two reserved-tag logs — `goal` (forward, any time level) and `summary` (backwa
 their own group `wl goal set/ls/rm <node>` (`--summary` targets the summary), stored as `log.tag`
 logs: each write appends, the latest is current, so edit history is kept (`prop` is a separate
 store, only for truly-static single-value attributes). A goal is the **same `goal` tag at every
-level** — the node's kind (day/week/month/year) is the level (the former `overview`/`top5` are
+level** — the node's type (day/week/month/year) is the level (the former `overview`/`top5` are
 gone, folded into `goal`; migration 0010). Bare `wl goal` / `wl recap` are today-auto shortcuts;
 `wl set <node> goal|summary` / `wl unset` are key-routed onto `wl goal set` / `wl goal rm` (so
 `wl set` fronts both `prop set` and `goal set` by key, like `wl add` is `node add`).
