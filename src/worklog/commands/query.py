@@ -629,13 +629,18 @@ def cmd_types(args, con):
     if not keys:
         print("(no type.*/date.* props yet)")
         return
+    lv = _nt.DATE_LEVELS
     for k in keys:
         vs = by_key[k]
+        # type.date: order by time level (finest first → lifetime last), not by count
+        if k == _nt.K_DATE:
+            vs = sorted(vs, key=lambda vc: lv.index(vc[0]) if vc[0] in lv else -1, reverse=True)
         # date.period/start/end are high-cardinality time values — show the total, not every value
         if k.startswith("date.") and len(vs) > 6:
             body = f"{sum(c for _, c in vs)} ({len(vs)} distinct)"
         else:
-            body = " · ".join(f"{v} {c}" for v, c in vs)
+            # an existence facet with no sub-value (custom type.<x> stored as "") shows just its count
+            body = " · ".join(f"{v} {c}" if v else str(c) for v, c in vs)
         out(_c(f"{k:13}", "type") + " " + _c(body, "meta"))
 
 

@@ -86,6 +86,22 @@ class TestTypes:
         d = json.loads(out)
         assert {"key": "type.para", "value": "project", "count": 1} in d
 
+    def test_types_date_ordered_by_level_lifetime_last(self, cli):
+        # type.date values render in time-level order (finest first → lifetime last), not by count
+        cli("add", "L", "--prop", "type.date=lifetime")
+        cli("add", "d1", "--prop", "type.date=day"); cli("add", "d2", "--prop", "type.date=day")
+        cli("add", "w", "--prop", "type.date=week")
+        line = next(l for l in cli("types")[1].splitlines() if l.startswith("type.date"))
+        assert line.index("day") < line.index("week") < line.index("lifetime")
+
+    def test_types_empty_value_facet_shows_count_only(self, cli):
+        # a custom existence facet stored with no sub-value ("") shows just its count, no leading
+        # space — so the column lines up with valued facets (e.g. type.habit "true N")
+        cli("add", "c", "--prop", "type.pet")
+        line = next(l for l in cli("types")[1].splitlines() if l.startswith("type.pet"))
+        # body is just "1" (count) at the same column as valued facets — not " 1" (leading space)
+        assert line == f"{'type.pet':13} 1"
+
 
 class TestVocabLists:
     """wl tags / props / metrics — cross-node 'list the vocabulary in use' commands."""
