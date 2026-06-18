@@ -11,13 +11,13 @@ many ids at once:
 
 ```fish
 # create + log + done + closed_at + link + sched, all in one
-wl add "got something done" -k task -p B --log "result: PR#42 fixed 3 bugs" \
+wl add "got something done" -p B --log "result: PR#42 fixed 3 bugs" \
   --done --at 14:30 --link "vault doc name" --sched today
 wl done <id> --log "result note" --at HH:MM        # existing task: close + log in one
 wl cancel <id> --log "abandoned: priority dropped"
 # -m is short for --log (matches git commit habit)
 
-wl add "new task" -k task -p A --parent 7 --sched today   # add + direct-to-sched
+wl add "new task" -p A --parent 7 --sched today   # add + direct-to-sched
 wl done 18 19 20                                           # batch (done/start/stop/wait/reopen/link all take multiple ids)
 wl start 18 19; wl stop 18 19                              # batch clock
 wl wait 18 --note "waiting on review"                     # WAIT state + auto-stops CLOCK
@@ -76,7 +76,7 @@ Inline shortcut — attach datapoints in the same command as a log/task (repeata
 
 ```fish
 wl log 42 "morning reading" --metric 'glucose 5.4 mmol/L' --metric checkin
-wl add "weigh-in" -k task --metric 'weight 70 kg'
+wl add "weigh-in" --metric 'weight 70 kg'
 ```
 
 `wl import` too: a log entry can carry `"metrics":[{tag,value,unit}]`, and a node can carry
@@ -137,13 +137,13 @@ wl sched <id> --recur yearly:-1             # year end 12-31
 Default limit 20 + truncation hint; `wl ls --help` includes 10 examples:
 
 ```fish
-wl ls --kind project                  # projects only
+wl ls --para project                  # projects only
 wl ls --parent 45                     # children of #45
 wl ls --tag work,dev                  # multi-tag AND
 wl ls -p A                            # priority A (P0); -p A,B = any-of; -p P0 == -p A
 wl ls --status TODO,DOING             # status, comma = any-of
 wl ls --prop github.pr                # reverse-query by prop: K=V / K (exists) / GROUP. (prefix); repeat=AND
-wl ls --unscheduled --kind task       # backlog needing schedule
+wl ls --unscheduled                   # backlog: open items with no schedule
 wl ls --sort created -r --limit 5     # last-5 created (like ls -tr -5)
 wl ls --sort updated --limit 10       # last-10 with new logs (like ls -t)
 wl ls --recent 7                      # touched in last 7 days
@@ -188,5 +188,5 @@ logs --id N` lists 17 to find latest. Correct: use specialty entry points (`wl f
 ### Input validation
 
 All empty-string inputs (title / body / vault_doc / prop key / find query) are rejected
-uniformly; illegal field names (`--in bogus` / `--kind bogus`) and illegal times (`--time 25:99`)
+uniformly; illegal field names (`--in bogus` / `--para bogus`) and illegal times (`--time 25:99`)
 are rejected too — bad data never lands.

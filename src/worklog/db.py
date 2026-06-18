@@ -10,6 +10,9 @@ that already has a path, without depending on cli.py's module state.
 """
 from __future__ import annotations
 
+import contextlib
+import fcntl
+import importlib.util
 import os
 import shutil
 import sqlite3
@@ -40,6 +43,37 @@ def _backup_before_migrate(con: sqlite3.Connection, current: int, pending: int):
     return bak
 
 
+@contextlib.contextmanager
+def _migration_lock(db_file: str):
+    """Exclusive cross-process lock held only while migrations apply, so two worklog processes
+    can't migrate the same DB at once. The lock file sits beside the DB; LOCK_EX blocks until any
+    other migrator finishes — after which the caller re-reads user_version (it may have just been
+    migrated by that other process). SQLite's own txn lock already serializes the writes; this
+    just turns a mid-migration race into a clean wait."""
+    f = open(f"{db_file}.migrate.lock", "w")
+    try:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(f, fcntl.LOCK_UN)
+        f.close()
+
+
+def _backup_after_migrate(con: sqlite3.Connection, version: int):
+    """Snapshot the DB right AFTER a successful upgrade — a known-good FORWARD restore point
+    (the ``pre-v<N>.bak`` is the rollback point; this ``post-v<N>.bak`` is the upgraded one).
+    Best-effort: a copy failure must NOT fail an already-applied migration. Returns path or None."""
+    path = _db_file_path(con)
+    if not path or not os.path.exists(path):
+        return None
+    bak = f"{path}.post-v{version}.bak"
+    try:
+        shutil.copy2(path, bak)
+        return bak
+    except OSError:
+        return None
+
+
 def db_connect(db_path: Path) -> sqlite3.Connection:
     """Open a connection (creating parent dirs if missing). Row factory =
     sqlite3.Row. Foreign-key enforcement is intentionally left OFF: the
@@ -54,12 +88,14 @@ def db_connect(db_path: Path) -> sqlite3.Connection:
 
 
 def migration_files(migrations_dir: Path) -> list[Path]:
-    """Return migration files sorted by NNNN_ numeric prefix; skip filenames
-    without a numeric prefix."""
+    """Return migration files sorted by NNNN_ numeric prefix. Both ``.sql`` and ``.py``
+    migrations are picked up (a ``.py`` migration runs app logic raw SQL can't express,
+    e.g. writing reserved props through the validator). Skip filenames without a numeric
+    prefix (e.g. __init__.py)."""
     if not migrations_dir.exists():
         return []
     files = []
-    for p in migrations_dir.glob("*.sql"):
+    for p in (*migrations_dir.glob("*.sql"), *migrations_dir.glob("*.py")):
         prefix = p.stem.split("_", 1)[0]
         if prefix.isdigit():
             files.append((int(prefix), p))
@@ -70,6 +106,39 @@ def migration_files(migrations_dir: Path) -> list[Path]:
 def db_version(con: sqlite3.Connection) -> int:
     """The highest migration number applied to this DB (`PRAGMA user_version`)."""
     return con.execute("PRAGMA user_version").fetchone()[0]
+
+
+def _apply_py_migration(con: sqlite3.Connection, path: Path, n: int) -> None:
+    """Load a NNNN_*.py migration and run its ``migrate(con)`` in ONE atomic transaction,
+    then bump user_version. The module must define ``migrate(con)``; it runs statements only
+    and must NOT commit/rollback — this function owns the transaction so a mid-migration
+    failure rolls the whole thing back. Loaded by file path (not package import), so the
+    migrations dir needs no __init__ wiring."""
+    spec = importlib.util.spec_from_file_location(f"_wl_migration_{path.stem}", path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load Python migration {path.name}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    migrate = getattr(mod, "migrate", None)
+    if not callable(migrate):
+        raise RuntimeError(f"Python migration {path.name} has no migrate(con) entrypoint")
+    # Drive the transaction explicitly in autocommit mode, so a .py migration is atomic the same
+    # way the .sql path is (executescript wraps its own BEGIN/COMMIT). isolation_level=None stops
+    # Python's sqlite3 from auto-managing transactions and clashing with our explicit BEGIN.
+    prev = con.isolation_level
+    con.isolation_level = None
+    try:
+        con.execute("BEGIN")
+        try:
+            migrate(con)
+            con.execute(f"PRAGMA user_version = {n}")
+            con.execute("COMMIT")
+        except Exception:
+            if con.in_transaction:   # BEGIN may have failed before a txn opened; don't mask that error
+                con.execute("ROLLBACK")
+            raise
+    finally:
+        con.isolation_level = prev
 
 
 def run_migrations(con: sqlite3.Connection, migrations_dir: Path, verbose: bool = False) -> list[Path]:
@@ -100,29 +169,55 @@ def run_migrations(con: sqlite3.Connection, migrations_dir: Path, verbose: bool 
             f"migrations up to {max_n}. The DB was written by a newer version; "
             f"upgrade worklog (e.g. `pip install --upgrade pyworklog`) and retry."
         )
-    pending = [p for p in files if int(p.stem.split("_", 1)[0]) > current]
-    # safety: snapshot an existing DB before touching it, so a bad migration is recoverable (#651)
-    bak = _backup_before_migrate(con, current, len(pending))
-    if bak:
-        print(f"↳ backed up DB → {os.path.basename(bak)} before applying {len(pending)} migration(s)")
+    if not [p for p in files if int(p.stem.split("_", 1)[0]) > current]:
+        return []   # nothing pending: no lock, no backup — keep the common (every-command) path cheap
+    was_fresh = current == 0   # a fresh init has no data to snapshot (neither pre nor post)
+    # Hold an exclusive cross-process lock for the whole migration run (only when something is
+    # actually pending), so two worklog processes can't migrate the same DB at once.
+    db_file = _db_file_path(con)
+    lock = _migration_lock(db_file) if db_file else contextlib.nullcontext()
     applied = []
-    for path in files:
-        n = int(path.stem.split("_", 1)[0])
-        if n <= current:
-            continue
-        sql = path.read_text(encoding="utf-8")
-        try:
-            # Wrap the whole file (plus the version bump) in one transaction so
-            # a mid-script failure rolls everything back instead of leaving a
-            # half-applied schema. executescript() COMMITs pending work first,
-            # then runs this BEGIN…COMMIT atomically.
-            con.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = {n};\nCOMMIT;")
-        except Exception:
-            con.rollback()
-            raise
-        if verbose:
-            print(f"✓ applied migration {path.stem}")
-        applied.append(path)
+    with lock:
+        # Re-read after acquiring the lock: another process may have migrated while we waited.
+        current = db_version(con)
+        pending = [p for p in files if int(p.stem.split("_", 1)[0]) > current]
+        if not pending:
+            return []
+        # safety: snapshot an existing DB before touching it, so a bad migration is recoverable (#651)
+        bak = _backup_before_migrate(con, current, len(pending))
+        if bak:
+            print(f"↳ backed up DB → {os.path.basename(bak)} before applying {len(pending)} migration(s)")
+        for path in files:
+            n = int(path.stem.split("_", 1)[0])
+            if n <= current:
+                continue
+            try:
+                if path.suffix == ".py":
+                    # Python migration: app logic raw SQL can't express (e.g. writing reserved
+                    # props through the validator). migrate(con) runs inside one transaction here.
+                    _apply_py_migration(con, path, n)
+                else:
+                    # Wrap the whole file (plus the version bump) in one transaction so
+                    # a mid-script failure rolls everything back instead of leaving a
+                    # half-applied schema. executescript() COMMITs pending work first,
+                    # then runs this BEGIN…COMMIT atomically.
+                    sql = path.read_text(encoding="utf-8")
+                    con.executescript(f"BEGIN;\n{sql}\nPRAGMA user_version = {n};\nCOMMIT;")
+            except Exception:
+                con.rollback()
+                raise
+            if verbose:
+                print(f"✓ applied migration {path.stem}")
+            applied.append(path)
+        # Post-upgrade, STILL UNDER THE LOCK: snapshot the known-good result + announce before any
+        # other process can acquire the DB and write to it (a snapshot taken after releasing the
+        # lock could capture a concurrent writer's half-written pages). Skip a fresh init (empty
+        # DB, nothing to protect). Backup is best-effort — never fail an already-applied run.
+        if applied and not was_fresh:
+            post = _backup_after_migrate(con, db_version(con))
+            if post:
+                print(f"↳ post-upgrade snapshot → {os.path.basename(post)}")
+            print(f"✓ migrations complete — DB now at v{db_version(con)}")
     return applied
 
 

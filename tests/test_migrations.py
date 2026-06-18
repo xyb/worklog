@@ -26,9 +26,10 @@ class TestMigrations:
         assert not list(tmp_path.glob("*.bak"))          # fresh v0→1 init: no data to protect
         (mig / "0002_more.sql").write_text("CREATE TABLE t2 (y);")
         con = db.db_connect(dbf); db.run_migrations(con, mig); con.close()
-        baks = list(tmp_path.glob("*.bak"))
-        assert len(baks) == 1 and baks[0].name == "x.db.pre-v1.bak"
-        b = sqlite3.connect(baks[0])                      # snapshot is the OLD version + the data
+        baks = sorted(p.name for p in tmp_path.glob("*.bak"))
+        # pre-v1 = rollback snapshot (before applying 0002); post-v2 = the known-good upgraded result
+        assert baks == ["x.db.post-v2.bak", "x.db.pre-v1.bak"]
+        b = sqlite3.connect(tmp_path / "x.db.pre-v1.bak")  # the PRE snapshot is the OLD version + data
         assert b.execute("PRAGMA user_version").fetchone()[0] == 1
         assert b.execute("SELECT x FROM t").fetchone()[0] == 1
         b.close()
@@ -150,6 +151,75 @@ class TestMigrations:
         finally:
             con.close()
 
+    def test_python_migration_runs_and_bumps_version(self, tmp_path):
+        """A NNNN_*.py migration runs its migrate(con) and bumps user_version (app logic
+        a .sql migration can't express, e.g. writing reserved props through the validator)."""
+        from worklog import db
+        mig = tmp_path / "migrations"; mig.mkdir()
+        (mig / "0001_init.sql").write_text("CREATE TABLE t (x);")
+        (mig / "0002_seed.py").write_text(
+            "def migrate(con):\n    con.execute(\"INSERT INTO t (x) VALUES (42)\")\n"
+        )
+        con = db.db_connect(tmp_path / "py.db")
+        try:
+            db.run_migrations(con, mig)
+            assert db.db_version(con) == 2
+            assert con.execute("SELECT x FROM t").fetchone()[0] == 42
+        finally:
+            con.close()
+
+    def test_sql_and_py_migrations_interleave_in_order(self, tmp_path):
+        """.sql and .py migrations apply together in NNNN numeric order."""
+        from worklog import db
+        mig = tmp_path / "migrations"; mig.mkdir()
+        (mig / "0001_a.sql").write_text("CREATE TABLE steps (s TEXT);")
+        (mig / "0002_b.py").write_text(
+            "def migrate(con):\n    con.execute(\"INSERT INTO steps VALUES ('py-2')\")\n"
+        )
+        (mig / "0003_c.sql").write_text("INSERT INTO steps VALUES ('sql-3');")
+        con = db.db_connect(tmp_path / "mix.db")
+        try:
+            db.run_migrations(con, mig)
+            got = [r["s"] for r in con.execute("SELECT s FROM steps ORDER BY rowid")]
+            assert got == ["py-2", "sql-3"]
+            assert db.db_version(con) == 3
+        finally:
+            con.close()
+
+    def test_python_migration_rolls_back_on_error(self, tmp_path):
+        """A .py migration that raises mid-way rolls back its whole transaction; user_version
+        stays at the last good number and its partial writes vanish (atomic like the .sql path)."""
+        from worklog import db
+        mig = tmp_path / "migrations"; mig.mkdir()
+        (mig / "0001_init.sql").write_text("CREATE TABLE t (x);")
+        (mig / "0002_boom.py").write_text(
+            "def migrate(con):\n"
+            "    con.execute(\"INSERT INTO t (x) VALUES (1)\")\n"
+            "    raise RuntimeError('boom')\n"
+        )
+        con = db.db_connect(tmp_path / "pyfail.db")
+        try:
+            with pytest.raises(RuntimeError):
+                db.run_migrations(con, mig)
+            assert db.db_version(con) == 1                                  # 0002 rolled back → stays at 1
+            assert con.execute("SELECT COUNT(*) FROM t").fetchone()[0] == 0  # partial insert gone
+        finally:
+            con.close()
+
+    def test_python_migration_missing_entrypoint_errors(self, tmp_path):
+        """A .py migration without migrate(con) is a clear error, not a silent skip."""
+        from worklog import db
+        mig = tmp_path / "migrations"; mig.mkdir()
+        (mig / "0001_noentry.py").write_text("X = 1  # no migrate() here\n")
+        con = db.db_connect(tmp_path / "noentry.db")
+        try:
+            with pytest.raises(Exception) as exc:
+                db.run_migrations(con, mig)
+            assert "migrate" in str(exc.value).lower()
+            assert db.db_version(con) == 0
+        finally:
+            con.close()
+
 
 class TestMetricSchema:
     """Migration 0002: metric table + log.tag column (node → log → metric foundation)."""
@@ -179,7 +249,7 @@ class TestMetricSchema:
     def test_migration_0006_renames_type_to_tag_preserving_data(self, cli, tmp_db):
         """0006 renames log.type→tag in place, keeping existing typed-log values."""
         import pathlib
-        cli("add", "t", "-k", "task")  # node 1
+        cli("add", "t")  # node 1
         con = tmp_db.db_connect()
         # recreate the pre-0006 schema, seed a typed log, then replay 0006
         con.execute("ALTER TABLE log RENAME COLUMN tag TO type")
@@ -194,7 +264,7 @@ class TestMetricSchema:
 
     def test_existing_logs_read_as_untagged(self, cli, tmp_db):
         """Back-compat: a plain `wl log` writes a row whose tag is NULL."""
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "plain note")
         con = tmp_db.db_connect()
         row = con.execute("SELECT tag FROM log WHERE node_id = 1").fetchone()
@@ -202,7 +272,7 @@ class TestMetricSchema:
 
     def test_metric_requires_log_id(self, cli, tmp_db):
         """log_id is NOT NULL — a datapoint must have a log carrier."""
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         con = tmp_db.db_connect()
         with pytest.raises(sqlite3.IntegrityError):
             con.execute(
@@ -211,7 +281,7 @@ class TestMetricSchema:
 
     def test_metric_value_check_rejects_empty(self, cli, tmp_db):
         """CHECK: a metric must carry value_num or value_text (markers store 1)."""
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "carrier")
         con = tmp_db.db_connect()
         log_id = con.execute("SELECT id FROM log WHERE node_id = 1").fetchone()["id"]
@@ -223,8 +293,8 @@ class TestMetricSchema:
 
     def test_metric_node_id_trigger_corrects_wrong_value(self, cli, tmp_db):
         """metric.node_id has no FK; a trigger forces it to the carrier log's node."""
-        cli("add", "real owner", "-k", "task")   # node 1
-        cli("add", "other node", "-k", "task")   # node 2
+        cli("add", "real owner")   # node 1
+        cli("add", "other node")   # node 2
         cli("log", "1", "carrier on node 1")
         con = tmp_db.db_connect()
         log_id = con.execute("SELECT id FROM log WHERE node_id = 1").fetchone()["id"]
@@ -239,8 +309,8 @@ class TestMetricSchema:
 
     def test_metric_node_id_guard_blocks_direct_desync(self, cli, tmp_db):
         """A direct UPDATE of metric.node_id is snapped back to the carrier log's node."""
-        cli("add", "real owner", "-k", "task")   # node 1
-        cli("add", "other node", "-k", "task")    # node 2
+        cli("add", "real owner")   # node 1
+        cli("add", "other node")    # node 2
         cli("log", "1", "carrier on node 1")
         con = tmp_db.db_connect()
         log_id = con.execute("SELECT id FROM log WHERE node_id = 1").fetchone()["id"]
@@ -257,8 +327,8 @@ class TestMetricSchema:
 
     def test_log_reparent_moves_metrics(self, cli, tmp_db):
         """Re-parenting a log updates its metrics' denormalized node_id."""
-        cli("add", "from", "-k", "task")   # node 1
-        cli("add", "to", "-k", "task")     # node 2
+        cli("add", "from")   # node 1
+        cli("add", "to")     # node 2
         cli("log", "1", "carrier")
         con = tmp_db.db_connect()
         log_id = con.execute("SELECT id FROM log WHERE node_id = 1").fetchone()["id"]
@@ -275,7 +345,7 @@ class TestMetricSchema:
         """FK enforcement is off; soft-deleting a node tombstones its metrics
         via the app-level cascade (queries.soft_delete_node), not an FK CASCADE."""
         from worklog import queries as q
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "carrier")
         con = tmp_db.db_connect()
         log_id = con.execute("SELECT id FROM log WHERE node_id = 1").fetchone()["id"]
@@ -294,7 +364,7 @@ class TestMetricSchema:
         """Soft-deleting a carrier log tombstones its metrics (the old metric.log_id
         CASCADE, now app-level via queries.soft_delete_log)."""
         from worklog import queries as q
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "carrier")
         con = tmp_db.db_connect()
         log_id = con.execute("SELECT id FROM log WHERE node_id = 1").fetchone()["id"]
@@ -310,7 +380,7 @@ class TestMetricSchema:
 
     def test_metric_allows_multiple_per_day(self, cli, tmp_db):
         """No UNIQUE constraint: a node can carry many metrics (e.g. CGM ~288/day)."""
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "carrier")
         con = tmp_db.db_connect()
         log_id = con.execute("SELECT id FROM log WHERE node_id = 1").fetchone()["id"]
@@ -379,7 +449,7 @@ class TestMigration0007UTC:
         con.commit()
 
     def test_renames_scheduled_deadline_to_date(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         con = tmp_db.db_connect()
         self._replay_0007(tmp_db, con)
         cols = {r["name"] for r in con.execute("PRAGMA table_info(node)")}
@@ -387,7 +457,7 @@ class TestMigration0007UTC:
         assert "deadline_date" in cols and "deadline_at" not in cols
 
     def test_converts_full_instants_minus_8h(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")  # node 1
+        cli("add", "t")  # node 1
         con = tmp_db.db_connect()
         # seed pre-v7 local-time instants on the *_at columns
         con.execute("UPDATE node SET created_at='2026-06-01 08:00:00', closed_at='2026-06-01 09:30:00' WHERE id=1")
@@ -399,7 +469,7 @@ class TestMigration0007UTC:
         assert con.execute("SELECT logged_at FROM log WHERE body='has-time'").fetchone()[0] == "2026-06-01 00:00:00"
 
     def test_leaves_bare_dates_untouched(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         con = tmp_db.db_connect()
         # a date-only logged_at (from `wl log --date`) and a checkin metric.at backfilled
         # as a bare date must NOT be shifted (subtracting 8h would roll them a day back)
@@ -438,3 +508,61 @@ class TestDbHelpers:
         (mig / "notes_helper.sql").write_text("-- not a migration, no numeric prefix")
         files = db.migration_files(mig)
         assert [p.name for p in files] == ["0001_init.sql"]   # the non-numeric one is skipped
+
+
+class TestMigration0011DropKind:
+    """0011 (Python migration): backfill type.* from kind, verify round-trip, then DROP COLUMN kind."""
+
+    def _v10_db(self, tmp_path):
+        """Bring a fresh DB up to v10 (kind column still present) using only 0001–0010."""
+        import shutil, pathlib
+        from worklog import db
+        real = pathlib.Path(db.__file__).parent / "migrations"
+        migs = tmp_path / "migs"; migs.mkdir()
+        for p in db.migration_files(real):
+            if int(p.stem.split("_", 1)[0]) <= 10:
+                shutil.copy(p, migs / p.name)
+        con = db.db_connect(tmp_path / "t.db")
+        db.run_migrations(con, migs)
+        assert db.db_version(con) == 10
+        return con
+
+    def _mig11(self):
+        import pathlib
+        from worklog import db
+        return pathlib.Path(db.__file__).parent / "migrations" / "0011_drop_kind_column.py"
+
+    def test_backfills_then_drops_kind_column(self, tmp_path):
+        from worklog import db, node_types as nt, queries
+        con = self._v10_db(tmp_path)
+        con.execute("INSERT INTO node (title, kind, created_at) VALUES ('Site','project','2026-01-01')")
+        con.execute("INSERT INTO node (title, kind, created_at) VALUES ('todo','task','2026-01-01')")
+        con.execute("INSERT INTO node (title, kind, created_at) VALUES ('2026-W01','week','2026-01-01')")
+        con.commit()
+        db._apply_py_migration(con, self._mig11(), 11)
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(node)")}
+        assert "kind" not in cols                                  # column dropped
+        idx = [r["name"] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_node_kind'")]
+        assert idx == []                                           # index dropped
+        assert db.db_version(con) == 11
+        pid = con.execute("SELECT id FROM node WHERE title='Site'").fetchone()["id"]
+        wid = con.execute("SELECT id FROM node WHERE title='2026-W01'").fetchone()["id"]
+        assert nt.legacy_kind(queries.node_props(con, pid)) == "project"   # derived from type.para
+        assert nt.legacy_kind(queries.node_props(con, wid)) == "week"      # derived from type.date
+        con.close()
+
+    def test_aborts_and_keeps_kind_on_roundtrip_failure(self, tmp_path):
+        from worklog import db
+        con = self._v10_db(tmp_path)
+        con.execute("INSERT INTO node (title, kind, created_at) VALUES ('2026-W01','week','2026-01-01')")
+        wid = con.execute("SELECT id FROM node WHERE title='2026-W01'").fetchone()["id"]
+        # a conflicting reserved prop makes the week derive to 'project' → round-trip fails
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (wid, "type.para", "project"))
+        con.commit()
+        with pytest.raises(RuntimeError, match="round-trip"):
+            db._apply_py_migration(con, self._mig11(), 11)
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(node)")}
+        assert "kind" in cols                # rolled back: column intact
+        assert db.db_version(con) == 10      # version not bumped
+        con.close()

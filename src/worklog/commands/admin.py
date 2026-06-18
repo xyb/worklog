@@ -118,30 +118,6 @@ def cmd_migrate(args, con):
     out(_c(f"✓ DB now at version {new_version} ({len(applied)} migration(s) applied).", "done"))
 
 
-def cmd_migrate_types(args, con):
-    """Backfill the type.*/date.* namespace onto existing nodes from their legacy kind, then
-    verify every node round-trips (kind left intact; idempotent). The data half of the kind→
-    type.* transition — run it once so `wl ls --para` and friends see pre-existing nodes too."""
-    from ..node_type_backfill import migrate_and_verify
-    c, ok, mismatches, retired, period_lost = migrate_and_verify(con)
-    out(_c(f"✓ type.* backfill: {c['para']} para, {c['date']} date, {c['habit']} habit, "
-           f"{c['meetlog']} meetlog ({c['bare']} left bare)", "done"))
-    if retired:
-        out(_c(f"  {len(retired)} node(s) with a retired/custom kind collapsed to a bare node "
-               "(signal is removed by design)", "meta"))
-    if period_lost:
-        out(_c(f"  ⚠ {len(period_lost)} time node(s) had no canonical period in their title "
-               "(level + title kept, but date.period is unset)", "later"))
-    if ok:
-        out(_c("✓ verified: every classified node's type.* round-trips to its original kind", "done"))
-    else:
-        out(_c(f"✗ {len(mismatches)} node(s) did NOT round-trip — type.* would lose their "
-               "classification; do NOT drop the kind column:", "later"))
-        for nid, col, der in mismatches[:20]:
-            out(_c(f"    #{nid}: kind={col!r} but derived {der!r}", "later"))
-        sys.exit(1)
-
-
 def cmd_themes(args, con):
     """List all color themes, each rendering a one-line sample in its own palette for comparison."""
     req = args.theme or os.environ.get("WORKLOG_THEME") or "auto"

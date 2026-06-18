@@ -1,0 +1,33 @@
+# Local dev/test image — run the full test suite (and a dev wl) inside a Linux container,
+# physically isolated from the real database.
+#
+# Why: a dev build of wl can connect to the real DB by default (no --db) and mutate it. CLI-flag
+# isolation and "don't touch the real DB" conventions are easy to bypass by accident. The robust
+# fix is physical isolation: run dev work and tests only inside this container.
+#
+# Isolation guarantees:
+#   - the container has its own HOME (/root) and filesystem; the host data dir does not exist in
+#     it and is never mounted in
+#   - even running `wl ...` (without --db) inside the container only creates a DB at a
+#     container-internal path, never touching host data
+#   - tests use pytest's temporary fixture DB (isolated by construction)
+#   - only the project code is bind-mounted to /app at run time; data dirs are never mounted
+#
+# Lighter than the production image: plain python + deps, fast to build.
+FROM python:3.11-slim
+
+RUN pip install --no-cache-dir uv
+
+# Keep the venv outside /app (at /opt/venv) so bind-mounting the project root to /app at run time
+# does not shadow it.
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+
+# Build stage installs deps only (incl. semantic + test extras), not the project itself — the code
+# is bind-mounted at run time and referenced via PYTHONPATH=/app/src, so edits take effect without
+# rebuilding the image.
+WORKDIR /build
+COPY pyproject.toml uv.lock ./
+RUN uv sync --all-extras --no-install-project
+
+WORKDIR /app
+CMD ["sh", "-c", "PYTHONPATH=/app/src /opt/venv/bin/python -m pytest"]

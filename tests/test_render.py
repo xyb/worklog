@@ -8,7 +8,7 @@ ESC = "["  # ANSI escape prefix
 class TestColorRendering:
     def test_default_no_ansi_in_non_tty(self, cli):
         """default auto + non-TTY (StringIO in tests) → plain text, no ANSI"""
-        cli("add", "highlight test", "-k", "task", "-p", "A")
+        cli("add", "highlight test", "-p", "A")
         code, out, _ = cli("ls")
         assert ESC not in out
         assert "highlight test" in out
@@ -195,7 +195,7 @@ class TestThemesNoColor:
 class TestNodeClockMinException:
     def test_clock_min_unparseable_log_ts(self, cli):
         """log span parse exception → except path"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         from worklog import cli as wl
         con = wl.db_connect()
         # insert two logs with bad timestamps directly
@@ -209,7 +209,7 @@ class TestNodeClockMinException:
 
 class TestSnippetFallback:
     def test_snippet_text_shorter_than_window(self, cli):
-        cli("add", "short title with key word foo bar", "-k", "task")
+        cli("add", "short title with key word foo bar")
         _, out, _ = cli("find", "missing-query")
         # _snippet not reached because find has no match; OK as long as no crash
         assert out or True
@@ -262,7 +262,7 @@ class TestHlAndStatusFilter:
 class TestNodeClockMinTwoValidLogs:
     def test_log_span_calculated(self, cli):
         """two valid logs with different timestamps → fromisoformat success path"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "first", "--date", "2025-01-01", "--time", "09:00")
         cli("log", "1", "last", "--date", "2025-01-01", "--time", "11:00")
         from worklog import cli as wl
@@ -276,7 +276,7 @@ class TestNodeLineWithClockTags:
     """_node_line: clock/tags display branches"""
 
     def test_node_line_with_clock_and_tags(self, cli):
-        cli("add", "t1", "-k", "task", "-t", "work,urgent")
+        cli("add", "t1", "-t", "work,urgent")
         cli("start", "1")
         cli("stop", "1")
         _, out, _ = cli("ls", "--all")
@@ -325,7 +325,7 @@ class TestTitleWrap:
     def test_node_line_wrap_hangs_indent(self, cli):
         from worklog import helpers
         long_title = "x" * 200
-        cli("add", long_title, "-k", "task", "-p", "A")
+        cli("add", long_title, "-p", "A")
         helpers._set_width_cap(40)
         helpers._set_title_mode("wrap")
         try:
@@ -346,7 +346,7 @@ class TestTitleWrap:
 
     def test_node_line_clip_single_line(self, cli):
         from worklog import helpers
-        cli("add", "y" * 200, "-k", "task", "-p", "B")
+        cli("add", "y" * 200, "-p", "B")
         helpers._set_width_cap(40)
         helpers._set_title_mode("clip")
         try:
@@ -396,7 +396,7 @@ class TestPriorityMarker:
     """unset priority renders [# ] (aligned, muted) — never blank, never [ ] (the TODO marker)."""
 
     def test_unset_priority_shows_hash_space_marker(self, cli):
-        cli("add", "no-pri task", "-k", "task")     # no -p
+        cli("add", "no-pri task")     # no -p
         _, out, _ = cli("--color", "never", "ls")
         line = next(l for l in out.splitlines() if "no-pri task" in l)
         assert "[# ]" in line                         # priority slot present + unset
@@ -404,8 +404,8 @@ class TestPriorityMarker:
         assert line.count("[ ]") == 1 and "[# ]" in line
 
     def test_set_and_unset_priority_columns_align(self, cli):
-        cli("add", "has A", "-k", "task", "-p", "A")
-        cli("add", "no pri", "-k", "task")
+        cli("add", "has A", "-p", "A")
+        cli("add", "no pri")
         _, out, _ = cli("--color", "never", "ls")
         a_line = next(l for l in out.splitlines() if "has A" in l)
         u_line = next(l for l in out.splitlines() if "no pri" in l)

@@ -46,7 +46,7 @@ def _period_from_title(level, title):
     return period if _nt.valid_period(level, period) else None
 
 
-def backfill_node_types(con):
+def backfill_node_types(con, commit=True):
     """Backfill type.*/date.* for EVERY node from its kind — including soft-deleted (tombstoned)
     ones, so a node restored after the kind column is dropped is still classified correctly
     (skipping them would silently misclassify a restored project/meetlog as a bare task). No-op-
@@ -60,14 +60,10 @@ def backfill_node_types(con):
         elif kind in _nt.DATE_LEVELS:
             _upsert_prop(con, nid, _nt.K_DATE, kind)
             counts["date"] += 1
-            if kind != "lifetime":
-                period = _period_from_title(kind, title)
-                if period:
-                    _upsert_prop(con, nid, _nt.K_PERIOD, period)
-                    if kind in _nt.EXPLICIT_SPAN_LEVELS:
-                        start, end = _nt.span_of(kind, period)
-                        _upsert_prop(con, nid, _nt.K_START, start)
-                        _upsert_prop(con, nid, _nt.K_END, end)
+            # legacy titles may be decorated ("2026 年") — extract the canonical period by regex,
+            # then run it through the SAME date_props_for mapping every create path uses.
+            for key, val in _nt.date_props_for(kind, _period_from_title(kind, title)).items():
+                _upsert_prop(con, nid, key, val)
         elif kind == "habit":
             _upsert_prop(con, nid, _nt.K_HABIT, "")
             counts["habit"] += 1
@@ -98,18 +94,18 @@ def backfill_node_types(con):
         "UPDATE prop SET deleted_at = (SELECT deleted_at FROM node WHERE node.id = prop.node_id) "
         "WHERE (key LIKE 'type.%' OR key LIKE 'date.%') AND deleted_at IS NULL "
         "AND node_id IN (SELECT id FROM node WHERE deleted_at IS NOT NULL)")
-    con.commit()
+    if commit:
+        con.commit()   # a Python migration passes commit=False — it owns the upgrade transaction
     return counts
 
 
 def snapshot_kinds(con):
-    """``{node_id: kind}`` for every node (live + tombstoned), read straight from the column.
-    Capture this BEFORE backfill: backfill writes type.* props, and _upsert_prop's sync rewrites
-    the kind column to the derived value, so after backfill the column no longer holds the
-    original. verify_roundtrip must compare the derived kind against THIS snapshot, not the
-    (possibly-rewritten) live column — otherwise a node that entered backfill with a conflicting
-    reserved prop would have its column silently rewritten and verify would compare derived-vs-
-    rewritten (a tautology) and miss the loss."""
+    """``{node_id: kind}`` for every node (live + tombstoned), read from the kind column. Capture
+    this BEFORE backfill so verify_roundtrip compares the derived kind against the ORIGINAL one
+    (backfill writes type.* props, which changes what legacy_kind derives; pinning the pre-backfill
+    truth also guards a node that entered backfill carrying a conflicting reserved prop). NOTE:
+    this SELECTs ``node.kind`` — valid ONLY on a pre-0011 (v10) DB, e.g. inside migration 0011 or
+    its tests; never on a migrated v11 DB, where the column has been dropped."""
     return {r["id"]: r["kind"]
             for r in _db.query(con, "node", cols="id, kind", include_deleted=True)}
 
@@ -118,9 +114,9 @@ def verify_roundtrip(con, original_kinds=None):
     """Integrity check for the kind→type.* migration: for every node (live AND tombstoned) whose
     *original* kind is a preserved one (node_types.KNOWN_KINDS), the kind derived from its type.\\*
     props must equal that original kind. ``original_kinds`` is the pre-backfill snapshot from
-    :func:`snapshot_kinds`; pass it so the comparison is against the ORIGINAL kind, not the live
-    column (which backfill's sync may have rewritten — see snapshot_kinds). When omitted, falls
-    back to the live column (fine for a read-only check on an already-migrated DB).
+    :func:`snapshot_kinds`; pass it so the comparison is against the ORIGINAL kind. When omitted,
+    it reads the live ``node.kind`` column — valid ONLY on a pre-0011 (v10) DB (it SELECTs
+    ``node.kind``); never call it on a migrated v11 DB, where the column has been dropped.
 
     Returns ``(ok, mismatches, retired, period_lost)``:
     - ``mismatches``: ``(id, orig_kind, derived_kind)`` for a KNOWN kind that failed to round-trip

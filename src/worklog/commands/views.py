@@ -127,7 +127,7 @@ def cmd_tree(args, con):
     # recurse into the matching terminal-status nodes (no-filter path: status is unset).
     inc_cancel = getattr(args, "show_canceled", False) or bool(getattr(args, "status", None))
     log_tail = _resolve_log_tail(args, _is_brief(args, "no_logs"), default_tail=3)
-    nf = make_node_filter(con, args)  # shared --tag/--kind/--status filter
+    nf = make_node_filter(con, args)  # shared --tag/--para/--status filter
     if args.by:
         _tree_by(con, args.by, nf=nf)
         return
@@ -164,7 +164,7 @@ def cmd_tree(args, con):
         roots = list(con.execute(root_sql, params_root))
 
     if not roots:
-        out(_c('(empty — add a task with `wl add "..." -k task`)', "meta"))
+        out(_c('(empty — add a task with `wl add "..."`)', "meta"))
         return
 
     # default depth limit to avoid flooding: full tree default 2 (area->project / year->quarter overview), --root default 3 (one extra level for drill-down)
@@ -427,7 +427,7 @@ def cmd_day(args, con):
     inc_cancel = getattr(args, "show_canceled", False) or bool(getattr(args, "status", None))
     items, sched_ids = _collect_day_items(con, target, inc_cancel)
 
-    # shared --tag/--kind/--status filter: keep only matching nodes. Empty buckets /
+    # shared --tag/--para/--status filter: keep only matching nodes. Empty buckets /
     # groups then simply don't get rendered (_render_day_group builds them from items).
     nf = make_node_filter(con, args)
     if nf:
@@ -552,7 +552,7 @@ def _tree_by(con, by, nf=None):
             if nf:
                 ids = {i for i in ids if nf(i)}
                 # keep the project if it has matching members OR the project node itself
-                # matches (e.g. --kind project) — else `--by project --kind project` would
+                # matches (e.g. --para project) — else `--by project --para project` would
                 # drop every project because no member is itself a project.
                 if not ids and not nf(proj["id"]):
                     continue
@@ -645,7 +645,7 @@ def _print_tree(con, node, depth, max_depth, *, include_canceled=False, log_tail
 def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log_tail=3, full=False):
     """Render the structural tree pruned to nodes matching `nf` plus the ancestor paths
     that lead to them (so matches keep their context instead of being orphaned). Used by
-    `wl tree` whenever a --tag/--kind/--status filter is active. `root_node` restricts the
+    `wl tree` whenever a --tag/--para/--status filter is active. `root_node` restricts the
     search to that subtree. Note: this is the structural (area→project→task) tree — the
     log-derived day-activity expansion isn't shown here; use `wl day --tag …` for that."""
     if root_node is not None:
@@ -779,7 +779,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
         total = con.execute(
             "SELECT COUNT(*) AS c FROM node WHERE deleted_at IS NULL").fetchone()["c"]
         if total == 0:
-            out(_c('(empty — add a task with `wl add "..." -k task`, or `wl day` to start today)', "meta"))
+            out(_c('(empty — add a task with `wl add "..."`, or `wl day` to start today)', "meta"))
         else:
             noun = "node" if total == 1 else "nodes"
             out(_c(f"({total} {noun} exist but none are in the timeline/areas overview yet "

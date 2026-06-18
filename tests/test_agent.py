@@ -41,7 +41,7 @@ class TestAgent:
 
     def test_set_show_roundtrip(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")
-        cli("add", "t", "-k", "task")            # #1
+        cli("add", "t")            # #1
         code, out, _ = cli("agent", "1")          # default verb = set
         assert code == 0 and "#1" in out
         assert _bound_value(tmp_db, 1) == "sess-aaa"   # stored as agent_session.claude
@@ -50,14 +50,14 @@ class TestAgent:
 
     def test_rebind_moves_prop_off_old_node(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")
-        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")  # #1 #2
+        cli("add", "a"); cli("add", "b")  # #1 #2
         cli("agent", "1")
         cli("agent", "2")                          # same session rebinds to #2
         assert _bound_value(tmp_db, 1) is None     # #1 cleared
         assert _bound_value(tmp_db, 2) == "sess-aaa"
 
     def test_ls_lists_all_bindings(self, cli, monkeypatch):
-        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")
+        cli("add", "a"); cli("add", "b")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s2"); cli("agent", "2")
         _, out, _ = cli("agent", "ls")
@@ -67,7 +67,7 @@ class TestAgent:
         """ls pads #id and <agent>:<sid> so the ← / · columns line up despite differing widths."""
         self._sess(monkeypatch)
         for i in range(12):
-            cli("add", f"t{i}", "-k", "task")       # ids #1..#10 (1-digit) and #11/#12 (2-digit)
+            cli("add", f"t{i}")       # ids #1..#10 (1-digit) and #11/#12 (2-digit)
         monkeypatch.setenv("WL_SESSION_ID", "sess1"); monkeypatch.setenv("WL_AGENT", "claude")
         cli("agent", "1")
         monkeypatch.setenv("WL_SESSION_ID", "sess2"); monkeypatch.setenv("WL_AGENT", "codex")
@@ -83,7 +83,7 @@ class TestAgent:
     def test_ls_interactive_color_renders(self, cli, monkeypatch):
         # styled (non-plain) path: full sid kept when it fits
         self._sess(monkeypatch, "sess-interactive")
-        cli("add", "task one", "-k", "task")
+        cli("add", "task one")
         cli("agent", "1")
         code, out, _ = cli("--color", "always", "agent", "ls")
         assert code == 0 and "#1" in out
@@ -91,14 +91,14 @@ class TestAgent:
     def test_ls_interactive_shrinks_long_sid_on_narrow_width(self, cli, monkeypatch):
         # styled + tight width → the sid is uniformly shrunk with an ellipsis (the shrink branch)
         self._sess(monkeypatch, "a-very-long-session-id-that-will-not-fit-0987654321")
-        cli("add", "a task with a long enough title to crowd the line", "-k", "task")
+        cli("add", "a task with a long enough title to crowd the line")
         cli("agent", "1")
         code, out, _ = cli("--color", "always", "--width", "40", "agent", "ls")
         assert code == 0
         assert "…" in out          # sid truncated to fit the narrow width
 
     def test_conflict_warns_when_node_held_by_other_session(self, cli, monkeypatch):
-        cli("add", "a", "-k", "task")
+        cli("add", "a")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s2")
         _, out, _ = cli("agent", "1")              # #1 already held by s1
@@ -112,20 +112,20 @@ class TestAgent:
     def test_no_session_env_fails_closed(self, cli, monkeypatch):
         monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
         monkeypatch.delenv("WL_SESSION_ID", raising=False)
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         code, _, err = cli("agent", "1")
         assert code != 0 and "session id" in err
 
     def test_wl_session_id_takes_priority(self, cli, tmp_db, monkeypatch):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "env-id")
         monkeypatch.setenv("WL_SESSION_ID", "hook-id")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("agent", "1")
         assert _bound_value(tmp_db, 1) == "hook-id"   # WL_SESSION_ID wins
 
     def test_rm_unbinds_current_session(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-rm")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("agent", "1")
         cli("agent", "rm")
         assert _bound_value(tmp_db, 1) is None
@@ -141,14 +141,14 @@ class TestAgent:
 
     def test_plain_bind_records_history_by_default(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("agent", "1")                          # default → records (so auto-binds capture history)
         assert _bound_value(tmp_db, 1) == "sess-aaa"   # live pointer set
         assert len(_history_metrics(tmp_db, 1)) == 1    # and history recorded by default
 
     def test_no_record_skips_history(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("agent", "1", "--no-record")           # opt out → pointer only
         assert _bound_value(tmp_db, 1) == "sess-aaa"
         assert _history_metrics(tmp_db, 1) == []
@@ -157,7 +157,7 @@ class TestAgent:
         # A pair bound without a history record (early auto-bind / --no-record) gets recorded on a
         # later bind — dedup is by the metric, not "is the prop already set".
         self._sess(monkeypatch, "sess-aaa")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("agent", "1", "--no-record")           # bound, no history
         assert _history_metrics(tmp_db, 1) == []
         cli("agent", "1")                          # re-bind same pair → backfills history
@@ -167,7 +167,7 @@ class TestAgent:
 
     def test_record_writes_session_and_agent_metrics(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-full-1234-xyz")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         code, out, _ = cli("agent", "1", "--record")
         assert code == 0 and "history" in out
         sess = _history_metrics(tmp_db, 1)
@@ -181,7 +181,7 @@ class TestAgent:
         """$WL_AGENT names the runtime → its own `agent` metric (value) + the prop key suffix."""
         self._sess(monkeypatch, "sess-codex-1")
         monkeypatch.setenv("WL_AGENT", "codex")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("agent", "1", "--record")
         assert _agent_metrics(tmp_db, 1)[0]["value_text"] == "codex"   # the agent value, not hardcoded claude
         con = tmp_db.db_connect()
@@ -192,27 +192,27 @@ class TestAgent:
     def test_agent_flag_overrides_env(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-cursor-1")
         monkeypatch.setenv("WL_AGENT", "codex")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("agent", "1", "--record", "--agent", "cursor")     # flag beats env
         assert _agent_metrics(tmp_db, 1)[0]["value_text"] == "cursor"
 
     def test_agent_name_normalized_lowercase(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-up-1")
         monkeypatch.setenv("WL_AGENT", "  Cursor  ")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("agent", "1", "--record")
         assert _agent_metrics(tmp_db, 1)[0]["value_text"] == "cursor"   # trimmed + lowercased
 
     def test_record_rebind_same_pair_no_duplicate(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("agent", "1", "--record")
         cli("agent", "1", "--record")              # same (node, session) again
         assert len(_history_metrics(tmp_db, 1)) == 1   # not duplicated
 
     def test_record_history_survives_rebind_to_other_node(self, cli, tmp_db, monkeypatch):
         self._sess(monkeypatch, "sess-aaa")
-        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")  # #1 #2
+        cli("add", "a"); cli("add", "b")  # #1 #2
         cli("agent", "1", "--record")
         cli("agent", "2", "--record")              # live pointer moves to #2
         assert _bound_value(tmp_db, 1) is None      # prop cleared off #1
@@ -223,7 +223,7 @@ class TestAgent:
 
     def test_context_outputs_machine_line(self, cli, monkeypatch):
         self._sess(monkeypatch, "sess-ctx")
-        cli("add", "hello task", "-k", "task")
+        cli("add", "hello task")
         _, out, _ = cli("agent", "context")
         assert out.strip() == ""                    # not bound yet → empty
         cli("agent", "1")
@@ -233,7 +233,7 @@ class TestAgent:
     def test_context_hook_emits_valid_json(self, cli, monkeypatch):
         import json as _json
         self._sess(monkeypatch, "sess-hook")
-        cli("add", 'tricky "quote" task', "-k", "task")
+        cli("add", 'tricky "quote" task')
         _, out, _ = cli("agent", "context", "--hook")
         assert out.strip() == ""                     # unbound → empty
         cli("agent", "1")
@@ -246,7 +246,7 @@ class TestAgent:
     def test_ls_default_groups_by_day(self, cli, monkeypatch):
         # default `wl agent ls` groups bindings into per-day sections (today / yesterday / date)
         from datetime import date
-        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")
+        cli("add", "a"); cli("add", "b")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s2"); cli("agent", "2")
         _, out, _ = cli("agent", "ls")
@@ -255,7 +255,7 @@ class TestAgent:
 
     def test_ls_flat_has_no_day_header(self, cli, monkeypatch):
         from datetime import date
-        cli("add", "a", "-k", "task")
+        cli("add", "a")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
         _, out, _ = cli("agent", "ls", "--flat")
         assert "today" not in out and date.today().isoformat() not in out
@@ -266,14 +266,14 @@ class TestAgent:
 
     def test_ls_plain_shows_full_session_id(self, cli, monkeypatch):
         # piped / plain (the test harness is non-TTY) → full session id, never abbreviated
-        cli("add", "a", "-k", "task")
+        cli("add", "a")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-full-uuid-0123456789")
         cli("agent", "1")
         _, out, _ = cli("agent", "ls", "--flat")
         assert "sess-full-uuid-0123456789" in out and "…" not in out
 
     def test_ls_sorts_by_activity_most_recent_first(self, cli, tmp_db, monkeypatch):
-        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")
+        cli("add", "a"); cli("add", "b")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s2"); cli("agent", "2")
         con = tmp_db.db_connect()   # backdate ALL of each node's logs to control latest-activity
@@ -285,7 +285,7 @@ class TestAgent:
         assert rows[0].lstrip().startswith("#2") and rows[1].lstrip().startswith("#1")
 
     def test_ls_by_bound_sorts_by_bind_time(self, cli, tmp_db, monkeypatch):
-        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")
+        cli("add", "a"); cli("add", "b")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s2"); cli("agent", "2")
         con = tmp_db.db_connect()   # backdate the bind-history carrier log per node, commit BEFORE
@@ -301,7 +301,7 @@ class TestAgent:
         import worklog.render as render
         monkeypatch.setattr(render, "is_plain", lambda: False)
         for i in range(14):
-            cli("add", f"t{i}", "-k", "task")
+            cli("add", f"t{i}")
         for i in range(1, 15):
             monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", f"s{i}"); cli("agent", str(i))
         _, capped, _ = cli("agent", "ls", "--flat")
@@ -315,7 +315,7 @@ class TestAgent:
         import worklog.render as render
         monkeypatch.setattr(render, "is_plain", lambda: False)
         monkeypatch.setenv("COLUMNS", "50")
-        cli("add", "整合质检代码到主分支的一个相当长的任务标题", "-k", "task")
+        cli("add", "整合质检代码到主分支的一个相当长的任务标题")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-0123456789-abcdef-long-uuid")
         cli("agent", "1")
         _, out, _ = cli("agent", "ls", "--flat")
@@ -326,7 +326,7 @@ class TestAgent:
         state = tmp_path / "state"
         monkeypatch.setenv("XDG_STATE_HOME", str(state))
         self._sess(monkeypatch, "sess-inv")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cache = state / "worklog" / "agent" / "sess-inv"
         cache.parent.mkdir(parents=True)
         cache.write_text("stale")

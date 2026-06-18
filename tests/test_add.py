@@ -5,7 +5,7 @@ import pytest
 
 class TestAdd:
     def test_add_task(self, cli):
-        code, out, _ = cli("add", "test task", "-k", "task", "-p", "A", "-t", "work,P0")
+        code, out, _ = cli("add", "test task", "-p", "A", "-t", "work,P0")
         assert code == 0
         assert "#1" in out
         assert "test task" in out
@@ -16,25 +16,26 @@ class TestAdd:
         assert "#1" in out
 
     def test_add_project(self, cli, tmp_db):
-        cli("add", "test project", "-k", "project", "-p", "A", "-t", "work")
+        from worklog import node_types as nt, queries
+        cli("add", "test project", "--para", "project", "-p", "A", "-t", "work")
         con = tmp_db.db_connect()
         row = con.execute("SELECT * FROM node WHERE id=1").fetchone()
-        assert row["kind"] == "project"
+        assert nt.legacy_kind(queries.node_props(con, 1)) == "project"
         assert row["priority"] == "A"
 
     def test_add_time_hierarchy(self, cli, tmp_db):
         """lifetime -> year -> quarter -> month -> week -> day full hierarchy"""
-        cli("add", "Lifetime", "-k", "lifetime")
-        cli("add", "2026", "-k", "year", "--parent", "1")
-        cli("add", "Q2", "-k", "quarter", "--parent", "2")
-        cli("add", "2026-05", "-k", "month", "--parent", "3")
-        cli("add", "W21", "-k", "week", "--parent", "4")
-        cli("add", "5-18 Monday", "-k", "day", "--parent", "5")
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")
+        cli("add", "2026", "--prop", "type.date=year", "--parent", "1")
+        cli("add", "Q2", "--prop", "type.date=quarter", "--parent", "2")
+        cli("add", "2026-05", "--prop", "type.date=month", "--parent", "3")
+        cli("add", "W21", "--prop", "type.date=week", "--parent", "4")
+        cli("add", "5-18 Monday", "--prop", "type.date=day", "--parent", "5")
 
+        from worklog import node_types as nt, queries
         con = tmp_db.db_connect()
         for nid, kind in [(1, "lifetime"), (2, "year"), (3, "quarter"), (4, "month"), (5, "week"), (6, "day")]:
-            row = con.execute("SELECT kind FROM node WHERE id=?", (nid,)).fetchone()
-            assert row["kind"] == kind
+            assert nt.legacy_kind(queries.node_props(con, nid)) == kind
 
         # tree path
         path = con.execute("SELECT label FROM v_node_path WHERE id=6").fetchone()
@@ -70,13 +71,13 @@ class TestAdd:
         assert "investment" in tags
 
     def test_task_default_status_todo(self, cli, tmp_db):
-        cli("add", "task", "-k", "task")
+        cli("add", "task")
         con = tmp_db.db_connect()
         row = con.execute("SELECT status FROM node WHERE id=1").fetchone()
         assert row["status"] == "TODO"
 
     def test_project_no_default_status(self, cli, tmp_db):
-        cli("add", "project", "-k", "project")
+        cli("add", "project", "--para", "project")
         con = tmp_db.db_connect()
         row = con.execute("SELECT status FROM node WHERE id=1").fetchone()
         assert row["status"] is None
@@ -85,7 +86,7 @@ class TestAdd:
         # deliberate design: stamp "now" so the caller (esp. an AI whose date drifts to
         # session-start) sees the real current time on every content-creating command.
         import re
-        _, out, _ = cli("add", "t", "-k", "task")
+        _, out, _ = cli("add", "t")
         assert re.search(r"@\d{4}-\d{2}-\d{2} \d{2}:\d{2}", out)
 
 
@@ -94,24 +95,24 @@ class TestAdd:
 
 class TestAddAndShowExtras:
     def test_add_with_deadline(self, cli):
-        cli("add", "deadly", "-k", "task", "--deadline", "2026-12-31")
+        cli("add", "deadly", "--deadline", "2026-12-31")
         _, show, _ = cli("show", "1")
         assert "2026-12-31" in show
 
     def test_add_with_body(self, cli):
-        cli("add", "with-body", "-k", "task", "--body", "body content here")
+        cli("add", "with-body", "--body", "body content here")
         _, show, _ = cli("show", "1")
         assert "body content" in show
 
     def test_show_with_ancestors(self, cli):
-        cli("add", "parent", "-k", "project")
-        cli("add", "child", "-k", "task", "--parent", "1")
+        cli("add", "parent", "--para", "project")
+        cli("add", "child", "--parent", "1")
         _, show, _ = cli("show", "2")
         assert "ancestors" in show
         assert "parent" in show
 
     def test_show_with_scheduled_at(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("sched", "1", "2026-06-01")
         # task's scheduled_at goes via the sched table; show renders scheduled event in timeline
         _, show, _ = cli("show", "1")
@@ -119,32 +120,32 @@ class TestAddAndShowExtras:
         assert "t1" in show
 
     def test_show_with_props(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("set", "1", "owner", "yanbo")
         _, show, _ = cli("show", "1")
         assert "owner" in show and "yanbo" in show
 
     def test_ls_filter_by_multiple_tags(self, cli):
-        cli("add", "t1", "-k", "task", "-t", "work,foo,bar")
-        cli("add", "t2", "-k", "task", "-t", "work")
-        cli("add", "t3", "-k", "task", "-t", "foo")
+        cli("add", "t1", "-t", "work,foo,bar")
+        cli("add", "t2", "-t", "work")
+        cli("add", "t3", "-t", "foo")
         _, out, _ = cli("ls", "--tag", "work,foo")
         # AND: only t1 has both work + foo
         assert "t1" in out
         assert "t2" not in out
         assert "t3" not in out
 
-    def test_ls_filter_by_kind(self, cli):
-        cli("add", "h1", "-k", "habit")
-        cli("add", "t1", "-k", "task")
-        _, out, _ = cli("ls", "--kind", "habit")
+    def test_ls_filter_by_prop_habit(self, cli):
+        cli("add", "h1", "--prop", "type.habit=true")
+        cli("add", "t1")
+        _, out, _ = cli("ls", "--prop", "type.habit")
         assert "h1" in out
         assert "t1" not in out
 
     def test_ls_filter_by_parent(self, cli):
-        cli("add", "P1", "-k", "project")
-        cli("add", "c1", "-k", "task", "--parent", "1")
-        cli("add", "c2", "-k", "task")
+        cli("add", "P1", "--para", "project")
+        cli("add", "c1", "--parent", "1")
+        cli("add", "c2")
         _, out, _ = cli("ls", "--parent", "1")
         assert "c1" in out
         assert "c2" not in out
@@ -154,24 +155,24 @@ class TestAddCompound:
     """wl add --log / --done / --at / --link: one-shot add + log + close + done"""
 
     def test_add_with_log(self, cli):
-        cli("add", "t1", "-k", "task", "--log", "kickoff note")
+        cli("add", "t1", "--log", "kickoff note")
         _, show, _ = cli("show", "1")
         assert "kickoff note" in show
 
     def test_add_with_done(self, cli):
-        cli("add", "retro", "-k", "task", "--done")
+        cli("add", "retro", "--done")
         _, show, _ = cli("show", "1")
         assert "DONE" in show
         assert "closed_at" in show
 
     def test_add_with_done_and_at(self, cli):
-        cli("add", "look back", "-k", "task", "--done", "--at", "2025-01-02 09:00")
+        cli("add", "look back", "--done", "--at", "2025-01-02 09:00")
         _, show, _ = cli("show", "1")
         assert "closed_at 2025-01-02 09:00:00" in show
 
     def test_add_all_compound(self, cli):
         """one shot: add + done + log + at + link"""
-        cli("add", "backfill all", "-k", "task", "-p", "B",
+        cli("add", "backfill all", "-p", "B",
             "--log", "outcome in one sentence", "--done", "--at", "2025-01-02 14:30",
             "--link", "vault doc name")
         _, show, _ = cli("show", "1")
@@ -181,11 +182,11 @@ class TestAddCompound:
         assert "2025-01-02 14:30" in show
 
     def test_add_invalid_at(self, cli):
-        code, _, _ = cli("add", "x", "-k", "task", "--at", "garbage")
+        code, _, _ = cli("add", "x", "--at", "garbage")
         assert code != 0
 
     def test_add_with_link_only(self, cli):
-        cli("add", "x", "-k", "task", "--link", "DocOnly")
+        cli("add", "x", "--link", "DocOnly")
         _, show, _ = cli("show", "1")
         assert "DocOnly" in show
 
@@ -194,37 +195,37 @@ class TestAddDuplicateWarning:
     """wl add warns (without blocking) when a similar open task/project already exists."""
 
     def test_warns_on_substring_overlap(self, cli):
-        cli("add", "biz-agg slack-log merge", "-k", "task")
-        code, out, _ = cli("add", "slack-log merge", "-k", "task")
+        cli("add", "biz-agg slack-log merge")
+        code, out, _ = cli("add", "slack-log merge")
         assert code == 0  # not blocked — the node is still created
         assert "similar open" in out
         assert "#1" in out  # points at the existing one
 
     def test_no_warn_when_unrelated(self, cli):
-        cli("add", "biz-agg slack-log merge", "-k", "task")
-        _, out, _ = cli("add", "buy groceries", "-k", "task")
+        cli("add", "biz-agg slack-log merge")
+        _, out, _ = cli("add", "buy groceries")
         assert "similar open" not in out
 
     def test_no_warn_on_short_title_noise(self, cli):
         # 3-char titles shouldn't trigger substring matches against each other
-        cli("add", "fix", "-k", "task")
-        _, out, _ = cli("add", "abc", "-k", "task")
+        cli("add", "fix")
+        _, out, _ = cli("add", "abc")
         assert "similar open" not in out
 
     def test_done_tasks_excluded_from_dup_check(self, cli):
-        cli("add", "duplicate target", "-k", "task")
+        cli("add", "duplicate target")
         cli("done", "1")
-        _, out, _ = cli("add", "duplicate target", "-k", "task")
+        _, out, _ = cli("add", "duplicate target")
         assert "similar open" not in out  # the only match is DONE, so no warning
 
     def test_habit_kind_not_checked(self, cli):
-        cli("add", "drink water", "-k", "habit")
-        _, out, _ = cli("add", "drink water", "-k", "habit")
+        cli("add", "drink water", "--prop", "type.habit=true")
+        _, out, _ = cli("add", "drink water", "--prop", "type.habit=true")
         assert "similar open" not in out  # dedup check is task/project only
 
     def test_exact_duplicate_warns(self, cli):
-        cli("add", "exact same title", "-k", "project")
-        _, out, _ = cli("add", "exact same title", "-k", "project")
+        cli("add", "exact same title", "--para", "project")
+        _, out, _ = cli("add", "exact same title", "--para", "project")
         assert "similar open" in out
 
 
@@ -232,29 +233,29 @@ class TestAddSched:
     """add --sched (schedule at creation) + validation (from test_ux)"""
     def test_add_sched_direct(self, cli):
         """wl add --sched today = add task and put it in the sched table at the same time"""
-        cli("add", "today task", "-k", "task", "--sched", "today")
+        cli("add", "today task", "--sched", "today")
         _, day, _ = cli("day")
         assert "#1" in day
         assert "today task" in day
         assert "planned" in day  # in the planned section, not unplanned
 
     def test_add_sched_yesterday(self, cli):
-        cli("add", "backfill yesterday", "-k", "task", "--sched", "yesterday")
+        cli("add", "backfill yesterday", "--sched", "yesterday")
         _, yday, _ = cli("day", "yesterday")
         assert "backfill yesterday" in yday
 
     def test_add_sched_invalid_date_errors(self, cli):
-        code, _, err = cli("add", "work item", "-k", "task", "--sched", "not-a-date")
+        code, _, err = cli("add", "work item", "--sched", "not-a-date")
         assert code != 0
         assert "bad date" in err or "bad date" in _ or "✗" in (err + _)
 
     def test_add_sched_and_scheduled_conflict(self, cli):
-        code, _, err = cli("add", "t1", "-k", "task", "--sched", "today", "--scheduled", "下周")
+        code, _, err = cli("add", "t1", "--sched", "today", "--scheduled", "下周")
         assert code != 0
 
     def test_empty_title_rejected(self, cli):
-        code, _, err = cli("add", "", "-k", "task")
+        code, _, err = cli("add", "")
         assert code != 0
-        code2, _, err2 = cli("add", "   ", "-k", "task")
+        code2, _, err2 = cli("add", "   ")
         assert code2 != 0
 

@@ -146,7 +146,7 @@ DONE / DEFERRED / CANCELED   (已了结)
 
 ### 9.1 `wl tree` 默认行为（2026-05-29 调整，防刷屏）
 
-两条并列树全展开会上千行。**纯 `wl tree`（无 --root/--kind/--depth/--by）= 专用概览视图 `_print_default_tree`**：
+两条并列树全展开会上千行。**纯 `wl tree`（无 --root/--para/--depth/--by）= 专用概览视图 `_print_default_tree`**：
 
 - **时间线展开到今天**：年→季→月→周→今天（只走到今天的那条路径，不列别的月/周/日），今天的 day 节点下**只列当天有 log 的任务**（task/habit/meetlog，不展开 log）。这样既看到当月、又只聚焦今天。
 - **area 只列一层**：7 个 area 只出领域名，不展开项目。
@@ -519,7 +519,7 @@ total = max(clock_total, log_span)
 | 类别 | 参数(顶层全局 OR 子命令本地) | 描述 |
 |---|---|---|
 | **状态过滤** | `--show-canceled`(顶层全局, 默认隐) / `--all`(本地, ls/projects: 包括 DONE+CANCELED) / `--status STATUS`(本地, ls 已有) | 默认隐 DONE 和/或 CANCELED |
-| **类型过滤** | `--kind KIND`(本地, ls/tree/find 已有) | 限 task/project/area/... |
+| **类型过滤** | `--para {area,project,task}`(本地, ls/tree/find/day) 走 type.para 精确匹配; 其它分类用 `--prop type.<x>`(如 type.meetlog / type.date=day) | kind 列已废弃, 分类改由 type.* 派生 |
 | **优先级过滤** | `--priority A/B/C`(待加, ls/find/day) | 限 P0/P1/P2 |
 | **标签过滤** | `--tag TAG`(本地, ls 已有, AND filter) | 多 tag 逗号分隔 AND |
 | **时间范围** | `--since/--until/--week/--month/--date`(parent parser, changes/summary/logs/projects 已用) | 时间窗口 |
@@ -545,7 +545,7 @@ total = max(clock_total, log_span)
 | `--show-canceled` | 顶层全局 | 跨所有 list/tree/find 命令的状态过滤 |
 | `--color/--theme/--version` | 顶层全局 | 渲染配置 |
 | `--since/--until/--week/--month` | 子命令本地(经 window parent parser) | 只 changes/summary/logs/projects 用 |
-| `--limit/--top/--by/--kind/--tag/--parent/--all` | 子命令本地 | 不一定每个命令都适用 |
+| `--limit/--top/--by/--para/--tag/--parent/--all` | 子命令本地 | 不一定每个命令都适用 |
 
 **冲突处理规则**:
 
@@ -650,7 +650,7 @@ log 写错有两条出路:
 核心反模式: AI 用 `wl ls` / `wl logs --id N` 列全量找 1-2 内容; 浪费 token + 反复试.
 
 落地动作:
-- `wl ls` 无任何过滤参数时顶部加一行 hint 引导用 `wl find` / `--parent` / `--kind` / `wl day` 等精准入口 (仍列出, 不阻断)
+- `wl ls` 无任何过滤参数时顶部加一行 hint 引导用 `wl find` / `--parent` / `--para` / `wl day` 等精准入口 (仍列出, 不阻断)
 - `wl logs --id N --tail K` 单 task 模式 tail 也生效 (之前仅 `--by-task` 配合)
 - vault 文档维护"已识别浪费场景" Audit 清单, 撞到一个反模式就修一个, 持续迭代
 
@@ -724,7 +724,7 @@ epilog   = 使用场景 (3 条) + 跟 wl day 的区别 + 紧凑模式 / full mod
 
 ```
 help     = "list nodes (默认限 20 条, 参考 shell ls -t / -S / -r 各种维度)"
-epilog   = 10 条常用示例 (--parent / --kind / --tag / --unscheduled / --sort / --recent / --ids / --status / --all)
+epilog   = 10 条常用示例 (--parent / --para / --tag / --unscheduled / --sort / --recent / --ids / --status / --all)
 ```
 
 ### 信息密度 vs 简洁的权衡

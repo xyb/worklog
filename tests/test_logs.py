@@ -14,7 +14,7 @@ class TestLogsLineWidth:
     def test_flat_logs_row_fits_width_with_cjk_title(self, cli, monkeypatch):
         from worklog import helpers
         monkeypatch.setattr(helpers, "_term_width", lambda: 80)
-        cli("add", "标" * 30, "-k", "task")          # 30 CJK chars = 60 display cols
+        cli("add", "标" * 30)          # 30 CJK chars = 60 display cols
         cli("log", "1", "a very long log body to test wrapping" * 4)
         _, out, _ = cli("logs", "today")
         body_lines = [ln for ln in out.splitlines() if ln.strip() and not ln.startswith("(")]
@@ -45,9 +45,9 @@ class TestLogs:
         assert "log B1" not in out
 
     def test_logs_group_day(self, cli):
-        cli("add", "2026", "-k", "year")
-        cli("add", "proj", "-k", "project", "-t", "work", "--parent", "1")
-        cli("add", "t", "-k", "task", "-t", "work", "--parent", "2")
+        cli("add", "2026", "--prop", "type.date=year")
+        cli("add", "proj", "--para", "project", "-t", "work", "--parent", "1")
+        cli("add", "t", "-t", "work", "--parent", "2")
         cli("log", "3", "progressX", "--date", "2026-05-28")
         code, out, _ = cli("logs", "--group", "day", "--since", "2026-05-01")
         assert "2026-05-28" in out  # date header
@@ -79,14 +79,14 @@ class TestLogsCoverageGaps:
 
     def test_logs_yesterday_preset(self, cli):
         from datetime import date, timedelta
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         yday = (date.today() - timedelta(days=1)).isoformat()
         cli("log", "1", "y-log", "--date", yday)
         _, out, _ = cli("logs", "yesterday")
         assert "y-log" in out
 
     def test_logs_invalid_date(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         code, _, _ = cli("logs", "--date", "garbage")
         assert code != 0
 
@@ -95,7 +95,7 @@ class TestLogsCoverageGaps:
         assert "does not exist" in out
 
     def test_logs_id_exists_but_empty_window(self, cli):
-        cli("add", "t1", "-k", "task")  # no log
+        cli("add", "t1")  # no log
         _, out, _ = cli("logs", "--id", "1")
         assert "no logs" in out
 
@@ -108,7 +108,7 @@ class TestLogsCoverageGaps:
 
     def test_logs_by_task_brief_no_body(self, cli):
         """cmd_logs brief + by_task: list each log's date without expanding the body."""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "aaaa-body")
         cli("log", "1", "bbbb-body")
         _, out, _ = cli("logs", "--by-task", "--no-body")
@@ -121,7 +121,7 @@ class TestLogsCoverageGaps:
 
 class TestLogsJson:
     def test_logs_json_array(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "first"); cli("log", "1", "second")
         import json
         code, out, _ = cli("logs", "--id", "1", "-o", "json")
@@ -130,7 +130,7 @@ class TestLogsJson:
         assert set(d[0].keys()) >= {"id", "node_id", "logged_at", "tag", "body", "node_title"}
 
     def test_logs_json_empty_is_array(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         import json
         _, out, _ = cli("logs", "--id", "1", "-o", "json")
         assert json.loads(out) == []
@@ -146,7 +146,7 @@ class TestLogTailDefault:
     def test_day_default_tail_3(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("sched", "1", today)
         for i in range(6):
             cli("log", "1", f"log-{i}")
@@ -158,7 +158,7 @@ class TestLogTailDefault:
     def test_day_all_logs_full(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("sched", "1", today)
         for i in range(6):
             cli("log", "1", f"log-{i}")
@@ -170,7 +170,7 @@ class TestLogTailDefault:
     def test_day_log_tail_n_override(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("sched", "1", today)
         for i in range(6):
             cli("log", "1", f"log-{i}")
@@ -182,7 +182,7 @@ class TestLogTailDefault:
     def test_logs_by_task_default_tail_3(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         for i in range(5):
             cli("log", "1", f"x{i}")
         _, out, _ = cli("logs", "--by-task", "--date", today)
@@ -193,7 +193,7 @@ class TestLogTailDefault:
     def test_logs_all_logs(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         for i in range(5):
             cli("log", "1", f"x{i}")
         _, out, _ = cli("logs", "--by-task", "--date", today, "--all-logs")
@@ -202,7 +202,7 @@ class TestLogTailDefault:
         assert "showing last" not in out
 
     def test_show_timeline_default_tail_5(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         for i in range(10):
             cli("log", "1", f"e{i}")
         _, out, _ = cli("show", "1")
@@ -212,7 +212,7 @@ class TestLogTailDefault:
         assert "e0" not in out
 
     def test_show_all_timelines(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         for i in range(10):
             cli("log", "1", f"e{i}")
         _, out, _ = cli("show", "1", "--all-timelines")
@@ -252,7 +252,7 @@ class TestLogFormatOneline:
     def test_day_oneline_truncates(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("sched", "1", today)
         cli("log", "1", self.LONG_BODY)
         _, out, _ = cli("day", today)
@@ -263,34 +263,34 @@ class TestLogFormatOneline:
     def test_day_full_keeps_body(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("sched", "1", today)
         cli("log", "1", self.LONG_BODY)
         _, out, _ = cli("--log-format", "full", "day", today)
         assert self.LONG_BODY in out
 
     def test_logs_by_task_oneline(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", self.LONG_BODY)
         _, out, _ = cli("logs", "--by-task", "today")
         assert self.LONG_BODY not in out
         assert "…" in out
 
     def test_logs_by_task_full(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", self.LONG_BODY)
         _, out, _ = cli("--log-format", "full", "logs", "--by-task", "today")
         assert self.LONG_BODY in out
 
     def test_show_timeline_oneline(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", self.LONG_BODY)
         _, out, _ = cli("show", "1")
         assert self.LONG_BODY not in out
         assert "…" in out
 
     def test_show_timeline_full(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", self.LONG_BODY)
         _, out, _ = cli("--log-format", "full", "show", "1")
         assert self.LONG_BODY in out
@@ -307,14 +307,14 @@ class TestUnstubbedHelpers:
     """additional unit/edge cases to improve overall coverage."""
 
     def test_relog_log_id_with_hash_L_prefix(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "old")
         cli("relog", "#L1", "new")
         _, show, _ = cli("show", "1")
         assert "new" in show
 
     def test_logs_recent_preset(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x")
         _, out, _ = cli("logs", "recent")
         from datetime import date
@@ -327,20 +327,20 @@ class TestShortFlags:
     """single-letter short flags for high-frequency args (-d/--date, -n/--note)."""
 
     def test_log_dash_d_date(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "backfilled", "-d", "2026-06-01")
         con = tmp_db.db_connect()
         row = con.execute("SELECT logged_at FROM log WHERE node_id=1 AND deleted_at IS NULL").fetchone()
         assert row[0].startswith("2026-06-01")
 
     def test_logs_dash_d_date(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "x", "-d", "2026-06-01")
         _, out, _ = cli("logs", "-d", "2026-06-01")
         assert "backfilled" in out or "x" in out
 
     def test_tick_dash_n_note(self, cli, tmp_db):
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
         cli("tick", "1", "-n", "6 pullups")
         con = tmp_db.db_connect()
         bodies = [r[0] for r in con.execute("SELECT body FROM log WHERE node_id=1 AND deleted_at IS NULL")]
@@ -355,7 +355,7 @@ class TestShortFlags:
 class TestLogsLimitAndIdTail:
     """--limit cap + --id --tail (from test_ux)"""
     def test_logs_limit(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         for i in range(20):
             cli("log", "1", f"log {i}")
         _, out, _ = cli("logs", "--since", "1970-01-01", "--limit", "5")
@@ -363,7 +363,7 @@ class TestLogsLimitAndIdTail:
 
     def test_logs_id_tail_single_task(self, cli):
         """wl logs --id N --tail K: tail also takes effect in single-task mode, no need for --by-task"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         for i in range(7):
             cli("log", "1", f"e{i}")
         _, out, _ = cli("logs", "--id", "1", "--tail", "3")
@@ -377,26 +377,26 @@ class TestLogsLimitAndIdTail:
 class TestLogsDateWords:
     """logs --date today/yesterday alias + week preset + by-task tail0 + case-insensitive (from test_ux)"""
     def test_logs_date_today_alias(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "today thing")
         _, out, _ = cli("logs", "--date", "today")
         assert "today thing" in out
 
     def test_logs_date_yesterday_alias(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "yesterday thing", "--date", "yesterday")
         _, out, _ = cli("logs", "--date", "yesterday")
         assert "yesterday thing" in out
 
     def test_logs_preset_week(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "this week's items")
         _, out, _ = cli("logs", "week")
         assert "this week's items" in out
 
     def test_logs_by_task_tail_zero(self, cli):
         """tail 0 = show header only, no expansion (edge-case bug fix for Python lst[-0:] = full list)"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "a")
         cli("log", "1", "b")
         _, out, _ = cli("logs", "--since", "1970-01-01", "--by-task", "--tail", "0")
@@ -409,7 +409,7 @@ class TestLogsDateWords:
         assert "b" not in cleaned
 
     def test_date_case_insensitive(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "today thing")
         _, out, _ = cli("day", "TODAY")
         assert "today thing" in out

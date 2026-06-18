@@ -15,8 +15,8 @@ def _make_cycle(tmp_db):
     con = tmp_db.db_connect()
     now = "2026-06-06 00:00:00"
     for i, parent in ((1, None), (2, 1), (3, 2)):
-        con.execute("INSERT INTO node (id, title, kind, parent_id, created_at) VALUES (?,?,?,?,?)",
-                    (i, f"n{i}", "task", parent, now))
+        con.execute("INSERT INTO node (id, title, parent_id, created_at) VALUES (?,?,?,?)",
+                    (i, f"n{i}", parent, now))
     con.execute("UPDATE node SET parent_id = 3 WHERE id = 1")   # close the loop: 1's parent = 3
     con.commit()
     return con
@@ -38,22 +38,22 @@ class TestWalkerCycleSafety:
 
 class TestBulkReparentCycleGuard:
     def test_apply_refuses_self_parent(self, cli, tmp_path):
-        cli("add", "p", "-k", "project")
+        cli("add", "p", "--para", "project")
         f = tmp_path / "d.txt"; f.write_text("~ #1\n  parent 1\n", encoding="utf-8")
         _, _, err = cli("apply", str(f))
         assert "its own parent" in err or "cycle" in err
 
     def test_apply_refuses_descendant_parent(self, cli, tmp_path):
-        cli("add", "p", "-k", "project")                 # #1
-        cli("add", "c", "-k", "task", "--parent", "1")   # #2 under #1
+        cli("add", "p", "--para", "project")                 # #1
+        cli("add", "c", "--parent", "1")   # #2 under #1
         f = tmp_path / "d.txt"; f.write_text("~ #1\n  parent 2\n", encoding="utf-8")
         _, _, err = cli("apply", str(f))                 # moving #1 under its descendant #2
         assert "cycle" in err or "descendant" in err
 
     def test_apply_allows_legit_reparent(self, cli, tmp_db, tmp_path):
-        cli("add", "a", "-k", "project")                 # #1
-        cli("add", "b", "-k", "project")                 # #2
-        cli("add", "c", "-k", "task", "--parent", "1")   # #3 under #1
+        cli("add", "a", "--para", "project")                 # #1
+        cli("add", "b", "--para", "project")                 # #2
+        cli("add", "c", "--parent", "1")   # #3 under #1
         f = tmp_path / "d.txt"; f.write_text("~ #3\n  parent 2\n", encoding="utf-8")
         cli("apply", str(f))                             # move #3 under #2 — fine, no cycle
         con = tmp_db.db_connect()

@@ -83,23 +83,23 @@ def _tags(con, nid):
 
 class TestTagGroup:
     def test_legacy_leaf_still_adds(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("tag", "1", "+work", "+P0")          # legacy leaf = default verb add
         assert _tags(tmp_db.db_connect(), 1) == ["P0", "work"]
 
     def test_leaf_mixed_add_remove(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("tag", "1", "+work", "+P0")
         cli("tag", "1", "+urgent", "-P0")        # add & remove in one call (default verb)
         assert _tags(tmp_db.db_connect(), 1) == ["urgent", "work"]
 
     def test_leaf_bare_word_adds(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("tag", "1", "work")                   # bare word = add
         assert _tags(tmp_db.db_connect(), 1) == ["work"]
 
     def test_tag_ls(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("tag", "1", "+work")
         _, out, _ = cli("tag", "ls", "1")
         assert "work" in out
@@ -108,24 +108,24 @@ class TestTagGroup:
         assert "work" in out2
 
     def test_tag_rm_explicit(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("tag", "1", "+work", "+P0")
         cli("tag", "rm", "1", "P0")               # group rm (plain name)
         assert _tags(tmp_db.db_connect(), 1) == ["work"]
 
     def test_tag_rm_strips_plus_prefix(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("tag", "1", "+work")
         cli("tag", "rm", "1", "+work")            # leading + tolerated
         assert _tags(tmp_db.db_connect(), 1) == []
 
     def test_tag_add_explicit(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("tag", "add", "1", "+work")
         assert _tags(tmp_db.db_connect(), 1) == ["work"]
 
     def test_readd_revives_tombstone(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("tag", "1", "+work")
         cli("tag", "rm", "1", "work")
         cli("tag", "1", "+work")                  # re-add must revive, not duplicate
@@ -136,7 +136,7 @@ class TestTagGroup:
     def test_leaf_pure_removal_only_op(self, cli, tmp_db):
         # `wl tag 1 -drop` → expand → `wl tag add 1 -drop`; REMAINDER must capture a
         # first op that starts with '-' so the removal still lands.
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("tag", "1", "+keep", "+drop")
         cli("tag", "1", "-drop")
         assert _tags(tmp_db.db_connect(), 1) == ["keep"]
@@ -144,7 +144,7 @@ class TestTagGroup:
     def test_id_first_token_is_data_not_verb(self, cli, tmp_db):
         # `wl tag 1 ls` — first token after tag is an int id → default add → 'ls' is a
         # bare tag name (data), NOT the ls verb. (mirrors the link id-first rule)
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("tag", "1", "ls")
         assert _tags(tmp_db.db_connect(), 1) == ["ls"]
         # whereas verb-first `wl tag ls 1` lists and adds nothing
@@ -180,19 +180,19 @@ class TestTagGroup:
 
 class TestLinkGroup:
     def test_legacy_leaf_still_adds(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("link", "1", "Doc A")               # legacy leaf = default verb add
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM link WHERE node_id=1 AND vault_doc='Doc A' AND deleted_at IS NULL").fetchone()[0] == 1
 
     def test_link_ls(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("link", "1", "Doc A")
         _, out, _ = cli("link", "ls", "1")
         assert "Doc A" in out
 
     def test_link_rm_and_unlink_equivalent(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("link", "1", "A")
         cli("link", "1", "B")
         cli("link", "rm", "1", "A")    # group rm
@@ -201,14 +201,14 @@ class TestLinkGroup:
         assert con.execute("SELECT COUNT(*) FROM link WHERE node_id=1 AND deleted_at IS NULL").fetchone()[0] == 0
 
     def test_link_add_explicit(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("link", "add", "1", "X")
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM link WHERE node_id=1 AND vault_doc='X' AND deleted_at IS NULL").fetchone()[0] == 1
 
     def test_doc_named_like_verb_via_id_first(self, cli, tmp_db):
         # `wl link 1 ls` — first token after link is an int → default add → doc named 'ls'
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("link", "1", "ls")
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM link WHERE node_id=1 AND vault_doc='ls'").fetchone()[0] == 1
@@ -232,28 +232,28 @@ def _logs(con, nid):
 
 class TestLogGroup:
     def test_legacy_leaf_still_adds(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "first progress")          # legacy leaf = default verb add
         assert [b for _, b in _logs(tmp_db.db_connect(), 1)] == ["first progress"]
 
     def test_log_add_explicit(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "add", "1", "explicit")
         assert [b for _, b in _logs(tmp_db.db_connect(), 1)] == ["explicit"]
 
     def test_log_ls(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "alpha")
         _, out, _ = cli("log", "ls", "1")
         assert "alpha" in out and "#L" in out
 
     def test_log_ls_empty(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         _, out, _ = cli("log", "ls", "1")
         assert "no logs" in out
 
     def test_log_edit_equals_relog(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "typo")
         cli("log", "edit", "L1", "fixed")          # group edit == relog
         assert [b for _, b in _logs(tmp_db.db_connect(), 1)] == ["fixed"]
@@ -263,7 +263,7 @@ class TestLogGroup:
         assert ("fixed2" in [b for _, b in _logs(tmp_db.db_connect(), 1)])
 
     def test_log_rm_equals_unlog(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "a")
         cli("log", "1", "b")
         cli("log", "rm", "L1")                      # group rm
@@ -272,7 +272,7 @@ class TestLogGroup:
 
     def test_id_first_token_is_body_not_verb(self, cli, tmp_db):
         # `wl log 1 ls` — int id first → default add → body is the literal word 'ls'
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "ls")
         assert [b for _, b in _logs(tmp_db.db_connect(), 1)] == ["ls"]
         # `wl log 1 edit` likewise adds a log bodied 'edit', NOT an edit verb
@@ -309,17 +309,17 @@ def _sched(con, nid):
 
 class TestSchedGroup:
     def test_legacy_leaf_still_schedules(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("sched", "1", "2026-06-15")              # legacy leaf = default verb add
         assert _sched(tmp_db.db_connect(), 1) == [("2026-06-15", None)]
 
     def test_recur_via_default_verb(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("sched", "1", "--recur", "daily")
         assert ("daily" in [rr for _, rr in _sched(tmp_db.db_connect(), 1)])
 
     def test_sched_ls(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("sched", "1", "2026-06-15")
         _, out, _ = cli("sched", "ls", "1")
         assert "2026-06-15" in out
@@ -327,7 +327,7 @@ class TestSchedGroup:
         assert "2026-06-15" in out2
 
     def test_clear_via_default_verb_and_rm_equivalent(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("sched", "1", "2026-06-15")
         cli("sched", "1", "--clear")                 # default-verb form clears
         assert _sched(tmp_db.db_connect(), 1) == []
@@ -336,13 +336,13 @@ class TestSchedGroup:
         assert _sched(tmp_db.db_connect(), 1) == []
 
     def test_sched_add_explicit(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("sched", "add", "1", "2026-07-01")
         assert _sched(tmp_db.db_connect(), 1) == [("2026-07-01", None)]
 
     def test_defer_still_separate(self, cli, tmp_db):
         # defer is NOT a sched verb — it stays its own composite command
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         _, out, _ = cli("defer", "1", "tomorrow")
         assert "LATER" in out
 

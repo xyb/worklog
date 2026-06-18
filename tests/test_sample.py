@@ -8,16 +8,16 @@ class TestFullSampleScenario:
 
     def test_full_sample_scenario(self, cli, tmp_db):
         # time hierarchy
-        cli("add", "Lifetime", "-k", "lifetime")
-        cli("add", "2026", "-k", "year", "--parent", "1")
-        cli("add", "Q2", "-k", "quarter", "--parent", "2")
-        cli("add", "2026-05", "-k", "month", "--parent", "3")
-        cli("add", "W21", "-k", "week", "--parent", "4")
-        cli("add", "2026-05-18 Mon", "-k", "day", "--parent", "5")
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")
+        cli("add", "2026", "--prop", "type.date=year", "--parent", "1")
+        cli("add", "Q2", "--prop", "type.date=quarter", "--parent", "2")
+        cli("add", "2026-05", "--prop", "type.date=month", "--parent", "3")
+        cli("add", "W21", "--prop", "type.date=week", "--parent", "4")
+        cli("add", "2026-05-18 Mon", "--prop", "type.date=day", "--parent", "5")
         # project (under month)
-        cli("add", "Dev tooling", "-k", "project", "-p", "A", "-t", "work", "--parent", "4")
+        cli("add", "Dev tooling", "--para", "project", "-p", "A", "-t", "work", "--parent", "4")
         # task (new model: under project, not under day; day view is driven by log dates)
-        cli("add", "rewrite ingestion pipeline", "-k", "task", "-p", "A",
+        cli("add", "rewrite ingestion pipeline", "-p", "A",
             "-t", "work,unplanned,P0", "--parent", "7")
         # 4 log entries across the week
         cli("log", "8", "5/18 17:18 kicked off; scoped the rewrite")

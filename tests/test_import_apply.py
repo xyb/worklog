@@ -48,7 +48,7 @@ class TestImport:
         assert t["parent_id"] == proj["id"]
 
     def test_import_update(self, cli, tmp_db):
-        cli("add", "task", "-k", "task")
+        cli("add", "task")
         import json, tempfile, os
         spec = {"update": [{"id": 1, "status": "DONE", "add_tags": ["urgent"], "add_logs": ["backfilled"]}]}
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
@@ -64,7 +64,7 @@ class TestImport:
     def test_import_update_tags_key_rejected(self, cli, tmp_db):
         """update {tags: ...} is a footgun — silently ignored (not add_tags). Reject it
         with a pointer to add_tags/remove_tags instead of no-op'ing."""
-        cli("add", "task", "-k", "task")
+        cli("add", "task")
         import json, tempfile, os
         spec = {"update": [{"id": 1, "tags": "sneaky"}]}
         f = tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8")
@@ -121,20 +121,47 @@ class TestApply:
         c = con.execute("SELECT parent_id, status FROM node WHERE title='subtask'").fetchone()
         assert c["parent_id"] == p["id"] and c["status"] == "DONE"
 
-    def test_apply_add_with_type_prop_syncs_kind_column(self, cli, tmp_db):
-        # a `+` node carrying @prop type.para=project must sync the kind column, or
-        # column-reading readers (wl projects) miss it
+    def test_apply_add_with_type_para_prop_classifies(self, cli, tmp_db):
+        # a `+` node carrying @prop type.para=project derives kind=project (the kind
+        # column is gone; classification reads back from the type.* props)
+        from worklog import node_types as nt, queries
         code, out, _ = self._apply(cli,
             "+ [ ] new-thing\n"
             "  @prop type.para=project\n")
         assert code == 0
         con = tmp_db.db_connect()
-        row = con.execute("SELECT kind FROM node WHERE title='new-thing'").fetchone()
-        assert row["kind"] == "project"      # synced from the type.para prop, not left "task"
+        nid = con.execute("SELECT id FROM node WHERE title='new-thing'").fetchone()["id"]
+        assert nt.legacy_kind(queries.node_props(con, nid)) == "project"
+        con.close()
+
+    def test_apply_add_with_type_date_prop_completes_period(self, cli, tmp_db):
+        # regression: a `+` node carrying a raw @prop type.date=week must still get its
+        # date.period/start/end derived (the bare-prop path bypassed write_kind_type_props'
+        # completion until sync_time_node_dates was wired in).
+        from worklog import queries
+        code, out, _ = self._apply(cli,
+            "+ [ ] 2026-W25\n"
+            "  @prop type.date=week\n")
+        assert code == 0
+        con = tmp_db.db_connect()
+        nid = con.execute("SELECT id FROM node WHERE title='2026-W25'").fetchone()["id"]
+        assert queries._prop_value(con, nid, "date.period") == "2026-W25"
+        assert queries._prop_value(con, nid, "date.start") == "2026-06-15"
+        assert queries._prop_value(con, nid, "date.end") == "2026-06-21"
+        con.close()
+
+    def test_apply_update_type_date_prop_completes_period(self, cli, tmp_db):
+        # regression: `~ #id` + `prop type.date=week` on an existing node must complete it too.
+        from worklog import queries
+        cli("add", "2026-W25")
+        self._apply(cli, "~ #1\n  prop type.date=week\n")
+        con = tmp_db.db_connect()
+        assert queries._prop_value(con, 1, "date.period") == "2026-W25"
+        assert queries._prop_value(con, 1, "date.start") == "2026-06-15"
         con.close()
 
     def test_apply_anchor_parent(self, cli, tmp_db):
-        cli("add", "project", "-k", "project")  # id 1
+        cli("add", "project", "--para", "project")  # id 1
         code, out, _ = self._apply(cli,
             "  #1 [project] project\n"
             "+   [ ] [#B] new subtask\n")
@@ -144,7 +171,7 @@ class TestApply:
         assert c["parent_id"] == 1
 
     def test_apply_update_fields(self, cli, tmp_db):
-        cli("add", "task", "-k", "task")  # id 1, TODO
+        cli("add", "task")  # id 1, TODO
         code, out, _ = self._apply(cli, "~ #1\n  status DONE\n  priority A\n")
         assert "updated 1" in out
         con = tmp_db.db_connect()
@@ -154,7 +181,7 @@ class TestApply:
     # ── anti-wipe: core safety tests (2026-05-28 safety hardening requirement) ──
     def test_apply_update_only_touches_declared_fields(self, cli, tmp_db):
         """only status changes; priority/title/tag/prop all preserved (no wipe)"""
-        cli("add", "original title", "-k", "task", "-p", "A", "-t", "keep1,keep2")
+        cli("add", "original title", "-p", "A", "-t", "keep1,keep2")
         cli("set", "1", "owner", "xyb")
         cli("link", "1", "some doc")
         # only update status
@@ -170,20 +197,20 @@ class TestApply:
         assert con.execute("SELECT 1 FROM link WHERE node_id=1 AND vault_doc='some doc'").fetchone()  # not wiped
 
     def test_apply_clear_priority(self, cli, tmp_db):
-        cli("add", "t", "-k", "task", "-p", "A")
+        cli("add", "t", "-p", "A")
         self._apply(cli, "~ #1\n  priority -\n")
         con = tmp_db.db_connect()
         assert con.execute("SELECT priority FROM node WHERE id=1").fetchone()["priority"] is None
 
     def test_apply_add_remove_tag(self, cli, tmp_db):
-        cli("add", "t", "-k", "task", "-t", "old1,old2")
+        cli("add", "t", "-t", "old1,old2")
         self._apply(cli, "~ #1\n  +tag new\n  -tag old1\n")
         con = tmp_db.db_connect()
         tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1 AND deleted_at IS NULL")}
         assert tags == {"old2", "new"}
 
     def test_apply_set_remove_prop(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("set", "1", "a", "1")
         self._apply(cli, "~ #1\n  prop b=2\n  -prop a\n")
         con = tmp_db.db_connect()
@@ -191,9 +218,9 @@ class TestApply:
         assert props == {"b": "2"}
 
     def test_apply_move_parent(self, cli, tmp_db):
-        cli("add", "p1", "-k", "project")  # 1
-        cli("add", "p2", "-k", "project")  # 2
-        cli("add", "t", "-k", "task", "--parent", "1")  # 3
+        cli("add", "p1", "--para", "project")  # 1
+        cli("add", "p2", "--para", "project")  # 2
+        cli("add", "t", "--parent", "1")  # 3
         self._apply(cli, "~ #3\n  parent 2\n")
         con = tmp_db.db_connect()
         assert con.execute("SELECT parent_id FROM node WHERE id=3").fetchone()["parent_id"] == 2
@@ -201,8 +228,8 @@ class TestApply:
     def test_apply_unindented_fieldop_hints_indent(self, cli, tmp_db):
         """A field op written flush-left under ~ (a common mistake) must produce an
         actionable 'indent it' error, not a bare 'cannot parse'."""
-        cli("add", "p1", "-k", "project")  # 1
-        cli("add", "t", "-k", "task")      # 2
+        cli("add", "p1", "--para", "project")  # 1
+        cli("add", "t")      # 2
         code, out, err = self._apply(cli, "~ #2\nparent 1\n")  # parent not indented
         msg = out + err
         assert code != 0
@@ -211,39 +238,39 @@ class TestApply:
         assert "cannot parse" not in msg.lower()  # the old misleading error is gone
 
     def test_apply_update_bad_priority_rejected(self, cli, tmp_db):
-        cli("add", "t", "-k", "task", "-p", "A")
+        cli("add", "t", "-p", "A")
         code, _, err = self._apply(cli, "~ #1\n  priority Z\n")
         assert code != 0 and "invalid priority" in err
         con = tmp_db.db_connect()
         assert con.execute("SELECT priority FROM node WHERE id=1").fetchone()["priority"] == "A"  # not corrupted
 
     def test_apply_update_bad_status_rejected(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         code, _, err = self._apply(cli, "~ #1\n  status FINISHED\n")
         assert code != 0 and "invalid status" in err
 
     def test_apply_update_bad_parent_rejected(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         code, _, err = self._apply(cli, "~ #1\n  parent 999\n")
         assert code != 0 and "parent #999 does not exist" in err
 
     def test_apply_update_unknown_fieldop_rejected(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         code, _, err = self._apply(cli, "~ #1\n  frobnicate yes\n")
         assert code != 0 and "unparseable field-op" in err
 
     def test_apply_update_title_clear_rejected(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         code, _, err = self._apply(cli, "~ #1\n  title -\n")
         assert code != 0 and "title cannot be cleared" in err
 
     def test_apply_update_no_fieldops_rejected(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         code, _, err = self._apply(cli, "~ #1\n")
         assert code != 0 and "has no field operations" in err
 
     def test_apply_delete(self, cli, tmp_db):
-        cli("add", "delete me", "-k", "task")  # id 1
+        cli("add", "delete me")  # id 1
         code, out, _ = self._apply(cli, "- #1 delete me\n")
         assert "deleted 1" in out
         con = tmp_db.db_connect()
@@ -280,7 +307,7 @@ class TestApply:
         assert code != 0 and "requires #id" in err
 
     def test_apply_status_doing(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")  # id 1
+        cli("add", "t")  # id 1
         self._apply(cli, "~ #1\n  status DOING\n")
         con = tmp_db.db_connect()
         assert con.execute("SELECT status FROM node WHERE id=1").fetchone()["status"] == "DOING"
@@ -288,7 +315,7 @@ class TestApply:
     # ── inline shorthand (same as node list; only touches declared fields) ──
     def test_apply_inline_marker_only(self, cli, tmp_db):
         """~ [x] #1 only updates status, leaves priority/title alone"""
-        cli("add", "original name", "-k", "task", "-p", "A")
+        cli("add", "original name", "-p", "A")
         self._apply(cli, "~ [x] #1\n")
         con = tmp_db.db_connect()
         n = con.execute("SELECT status, priority, title FROM node WHERE id=1").fetchone()
@@ -297,7 +324,7 @@ class TestApply:
 
     def test_apply_inline_priority_only_no_marker(self, cli, tmp_db):
         """~ [#B] #1 no marker → status untouched"""
-        cli("add", "t", "-k", "task")  # status TODO
+        cli("add", "t")  # status TODO
         self._apply(cli, "~ [#B] #1\n")
         con = tmp_db.db_connect()
         n = con.execute("SELECT status, priority FROM node WHERE id=1").fetchone()
@@ -305,7 +332,7 @@ class TestApply:
         assert n["status"] == "TODO"  # no marker = status unchanged
 
     def test_apply_inline_title_only(self, cli, tmp_db):
-        cli("add", "old title", "-k", "task", "-p", "A")
+        cli("add", "old title", "-p", "A")
         self._apply(cli, "~ #1 new title\n")
         con = tmp_db.db_connect()
         n = con.execute("SELECT title, priority, status FROM node WHERE id=1").fetchone()
@@ -313,7 +340,7 @@ class TestApply:
         assert n["priority"] == "A"  # untouched
 
     def test_apply_inline_all_three(self, cli, tmp_db):
-        cli("add", "old", "-k", "task")
+        cli("add", "old")
         self._apply(cli, "~ [x] [#A] #1 new name\n")
         con = tmp_db.db_connect()
         n = con.execute("SELECT status, priority, title FROM node WHERE id=1").fetchone()
@@ -321,7 +348,7 @@ class TestApply:
 
     def test_apply_inline_plus_fieldops(self, cli, tmp_db):
         """inline shorthand combined with following indented field operations"""
-        cli("add", "t", "-k", "task", "-t", "old")
+        cli("add", "t", "-t", "old")
         self._apply(cli, "~ [x] #1\n  +tag urgent\n  -tag old\n")
         con = tmp_db.db_connect()
         n = con.execute("SELECT status FROM node WHERE id=1").fetchone()
@@ -330,7 +357,7 @@ class TestApply:
         assert tags == {"urgent"}
 
     def test_apply_inline_bad_priority_rejected(self, cli, tmp_db):
-        cli("add", "t", "-k", "task", "-p", "A")
+        cli("add", "t", "-p", "A")
         code, _, err = self._apply(cli, "~ [#Z] #1\n")
         # [#Z] is not a valid priority marker; _parse_node_line treats it as no priority + title
         # verify at least that priority is not corrupted
@@ -348,20 +375,20 @@ class TestImportUpdateMove:
         return cli("import", str(f))
 
     def test_import_update_parent_moves_node(self, cli, tmp_path):
-        cli("add", "p1", "-k", "project")   # 1
-        cli("add", "p2", "-k", "project")   # 2
-        cli("add", "t", "-k", "task", "--parent", "1")  # 3
+        cli("add", "p1", "--para", "project")   # 1
+        cli("add", "p2", "--para", "project")   # 2
+        cli("add", "t", "--parent", "1")  # 3
         self._imp(cli, tmp_path, {"update": [{"id": 3, "parent": 2}]})
         code, out, _ = cli("focus", "3")
         assert "#2" in out  # upstream is now p2
 
     def test_import_update_bad_parent_rejected(self, cli, tmp_path):
-        cli("add", "t", "-k", "task")  # 1
+        cli("add", "t")  # 1
         code, _, _ = self._imp(cli, tmp_path, {"update": [{"id": 1, "parent": 999}]})
         assert code != 0
 
     def test_import_update_remove_tags(self, cli, tmp_path):
-        cli("add", "t", "-k", "task", "-t", "a,b")  # 1
+        cli("add", "t", "-t", "a,b")  # 1
         self._imp(cli, tmp_path, {"update": [{"id": 1, "remove_tags": ["a"]}]})
         code, out, _ = cli("show", "1")
         assert ":b:" in out and ":a:" not in out
@@ -404,7 +431,7 @@ class TestApplyAndImportEdges:
 class TestImportEdges:
     def test_import_update_with_field_changes(self, cli, tmp_path):
         import json as _json
-        cli("add", "before", "-k", "task")  # id 1
+        cli("add", "before")  # id 1
         spec = {"update": [{"id": 1, "title": "after", "priority": "A", "add_tags": ["lab"]}]}
         p = tmp_path / "u.json"
         p.write_text(_json.dumps(spec))
@@ -415,7 +442,7 @@ class TestImportEdges:
 
     def test_import_update_dry_run(self, cli, tmp_path):
         import json as _json
-        cli("add", "x", "-k", "task")
+        cli("add", "x")
         p = tmp_path / "u.json"
         p.write_text(_json.dumps({"update": [{"id": 1, "title": "new"}]}))
         _, out, _ = cli("import", str(p), "--dry-run")
@@ -444,7 +471,7 @@ class TestImportEdges:
 
 class TestApplyExtended:
     def test_apply_update_status(self, cli, tmp_path):
-        cli("add", "x", "-k", "task")
+        cli("add", "x")
         p = tmp_path / "a.txt"
         p.write_text("~ [x] #1\n")  # mark DONE
         cli("apply", str(p))
@@ -452,7 +479,7 @@ class TestApplyExtended:
         assert "DONE" in show
 
     def test_apply_delete(self, cli, tmp_path):
-        cli("add", "byebye", "-k", "task")
+        cli("add", "byebye")
         p = tmp_path / "d.txt"
         p.write_text("- #1\n")
         _, out, _ = cli("apply", str(p))
@@ -472,7 +499,7 @@ class TestApplyExtended:
 
     def test_apply_update_no_changes_errors(self, cli, tmp_path):
         """~ #id with no field operations → validation fails"""
-        cli("add", "x", "-k", "task")
+        cli("add", "x")
         p = tmp_path / "u.txt"
         p.write_text("~ #1\n")  # bare ~ with no fields; not inline shorthand
         code, _, _ = cli("apply", str(p))
@@ -487,8 +514,8 @@ class TestApplyExtended:
 
 class TestApplyExtra:
     def test_apply_delete_with_subtree(self, cli, tmp_path):
-        cli("add", "parent", "-k", "task")
-        cli("add", "child", "-k", "task", "--parent", "1")
+        cli("add", "parent")
+        cli("add", "child", "--parent", "1")
         p = tmp_path / "del.txt"
         p.write_text("- #1\n")
         cli("apply", str(p))
@@ -499,7 +526,7 @@ class TestApplyExtra:
 
     def test_apply_update_with_log_sub_via_fieldop(self, cli, tmp_path):
         """~ #id followed by '+log msg' field op → _exec_update log branch"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         p = tmp_path / "u.txt"
         p.write_text("~ #1\n  +log progress-via-apply\n")
         cli("apply", str(p))
@@ -507,7 +534,7 @@ class TestApplyExtra:
         assert "progress-via-apply" in show
 
     def test_apply_update_link_add_remove(self, cli, tmp_path):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("link", "1", "DocA")
         p = tmp_path / "u.txt"
         p.write_text("~ #1\n  +link DocB\n  -link DocA\n")
@@ -517,7 +544,7 @@ class TestApplyExtra:
         assert "DocA" not in show
 
     def test_apply_update_prop(self, cli, tmp_path):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         p = tmp_path / "u.txt"
         p.write_text("~ #1\n  prop owner=xyb\n")
         cli("apply", str(p))
@@ -566,7 +593,7 @@ class TestExecUpdateDirect:
     """direct _exec_update calls covering log/link/prop/tag branches"""
 
     def test_exec_update_all_field_ops(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("link", "1", "DocA")
         cli("set", "1", "k1", "v0")
         from worklog import cli as wl
@@ -634,7 +661,7 @@ class TestParseWldEdges:
 
     def test_parse_wld_update_with_inline_marker(self, cli, tmp_path):
         """~ [x] #1 inline shorthand → marker+status"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         p = tmp_path / "i.txt"
         p.write_text("~ [x] #1\n")
         cli("apply", str(p))

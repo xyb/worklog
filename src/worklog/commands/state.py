@@ -53,9 +53,9 @@ from ..queries import (
     _sec_group,
     _status_filter_sql,
     _upsert_prop,
-    write_kind_type_props,
-    sync_kind_column,
     node_kind,
+    node_props,
+    sync_time_node_dates,
     _strip_wikilink,
     _upsert_link,
     _delete_link,
@@ -68,6 +68,8 @@ from ..queries import (
     relation_view,
     _backrels,
 )
+from ..node import create_node
+from .. import node_types as _nt
 from .metric import attach_metric_specs, checkin_metric, _CARRIER_TYPE
 from ..render import (
     _PRI_STYLE,
@@ -200,28 +202,47 @@ def cmd_add(args, con):
     if not args.title or not args.title.strip():
         sys.exit("✗ title cannot be empty")
     args.title = args.title.strip()
-    # --para is the type.para-native way to name a responsibility role; for now it drives the
-    # legacy kind column too (dual-write) so existing kind-based readers keep working.
-    if getattr(args, "para", None):
-        args.kind = args.para
-    # Duplicate check (warn only, never block): a related open task/project may already
-    # exist, possibly pinned at @month/@someday and easy to miss. Computed before
-    # insert so the new node doesn't match itself.
-    similar = _find_similar_open(con, args.title, args.kind)
+    # The node's classification is no longer a kind column — it's the type.* props written below.
+    # `kind` is just a local token for the duplicate-check + the echo line: --para names a PARA
+    # role; otherwise a bare add is a loose `task` (any other classification comes via --prop and
+    # is derived afterwards from the props actually written).
+    para = getattr(args, "para", None)
     if args.sched and args.scheduled:
         sys.exit("✗ --sched (precise, writes sched table) and --scheduled (rough hint, writes node.scheduled_date) are mutually exclusive; use --sched day-to-day")
     tags = [t.strip() for t in (args.tag or "").split(",") if t.strip()]
     props = {}
     if args.proj:
         props["project"] = args.proj
+    # gather --prop K=V now (before the status default) so the node's classification is known up front
+    for spec in (getattr(args, "prop", None) or []):
+        key, _, val = spec.partition("=")
+        key = key.strip()
+        val = val.strip()
+        if key:
+            if key in props and props[key] != val:
+                # don't silently drop a conflicting earlier value (e.g. --proj X + --prop project=Y)
+                out(_c(f"⚠ {key}={val} overrides earlier {key}={props[key]}", "later"))
+            props[key] = val
     if args.deadline:
         deadline = args.deadline
     else:
         deadline = None
 
+    # Derive the node's classification ONCE from para + the type.* props just gathered, and reuse
+    # it for both the TODO-status default and the duplicate probe — so `wl add 2026-06-20 --prop
+    # type.date=day` is a date node (not a TODO task) AND isn't dup-checked as a task.
+    _eff = dict(props)
+    if para:
+        _eff[_nt.K_PARA] = para
+    derived_kind = _nt.legacy_kind(_eff)
+    # Default a work item (task / habit) to TODO — but NOT a time node / meetlog / area / project.
     status = args.status
-    if not status and args.kind in ("task", "habit"):
+    if not status and derived_kind in ("task", "habit"):
         status = "TODO"
+    # Duplicate check (warn only, never block): a related open task/project may already exist,
+    # pinned at @month/@someday and easy to miss. Probe with the DERIVED kind so a date/meetlog
+    # add isn't searched as a task. Run before insert so the new node can't match itself.
+    similar = _find_similar_open(con, args.title, derived_kind)
     # --done overrides status directly (one-shot retrospective entry)
     if getattr(args, "done", False):
         status = "DONE"
@@ -242,42 +263,23 @@ def cmd_add(args, con):
     except ValueError as e:
         sys.exit(f"✗ {e}")
 
-    # one dict, three SQL variants collapsed — created_at is always stamped (UTC),
-    # closed_at only when --done (now) or --done --at (a resolved UTC instant).
-    # One `now` read shared by both fields so a created-and-done task has
-    # created_at == closed_at (the old single-INSERT datetime('now') did this).
+    # created_at is always stamped (UTC); closed_at only when --done (now) or --done --at (a
+    # resolved instant). One `now` read shared by both so a created-and-done task has
+    # created_at == closed_at.
     now = _tu.utc_now()
-    row = {
-        "parent_id": args.parent, "title": args.title, "kind": args.kind,
-        "status": status, "priority": args.priority,
-        "scheduled_date": scheduled, "deadline_date": deadline,
-        "body": args.body, "created_at": now,
-    }
-    if closed_at == "__NOW__":
-        row["closed_at"] = now
-    elif closed_at:
-        row["closed_at"] = closed_at
-    node_id = _db.insert(con, "node", row)
+    # The ONE create path: node.create_node is the only INSERT INTO node. It writes no kind
+    # column — classification is --para (type.para) + props (type.*), validated there.
+    try:
+        node_id = create_node(
+            con, title=args.title, parent_id=args.parent, status=status,
+            priority=args.priority, scheduled_date=scheduled, deadline_date=deadline,
+            body=args.body, created_at=now,
+            closed_at=(now if closed_at == "__NOW__" else (closed_at or None)),
+            para=para, props=props)
+    except ValueError as e:
+        sys.exit(f"✗ {e}")
     for t in tags:
         _db.upsert(con, "tag", {"node_id": node_id, "tag": t}, key=("node_id", "tag"))
-    if args.proj:
-        _upsert_prop(con, node_id, "project", args.proj)
-    # Dual-write the new type.* namespace from the legacy kind, so every new node populates the
-    # model that replaces kind (and --para writes type.para directly). Then apply any --prop.
-    # A role is recorded only when explicitly asked for: --para (any role, incl. task) or
-    # -k project/area; a bare add (default kind "task") stays type-less.
-    para_role = args.para if getattr(args, "para", None) else (
-        args.kind if args.kind in ("project", "area") else None)
-    write_kind_type_props(con, node_id, args.kind, args.title, para_role=para_role)
-    for spec in (getattr(args, "prop", None) or []):
-        key, sep, val = spec.partition("=")
-        key = key.strip()
-        if not key:
-            continue
-        try:
-            _upsert_prop(con, node_id, key, val.strip())   # a type.* prop auto-syncs the kind column
-        except ValueError as e:
-            sys.exit(f"✗ {e}")
     # creation-time side effects, each returning its echo hint (order fixed by the output line below)
     sched_hint = _add_sched(con, node_id, args)
     link_hint = _add_link(con, node_id, args)
@@ -286,11 +288,13 @@ def cmd_add(args, con):
 
     con.commit()
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
-    out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{args.kind} '{args.title}'")
+    # echo the node's DERIVED kind (post --prop) so a `--prop type.habit` add reports "habit", not "task"
+    echo_kind = node_kind(con, node_id)
+    out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{echo_kind} '{args.title}'")
         + st + sched_hint + link_hint + rel_hint + log_hint + metric_hint
         + _c(f"  @{_tu.local_now()[:16]}", "meta"))   # stamp "now" so the caller (esp. an AI) sees the real current time
     if similar:
-        out(_c(f"⚠ {len(similar)} similar open {args.kind}(s) already exist — reuse instead of duplicating?", "later"))
+        out(_c(f"⚠ {len(similar)} similar open {echo_kind}(s) already exist — reuse instead of duplicating?", "later"))
         for r in similar[:5]:
             out("  " + _node_line(con, r, sched=True))
         out(_c("  if it's the same thing: wl sched <id> <day> to reschedule, or wl link / wl log it", "meta"))
@@ -583,7 +587,14 @@ def cmd_set(args, con):
         out(_c(f"✓ #{args.id} {args.key} (logged at {at}): {args.value}", "meta"))
         return
     try:
-        _upsert_prop(con, args.id, args.key, args.value)   # a type.* prop auto-syncs the kind column
+        _upsert_prop(con, args.id, args.key, args.value)
+        # Setting type.date / date.period must keep the time node COHERENT: re-derive its full
+        # date.* set (period + start/end) from the current level + period source, and CLEAR any
+        # stale date.* a prior level/period left (e.g. week→day drops the week's date.start/end;
+        # →lifetime drops the period+span). Otherwise the node carries a level but no period (or a
+        # mismatched span) and is mis-placed by date-range queries.
+        if args.key in (_nt.K_DATE, _nt.K_PERIOD):
+            sync_time_node_dates(con, args.id)
     except ValueError as e:
         # the reserved type.*/date.* validator (or a shadow-field backstop) rejected the value
         sys.exit(f"✗ {e}")
@@ -1072,8 +1083,9 @@ def cmd_node_rm(args, con):
 
 
 def cmd_node_edit(args, con):
-    """Edit a node's own fields: title / priority / kind / body / scheduled / deadline.
-    (Status has its own verbs done/cancel/…; parent → `node reparent`; tags → `wl tag`.)"""
+    """Edit a node's own fields: title / priority / body / scheduled / deadline, plus --para to
+    set the PARA role (writes type.para). (Status has its own verbs done/cancel/…; parent →
+    `node reparent`; tags → `wl tag`; other classifications → `wl set type.<x>` / `wl prop rm`.)"""
     nid = args.id
     _require_node(con, nid)
     changes = {}
@@ -1083,8 +1095,6 @@ def cmd_node_edit(args, con):
         changes["title"] = args.title.strip()
     if args.priority is not None:
         changes["priority"] = args.priority
-    if args.kind is not None:
-        changes["kind"] = args.kind
     if args.body is not None:
         changes["body"] = args.body
     if args.scheduled is not None:
@@ -1094,20 +1104,30 @@ def cmd_node_edit(args, con):
             sys.exit(f"✗ {e}")
     if args.deadline is not None:
         changes["deadline_date"] = args.deadline or None
-    if not changes:
-        sys.exit("✗ nothing to edit (give --title / --priority / --kind / --body / --scheduled / --deadline)")
-    _db.update(con, "node", nid, changes)
-    if "kind" in changes:
-        # keep the type.* namespace in sync with a kind edit: clear ALL old classification props
-        # (the 7 reserved keys AND any custom type.<x>), then re-derive from the new kind, so no
-        # stale classification lingers and node_kind / views don't split-brain.
-        node = _db.get(con, "node", nid)
-        for r in _db.query(con, "prop", cols="key", node_id=nid):
-            if r["key"].startswith("type.") or r["key"] in _nt.RESERVED_KEYS:
-                _db.delete(con, "prop", node_id=nid, key=r["key"])
-        write_kind_type_props(con, nid, changes["kind"], node["title"])
+    para = getattr(args, "para", None)
+    if not changes and para is None:
+        sys.exit("✗ nothing to edit (give --title / --priority / --para / --body / --scheduled / --deadline)")
+    if changes:
+        _db.update(con, "node", nid, changes)
+    conflicts = []
+    if para is not None:
+        # set the PARA role via the type.* namespace (the column is gone). Replace any prior role.
+        _db.delete(con, "prop", node_id=nid, key=_nt.K_PARA)
+        _upsert_prop(con, nid, _nt.K_PARA, para)
+        changes["para"] = para
+        # The type.* model is orthogonal, so --para does NOT auto-clear a node's OTHER
+        # classification (type.date / type.habit / type.meetlog) — but a node that is e.g. a
+        # meetlog AND now type.para=project reads inconsistently (legacy_kind shows the role by
+        # precedence, yet `--prop type.meetlog` / checkin still match it). Surface it so the user
+        # can clear the stale one with `wl prop rm` rather than silently leaving a hybrid.
+        _LABELS = {_nt.K_DATE: "type.date", _nt.K_HABIT: "type.habit", _nt.K_MEETLOG: "type.meetlog"}
+        have = {r["key"] for r in _db.query(con, "prop", cols="key", node_id=nid)}
+        conflicts = [_LABELS[k] for k in (_nt.K_DATE, _nt.K_HABIT, _nt.K_MEETLOG) if k in have]
     con.commit()
-    out(_c(f"✓ #{nid} updated: " + ", ".join(changes), "meta"))
+    out(_c(f"✓ #{nid} updated: " + ", ".join(f"{k}={v}" if k == "para" else k for k, v in changes.items()), "meta"))
+    if conflicts:
+        out(_c(f"⚠ #{nid} still carries {', '.join(conflicts)} alongside type.para={para} — "
+               f"clear the stale one with `wl prop rm {nid} <key>` if this should be a plain {para}", "later"))
 
 
 # --- prop entity group: set / ls / rm ---
@@ -1140,7 +1160,6 @@ def cmd_prop_rm(args, con):
         return
     n = _db.delete(con, "prop", node_id=args.id, key=key)
     if n and (key.startswith("type.") or key.startswith("date.")):
-        sync_kind_column(con, args.id)   # removing a classification prop changes the derived kind
         # a structural classification key just changed what this node IS — surface it (non-blocking),
         # since removing e.g. type.para demotes a project to a bare task, or type.date un-places a
         # time node. Hint to stderr so stdout/JSON stays clean.

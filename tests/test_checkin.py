@@ -10,7 +10,7 @@ class TestCheckin:
         from datetime import date
         today = date.today().isoformat()
         for i in range(n):
-            cli("add", f"h{i+1}", "-k", "habit")
+            cli("add", f"h{i+1}", "--prop", "type.habit=true")
             cli("sched", str(i+1), today)
         return today
 
@@ -70,7 +70,7 @@ class TestCheckin:
         """habit with a log that day → wl day renders [x] (render-layer logic, DB status untouched)"""
         from datetime import date, timedelta
         today = date.today().isoformat()
-        cli("add", "workout", "-k", "habit")
+        cli("add", "workout", "--prop", "type.habit=true")
         cli("sched", "1", today)
         # no log → renders [ ]
         _, no_log, _ = cli("day")
@@ -127,7 +127,7 @@ class TestCheckin:
         from datetime import date, timedelta
         today = date.today().isoformat()
         yday = (date.today() - timedelta(days=1)).isoformat()
-        cli("add", "vitamin", "-k", "habit")
+        cli("add", "vitamin", "--prop", "type.habit=true")
         cli("sched", "1", today)
         # yesterday's check-in (log carrying a checkin metric, dated yesterday)
         cli("log", "1", "ate yesterday", "--date", yday, "--metric", "checkin")
@@ -139,7 +139,7 @@ class TestCheckin:
         assert "[x] #1" in yday_out
 
     def test_unlog_by_log_id(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "a")
         cli("log", "1", "b")
         cli("log", "1", "c")
@@ -156,19 +156,19 @@ class TestCheckin:
         assert all("b" != l.split()[-1] for l in bodies)
 
     def test_unlog_accepts_L_prefix(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x")
         _, out, _ = cli("unlog", "L1")
         assert "deleted log #1" in out
 
     def test_unlog_accepts_hash_L_prefix(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x")
         _, out, _ = cli("unlog", "#L1")
         assert "deleted log #1" in out
 
     def test_unlog_node_today(self, cli):
-        cli("add", "h1", "-k", "habit")
+        cli("add", "h1", "--prop", "type.habit=true")
         cli("log", "1", "a")
         cli("log", "1", "b")
         # delete the most recent log today (= b)
@@ -181,7 +181,7 @@ class TestCheckin:
         assert len(log_lines) == 1
 
     def test_unlog_node_all(self, cli):
-        cli("add", "h1", "-k", "habit")
+        cli("add", "h1", "--prop", "type.habit=true")
         cli("log", "1", "a")
         cli("log", "1", "b")
         cli("log", "1", "c")
@@ -191,7 +191,7 @@ class TestCheckin:
         assert "✎ log" not in show
 
     def test_unlog_requires_id_xor_node(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         # neither given
         code, _, _ = cli("unlog")
         assert code != 0
@@ -200,13 +200,13 @@ class TestCheckin:
         assert code2 != 0
 
     def test_show_timeline_includes_log_id(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "hello")
         _, show, _ = cli("show", "1")
         assert "#L1" in show  # uses # like node #123; distinguished by the L prefix
 
     def test_logs_output_includes_log_id(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "hello")
         _, out, _ = cli("logs", "today")
         assert "#L1" in out
@@ -234,7 +234,7 @@ class TestCheckinCollectGaps:
     def test_checkin_all_kinds_includes_task(self, cli, monkeypatch):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "task-x", "-k", "task")
+        cli("add", "task-x")
         cli("sched", "1", today)
         # EOF straight away → immediate interrupt, but _checkin_collect already covered --all-kinds branch
         monkeypatch.setattr("builtins.input", lambda *a: (_ for _ in ()).throw(EOFError()))
@@ -244,7 +244,7 @@ class TestCheckinCollectGaps:
     def test_checkin_skips_canceled(self, cli, monkeypatch):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "h-skip", "-k", "habit")
+        cli("add", "h-skip", "--prop", "type.habit=true")
         cli("sched", "1", today)
         cli("cancel", "1")
         monkeypatch.setattr("builtins.input", lambda *a: (_ for _ in ()).throw(EOFError()))
@@ -258,7 +258,7 @@ class TestCheckinPerItemActuallyRuns:
     def test_checkin_per_item_y_marks_done(self, cli, monkeypatch):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "h-per-item", "-k", "habit")
+        cli("add", "h-per-item", "--prop", "type.habit=true")
         cli("sched", "1", today)
         # mock y → done
         monkeypatch.setattr("builtins.input", lambda *a: "y")
@@ -269,22 +269,22 @@ class TestCheckinPerItemActuallyRuns:
         """all pending already checked in → short-circuit "already checked in" path"""
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "h-done", "-k", "habit")
+        cli("add", "h-done", "--prop", "type.habit=true")
         cli("sched", "1", today)
         cli("tick", "1")  # already checked in today
         _, out, _ = cli("checkin", "--per-item")
         assert "already checked in" in out
 
 
-class TestCheckinKindFilter:
-    def test_checkin_explicit_kind(self, cli, monkeypatch):
+class TestCheckinAllKinds:
+    def test_checkin_all_kinds_includes_task(self, cli, monkeypatch):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "t-task", "-k", "task")
+        cli("add", "t-task")
         cli("sched", "1", today)
-        # --kind task → kinds = {"task"}, should be collected
+        # --all-kinds → kinds = {habit, task, meetlog}; the scheduled task should be collected
         monkeypatch.setattr("builtins.input", lambda *a: "n")
-        _, out, _ = cli("checkin", "--kind", "task", "--per-item")
+        _, out, _ = cli("checkin", "--all-kinds", "--per-item")
         # reaching the per-item path is good enough; 1 item collected
         assert "1 items" in out or "1/1" in out
 
@@ -294,7 +294,7 @@ class TestCheckinCollectAlreadyLogged:
         """already logged today → already=True flag"""
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "h1", "-k", "habit")
+        cli("add", "h1", "--prop", "type.habit=true")
         cli("sched", "1", today)
         cli("tick", "1")  # already checked in today
         from worklog import cli as wl
@@ -310,9 +310,9 @@ class TestCheckinCollectAlreadyLogged:
 class TestTickShortcuts:
     """tick multi-id + empty-note fallback (from test_ux)"""
     def test_tick_multiple_ids(self, cli):
-        cli("add", "h1", "-k", "habit")
-        cli("add", "h2", "-k", "habit")
-        cli("add", "h3", "-k", "habit")
+        cli("add", "h1", "--prop", "type.habit=true")
+        cli("add", "h2", "--prop", "type.habit=true")
+        cli("add", "h3", "--prop", "type.habit=true")
         _, out, _ = cli("tick", "1", "2", "3", "--note", "do all today")
         assert "#1 checked in" in out
         assert "#2 checked in" in out
@@ -323,12 +323,12 @@ class TestTickShortcuts:
             assert "do all today" in show
 
     def test_tick_single_id_still_works(self, cli):
-        cli("add", "h1", "-k", "habit")
+        cli("add", "h1", "--prop", "type.habit=true")
         _, out, _ = cli("tick", "1", "--note", "ok")
         assert "#1 checked in" in out
 
     def test_tick_empty_note_falls_back(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         _, out, _ = cli("tick", "1", "--note", "")
         # no error; falls back to default body
         assert "checked in" in out

@@ -155,7 +155,7 @@ def _has_tag(con, nid, tag):
 def nodes_with_tag(con, tags, *, kinds=None, cols="*", order=None):
     """Nodes carrying ANY of `tags` (a str or an iterable) — the single-table
     decomposition of `node JOIN tag`: collect node ids from the tag table, then
-    read those nodes. `kinds` further restricts node.kind; `cols` / `order` pass
+    read those nodes. `kinds` further restricts by derived kind; `cols` / `order` pass
     through to the node read. Returns list[Row] (deduped by node; empty tags → [])."""
     tag_list = [tags] if isinstance(tags, str) else list(tags)
     if not tag_list:
@@ -233,15 +233,16 @@ def _parse_prop_cond(spec):
 
 
 def make_node_filter(con, args):
-    """Shared --tag / --kind / --status / --priority / --prop filter, used by ls/tree/day/logs/agenda
+    """Shared --tag / --para / --status / --priority / --prop filter, used by ls/tree/day/logs/agenda
     so every list/view command filters the same way (one definition, DESIGN §12 single entry point).
     Returns a memoized predicate `node_id -> bool`, or **None** when no filter flag is set —
     callers treat None as "no filtering", keeping unfiltered behavior byte-identical.
     `--tag` is comma-separated AND (node must carry every tag); `--status` / `--priority` are
-    comma-separated OR; `--prop` is repeatable, AND across conditions (exact key=value / key
-    existence / `group.` namespace prefix)."""
+    comma-separated OR; `--para` is sugar for an exact `type.para` prop condition (the
+    responsibility role); `--prop` is repeatable, AND across conditions (exact key=value / key
+    existence / `group.` namespace prefix). Classification beyond the PARA role (meetlog / habit /
+    time level) filters through `--prop type.*` — there is no separate `--kind` filter."""
     tag = getattr(args, "tag", None)
-    kind = getattr(args, "kind", None)
     status = getattr(args, "status", None)
     priority = getattr(args, "priority", None)
     # parse tags first so an effective-empty tag (--tag "" / "," / ",,") collapses to
@@ -256,7 +257,7 @@ def make_node_filter(con, args):
     para = getattr(args, "para", None)
     if para:
         prop_conds.append(("exact", _nt.K_PARA, para))
-    if not wanted and not kind and not statuses and not pris and not prop_conds:
+    if not wanted and not statuses and not pris and not prop_conds:
         return None
 
     cache = {}
@@ -266,8 +267,6 @@ def make_node_filter(con, args):
             return cache[nid]
         n = _db.get(con, "node", nid)
         res = n is not None
-        if res and kind and node_kind(con, nid) != kind:   # derived, column-free
-            res = False
         if res and statuses and n["status"] not in statuses:
             res = False
         if res and pris and n["priority"] not in pris:
@@ -431,7 +430,7 @@ _RESERVED_PROP_KEYS = {
     "tags": "real tags — use `wl tag <id> +x -y`",
     "status": "node status — use `wl done` / `defer` / `reopen` / `start` / `wait` / `cancel`",
     "priority": "node field — use `wl node edit <id> -p A|B|C`",
-    "kind": "node field — use `wl node edit <id> -k …`",
+    "kind": "node classification — use `--para` / `--prop type.<x>` (the kind column is gone)",
     "title": "node field — use `wl node edit <id> --title …`",
     "body": "node field — use `wl node edit <id> --body …`",
     "scheduled": "node field — use `wl sched` / `wl defer` / `wl node edit <id> --scheduled …`",
@@ -470,12 +469,6 @@ def _upsert_prop(con, nid, key, value):
     # user props pass straight through (free values).
     value = _nt.validate_prop(key, value)
     _db.upsert(con, "prop", {"node_id": nid, "key": key, "value": value}, key=("node_id", "key"))
-    # Side-effect chokepoint: writing a type.* classification prop changes the node's derived
-    # kind, so refresh the kind-column cache HERE — not at each caller. This is what stops the
-    # recurring "a new write site forgot to sync" bug: any path that writes a type.* prop through
-    # this one primitive stays consistent automatically.
-    if key.startswith("type."):
-        sync_kind_column(con, nid)
 
 
 # --- task↔task relations (relation.* props) ---------------------------------
@@ -540,8 +533,8 @@ def node_props(con, nid, *, include_deleted=False):
 
 
 def write_kind_type_props(con, nid, kind, title, *, para_role="__auto__"):
-    """Populate the type.* namespace for a freshly-created node from its kind — the single
-    dual-write used by every creation path (add / import / apply) so they stay consistent.
+    """Populate the type.* namespace for a freshly-created node from a classification token — the
+    single write used by every creation path (add / import / apply) so they stay consistent.
     ``para_role`` defaults to auto (area/project → that role; a plain task stays bare, the loose
     default); callers with explicit intent (``wl add --para task``) pass it directly. Time levels
     → type.date (+ date.period when the title is a canonical period, + date.start/date.end for
@@ -552,12 +545,8 @@ def write_kind_type_props(con, nid, kind, title, *, para_role="__auto__"):
         _upsert_prop(con, nid, _nt.K_PARA, para_role)
     elif kind in _nt.DATE_LEVELS:
         _upsert_prop(con, nid, _nt.K_DATE, kind)
-        if kind != "lifetime" and _nt.valid_period(kind, title):
-            _upsert_prop(con, nid, _nt.K_PERIOD, title)
-            if kind in _nt.EXPLICIT_SPAN_LEVELS:
-                start, end = _nt.span_of(kind, title)
-                _upsert_prop(con, nid, _nt.K_START, start)
-                _upsert_prop(con, nid, _nt.K_END, end)
+        for key, val in _nt.date_props_for(kind, title).items():
+            _upsert_prop(con, nid, key, val)
     elif kind == "habit":
         _upsert_prop(con, nid, _nt.K_HABIT, "")
     elif kind == "meetlog":
@@ -567,6 +556,36 @@ def write_kind_type_props(con, nid, kind, title, *, para_role="__auto__"):
         # derive it instead of collapsing it to a bare task. (task = bare default; signal is
         # the retired dead kind → bare.)
         _upsert_prop(con, nid, "type." + kind, "true")
+
+
+#: the reserved date keys whose write must trigger a time-node re-sync (see sync_time_node_dates)
+DATE_SYNC_KEYS = frozenset({_nt.K_DATE, _nt.K_PERIOD})
+
+
+def sync_time_node_dates(con, nid):
+    """Re-derive a node's ``date.*`` (period / start / end) to EXACTLY match its current
+    ``type.date`` level + period source, clearing any stale ``date.*`` a prior level/period left
+    behind. Period source is the existing ``date.period`` IF it's valid for the (possibly just-
+    changed) level, else the node title (mirrors ``create_node``). No-op for a node with no
+    ``type.date`` level.
+
+    This is the SINGLE place that keeps a time node's span coherent after a *generic prop write*
+    of ``type.date`` / ``date.period`` — call it from every such path (``wl set``, bulk import/
+    apply), so setting a time level via ``--prop`` produces a findable time node, not a half one.
+    (``create_node`` does its own inline completion for the create path.)"""
+    props = node_props(con, nid)
+    level = props.get(_nt.K_DATE)
+    if not level:
+        return
+    period = props.get(_nt.K_PERIOD)
+    if not (period and _nt.valid_period(level, period)):
+        period = _db.get(con, "node", nid)["title"]
+    want = _nt.date_props_for(level, period)
+    for key in (_nt.K_PERIOD, _nt.K_START, _nt.K_END):
+        if key in want:
+            _upsert_prop(con, nid, key, want[key])
+        elif key in props:
+            _db.delete(con, "prop", node_id=nid, key=key)
 
 
 def node_kind(con, n):
@@ -632,15 +651,6 @@ def workitem_sql(alias="n"):
     # co-present custom type.<x>, so they stay in the set even when a custom prop also exists.
     return (f"({para_task} OR (NOT {has_para} AND NOT {has_date} "
             f"AND ({has_habit} OR {has_meetlog} OR NOT {has_custom})))")
-
-
-def sync_kind_column(con, nid):
-    """Re-stamp the legacy ``kind`` column to equal the kind DERIVED from this node's type.* props.
-    During the transition the column is a cache of ``legacy_kind`` — call this after any write that
-    changes a node's ``type.*`` props (``--prop type.para=…``, ``wl set type.*``, prop removal) so a
-    column-reading SQL lookup can never disagree with a prop-deriving reader (the split-brain).
-    No commit."""
-    _db.update(con, "node", nid, {"kind": _nt.legacy_kind(node_props(con, nid))})
 
 
 def _add_id_to_prop_list(con, nid, key, add_id):

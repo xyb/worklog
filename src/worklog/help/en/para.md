@@ -23,8 +23,8 @@ tree by nesting nodes with `--parent`:
             project — or directly under an area for one-off work.
 
 Example:
-  wl add "Website" -k area                      # → #10
-  wl add "Q3 revamp" -k project --parent 10     # → #11
+  wl add "Website" --para area                  # → #10
+  wl add "Q3 revamp" --para project --parent 10  # → #11
   wl add "draft homepage copy" --parent 11      # a task under the project
 
 Other kinds aren't PARA but share the tree: `habit` (recurring), `meetlog` (a meeting

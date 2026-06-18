@@ -16,15 +16,15 @@ string — never from a ``parent_id`` link between time levels. So:
   interval is unambiguous from the value;
 - ``lifetime`` is a date-less global singleton.
 
-This module owns the new mechanics; wiring the goal/recap/checkin commands onto
-it (and the migration that back-fills type.date/date.period onto legacy
-kind-based time nodes) is the cutover, tracked separately. During the transition
-``kind`` is still written so legacy renderers keep showing these nodes."""
+This module owns the new mechanics. A time node carries no legacy ``kind`` column
+(it was dropped); its level lives entirely in ``type.date`` + the ``date.*`` props
+written by :func:`write_time_props`."""
 from __future__ import annotations
 
 from . import db_table as _db
 from . import node_types as _nt
 from . import timeutil as _tu
+from .node import create_node
 from .queries import _upsert_prop
 
 
@@ -34,12 +34,8 @@ def write_time_props(con, nid, level, period):
     identically: type.date always; date.period for a dated level; date.start/date.end for
     the explicit-span levels (week/quarter/decade). No commit (caller owns the transaction)."""
     _upsert_prop(con, nid, _nt.K_DATE, level)
-    if level != "lifetime" and period and _nt.valid_period(level, period):
-        _upsert_prop(con, nid, _nt.K_PERIOD, period)
-        if level in _nt.EXPLICIT_SPAN_LEVELS:
-            start, end = _nt.span_of(level, period)
-            _upsert_prop(con, nid, _nt.K_START, start)
-            _upsert_prop(con, nid, _nt.K_END, end)
+    for key, val in _nt.date_props_for(level, period).items():
+        _upsert_prop(con, nid, key, val)
 
 
 def find_time_node(con, level, period):
@@ -85,10 +81,8 @@ def ensure_time_node(con, level, period, *, strict=False):
         return existing
 
     title = "lifetime" if level == "lifetime" else period
-    nid = _db.insert(con, "node", {
-        # parent_id intentionally NULL — 方案 C never links time levels by parent.
-        # kind is dual-written during the transition so legacy renderers still work.
-        "parent_id": None, "title": title, "kind": level, "created_at": _tu.utc_now(),
-    })
+    # parent_id intentionally NULL — 方案 C never links time levels by parent.
+    # classification lives entirely in type.date / date.* props (write_time_props below).
+    nid = create_node(con, title=title, parent_id=None)
     write_time_props(con, nid, level, period)
     return nid

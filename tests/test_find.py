@@ -7,12 +7,12 @@ ESC = "["  # ANSI escape prefix
 
 class TestFind:
     def _seed(self, cli):
-        cli("add", "gaming project", "-k", "project", "-t", "gaming,work")  # 1
-        cli("add", "other task", "-k", "task")                             # 2
+        cli("add", "gaming project", "--para", "project", "-t", "gaming,work")  # 1
+        cli("add", "other task")                             # 2
         cli("log", "2", "this log mentions the gaming keyword")
-        cli("add", "with prop", "-k", "task")                              # 3
+        cli("add", "with prop")                              # 3
         cli("set", "3", "owner", "gaming-team")
-        cli("add", "with link", "-k", "task")                              # 4
+        cli("add", "with link")                              # 4
         cli("link", "4", "gaming doc")
 
     def test_find_title(self, cli):
@@ -46,9 +46,9 @@ class TestFind:
         assert "*gaming* project" in out
         assert "other task" not in out
 
-    def test_find_kind_filter(self, cli):
+    def test_find_para_filter(self, cli):
         self._seed(cli)
-        code, out, _ = cli("find", "gaming", "--kind", "project")
+        code, out, _ = cli("find", "gaming", "--para", "project")
         assert "*gaming* project" in out
         assert "other task" not in out
 
@@ -56,6 +56,17 @@ class TestFind:
         self._seed(cli)
         code, out, _ = cli("find", "nonexistent-word-xyz")
         assert "no matches" in out
+
+    def test_find_does_not_match_reserved_prop_keys(self, cli):
+        # regression: every classified node carries type.*/date.* prop KEYS post-cutover; a prop
+        # search like `find date` must NOT flood with every time node by key name — only real
+        # content (title/value) should match, not the system metadata key.
+        cli("add", "2026-06-20", "--prop", "type.date=day")   # carries date.period/date.start... keys
+        cli("add", "talk about the date")                      # real content with "date"
+        code, out, _ = cli("find", "date")
+        assert "talk about the" in out   # the content node matches (find highlights the term as *date*)
+        assert "1 hits" in out           # exactly one — not flooded
+        assert "2026-06-20" not in out   # the day node must NOT be dragged in by its date.* prop keys
 
     def test_find_expands_log_hit(self, cli):
         """match in log -> indented expansion of the matched fragment with *…* around the keyword"""
@@ -73,7 +84,7 @@ class TestFind:
 
     def test_find_title_hit_not_expanded(self, cli):
         """match only in title (already in the row) -> no extra body/log expansion"""
-        cli("add", "pure title hit gaming", "-k", "task")
+        cli("add", "pure title hit gaming")
         code, out, _ = cli("find", "pure title hit")
         # no log:/body:/tag: expansion lines (title is already on the node row)
         assert "log: " not in out and "body: " not in out
@@ -81,12 +92,12 @@ class TestFind:
 
 class TestFindTitleHighlight:
     def test_title_hit_marked_plain(self, cli):
-        cli("add", "Uni-Game project", "-k", "project")
+        cli("add", "Uni-Game project", "--para", "project")
         code, out, _ = cli("--color", "never", "find", "Game")
         assert "Uni-*Game* project" in out  # title hit is marked
 
     def test_title_hit_highlighted_styled(self, cli):
-        cli("add", "Uni-Game project", "-k", "project")
+        cli("add", "Uni-Game project", "--para", "project")
         code, out, _ = cli("--color", "always", "find", "Game")
         assert ESC in out
         assert "*Game*" not in out  # styled uses color, not asterisks
@@ -102,7 +113,7 @@ class TestFindTitleHighlight:
 
 class TestFindBody:
     def test_find_in_body_shows_snippet(self, cli):
-        cli("add", "plain title", "-k", "task", "--body", "the secret needle lives in the body")
+        cli("add", "plain title", "--body", "the secret needle lives in the body")
         code, out, _ = cli("find", "needle")
         assert code == 0
         assert "body:" in out and "needle" in out
@@ -112,7 +123,7 @@ class TestFindLimit:
     """--limit / --all on `wl find` (default cap 20, lifts)."""
     def test_find_default_limits_20(self, cli):
         for i in range(30):
-            cli("add", f"hello {i}", "-k", "task")
+            cli("add", f"hello {i}")
         _, out, _ = cli("find", "hello")
         assert "30 hits" in out
         assert "showing first 20" in out
@@ -123,20 +134,20 @@ class TestFindLimit:
         assert out.count("hello") <= 22  # 20 task rows + 2 occurrences in the header
     def test_find_all_shows_everything(self, cli):
         for i in range(25):
-            cli("add", f"abc {i}", "-k", "task")
+            cli("add", f"abc {i}")
         _, out, _ = cli("find", "abc", "--all")
         assert "25 hits" in out
         assert "showing first" not in out
     def test_find_limit_explicit(self, cli):
         for i in range(15):
-            cli("add", f"xyz {i}", "-k", "task")
+            cli("add", f"xyz {i}")
         _, out, _ = cli("find", "xyz", "--limit", "5")
         assert "15 hits" in out
         assert "showing first 5" in out
 
 
 class TestFindValidation:
-    """empty query + invalid --in/--kind rejected (from test_ux)"""
+    """empty query + invalid --in/--para rejected (from test_ux)"""
     def test_find_empty_rejected(self, cli):
         code, _, err = cli("find", "")
         assert code != 0
@@ -144,12 +155,12 @@ class TestFindValidation:
         assert code2 != 0
 
     def test_find_invalid_field_rejected(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         code, _, _ = cli("find", "t1", "--in", "bogus")
         assert code != 0
 
-    def test_find_invalid_kind_rejected(self, cli):
-        cli("add", "t1", "-k", "task")
-        code, _, _ = cli("find", "t1", "--kind", "bogus")
-        assert code != 0
+    def test_find_invalid_para_rejected(self, cli):
+        cli("add", "t1")
+        with pytest.raises(SystemExit):  # argparse choices rejects 'bogus' at parse time
+            cli("find", "t1", "--para", "bogus")
 

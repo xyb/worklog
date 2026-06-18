@@ -3,12 +3,12 @@
 
 Usage examples:
   wl init                                  # init DB
-  wl add "research X" -k task -p A -t work,P0 --proj dev_tooling
-  wl add "Dev tooling" -k project --parent 12
+  wl add "research X" -p A -t work,P0 --proj dev_tooling
+  wl add "Dev tooling" --para project --parent 12
   wl ls                                    # list open items
-  wl ls --kind task --tag P0
+  wl ls --para project --tag work
   wl tree                                  # full tree
-  wl tree --kind project
+  wl tree --para project
   wl show 42                               # detail + log + props + tags + links
   wl log 42 "reviewed A's notes, found..."
   wl done 42
@@ -125,39 +125,6 @@ def db_init(con: sqlite3.Connection) -> None:
 
 def ensure_db():
     _db.ensure_db(DB_PATH, MIGRATIONS_DIR)
-    _ensure_type_props()
-
-
-# kinds that carry a classification needing a type.* prop — KNOWN_KINDS minus the bare 'task'
-# (single-source: derived from node_types so a new kind can't be silently skipped by the guard).
-_CLASSIFIED_KINDS = tuple(sorted(_node_types.KNOWN_KINDS - {"task"}))
-
-
-# TODO(kind-column-drop): remove _ensure_type_props entirely when the migration that drops the
-# node.kind column lands — it's a transitional auto-backfill that reads that column.
-def _ensure_type_props():
-    """Transitional upgrade step: an existing DB upgraded to the prop-derived model still has its
-    nodes classified only by the legacy `kind` column until `wl migrate-types` runs — so the
-    prop-based readers would misclassify every pre-existing node as a bare task. Auto-backfill the
-    type.* namespace once, here, so installing the new build just works. Idempotent + cheap: a
-    LIMIT-1 guard skips the work once every classified node has its type.* props."""
-    con = db_connect()
-    try:
-        ph = ",".join("?" * len(_CLASSIFIED_KINDS))
-        try:
-            row = con.execute(
-                f"SELECT 1 FROM node n WHERE n.deleted_at IS NULL AND n.kind IN ({ph}) "
-                "AND NOT EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key LIKE 'type.%' "
-                "AND deleted_at IS NULL) LIMIT 1", _CLASSIFIED_KINDS).fetchone()
-        except sqlite3.OperationalError as e:
-            if "no such column" in str(e).lower():
-                return  # the kind column is already dropped → nothing to backfill from
-            raise       # a real error (locked / I/O / malformed) must NOT be swallowed
-        if row:
-            from .node_type_backfill import backfill_node_types
-            backfill_node_types(con)   # commits
-    finally:
-        con.close()
 
 
 def _user_alias_map():
@@ -260,11 +227,10 @@ _USER_ALIAS_MAP = None   # lazy cache: {alias: target_str} for the argv splice
 # arg-adder so the two forms stay identical and there's one definition to maintain.
 def _args_node_add(p):
     p.add_argument("title", help="the node's title, e.g. \"ship the Q3 report\" (quote if it has spaces)")
-    p.add_argument("-k", "--kind", default="task",
-                   help="what it is: task (default) / project / area / habit / meetlog / day")
     p.add_argument("--para", choices=["area", "project", "task"],
-                   help="responsibility-line role — writes type.para (the same flag as `wl ls --para`); "
-                        "overrides -k for area/project/task")
+                   help="responsibility-line role — writes type.para (the same flag as `wl ls --para`). "
+                        "A bare add (no --para) is a loose task with no role; for a time node / soft "
+                        "type / custom kind use --prop (e.g. --prop type.date=day, --prop type.habit).")
     p.add_argument("-p", "--priority", choices=["A", "B", "C"],
                    help="priority: A = P0 (highest) / B = P1 / C = P2")
     p.add_argument("-t", "--tag", help="comma-separated tags, e.g. -t work or -t work,urgent (work/personal drive bucketing)")
@@ -401,7 +367,7 @@ _HELP_FAMILY = {
     "set": "prop", "unset": "prop", "unlink": "link", "relog": "log", "unlog": "log", "retag": "log",
     "cancel": "done", "reopen": "done", "ancestors": "focus", "descendants": "focus",
     "date": "dateinfo",
-    "themes": "admin", "init": "admin", "config": "admin", "migrate": "admin", "migrate-types": "admin",
+    "themes": "admin", "init": "admin", "config": "admin", "migrate": "admin",
     "print-completion": "admin",
     "tags": "tag", "props": "prop", "metrics": "metric",   # the cross-node "list all" lists
 }
@@ -502,7 +468,7 @@ def build_parser():
         description=(
             "worklog (wl) — a fast, local, SQLite-backed worklog & planner.\n"
             "Track tasks/projects, log progress, plan your day, and review — all from the shell.\n\n"
-            "New here? Try:  wl init  →  wl add \"my first task\" -k task  →  wl log 1 \"made progress\"  →  wl day\n"
+            "New here? Try:  wl init  →  wl add \"my first task\"  →  wl log 1 \"made progress\"  →  wl day\n"
             "Run `wl <command> -h` for any command's options + examples. "
             "Commands are grouped by purpose at the bottom of this help."
         ),
@@ -530,7 +496,8 @@ Commands by purpose (run `wl <command> -h` for options + examples):
 
 Good to know:
   • Organize PARA-style: areas (ongoing responsibilities, no end) ▸ projects (outcomes with
-    a finish line) ▸ tasks — create with `-k area/project/task` and nest with `--parent <id>`.
+    a finish line) ▸ tasks — set the role with `--para area/project` (a bare task needs none) and
+    nest with `--parent <id>`.
   • Ids: a node is 42 or #42 (most write-commands take several at once); a log is #L42 and a
     metric is #M7 (as shown by `wl show` / `wl logs`) — use those forms with relog/unlog/metric.
   • Dates accept today / yesterday / tomorrow / YYYY-MM-DD, signed deltas +1 / -2d / +3w / -1y
@@ -569,13 +536,14 @@ Good to know:
     window.add_argument("--month", help="YYYY-MM (overrides since/until)")
 
     # node-filter parent parser (reused by ls/tree/day/logs/agenda so every list/view
-    # command takes the SAME --tag/--kind/--status, with the same meaning — see
+    # command takes the SAME --tag/--para/--status, with the same meaning — see
     # make_node_filter). --tag is comma-separated AND.
     filters = argparse.ArgumentParser(add_help=False)
     filters.add_argument("-t", "--tag", help="comma-separated tags, AND filter (e.g. -t work)")
-    filters.add_argument("--kind", help="filter by kind (task/habit/meetlog/project/area/...)")
     filters.add_argument("--para", choices=["area", "project", "task"],
-                         help="filter by responsibility role (the type.para prop; same flag as `wl add --para`)")
+                         help="filter by responsibility role (the type.para prop; same flag as `wl add --para`). "
+                              "For non-PARA classifications filter the prop directly: "
+                              "--prop type.meetlog / --prop type.habit / --prop type.date=day")
     filters.add_argument("--status", help="filter by status, comma = any-of (TODO/DOING/DONE/WAIT/LATER/CANCELED)")
     filters.add_argument("-p", "--priority", help="filter by priority, comma = any-of (A/B/C or P0/P1/P2)")
     filters.add_argument("--prop", action="append", metavar="K=V|K|GROUP.", default=None,
@@ -641,15 +609,6 @@ Before applying to an existing DB, the runner snapshots it to a same-dir
 `<db>.pre-v<N>.bak` (N = the version before migrating), so a bad migration
 is recoverable. A fresh init (no data yet) is not backed up.""")
 
-    sub.add_parser("migrate-types",
-        help="backfill the type.* namespace onto existing nodes from their legacy kind (idempotent; one-off for the kind→type.* transition)",
-        formatter_class=_WlHelpFormatter,
-        epilog="""\
-Populates each existing node's type.para / type.date (+ date.period / date.start /
-date.end) / type.habit / type.meetlog from its current kind, writing through the
-validated prop API. Additive + idempotent: the kind column is left intact, so it's
-safe to re-run. New nodes already get these props at creation — run this once to give
-pre-existing nodes the same, so `wl ls --para` etc. see them too.""")
 
     cfgp = sub.add_parser("config",
         help="print resolved configuration: DB path, aliases path, XDG dirs, env vars, embedding",
@@ -690,7 +649,7 @@ Common examples:
   wl add "draft the homepage copy" --parent 42         # nest a task under it
   wl add "split out of the big task" --relation 'split-from 42'   # relate to an existing node at creation (both sides)
   wl add "fixed the login bug" -p B --log "root cause: …" --done --at 14:30   # create + log + close
-  wl add "[meetlog] 09:30 tech sync" -k meetlog --parent <day_id>             # a meeting note
+  wl add "[meetlog] 09:30 tech sync" --prop type.meetlog --parent <day_id>    # a meeting note
 
 More: `wl help add` (fuller intro + key options) · `wl help para` (areas / projects / tasks).""")
     _args_node_add(a)
@@ -1106,11 +1065,13 @@ More: `wl help node`.""")
         description="List nodes. Also: the top-level shortcut `wl ls` (identical, same handler)."))
     _args_node_show(_ndsub.add_parser("show", parents=[output_parent], help="show a node + timeline (= wl show)",
         description="Show a node's detail + timeline. Also: the top-level shortcut `wl show` (identical, same handler)."))
-    _nde = _ndsub.add_parser("edit", help="edit a node's own fields (title/priority/kind/body/scheduled/deadline)")
+    _nde = _ndsub.add_parser("edit", help="edit a node's own fields (title/priority/--para role/body/scheduled/deadline)")
     _nde.add_argument("id", type=int)
     _nde.add_argument("--title")
     _nde.add_argument("-p", "--priority", choices=["A", "B", "C"])
-    _nde.add_argument("-k", "--kind")
+    _nde.add_argument("--para", choices=["area", "project", "task"],
+                      help="set the responsibility-line role (writes type.para); to change other "
+                           "classifications use `wl set type.<x>` / `wl prop rm`")
     _nde.add_argument("--body")
     _nde.add_argument("--scheduled", help="scheduled_date pin (YYYY-MM-DD / YYYY-MM / someday / …); pass '' to clear")
     _nde.add_argument("--deadline", help="deadline date YYYY-MM-DD; pass '' to clear")
@@ -1128,9 +1089,9 @@ More: `wl help node`.""")
 Common examples (shell-ls multi-dimensional):
   wl ls --parent 45                  direct children of #45 (one level, like ls dir/)
   wl ls --root 45                    whole subtree under #45 (all descendants, recursive)
-  wl ls --kind project               only projects · --tag work,dev (AND) · --status WAIT,LATER (any-of)
+  wl ls --para project               only projects · --tag work,dev (AND) · --status WAIT,LATER (any-of)
   wl ls -p A                         only P0 (A); -p A,B = any-of; -p P0 == -p A
-  wl ls --unscheduled --kind task    unscheduled tasks (inbox)
+  wl ls --unscheduled                open items with no schedule (inbox)
   wl ls --sort updated --limit 10    10 most-recently-logged (like ls -t; --sort created -r for newest)
   wl ls --ids 39 41 270              specific ids directly (like ls f1 f2)
   wl ls --all                        remove the 20-row cap + include DONE/CANCELED
@@ -1217,7 +1178,7 @@ Common examples:
   wl projects --top 5                 # top 5 by priority
   wl projects --all                   # include DONE/CANCELED projects
 
-More: `wl help projects` (vs `wl tree --by project` / `wl ls --kind project`).""")
+More: `wl help projects` (vs `wl tree --by project` / `wl ls --para project`).""")
     pj.add_argument("--all", action="store_true", help="include DONE/CANCELED projects")
     pj.add_argument("--limit", type=int, metavar="N", help="show only the first N")
     pj.add_argument("--top", type=int, metavar="N",
@@ -1467,9 +1428,8 @@ Common examples:
 
 End-of-day: run wl checkin once to review every habit that's due today.
 For single habit check-in, use wl tick <id>.""")
-    ci.add_argument("--kind", help="filter by kind (default: habit; use --all-kinds to see anything scheduled)")
     ci.add_argument("--all-kinds", action="store_true",
-                    help="no kind filter: habit/task/meetlog all listed (including everything scheduled today)")
+                    help="review all scheduled items (habit + task + meetlog), not just habits (the default)")
     ci.add_argument("--per-item", action="store_true",
                     help="fallback mode: prompt y/n/note/q per item (allows per-item note; auto-used when not on a TTY)")
 
@@ -1608,7 +1568,7 @@ More: `wl help apply` (the full wl-diff format).""")
         epilog="""\
 Common examples:
   wl find skill                       # default limit 20 (--all / --limit N to adjust)
-  wl find skill --kind project        # only projects
+  wl find skill --para project        # only projects
   wl find skill --in title,tag        # only in title/tag (default: all fields)
 
 Before writing a new task/log, run `wl find` to merge into an existing node, not duplicate it.
@@ -1616,7 +1576,8 @@ Before writing a new task/log, run `wl find` to merge into an existing node, not
 More: `wl help find` (vs `wl ls --tag` precise filter / `wl ls --recent` by time).""")
     fd.add_argument("query", help="text to search for (matches title/body/log/tag/prop/link)")
     fd.add_argument("--in", dest="in_", help="comma-separated fields to search (default: all)")
-    fd.add_argument("--kind", help="filter by kind")
+    fd.add_argument("--para", choices=["area", "project", "task"],
+                    help="filter by responsibility role (the type.para prop)")
     fd.add_argument("--limit", type=int, metavar="N", help="show only the first N (default 20; use 0 or --all for no cap)")
     fd.add_argument("--all", action="store_true", help="no row limit")
 
@@ -1707,7 +1668,7 @@ More: `wl help logs` (vs `wl day` structured view / `wl show <id>` single-node t
     sub.add_parser("kinds", parents=[output_parent],
         help="list the node kinds in use + a count of each (overview of what's in the DB)",
         formatter_class=_WlHelpFormatter,
-        epilog="Like `wl projects` but for kinds. `-o json` for the machine list. Filter a kind with `wl ls --kind <k>` / `wl tree --kind <k>`.")
+        epilog="Like `wl projects` but for kinds. `-o json` for the machine list. Filter by role with `wl ls --para <role>`, or by classification prop with `wl ls --prop type.<x>` (e.g. type.meetlog / type.date=day).")
 
     sub.add_parser("tags", parents=[output_parent],
         help="list every tag in use + a count of nodes carrying it",
@@ -1770,7 +1731,6 @@ User aliases: add [aliases] section to ~/.config/worklog/aliases.ini (e.g. d = d
 from . import commands
 from .commands import (
     cmd_migrate,
-    cmd_migrate_types,
     cmd_init,
     cmd_config,
     cmd_add,
@@ -1884,7 +1844,6 @@ def cmd_node(args, con):
 HANDLERS = {
     "config": cmd_config,
     "migrate": cmd_migrate,
-    "migrate-types": cmd_migrate_types,
     "init": cmd_init,
     "add": cmd_add,
     "log": cmd_log_group,
@@ -1954,7 +1913,7 @@ def _print_welcome():
     print()
     print("Getting started:")
     print('  wl init                          initialize the database')
-    print('  wl add "task title" -k task      add a task')
+    print('  wl add "task title"              add a task')
     print('  wl log <id> "what happened"      append a log entry')
     print('  wl done <id>                     mark it done')
     print('  wl ls                            list open items')

@@ -6,8 +6,8 @@ day node). Kept in its own module so those commands don't depend on each other j
 from __future__ import annotations
 
 from .. import timeutil as _tu
-from .. import db_table as _db
 from .. import timemodel as _tm
+from ..node import create_node
 
 
 def _ensure_time_ancestors(con, d):
@@ -35,9 +35,7 @@ def _ensure_time_ancestors(con, d):
             "AND value=? AND deleted_at IS NULL) ORDER BY n.id LIMIT 1", (match, kind)).fetchone()
         if row:
             return row["id"]
-        nid = _db.insert(con, "node", {
-            "parent_id": parent_id, "title": new_title, "kind": kind, "created_at": _tu.utc_now(),
-        })
+        nid = create_node(con, title=new_title, parent_id=parent_id)
         _tm.write_time_props(con, nid, kind, new_title)   # dual-write the type.date/date.* namespace
         return nid
 
@@ -66,9 +64,7 @@ def _ensure_day(con, d):
     if r:
         return r["id"]
     wk_id = _ensure_time_ancestors(con, d)
-    nid = _db.insert(con, "node", {
-        "parent_id": wk_id, "title": iso, "kind": "day", "created_at": _tu.utc_now(),
-    })
+    nid = create_node(con, title=iso, parent_id=wk_id)
     _tm.write_time_props(con, nid, "day", iso)            # dual-write the type.date/date.* namespace
     con.commit()
     return nid

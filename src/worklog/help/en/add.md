@@ -13,7 +13,7 @@ Common forms:
   wl add "Website revamp" --para project -p A -t work   # → e.g. #42
   wl add "dinner notes" --prop type.meetlog=dating      # set props at creation
   wl add "draft the homepage copy" --parent 42          # a task nested under it
-  wl add "[meetlog] 09:30 tech sync" -k meetlog -p A -t work,meeting --parent <day_id>  # a meeting note
+  wl add "[meetlog] 09:30 tech sync" --prop type.meetlog -p A -t work,meeting --parent <day_id>  # a meeting note
 
 Compound flags do several steps in one shot (a retrospective entry):
   wl add "fixed the login bug" -p B \

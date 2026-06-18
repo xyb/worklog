@@ -76,7 +76,7 @@ wl init
 
 ```fish
 wl init                                   # 建库(一次)
-wl add "写 README" -k task -p A           # → 打印新 id,如 #1
+wl add "写 README" -p A                   # → 打印新 id,如 #1
 wl log 1 "起草了 Features 段"             # 追加进展
 wl done 1                                 # 完成
 wl day                                    # 今天的工作, 重新分组 + 统计
@@ -87,8 +87,8 @@ wl day                                    # 今天的工作, 重新分组 + 统�
 更全的命令面 —— 每条命令也有 `wl <cmd> --help`,`wl help` 浏览主题文档:
 
 ```fish
-wl add "调研 X" -k task -p A -t work,P0 --proj dev_tooling --parent 42
-wl add "Dev tooling" -k project -p A --parent 4   # 项目挂在月份下
+wl add "调研 X" -p A -t work,P0 --proj dev_tooling --parent 42
+wl add "Dev tooling" --para project -p A --parent 4   # 项目挂在月份下
 wl log 42 "今天看了 A 资料, 发现..."
 wl done 42
 wl defer 42 2026-06-01
@@ -97,9 +97,9 @@ wl link 42 "Dev tooling"                           # vault wikilink
 wl set 42 owner xyb                               # 自定义 prop
 wl show 42                                          # 详情 + log + tags + links
 wl ls                                               # 默认列出未完成项
-wl ls --kind project --tag work,P0
+wl ls --para project --tag work,P0
 wl tree                                             # 全树
-wl tree --kind year --depth 3
+wl tree --prop type.date=year --depth 3
 wl logs --since 2026-05-18                          # 跨任务 log 时间段查询
 wl find needle                                      # 全文搜索, 命中高亮 + 缩进展开
 ```

@@ -15,7 +15,7 @@ WORKLOG_DB_PATH  := $(shell \
   if [ -n "$$WORKLOG_DB" ]; then echo "$$WORKLOG_DB"; \
   else echo "$${XDG_DATA_HOME:-$$HOME/.local/share}/worklog/worklog.db"; fi)
 
-.PHONY: help sync test test-v test-fast cov install uninstall reinstall push pull status commit demo clean reset setup
+.PHONY: help sync test test-v test-fast cov docker-test docker-test-image install uninstall reinstall push pull status commit demo clean reset setup
 
 help:                ## show this help
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -37,6 +37,16 @@ test-fast:           ## run pytest only (no cov, no gate; quick dev feedback)
 
 cov:                 ## detailed coverage report (term-missing, includes 95% gate)
 	@$(PYTEST)
+
+# ── docker dev/test (physically isolated from the real DB — see Dockerfile.dev) ──
+
+DEVTEST_IMG := worklog-devtest:latest
+
+docker-test-image:   ## build the isolated dev/test image
+	docker build -f Dockerfile.dev -t $(DEVTEST_IMG) .
+
+docker-test: docker-test-image  ## run the FULL suite inside the container (never mounts the real data dir)
+	docker run --rm -v "$(CURDIR)":/app -w /app $(DEVTEST_IMG)
 
 # ── install / uninstall ──
 
@@ -74,14 +84,14 @@ demo:                ## populate a fresh demo DB with a sample tree (REFUSES to 
 	  exit 1; \
 	fi
 	@wl init
-	@wl add "Lifetime" -k lifetime
-	@wl add "2026" -k year --parent 1
-	@wl add "2026-Q2" -k quarter --parent 2
-	@wl add "2026-05" -k month --parent 3
-	@wl add "2026-W21" -k week --parent 4
-	@wl add "2026-05-18 Mon" -k day --parent 5
-	@wl add "Dev tooling" -k project -p A -t work --parent 4
-	@wl add "Dev tooling — strategy pivot" -k task -p A -t work,unplanned,P0,dev_tooling --parent 6
+	@wl add "Lifetime" --prop type.date=lifetime
+	@wl add "2026" --prop type.date=year --parent 1
+	@wl add "2026-Q2" --prop type.date=quarter --parent 2
+	@wl add "2026-05" --prop type.date=month --parent 3
+	@wl add "2026-W21" --prop type.date=week --parent 4
+	@wl add "2026-05-18" --prop type.date=day --parent 5
+	@wl add "Dev tooling" --para project -p A -t work --parent 4
+	@wl add "Dev tooling — strategy pivot" -p A -t work,unplanned,P0,dev_tooling --parent 6
 	@wl log 8 "2026-05-18 17:18 strategy pivot decided"
 	@wl log 8 "2026-05-19 09:42 break down requirements: export_for_ai"
 	@wl log 8 "2026-05-20 14:55 path B working end-to-end, owners 6/6 -> 7/7"

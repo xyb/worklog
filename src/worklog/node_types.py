@@ -194,6 +194,27 @@ def span_of(level, period):
     raise ValueError(f"cannot compute span for level {level!r} / period {period!r}")
 
 
+def date_props_for(level, period) -> dict:
+    """The ``date.*`` props a time node of ``level`` with canonical ``period`` should carry:
+    ``{date.period}`` plus ``{date.start, date.end}`` for the explicit-span levels
+    (week / quarter / decade). Returns ``{}`` for ``lifetime``, a missing/empty period, or a
+    period that isn't valid for the level (so a non-canonical title yields no date.* — the node
+    keeps only its level, exactly as before).
+
+    This is the SINGLE definition of the period→span mapping. Every path that completes a time
+    node — create_node, write_kind_type_props (import/apply), write_time_props (find-or-create /
+    recap), the kind→type.* backfill, and ``wl set type.date`` — derives its date.* props here so
+    they can never diverge (a span tweak or a new explicit-span level is a one-line change)."""
+    if not level or level == "lifetime" or not period or not valid_period(level, period):
+        return {}
+    props = {K_PERIOD: period}
+    if level in EXPLICIT_SPAN_LEVELS:
+        start, end = span_of(level, period)
+        props[K_START] = start
+        props[K_END] = end
+    return props
+
+
 # ── accessors over a {key: value} props dict ─────────────────────────────────
 def para_of(props):
     """The node's ``type.para`` role, or None."""

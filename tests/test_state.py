@@ -11,13 +11,13 @@ class TestAtLogNoDoubleConvert:
     _insert_log's local→UTC path would shift it another -8h)."""
 
     def test_add_at_log_stores_single_utc(self, cli, tmp_db):
-        cli("add", "t", "-k", "task", "--at", "2026-06-01 08:00", "--log", "morning")
+        cli("add", "t", "--at", "2026-06-01 08:00", "--log", "morning")
         con = tmp_db.db_connect()
         # 08:00 local (+08:00) → 00:00 UTC, once (not 2026-05-31 16:00)
         assert con.execute("SELECT logged_at FROM log WHERE body='morning'").fetchone()[0] == "2026-06-01 00:00:00"
 
     def test_done_at_log_stores_single_utc(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("done", "1", "--log", "wrapped up", "--at", "2026-06-01 08:00")
         con = tmp_db.db_connect()
         assert con.execute("SELECT logged_at FROM log WHERE body='wrapped up'").fetchone()[0] == "2026-06-01 00:00:00"
@@ -28,7 +28,7 @@ class TestAddDoneTimestamps:
         # `wl add --done` stamps created_at and closed_at from one `now` read,
         # so they're identical (regression: two separate utc_now() calls could
         # differ by a second across a boundary).
-        cli("add", "t", "-k", "task", "--done")
+        cli("add", "t", "--done")
         con = tmp_db.db_connect()
         row = con.execute("SELECT created_at, closed_at FROM node WHERE id=1").fetchone()
         assert row["created_at"] == row["closed_at"]
@@ -86,16 +86,16 @@ class TestStatusTransitions:
 
 class TestCmdDeferErrors:
     def test_defer_invalid_date(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         code, _, _ = cli("defer", "1", "garbage-date")
         assert code != 0
 
 
 class TestStatusFilterAndSnippet:
     def test_status_filter_hide_done(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("done", "1")
-        cli("add", "t2", "-k", "task")
+        cli("add", "t2")
         _, out, _ = cli("ls")
         # default hides DONE
         assert "t2" in out
@@ -103,7 +103,7 @@ class TestStatusFilterAndSnippet:
 
     def test_find_snippet_match_not_found_fallback(self, cli):
         """_snippet falls back to 80-char truncation when q not found"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         # q uppercase in body; _snippet lowercases so it finds; real fallback hits when body lacks q
         cli("log", "1", "x" * 200)
         _, out, _ = cli("find", "nothere", "--in", "title")
@@ -120,7 +120,7 @@ class TestStatusFilterHideDone:
 
 class TestCmdReopen:
     def test_reopen_done_back_to_todo(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("done", "1")
         cli("reopen", "1")
         _, out, _ = cli("ls")
@@ -131,46 +131,46 @@ class TestDoneCompound:
     """wl done --log / --at: one-shot log + done"""
 
     def test_done_with_log(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("done", "1", "--log", "PR#42 merged")
         _, show, _ = cli("show", "1")
         assert "DONE" in show
         assert "PR#42 merged" in show
 
     def test_done_with_at(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("done", "1", "--at", "2025-01-02 14:30")
         _, show, _ = cli("show", "1")
         assert "closed_at 2025-01-02 14:30:00" in show
 
     def test_done_with_log_and_at(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("done", "1", "--log", "result note", "--at", "16:00")
         _, show, _ = cli("show", "1")
         assert "result note" in show
         assert " 16:00:00" in show  # both log + closed_at use 16:00
 
     def test_done_with_m_alias(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("done", "1", "-m", "via -m alias")
         _, show, _ = cli("show", "1")
         assert "via -m alias" in show
 
     def test_cancel_with_log(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("cancel", "1", "--log", "abandon: drop this one")
         _, show, _ = cli("show", "1")
         assert "CANCELED" in show
         assert "abandon" in show
 
     def test_done_invalid_at(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         code, _, _ = cli("done", "1", "--at", "garbage")
         assert code != 0
 
     def test_done_multi_id_with_log(self, cli):
-        cli("add", "t1", "-k", "task")
-        cli("add", "t2", "-k", "task")
+        cli("add", "t1")
+        cli("add", "t2")
         cli("done", "1", "2", "--log", "batch wrap-up")
         for nid in ("1", "2"):
             _, show, _ = cli("show", nid)
@@ -182,14 +182,14 @@ class TestDoneRecurringWarning:
     """wl done on a recurring task hints to use wl tick (occurrence) vs done (retire)."""
 
     def test_done_recurring_warns(self, cli):
-        cli("add", "daily patrol", "-k", "habit")
+        cli("add", "daily patrol", "--prop", "type.habit=true")
         cli("sched", "1", "--recur", "daily")
         _, out, _ = cli("done", "1")
         assert "recurring" in out
         assert "wl tick 1" in out
 
     def test_done_oneoff_no_warn(self, cli):
-        cli("add", "one-off", "-k", "task")
+        cli("add", "one-off")
         cli("sched", "1", "2026-06-15")
         _, out, _ = cli("done", "1")
         assert "recurring" not in out
@@ -198,9 +198,9 @@ class TestDoneRecurringWarning:
 class TestMultiIdAndWait:
     """multi-id done/start + wait status (from test_ux)"""
     def test_done_multiple_ids(self, cli):
-        cli("add", "t1", "-k", "task")
-        cli("add", "t2", "-k", "task")
-        cli("add", "t3", "-k", "task")
+        cli("add", "t1")
+        cli("add", "t2")
+        cli("add", "t3")
         _, out, _ = cli("done", "1", "2", "3")
         assert "#1 → DONE" in out
         assert "#2 → DONE" in out
@@ -208,34 +208,34 @@ class TestMultiIdAndWait:
 
     def test_done_single_id_still_works(self, cli):
         """legacy usage wl done 1 still works"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         _, out, _ = cli("done", "1")
         assert "#1 → DONE" in out
 
     def test_start_multiple_ids(self, cli):
-        cli("add", "t1", "-k", "task")
-        cli("add", "t2", "-k", "task")
+        cli("add", "t1")
+        cli("add", "t2")
         _, out, _ = cli("start", "1", "2")
         assert "#1 → DOING" in out
         assert "#2 → DOING" in out
 
     def test_wait_marks_status(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("wait", "1", "--note", "waiting on review")
         _, show, _ = cli("show", "1")
         assert "WAIT" in show
         assert "waiting on review" in show
 
     def test_wait_auto_clocks_out(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("start", "1")
         cli("wait", "1")
         _, active, _ = cli("active")
         assert "#1" not in active  # CLOCK auto-closed; no longer in active
 
     def test_wait_multiple_ids(self, cli):
-        cli("add", "t1", "-k", "task")
-        cli("add", "t2", "-k", "task")
+        cli("add", "t1")
+        cli("add", "t2")
         _, out, _ = cli("wait", "1", "2")
         assert "#1 → WAIT" in out
         assert "#2 → WAIT" in out

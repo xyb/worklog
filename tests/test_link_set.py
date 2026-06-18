@@ -66,7 +66,7 @@ class TestLinkAndSet:
 
 class TestCmdSetErrors:
     def test_set_empty_key(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         code, _, _ = cli("set", "1", " ", "v")
         assert code != 0
 
@@ -77,7 +77,7 @@ class TestCmdSetErrors:
     def test_set_tags_rejected_points_at_tag_cmd(self, cli):
         """`wl set <id> tags X` must be rejected — it used to silently create a shadow
         'tags' prop while the real tag field stayed unchanged."""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         for key in ("tags", "tag", "Tags"):
             code, out, err = cli("set", "1", key, "work")
             assert code != 0, f"set {key} should be rejected"
@@ -91,26 +91,26 @@ class TestCmdTag:
     """wl tag <id> +x -y edits the real tag field (tag table), not a shadow prop."""
 
     def test_tag_add_and_remove(self, cli, tmp_db):
-        cli("add", "t1", "-k", "task", "-t", "work,planned")
+        cli("add", "t1", "-t", "work,planned")
         cli("tag", "1", "+urgent", "-planned")
         con = tmp_db.db_connect()
         tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1 AND deleted_at IS NULL")}
         assert tags == {"work", "urgent"}  # planned removed, urgent added, work kept
 
     def test_tag_bare_word_adds(self, cli, tmp_db):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("tag", "1", "personal")  # bare = add
         con = tmp_db.db_connect()
         tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1 AND deleted_at IS NULL")}
         assert "personal" in tags
 
     def test_tag_no_ops_lists(self, cli):
-        cli("add", "t1", "-k", "task", "-t", "work,P0")
+        cli("add", "t1", "-t", "work,P0")
         _, out, _ = cli("tag", "1")
         assert "work" in out and "P0" in out
 
     def test_tag_add_is_idempotent(self, cli, tmp_db):
-        cli("add", "t1", "-k", "task", "-t", "work")
+        cli("add", "t1", "-t", "work")
         cli("tag", "1", "+work")  # already present
         con = tmp_db.db_connect()
         n = con.execute("SELECT COUNT(*) FROM tag WHERE node_id=1 AND tag='work'").fetchone()[0]
@@ -118,7 +118,7 @@ class TestCmdTag:
 
     def test_tag_empty_ops_are_noops(self, cli, tmp_db):
         # a bare '+' / '-' has nothing after stripping the sign → skipped, not a blank tag row
-        cli("add", "t1", "-k", "task", "-t", "work")
+        cli("add", "t1", "-t", "work")
         cli("tag", "1", "+", "-")
         con = tmp_db.db_connect()
         tags = {r["tag"] for r in con.execute("SELECT tag FROM tag WHERE node_id=1 AND deleted_at IS NULL")}
@@ -139,33 +139,33 @@ class TestLinkWikilinkStrip:
     (no [[[[X]]]] double-wrap), dedup via the natural key, and unlink matches either form."""
 
     def test_wrapper_stripped(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("link", "1", "[[My Doc]]")
         assert _links(tmp_db.db_connect(), 1) == ["My Doc"]
 
     def test_double_wrap_stripped(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("link", "1", "[[[[Deep]]]]")
         assert _links(tmp_db.db_connect(), 1) == ["Deep"]
 
     def test_plain_and_wrapped_dedup(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("link", "1", "My Doc")
         cli("link", "1", "[[My Doc]]")           # same after strip → no duplicate
         assert _links(tmp_db.db_connect(), 1) == ["My Doc"]
 
     def test_unlink_matches_wrapped(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("link", "1", "My Doc")
         cli("unlink", "1", "[[My Doc]]")          # wrapped form must match the stored plain
         assert _links(tmp_db.db_connect(), 1) == []
 
     def test_link_on_add_strips(self, cli, tmp_db):
-        cli("add", "t", "-k", "task", "--link", "[[On Add]]")
+        cli("add", "t", "--link", "[[On Add]]")
         assert _links(tmp_db.db_connect(), 1) == ["On Add"]
 
     def test_apply_add_link_strips(self, cli, tmp_db, tmp_path):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         f = tmp_path / "d.txt"; f.write_text("~ #1\n  +link [[Via Apply]]\n", encoding="utf-8")
         cli("apply", str(f))
         assert _links(tmp_db.db_connect(), 1) == ["Via Apply"]
@@ -173,12 +173,12 @@ class TestLinkWikilinkStrip:
 
 class TestUnlinkAndTagRmGuards:
     def test_unlink_empty_doc_errors(self, cli):
-        cli("add", "task one", "-k", "task")          # node 1
+        cli("add", "task one")          # node 1
         code, _, err = cli("unlink", "1", "")
         assert code != 0 and "cannot be empty" in err
 
     def test_tag_rm_blank_token_removes_nothing(self, cli):
-        cli("add", "task one", "-k", "task")          # node 1
+        cli("add", "task one")          # node 1
         # `tag rm` with a token that strips to empty ('+') removes nothing → the no-op message
         _, out, _ = cli("tag", "rm", "1", "+")
         assert "no tags removed" in out
@@ -187,14 +187,14 @@ class TestUnlinkAndTagRmGuards:
 class TestLinkMultiId:
     """link to multiple ids + empty-doc guard (from test_ux)"""
     def test_link_multiple_ids(self, cli):
-        cli("add", "t1", "-k", "task")
-        cli("add", "t2", "-k", "task")
+        cli("add", "t1")
+        cli("add", "t2")
         _, out, _ = cli("link", "1", "2", "shared doc")
         assert "#1" in out and "shared doc" in out
         assert "#2" in out
 
     def test_link_empty_doc_rejected(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         code, _, _ = cli("link", "1", "")
         assert code != 0
 

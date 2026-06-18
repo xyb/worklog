@@ -91,7 +91,7 @@ The first 30 seconds — add a task, log progress, close it, replay the day:
 
 ```fish
 wl init                                   # create the DB (once)
-wl add "write the README" -k task -p A    # → prints the new id, e.g. #1
+wl add "write the README" -p A            # → prints the new id, e.g. #1
 wl log 1 "drafted the Features section"   # append progress
 wl done 1                                 # close it
 wl day                                    # today's work, regrouped + stats
@@ -102,8 +102,8 @@ wl day                                    # today's work, regrouped + stats
 The fuller surface — every command also has `wl <cmd> --help`, and `wl help` browses topic docs:
 
 ```fish
-wl add "research X" -k task -p A -t work,P0 --proj dev_tooling --parent 42
-wl add "Dev tooling" -k project -p A --parent 4   # project hangs under month
+wl add "research X" -p A -t work,P0 --proj dev_tooling --parent 42
+wl add "Dev tooling" --para project -p A --parent 4   # project hangs under month
 wl log 42 "reviewed A's material, found..."
 wl done 42
 wl defer 42 2026-06-01
@@ -112,9 +112,9 @@ wl link 42 "Dev tooling"                       # vault wikilink
 wl set 42 owner xyb                               # custom prop
 wl show 42                                          # detail + log + tags + links
 wl ls                                               # default: list open items
-wl ls --kind project --tag work,P0
+wl ls --para project --tag work,P0
 wl tree                                             # full tree
-wl tree --kind year --depth 3
+wl tree --prop type.date=year --depth 3
 wl logs --since 2026-05-18                          # cross-task log range query
 wl find needle                                      # full-text search, matches highlighted + indented
 ```

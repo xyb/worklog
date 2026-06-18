@@ -7,8 +7,11 @@ from datetime import date
 
 def _day_id(con):
     today = date.today().isoformat()
-    return con.execute("SELECT id FROM node WHERE kind='day' AND title LIKE ?",
-                       (today + "%",)).fetchone()["id"]
+    return con.execute(
+        "SELECT n.id FROM node n WHERE n.deleted_at IS NULL AND n.title LIKE ? "
+        "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' "
+        "AND value='day' AND deleted_at IS NULL) ORDER BY n.id LIMIT 1",
+        (today + "%",)).fetchone()["id"]
 
 
 def _goal_targets(con, node_id):
@@ -24,15 +27,15 @@ def _goal_targets(con, node_id):
 
 class TestGoalTargets:
     def test_today_goal_stores_targets(self, cli, tmp_db):
-        cli("add", "a", "-k", "task")          # #1
-        cli("add", "b", "-k", "task")          # #2
+        cli("add", "a")          # #1
+        cli("add", "b")          # #2
         cli("goal", "ship A and B", "1", "2")
         con = tmp_db.db_connect()
         assert _goal_targets(con, _day_id(con)) == [1, 2]
 
     def test_targets_are_priority_order(self, cli, tmp_db):
-        cli("add", "a", "-k", "task")
-        cli("add", "b", "-k", "task")
+        cli("add", "a")
+        cli("add", "b")
         cli("goal", "B first", "2", "1")
         con = tmp_db.db_connect()
         assert _goal_targets(con, _day_id(con)) == [2, 1]
@@ -43,17 +46,17 @@ class TestGoalTargets:
         assert _goal_targets(con, _day_id(con)) == []
 
     def test_targets_track_latest_goal(self, cli, tmp_db):
-        cli("add", "a", "-k", "task")
-        cli("add", "b", "-k", "task")
+        cli("add", "a")
+        cli("add", "b")
         cli("goal", "do A", "1")
         cli("goal", "changed: B", "2")         # new goal log → its own metrics; latest wins
         con = tmp_db.db_connect()
         assert _goal_targets(con, _day_id(con)) == [2]
 
     def test_goal_set_on_any_node_stores_targets(self, cli, tmp_db):
-        cli("add", "m", "-k", "month")         # #1
-        cli("add", "a", "-k", "task")          # #2
-        cli("add", "b", "-k", "task")          # #3
+        cli("add", "m", "--prop", "type.date=month")         # #1
+        cli("add", "a")          # #2
+        cli("add", "b")          # #3
         cli("goal", "set", "1", "month plan", "3", "2")   # month goal → targets [3,2]
         con = tmp_db.db_connect()
         assert _goal_targets(con, 1) == [3, 2]
@@ -63,21 +66,21 @@ class TestGoalTargets:
         assert code != 0 and "not found" in err
 
     def test_summary_rejects_targets(self, cli):
-        cli("add", "d", "-k", "day")
+        cli("add", "d", "--prop", "type.date=day")
         code, _, err = cli("goal", "set", "1", "recap", "1", "--summary")
         assert code != 0      # target ids don't apply to a summary
 
     def test_set_shortcut_stores_prose_only(self, cli, tmp_db):
         # `wl set <node> goal "..."` is the prose-only key-routed path (no structured targets)
-        cli("add", "a", "-k", "task")          # #1
-        cli("add", "d", "-k", "day")           # #2
+        cli("add", "a")          # #1
+        cli("add", "d", "--prop", "type.date=day")           # #2
         cli("set", "2", "goal", "deliver A")
         con = tmp_db.db_connect()
         assert _goal_targets(con, 2) == []
 
     def test_reverse_query_by_metric(self, cli, tmp_db):
         # which goals target node #1? scan the metric table directly (tag=goal, value_num=id)
-        cli("add", "a", "-k", "task")          # #1
+        cli("add", "a")          # #1
         cli("goal", "deliver A", "1")
         con = tmp_db.db_connect()
         rows = con.execute("SELECT node_id FROM metric WHERE tag='goal' AND value_num=1 "
@@ -87,8 +90,8 @@ class TestGoalTargets:
     def test_targets_surface_consistently(self, cli):
         # the structured targets must show in wl goal, wl day (text), and -o json — aligned
         import json
-        cli("add", "a", "-k", "task")          # #1
-        cli("add", "b", "-k", "task")          # #2
+        cli("add", "a")          # #1
+        cli("add", "b")          # #2
         cli("done", "1")                        # #1 settled
         cli("goal", "ship A and B", "1", "2")
         _, g, _ = cli("goal")                   # wl goal read
@@ -108,8 +111,8 @@ class TestGoalIdHint:
     one-shot form for next time."""
 
     def test_hint_offers_two_commands(self, cli, tmp_db):
-        cli("add", "a", "-k", "task")          # #1
-        cli("add", "b", "-k", "task")          # #2
+        cli("add", "a")          # #1
+        cli("add", "b")          # #2
         _, out, _ = cli("goal", "ship #1 and draft #2")
         assert "💡" in out
         # the one-shot form (next time) — stable, copy-paste-runnable
@@ -119,13 +122,13 @@ class TestGoalIdHint:
         assert f"set ids:   wl goal set {_day_id(con)} --ids 1 2" in out
 
     def test_hint_only_for_unstructured_ids(self, cli):
-        cli("add", "a", "-k", "task")          # #1
-        cli("add", "b", "-k", "task")          # #2
+        cli("add", "a")          # #1
+        cli("add", "b")          # #2
         _, out, _ = cli("goal", "ship #1 and draft #2", "1")  # #1 already structured
         assert 'next time: wl goal "ship #1 and draft #2" 2' in out  # only #2 suggested
 
     def test_no_hint_when_all_structured(self, cli):
-        cli("add", "a", "-k", "task")          # #1
+        cli("add", "a")          # #1
         _, out, _ = cli("goal", "ship #1", "1")
         assert "💡" not in out                 # goal already has its target → silent
 
@@ -144,15 +147,15 @@ class TestGoalIdHint:
         assert "no target nodes" in out         # generic nudge instead
 
     def test_hint_on_goal_set(self, cli):
-        cli("add", "m", "-k", "month")         # #1
-        cli("add", "a", "-k", "task")          # #2
+        cli("add", "m", "--prop", "type.date=month")         # #1
+        cli("add", "a")          # #2
         _, out, _ = cli("goal", "set", "1", "deliver #2")
         assert 'next time: wl goal set 1 "deliver #2" 2' in out
         assert "set ids:   wl goal set 1 --ids 2" in out
 
     def test_no_hint_for_summary(self, cli):
-        cli("add", "a", "-k", "task")          # #1
-        cli("add", "d", "-k", "task")          # #2  (a node that can take a summary)
+        cli("add", "a")          # #1
+        cli("add", "d")          # #2  (a node that can take a summary)
         _, out, _ = cli("goal", "set", "2", "shipped #1", "--summary")
         assert "💡" not in out
 
@@ -162,8 +165,8 @@ class TestGoalSetTargets:
     log, no re-typing the text (the text is the complete goal, so the ids are the complete set)."""
 
     def test_ids_sets_targets_on_existing_goal(self, cli, tmp_db):
-        cli("add", "a", "-k", "task")          # #1
-        cli("add", "b", "-k", "task")          # #2
+        cli("add", "a")          # #1
+        cli("add", "b")          # #2
         cli("goal", "ship #1 and draft #2")    # text-only goal on today's day node
         con = tmp_db.db_connect()
         day = _day_id(con)
@@ -174,9 +177,9 @@ class TestGoalSetTargets:
         assert _goal_targets(con, day) == [1, 2]
 
     def test_ids_replaces_not_appends(self, cli, tmp_db):
-        cli("add", "a", "-k", "task")          # #1
-        cli("add", "b", "-k", "task")          # #2
-        cli("add", "c", "-k", "task")          # #3
+        cli("add", "a")          # #1
+        cli("add", "b")          # #2
+        cli("add", "c")          # #3
         cli("goal", "first plan")
         con = tmp_db.db_connect()
         day = _day_id(con)
@@ -186,7 +189,7 @@ class TestGoalSetTargets:
         assert _goal_targets(con, day) == [3]
 
     def test_ids_idempotent(self, cli, tmp_db):
-        cli("add", "a", "-k", "task")          # #1
+        cli("add", "a")          # #1
         cli("goal", "ship #1")
         con = tmp_db.db_connect()
         day = _day_id(con)
@@ -197,11 +200,11 @@ class TestGoalSetTargets:
         assert _goal_targets(con, day) == [1]
 
     def test_ids_without_goal_errors(self, cli):
-        cli("add", "d", "-k", "day")           # #1, no goal written
+        cli("add", "d", "--prop", "type.date=day")           # #1, no goal written
         code, _, err = cli("goal", "set", "1", "--ids", "1")
         assert code != 0 and "no goal yet" in err
 
     def test_ids_rejects_value_and_ids_together(self, cli):
-        cli("add", "d", "-k", "day")           # #1
+        cli("add", "d", "--prop", "type.date=day")           # #1
         code, _, err = cli("goal", "set", "1", "some text", "--ids", "1")
         assert code != 0 and "not both" in err

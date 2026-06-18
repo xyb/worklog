@@ -5,11 +5,11 @@ import pytest
 
 class TestSummary:
     def _seed(self, cli):
-        cli("add", "projectX", "-k", "project", "-t", "projX,work")  # 1
-        cli("add", "completed1", "-k", "task", "-t", "projX,work")      # 2
-        cli("add", "completed2", "-k", "task", "-t", "work")            # 3
-        cli("add", "personal completed", "-k", "task", "-t", "personal")      # 4
-        cli("add", "open", "-k", "task", "-t", "work")             # 5
+        cli("add", "projectX", "--para", "project", "-t", "projX,work")  # 1
+        cli("add", "completed1", "-t", "projX,work")      # 2
+        cli("add", "completed2", "-t", "work")            # 3
+        cli("add", "personal completed", "-t", "personal")      # 4
+        cli("add", "open", "-t", "work")             # 5
         cli("done", "2")
         cli("done", "3")
         cli("done", "4")
@@ -50,9 +50,9 @@ class TestSummary:
 
     def test_summary_pending_grouped_by_status(self, cli):
         """open items group by status; DOING clearly distinct from TODO"""
-        cli("add", "projectY", "-k", "project", "-t", "projY")  # 1
-        cli("add", "doing task", "-k", "task", "-t", "projY,planned", "--parent", "1")  # 2
-        cli("add", "todo task", "-k", "task", "-t", "projY,planned", "--parent", "1")    # 3
+        cli("add", "projectY", "--para", "project", "-t", "projY")  # 1
+        cli("add", "doing task", "-t", "projY,planned", "--parent", "1")  # 2
+        cli("add", "todo task", "-t", "projY,planned", "--parent", "1")    # 3
         cli("start", "2")  # DOING
         code, out, _ = cli("summary")
         assert "doing (DOING)" in out
@@ -61,7 +61,7 @@ class TestSummary:
 
     def test_summary_orphan_bucket(self, cli):
         from datetime import date
-        cli("add", "no-project task", "-k", "task", "-t", "planned")
+        cli("add", "no-project task", "-t", "planned")
         cli("done", "1")
         code, out, _ = cli("summary")
         assert "unassigned" in out
@@ -80,7 +80,7 @@ class TestSummary:
         """a task logged (progress) on a day shows under that day's `worked` group, once —
         not double-listed in pending; this is the log-centric piece node buckets alone miss."""
         from datetime import date
-        cli("add", "ongoing task", "-k", "task", "-t", "work")
+        cli("add", "ongoing task", "-t", "work")
         cli("log", "1", "made progress today", "--keep-status")
         t = date.today().isoformat()
         code, out, _ = cli("summary", "--since", t, "--until", t, "--by", "day")
@@ -103,8 +103,8 @@ class TestSummary:
 
 class TestSummaryJson:
     def test_summary_json(self, cli):
-        cli("add", "done task", "-k", "task", "-t", "work")
-        cli("add", "open task", "-k", "task", "-t", "work")
+        cli("add", "done task", "-t", "work")
+        cli("add", "open task", "-t", "work")
         cli("done", "1")
         import json
         code, out, _ = cli("summary", "--since", "2026-01-01", "--until", "2099-12-31", "-o", "json")

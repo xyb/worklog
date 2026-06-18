@@ -1,9 +1,11 @@
-"""`wl add` populates the type.* namespace that replaces kind: --para writes
-type.para, the legacy -k dual-writes the matching type.*, a bare add stays a
-type-less plain task, and --prop sets props at creation (validated)."""
+"""`wl add` populates the type.* namespace that is the SOLE source of node
+classification (the legacy `kind` column was dropped in migration 0011): --para
+writes type.para, --prop sets any other classification (soft type / time level /
+custom), and a bare add stays a type-less plain task. Kind is always *derived* from
+props via node_types.legacy_kind — never stored in a column."""
 from __future__ import annotations
 
-from worklog import queries
+from worklog import node_types as nt, queries
 
 
 def _props(tmp_db, nid):
@@ -15,25 +17,22 @@ def _props(tmp_db, nid):
 
 
 def _kind(tmp_db, nid):
+    """The node's DERIVED kind (column-free) — what every reader now uses."""
     con = tmp_db.db_connect()
-    k = con.execute("SELECT kind FROM node WHERE id=?", (nid,)).fetchone()["kind"]
+    k = nt.legacy_kind(queries.node_props(con, nid))
     con.close()
     return k
 
 
 class TestParaCreate:
-    def test_para_writes_type_para_and_kind(self, cli, tmp_db):
+    def test_para_writes_type_para(self, cli, tmp_db):
         cli("add", "Website revamp", "--para", "project")
         assert _props(tmp_db, 1)["type.para"] == "project"
-        assert _kind(tmp_db, 1) == "project"            # dual-write keeps legacy readers green
+        assert _kind(tmp_db, 1) == "project"            # derived from the prop
 
-    def test_para_overrides_default_kind(self, cli, tmp_db):
+    def test_para_area(self, cli, tmp_db):
         cli("add", "an area", "--para", "area")
         assert _kind(tmp_db, 1) == "area"
-
-    def test_legacy_kind_also_dual_writes_type_para(self, cli, tmp_db):
-        cli("add", "proj", "-k", "project")
-        assert _props(tmp_db, 1)["type.para"] == "project"
 
     def test_bare_add_has_no_type_para(self, cli, tmp_db):
         cli("add", "just a task")
@@ -42,66 +41,52 @@ class TestParaCreate:
         assert _kind(tmp_db, 1) == "task"
 
 
-class TestColumnStaysConsistentWithProps:
-    # FINDING 2: the kind column must never diverge from the kind derived from type.* props,
-    # or column-reading SQL lookups disagree with prop-deriving readers (split-brain).
-    def test_add_prop_type_para_syncs_column(self, cli, tmp_db):
-        cli("add", "x", "--prop", "type.para=project")     # --prop, not --para; kind defaulted task
-        assert _kind(tmp_db, 1) == "project"               # column re-derived, not left "task"
+class TestKindIsDerivedFromProps:
+    def test_add_prop_type_para_derives_kind(self, cli, tmp_db):
+        cli("add", "x", "--prop", "type.para=project")     # --prop, not --para
+        assert _kind(tmp_db, 1) == "project"
         assert _props(tmp_db, 1)["type.para"] == "project"
 
-    def test_set_type_para_syncs_column(self, cli, tmp_db):
-        cli("add", "x")                                    # bare task, column=task
+    def test_set_type_para_derives_kind(self, cli, tmp_db):
+        cli("add", "x")                                    # bare task
         cli("set", "1", "type.para", "project")
         assert _kind(tmp_db, 1) == "project"
 
-    def test_remove_type_para_reverts_column(self, cli, tmp_db):
+    def test_remove_type_para_reverts_to_bare(self, cli, tmp_db):
         cli("add", "x", "--para", "project")
         assert _kind(tmp_db, 1) == "project"
         cli("prop", "rm", "1", "type.para")
         assert _kind(tmp_db, 1) == "task"                  # back to bare default
 
-    def test_add_prop_custom_type_syncs_column(self, cli, tmp_db):
+    def test_add_prop_custom_type_derives_kind(self, cli, tmp_db):
         cli("add", "dinner", "--prop", "type.recipe")
-        assert _kind(tmp_db, 1) == "recipe"                # custom kind preserved + column synced
+        assert _kind(tmp_db, 1) == "recipe"                # custom kind preserved
 
 
-class TestNodeEditKindSyncsTypeProps:
-    def test_edit_kind_project_to_task_clears_para(self, cli, tmp_db):
+class TestNodeEditPara:
+    def test_edit_para_project_to_task(self, cli, tmp_db):
         cli("add", "x", "--para", "project")
         assert _props(tmp_db, 1)["type.para"] == "project"
-        cli("node", "edit", "1", "-k", "task")
-        assert "type.para" not in _props(tmp_db, 1)        # re-derived: task is bare
+        cli("node", "edit", "1", "--para", "task")
+        assert _props(tmp_db, 1)["type.para"] == "task"    # role replaced
         assert _kind(tmp_db, 1) == "task"
 
-    def test_edit_kind_task_to_project_adds_para(self, cli, tmp_db):
-        cli("add", "x")                                    # bare task
-        cli("node", "edit", "1", "-k", "project")
+    def test_edit_para_task_to_project(self, cli, tmp_db):
+        cli("add", "x", "--para", "task")
+        cli("node", "edit", "1", "--para", "project")
         assert _props(tmp_db, 1)["type.para"] == "project"
-
-    def test_edit_kind_to_habit_sets_existence(self, cli, tmp_db):
-        cli("add", "x", "--para", "project")
-        cli("node", "edit", "1", "-k", "habit")
-        p = _props(tmp_db, 1)
-        assert "type.para" not in p and p["type.habit"] == "true"
-
-    def test_edit_from_custom_kind_clears_stale_type_prop(self, cli, tmp_db):
-        cli("add", "x", "--prop", "type.recipe")          # custom kind
-        assert _kind(tmp_db, 1) == "recipe"
-        cli("node", "edit", "1", "-k", "project")
-        p = _props(tmp_db, 1)
-        assert "type.recipe" not in p                      # stale custom classification cleared
-        assert p["type.para"] == "project" and _kind(tmp_db, 1) == "project"
 
 
 class TestSoftTypeCreate:
-    def test_habit_writes_existence_prop(self, cli, tmp_db):
-        cli("add", "morning workout", "-k", "habit")
+    def test_habit_via_prop(self, cli, tmp_db):
+        cli("add", "morning workout", "--prop", "type.habit=true")
         assert _props(tmp_db, 1)["type.habit"] == "true"
+        assert _kind(tmp_db, 1) == "habit"
 
-    def test_meetlog_writes_existence_prop(self, cli, tmp_db):
-        cli("add", "[meetlog] sync", "-k", "meetlog")
+    def test_meetlog_via_prop(self, cli, tmp_db):
+        cli("add", "[meetlog] sync", "--prop", "type.meetlog=true")
         assert _props(tmp_db, 1)["type.meetlog"] == "true"
+        assert _kind(tmp_db, 1) == "meetlog"
 
 
 class TestPropAtCreate:
@@ -124,18 +109,31 @@ class TestPropAtCreate:
         assert code != 0
         assert "type.para" in (out + err)
 
+    def test_time_level_via_prop(self, cli, tmp_db):
+        cli("add", "2026-06-14", "--prop", "type.date=day")
+        assert _props(tmp_db, 1)["type.date"] == "day"
+        assert _kind(tmp_db, 1) == "day"
+
+
+class TestAddEchoesDerivedKind:
+    def test_echo_reflects_prop_classification(self, cli):
+        # the ✓ add line reports the DERIVED kind (post --prop), not a stored column
+        _, out, _ = cli("add", "morning run", "--prop", "type.habit")
+        assert "habit" in out
+
 
 class TestJsonExposesTypeProps:
     def test_type_props_are_plain_props_no_special_field(self, cli):
-        # DESIGN: type.* gets no special treatment in JSON — it rides along in `props`
-        # with every other key/value, never promoted to its own top-level field.
+        # DESIGN: type.* gets no special treatment — it rides along in `props` with every other
+        # key/value. JSON still exposes a DERIVED top-level `kind` (computed from props), but no
+        # synthesized `type` / `para` field.
         cli("add", "x", "--para", "project", "--prop", "type.meetlog=dating")
         import json
         _, out, _ = cli("show", "1", "-o", "json")
         d = json.loads(out)
         assert d["props"]["type.para"] == "project"
         assert d["props"]["type.meetlog"] == "dating"
-        assert "type" not in d            # no synthesized top-level "type"/"kind"-style field
+        assert "type" not in d
         assert "para" not in d
 
 
@@ -165,28 +163,22 @@ class TestLsParaFilter:
 
 
 class TestReadersAreColumnFree:
-    """Lock the invariant: views/filters derive kind from type.* props, never the kind column.
-    Corrupt the column to a bogus value; correct readers must be unaffected."""
-
-    def _bogus_column(self, tmp_db):
-        con = tmp_db.db_connect()
-        con.execute("UPDATE node SET kind='ZZZ'")
-        con.commit(); con.close()
+    """Lock the invariant: views/filters derive kind from type.* props. With the kind column gone,
+    these readers must work purely off props."""
 
     def test_projects_filter_day_derive_from_props(self, cli, tmp_db):
         cli("add", "Big Project", "--para", "project")          # 1
         cli("add", "a task", "--parent", "1")                   # 2
-        cli("add", "morning run", "-k", "habit")                # 3
-        self._bogus_column(tmp_db)                              # column now lies
-        # wl projects (raw-SQL reader) still finds the project via type.para
+        cli("add", "morning run", "--prop", "type.habit=true")  # 3
+        # wl projects (raw-SQL reader) finds the project via type.para
         code, out, _ = cli("projects")
         assert code == 0 and "Big Project" in out
-        # wl ls --para project still filters correctly
+        # wl ls --para project filters correctly
         _, lsout, _ = cli("ls", "--para", "project")
         assert "Big Project" in lsout and "morning run" not in lsout
-        # wl kinds derives the counts from props, not the bogus column
+        # wl kinds derives the counts from props
         _, kout, _ = cli("kinds")
-        assert "ZZZ" not in kout and "project" in kout and "habit" in kout
+        assert "project" in kout and "habit" in kout
 
 
 class TestWorkitemMatchesLegacyKind:
@@ -195,7 +187,7 @@ class TestWorkitemMatchesLegacyKind:
         # so workitem_sql MUST include it too (the divergence fix).
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         from worklog import db_table as _db, timeutil as _tu, queries, node_types as nt
-        nid = _db.insert(con, "node", {"title": "x", "kind": "task", "created_at": _tu.utc_now()})
+        nid = _db.insert(con, "node", {"title": "x", "created_at": _tu.utc_now()})
         queries._upsert_prop(con, nid, "type.para", "task")
         queries._upsert_prop(con, nid, "type.date", "day")
         con.commit()
@@ -205,26 +197,6 @@ class TestWorkitemMatchesLegacyKind:
             f"SELECT 1 FROM node n WHERE n.id=? AND ({queries.workitem_sql('n')})", (nid,)).fetchone()
         assert row is not None      # workitem_sql agrees with legacy_kind — no split-brain
         con.close()
-
-
-class TestUpgradeAutoBackfill:
-    def test_legacy_kind_only_node_is_backfilled_on_next_command(self, cli, tmp_db):
-        # a pre-migration node (kind only, no type.*) must get type.* auto-populated so the
-        # prop-based readers don't misclassify it after an upgrade.
-        tmp_db.ensure_db()
-        con = tmp_db.db_connect()
-        from worklog import db_table as _db, timeutil as _tu
-        pid = _db.insert(con, "node", {"title": "legacy proj", "kind": "project",
-                                       "priority": "A", "created_at": _tu.utc_now()})
-        con.commit(); con.close()
-        cli("ls")   # any command → ensure_db → auto-backfill
-        from worklog import queries
-        con = tmp_db.db_connect()
-        assert queries.node_props(con, pid).get("type.para") == "project"
-        # and the prop-based reader now finds it
-        con.close()
-        _, out, _ = cli("projects")
-        assert "legacy proj" in out
 
 
 class TestWorkitemSqlEqualsLegacyKind:
@@ -250,7 +222,7 @@ class TestWorkitemSqlEqualsLegacyKind:
         for combo in itertools.product(*dims.values()):
             props = {k: v for k, v in zip(keys, combo) if v is not None}
             n += 1
-            nid = _db.insert(con, "node", {"title": f"n{n}", "kind": "task", "created_at": _tu.utc_now()})
+            nid = _db.insert(con, "node", {"title": f"n{n}", "created_at": _tu.utc_now()})
             for k, v in props.items():
                 con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (nid, k, v))
             con.commit()
@@ -263,13 +235,11 @@ class TestWorkitemSqlEqualsLegacyKind:
         con.close()
 
 
-class TestEnsureTypePropsFutureSafe:
-    def test_survives_dropped_kind_column(self, tmp_db):
-        # after the eventual kind-column drop, the transitional auto-backfill guard must no-op
-        # gracefully (not crash) — and must NOT swallow a real OperationalError.
+class TestKindColumnIsGone:
+    def test_node_table_has_no_kind_column(self, tmp_db):
+        # migration 0011 dropped it; the schema must not carry it anymore.
         tmp_db.ensure_db()
         con = tmp_db.db_connect()
-        con.execute("DROP INDEX idx_node_kind")   # the index must go before the column can be dropped
-        con.execute("ALTER TABLE node DROP COLUMN kind")
-        con.commit(); con.close()
-        tmp_db.ensure_db()   # guard hits 'no such column: kind' → returns cleanly, no raise
+        cols = {r["name"] for r in con.execute("PRAGMA table_info(node)").fetchall()}
+        con.close()
+        assert "kind" not in cols

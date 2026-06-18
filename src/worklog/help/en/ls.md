@@ -13,7 +13,7 @@ the `ls -t`/`-S`/`-r`-style view of your work.
   wl ls --sort updated --limit 10   # 10 most-recently-logged (like ls -t)
   wl ls --sort created -r --limit 5 # 5 newest
   wl ls --all                  # include DONE/CANCELED, no cap
-  wl ls -t work --kind task    # filter by tag / kind / status / priority (shared across views)
+  wl ls -t work --para project # filter by tag / role / status / priority (shared across views)
   wl ls -p A                   # only P0 (A); -p A,B = A or B; -p P0 == -p A
   wl ls --status TODO,DOING    # status, comma = any-of
   wl ls --prop github.pr       # reverse-query by prop: nodes that carry a github.pr (key existence)

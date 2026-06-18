@@ -7,13 +7,13 @@ class TestDateInfo:
     """date context: weekday auto-computed + date_meta holidays/leave/swap-days"""
 
     def test_day_header_auto_weekday(self, cli):
-        cli("add", "t", "-k", "task", "-t", "work")
+        cli("add", "t", "-t", "work")
         cli("log", "1", "x", "--date", "2026-05-01")
         code, out, _ = cli("day", "2026-05-01")
         assert "2026-05-01 Fri" in out  # Fri computed
 
     def test_dateinfo_set_and_show_in_day(self, cli):
-        cli("add", "t", "-k", "task", "-t", "work")
+        cli("add", "t", "-t", "work")
         cli("log", "1", "x", "--date", "2026-05-01")
         cli("dateinfo", "2026-05-01", "Labor Day")
         code, out, _ = cli("day", "2026-05-01")

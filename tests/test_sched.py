@@ -52,7 +52,7 @@ class TestRelativeDelta:
         assert _add_months(date(2026, 8, 31), -6) == date(2026, 2, 28)   # back over a short month
 
     def test_cli_delta_across_commands(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         assert cli("sched", "1", "+3w")[0] == 0      # positional, +unit
         assert cli("sched", "1", "-2week")[0] == 0   # positional, -unit (not eaten as an option)
         assert cli("defer", "1", "+1m")[0] == 0      # defer fuzzy parser
@@ -130,7 +130,7 @@ class TestDateWordNormalization:
         # sched/day take a CONCRETE date (_resolve_concrete_date, period words → first day);
         # defer takes a fuzzy granularity (_norm_sched, next-week → whole ISO week). someday has
         # no concrete day → defer only.
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         assert cli("sched", "1", "DAY_AFTER_TOMORROW")[0] == 0  # concrete word, connector+case variant
         assert cli("sched", "1", "NEXT_WEEK")[0] == 0           # period word → next Monday (concrete)
         assert cli("defer", "1", "next week")[0] == 0           # fuzzy week bucket
@@ -248,7 +248,7 @@ class TestFuzzySchedule:
 
     def test_apply_delete_cascades_subtree(self, cli, tmp_path):
         """deleting a parent must cascade to the whole subtree; children must not become orphans (node self-ref is ON DELETE SET NULL)"""
-        cli("add", "parent project", "-k", "project")          # #1
+        cli("add", "parent project", "--para", "project")          # #1
         cli("add", "subtaskA", "--parent", "1")          # #2
         cli("add", "subtaskB", "--parent", "1")          # #3
         cli("add", "grandchild", "--parent", "2")           # #4
@@ -266,7 +266,7 @@ class TestSched:
     """forward planning: wl sched schedules a task to a day/recurrence; wl day derives planned status from it (even without log)"""
 
     def test_sched_oneoff_shows_in_day_as_planned(self, cli):
-        cli("add", "future task", "-k", "task", "-t", "work")
+        cli("add", "future task", "-t", "work")
         cli("sched", "1", "2026-06-15")
         code, out, _ = cli("day", "2026-06-15")
         assert code == 0
@@ -276,13 +276,13 @@ class TestSched:
 
     def test_sched_plan_derived_not_from_tag(self, cli):
         # no planned tag; sched hit alone -> planned
-        cli("add", "t", "-k", "task", "-t", "work")
+        cli("add", "t", "-t", "work")
         cli("sched", "1", "2026-06-15")
         code, out, _ = cli("day", "2026-06-15", "--by", "plan")
         assert "planned" in out and "unplanned" not in out
 
     def test_sched_recur_weekly_fires_on_matching_weekday(self, cli):
-        cli("add", "Monday standup", "-k", "task", "-t", "work")
+        cli("add", "Monday standup", "-t", "work")
         cli("sched", "1", "--recur", "weekly:Mon")
         code, mon, _ = cli("day", "2026-05-04")  # Monday
         assert "#1" in mon
@@ -290,33 +290,33 @@ class TestSched:
         assert "#1" not in tue
 
     def test_sched_recur_daily_fires_every_day(self, cli):
-        cli("add", "daily", "-k", "habit", "-t", "personal")
+        cli("add", "daily", "--prop", "type.habit=true", "-t", "personal")
         cli("sched", "1", "--recur", "daily")
         for d in ("2026-06-01", "2026-06-02", "2026-06-03"):
             code, out, _ = cli("day", d)
             assert "#1" in out
 
     def test_sched_clear(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("sched", "1", "2026-06-15")
         cli("sched", "1", "--clear")
         code, out, _ = cli("day", "2026-06-15")
         assert "#1" not in out
 
     def test_sched_list(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("sched", "1", "2026-06-15")
         code, out, _ = cli("sched", "1")
         assert "2026-06-15" in out
 
     def test_sched_invalid_rrule_rejected(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         code, _, _ = cli("sched", "1", "--recur", "monthly")
         assert code != 0
 
     def test_sched_relative_date(self, cli):
         from datetime import date, timedelta
-        cli("add", "t", "-k", "task", "-t", "work")
+        cli("add", "t", "-t", "work")
         cli("sched", "1", "tomorrow")
         tomorrow = (date.today() + timedelta(days=1)).isoformat()
         code, out, _ = cli("day", tomorrow)
@@ -328,7 +328,7 @@ class TestSchedHelpers:
 
     def test_sched_recur_weekly(self, cli):
         """weekly:Mon,Wed,Fri rule normalization + write"""
-        cli("add", "h1", "-k", "habit")
+        cli("add", "h1", "--prop", "type.habit=true")
         code, out, _ = cli("sched", "1", "--recur", "weekly:Mon,Wed,Fri")
         assert code == 0
         # confirm the rule was stored in the sched table
@@ -338,23 +338,23 @@ class TestSchedHelpers:
         assert row and "Mon" in row["rrule"]
 
     def test_sched_invalid_rrule(self, cli):
-        cli("add", "h1", "-k", "habit")
+        cli("add", "h1", "--prop", "type.habit=true")
         code, _, _ = cli("sched", "1", "--recur", "garbage-rule")
         assert code != 0
 
     def test_sched_invalid_weekly_day(self, cli):
-        cli("add", "h1", "-k", "habit")
+        cli("add", "h1", "--prop", "type.habit=true")
         code, _, _ = cli("sched", "1", "--recur", "weekly:NotADay")
         assert code != 0
 
     def test_sched_invalid_when_date(self, cli):
-        cli("add", "h1", "-k", "habit")
+        cli("add", "h1", "--prop", "type.habit=true")
         code, _, _ = cli("sched", "1", "garbage-date")
         assert code != 0
 
     def test_sched_clear_empty(self, cli):
         """--clear with no existing schedule → "no schedule" branch"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         _, out, _ = cli("sched", "1", "--clear")
         assert "no schedule" in out or "cleared" in out or out  # any friendly hint
 
@@ -363,7 +363,7 @@ class TestSchedHelpers:
         from datetime import date
         today = date.today()
         wd = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][today.weekday()]
-        cli("add", "h-weekly", "-k", "habit")
+        cli("add", "h-weekly", "--prop", "type.habit=true")
         cli("sched", "1", "--recur", f"weekly:{wd}")
         _, out, _ = cli("day", today.isoformat())
         assert "h-weekly" in out
@@ -581,7 +581,7 @@ class TestQuarterlyAndYearlyNeg1Norm:
 
 class TestQuarterlyE2E:
     def test_sched_quarterly_neg1_end_to_end(self, cli):
-        cli("add", "quarter-end review", "-k", "habit")
+        cli("add", "quarter-end review", "--prop", "type.habit=true")
         cli("sched", "1", "--recur", "quarterly:-1")
         # Q1 end = 03-31
         _, out, _ = cli("day", "2026-03-31")
@@ -590,7 +590,7 @@ class TestQuarterlyE2E:
         assert "quarter-end review" not in out
 
     def test_sched_quarterly_first_month_first_day(self, cli):
-        cli("add", "quarter first day", "-k", "habit")
+        cli("add", "quarter first day", "--prop", "type.habit=true")
         cli("sched", "1", "--recur", "quarterly:1-1")
         for ymd in ("2026-01-01", "2026-04-01", "2026-07-01", "2026-10-01"):
             _, out, _ = cli("day", ymd)
@@ -598,7 +598,7 @@ class TestQuarterlyE2E:
 
     def test_sched_weekly_numeric_end_to_end(self, cli):
         """wl sched with weekly:-1 (=Sun) → fires on Sundays"""
-        cli("add", "Sunday review", "-k", "habit")
+        cli("add", "Sunday review", "--prop", "type.habit=true")
         cli("sched", "1", "--recur", "weekly:-1")
         # 2026-01-04 is a Sunday
         _, out, _ = cli("day", "2026-01-04")
@@ -651,7 +651,7 @@ class TestRecurEndToEnd:
 
     def test_sched_monthly_via_cli_and_day_hits(self, cli):
         from datetime import date
-        cli("add", "month-start check-in", "-k", "habit")
+        cli("add", "month-start check-in", "--prop", "type.habit=true")
         # use today's day-of-month as the monthly rule so it always fires today
         today = date.today()
         cli("sched", "1", "--recur", f"monthly:{today.day}")
@@ -660,14 +660,14 @@ class TestRecurEndToEnd:
 
     def test_sched_yearly_via_cli_and_day_hits(self, cli):
         from datetime import date
-        cli("add", "anniversary", "-k", "habit")
+        cli("add", "anniversary", "--prop", "type.habit=true")
         today = date.today()
         cli("sched", "1", "--recur", f"yearly:{today.month:02d}-{today.day:02d}")
         _, out, _ = cli("day", today.isoformat())
         assert "anniversary" in out
 
     def test_sched_monthly_last_day_via_cli(self, cli):
-        cli("add", "month-end review", "-k", "habit")
+        cli("add", "month-end review", "--prop", "type.habit=true")
         cli("sched", "1", "--recur", "monthly:-1")
         # test 2026-02-28 (short month-end)
         _, out, _ = cli("day", "2026-02-28")
@@ -676,12 +676,12 @@ class TestRecurEndToEnd:
         assert "month-end review" not in out
 
     def test_sched_invalid_monthly_rejected(self, cli):
-        cli("add", "x", "-k", "habit")
+        cli("add", "x", "--prop", "type.habit=true")
         code, _, _ = cli("sched", "1", "--recur", "monthly:0")
         assert code != 0
 
     def test_sched_invalid_yearly_rejected(self, cli):
-        cli("add", "x", "-k", "habit")
+        cli("add", "x", "--prop", "type.habit=true")
         code, _, _ = cli("sched", "1", "--recur", "yearly:13-99")
         assert code != 0
 
@@ -690,12 +690,12 @@ class TestSchedListing:
     """`wl sched <id>` with no args lists existing schedules for the node."""
 
     def test_sched_list_empty_node(self, cli):
-        cli("add", "fresh-task", "-k", "task")
+        cli("add", "fresh-task")
         _, out, _ = cli("sched", "1")
         assert "has no schedule" in out
 
     def test_sched_list_after_scheduling(self, cli):
-        cli("add", "scheduled-task", "-k", "task")
+        cli("add", "scheduled-task")
         cli("sched", "1", "2026-06-15")
         _, out, _ = cli("sched", "1")
         assert "2026-06-15" in out
@@ -705,7 +705,7 @@ class TestSchedIdempotent:
     """sched must not insert duplicate (node_id, on_date) / (node_id, rrule) rows."""
 
     def test_oneoff_date_idempotent(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("sched", "1", "2026-06-15")
         _, out, _ = cli("sched", "1", "2026-06-15")
         assert "already scheduled" in out
@@ -717,7 +717,7 @@ class TestSchedIdempotent:
         assert cnt == 1
 
     def test_recur_rule_idempotent(self, cli):
-        cli("add", "t", "-k", "habit")
+        cli("add", "t", "--prop", "type.habit=true")
         cli("sched", "1", "--recur", "daily")
         _, out, _ = cli("sched", "1", "--recur", "daily")
         assert "already on recurring schedule" in out
@@ -733,10 +733,10 @@ class TestAgenda:
     sched table (concrete days) and node.scheduled_at (fuzzy month/someday pins)."""
 
     def _seed(self, cli):
-        cli("add", "exact day", "-k", "task")   # 1 → sched table, day
-        cli("add", "month pin", "-k", "task")    # 2 → scheduled_at, month
-        cli("add", "someday item", "-k", "task") # 3 → scheduled_at, someday
-        cli("add", "july task", "-k", "task")    # 4 → sched table, out of range
+        cli("add", "exact day")   # 1 → sched table, day
+        cli("add", "month pin")    # 2 → scheduled_at, month
+        cli("add", "someday item") # 3 → scheduled_at, someday
+        cli("add", "july task")    # 4 → sched table, out of range
         cli("sched", "1", "2026-06-15")
         cli("defer", "2", "2026-06")             # month-level → node.scheduled_at
         cli("defer", "3", "someday")
@@ -768,7 +768,7 @@ class TestAgenda:
         assert "nothing scheduled" in out
 
     def test_agenda_hides_done_by_default(self, cli):
-        cli("add", "done task", "-k", "task")
+        cli("add", "done task")
         cli("sched", "1", "2026-06-15")
         cli("done", "1")
         _, out, _ = cli("agenda", "2026-06-01", "2026-06-30")
@@ -788,7 +788,7 @@ class TestAgenda:
 
 class TestSchedLsAndRruleValidation:
     def test_sched_ls_no_schedule_message(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         _, out, _ = cli("sched", "ls", "1")
         assert "has no schedule" in out
 

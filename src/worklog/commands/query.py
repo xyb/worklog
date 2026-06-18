@@ -13,6 +13,7 @@ from pathlib import Path
 from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
+from .. import node_types as _nt
 from .metric import _fmt_value, metric_rows
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_KINDS  # noqa: F401
 from ..helpers import (
@@ -41,6 +42,7 @@ from ..queries import (
     _collect_descendants,
     _has_tag,
     node_kind,
+    node_props,
     nodes_with_type,
     workitem_sql,
     make_node_filter,
@@ -83,7 +85,7 @@ from ..xdg import _resolve_db_path, _resolve_aliases_path, _xdg_data_home, _xdg_
 from .. import cli as _cli  # noqa: E402
 
 
-from .bulk import _VALID_FIND_FIELDS, _VALID_KINDS
+from .bulk import _VALID_FIND_FIELDS
 from .state import _ids_list
 from .views import _print_tree, _print_day_activity, _render_day_group, _scheduled_node_ids, _pinned_at
 
@@ -192,7 +194,7 @@ def _ls_ids(con, args):
 def _ls_build_query(con, args):
     """Build the `wl ls` SQL + params from its ls-specific dimensions (--parent / --root /
     --unscheduled / --recent / --sort / --reverse + the default DONE-hide). The shared
-    --tag/--kind/--status filter is applied separately as a post-pass (make_node_filter).
+    --tag/--para/--status filter is applied separately as a post-pass (make_node_filter).
     Returns (sql, params)."""
     inc_cancel = getattr(args, "show_canceled", False)
     simple = {}
@@ -265,7 +267,7 @@ def cmd_ls(args, con):
         return
 
     # ls-specific dimensions (--parent / --unscheduled / --recent / --sort) build the SQL; the
-    # shared --tag/--kind/--status filter is applied below as a post-pass via make_node_filter.
+    # shared --tag/--para/--status filter is applied below as a post-pass via make_node_filter.
     sql, params = _ls_build_query(con, args)
     rows = list(con.execute(sql, params))
     nf = make_node_filter(con, args)
@@ -308,8 +310,7 @@ def cmd_find(args, con):
             sys.exit(f"✗ invalid --in fields: {sorted(bad)} (valid: {sorted(_VALID_FIND_FIELDS)})")
     else:
         fields = _VALID_FIND_FIELDS
-    if args.kind and args.kind not in _VALID_KINDS:
-        sys.exit(f"✗ invalid --kind: '{args.kind}' (valid: {sorted(_VALID_KINDS)})")
+    para = getattr(args, "para", None)   # exact type.para role filter (area/project/task)
     hits = {}  # node_id -> set of fields with hits
 
     def mark(rows, where):
@@ -325,7 +326,14 @@ def cmd_find(args, con):
     if "tag" in fields:
         mark(_db.query(con, "tag", cols="DISTINCT node_id", tag__like=like), "tag")
     if "prop" in fields:
-        mark(_db.query(con, "prop", cols="node_id", key__like=like) + _db.query(con, "prop", cols="node_id", value__like=like), "prop")
+        # Match prop VALUES (any prop) + USER prop KEYS — but NOT the reserved type.*/date.* keys.
+        # Every classified node carries those keys post-backfill, so without this exclusion a
+        # search like `find date` / `find type` / `find period` would flood with every time/para
+        # node by key name alone (the keys are system metadata, not user content).
+        key_rows = [r for r in _db.query(con, "prop", cols="node_id, key", key__like=like)
+                    if not (r["key"].startswith(_nt.TYPE_NS) or r["key"].startswith(_nt.DATE_NS))]
+        val_rows = list(_db.query(con, "prop", cols="node_id", value__like=like))
+        mark(key_rows + val_rows, "prop")
     if "link" in fields:
         mark(_db.query(con, "link", cols="DISTINCT node_id", vault_doc__like=like), "link")
 
@@ -335,7 +343,7 @@ def cmd_find(args, con):
         n = _db.get(con, "node", nid)
         if not n:
             continue  # a hit on a live spoke row whose node is soft-deleted (or missing) — skip
-        if args.kind and node_kind(con, n["id"]) != args.kind:   # derived, column-free
+        if para and node_props(con, n["id"]).get(_nt.K_PARA) != para:   # exact type.para role
             continue
         if not inc_cancel and n["status"] == "CANCELED":
             continue
@@ -475,7 +483,7 @@ def cmd_agenda(args, con):
     for r in _db.query(con, "node", cols="id, scheduled_date", scheduled_date__ne=None):
         entries.append((r["id"], r["scheduled_date"]))
 
-    nf = make_node_filter(con, args)  # shared --tag/--kind/--status filter
+    nf = make_node_filter(con, args)  # shared --tag/--para/--status filter
     hits = []          # (sort_key, node, value) for in-range scheds
     someday = []       # (node, value) for someday/unparseable, listed at the end
     seen = set()       # (node_id, value) dedup
@@ -1070,7 +1078,7 @@ def cmd_logs(args, con):
         sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY log.logged_at"
     rows = con.execute(sql, params).fetchall()
-    # shared --tag/--kind/--status filter: drop logs whose node doesn't match
+    # shared --tag/--para/--status filter: drop logs whose node doesn't match
     nf = make_node_filter(con, args)
     if nf:
         rows = [r for r in rows if nf(r["node_id"])]

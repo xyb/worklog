@@ -7,7 +7,7 @@ A **project** is an outcome with a finish line (e.g. "Q3 report", "Website revam
 "P". It's done when the outcome is reached, which is what distinguishes it from an `area`
 (ongoing, no end).
 
-  wl add "Q3 revamp" -k project --parent 10    # under area #10 (→ #11)
+  wl add "Q3 revamp" --para project --parent 10   # under area #10 (→ #11)
   wl add "draft copy" --parent 11              # tasks hang under the project
 
 A project lives under an area and holds tasks. Close it with `wl done <id>` when the outcome

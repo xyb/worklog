@@ -5,7 +5,7 @@ import pytest
 
 class TestShow:
     def test_show_full_node(self, cli, tmp_db):
-        cli("add", "strategy pivot", "-k", "task", "-p", "A", "-t", "work,P0")
+        cli("add", "strategy pivot", "-p", "A", "-t", "work,P0")
         cli("log", "1", "5/18 decision", "--keep-status")  # do not auto-progress to DOING; keep TODO for the test
         cli("log", "1", "5/19 breakdown", "--keep-status")
         cli("link", "1", "Dev tooling")
@@ -31,7 +31,7 @@ class TestShow:
         day = json.loads(cli("day", "-o", "json")[1])["node_id"]
         _, out, _ = cli("show", str(day))
         assert "✎ goal" in out
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "2", "plain note", "--keep-status")
         _, out2, _ = cli("show", "2")
         assert "✎ log" in out2       # untagged log still reads "✎ log"
@@ -40,7 +40,7 @@ class TestShow:
         # a long log body in the timeline must truncate to the terminal width (budget against the
         # real prefix `    <ts>  #L<id>  ✎ log  `, not a fixed guess), not overflow to a 2nd line.
         monkeypatch.setenv("COLUMNS", "80")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "x" * 200)
         _, out, _ = cli("show", "1")
         assert any("✎ log" in l for l in out.splitlines())          # the log row is present
@@ -51,7 +51,7 @@ class TestShow:
         # timeline log line to overflow on any terminal < ~61 cols (prefix ~39 + 20). Now floored
         # at 1, so it fits even narrow widths (body degrades to … when there's no room).
         monkeypatch.setenv("COLUMNS", "55")
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("log", "1", "x" * 200)
         _, out, _ = cli("show", "1")
         assert all(len(l) <= 55 for l in out.splitlines())
@@ -61,16 +61,16 @@ class TestShow:
         assert code != 0
 
     def test_show_upstream_path(self, cli):
-        cli("add", "month", "-k", "month")
-        cli("add", "day", "-k", "day", "--parent", "1")
-        cli("add", "task", "-k", "task", "--parent", "2")
+        cli("add", "month", "--prop", "type.date=month")
+        cli("add", "day", "--prop", "type.date=day", "--parent", "1")
+        cli("add", "task", "--parent", "2")
         code, out, _ = cli("show", "3")
         assert "ancestors" in out and "month" in out and "day" in out
 
     def test_show_subtasks(self, cli):
-        cli("add", "parent", "-k", "task")
-        cli("add", "child1", "-k", "task", "--parent", "1")
-        cli("add", "child2", "-k", "task", "--parent", "1")
+        cli("add", "parent")
+        cli("add", "child1", "--parent", "1")
+        cli("add", "child2", "--parent", "1")
         code, out, _ = cli("show", "1")
         assert "children (2)" in out
         assert "child1" in out and "child2" in out
@@ -98,7 +98,7 @@ class TestShowSchedule:
     """wl show surfaces the sched table (one-off dates + recurring rules)."""
 
     def test_show_displays_oneoff_and_recur(self, cli):
-        cli("add", "patrol", "-k", "habit")
+        cli("add", "patrol", "--prop", "type.habit=true")
         cli("sched", "1", "2026-06-15")
         cli("sched", "1", "--recur", "daily")
         _, out, _ = cli("show", "1")
@@ -107,7 +107,7 @@ class TestShowSchedule:
         assert "2026-06-15" in out
 
     def test_show_no_schedule_section_when_unscheduled(self, cli):
-        cli("add", "unscheduled", "-k", "task")
+        cli("add", "unscheduled")
         _, out, _ = cli("show", "1")
         assert "schedule:" not in out
 
@@ -120,7 +120,7 @@ class TestShowSchedule:
         assert _next_sched_fire(["weekly:Fri", "weekly:Mon"], date(2026, 6, 6)) == "2026-06-08"  # earliest
 
     def test_show_recur_line_includes_next(self, cli):
-        cli("add", "standup", "-k", "habit")
+        cli("add", "standup", "--prop", "type.habit=true")
         cli("sched", "1", "--recur", "daily")
         _, out, _ = cli("show", "1")
         assert "recur daily (next " in out   # next-occurrence annotation present on the recur rule
@@ -128,7 +128,7 @@ class TestShowSchedule:
     def test_show_dedups_duplicate_oneoff_rows(self, cli):
         # pre-idempotency-fix data can hold two identical (node_id, on_date) rows; show lists once
         import os, sqlite3
-        cli("add", "patrol", "-k", "habit")
+        cli("add", "patrol", "--prop", "type.habit=true")
         cli("sched", "1", "2026-06-02")
         con = sqlite3.connect(os.environ["WORKLOG_DB"])   # inject a dirty duplicate row directly
         con.execute("INSERT INTO sched (node_id, on_date, created_at) VALUES (1, '2026-06-02', '2026-06-02 00:00:00')")
@@ -142,7 +142,7 @@ class TestShowJson:
     """`wl show -o json` — machine-readable full node + relations."""
 
     def test_json_is_valid_object_with_core_fields(self, cli):
-        cli("add", "json task", "-k", "task", "-p", "A", "-t", "work,dev")
+        cli("add", "json task", "-p", "A", "-t", "work,dev")
         code, out, _ = cli("show", "1", "-o", "json")
         import json
         d = json.loads(out)
@@ -152,15 +152,15 @@ class TestShowJson:
         assert set(d["tags"]) == {"work", "dev"}
 
     def test_json_includes_relations(self, cli):
-        cli("add", "proj", "-k", "project")               # 1
-        cli("add", "child", "-k", "task", "--parent", "1") # 2
+        cli("add", "proj", "--para", "project")               # 1
+        cli("add", "child", "--parent", "1") # 2
         cli("set", "1", "owner", "xyb")
         cli("link", "1", "Design doc")
         cli("log", "1", "did work", "--metric", "pullups 8")
         _, out, _ = cli("show", "1", "-o", "json")
         import json
         d = json.loads(out)
-        # creating with -k project dual-writes the type.para role into the prop namespace
+        # creating with --para project writes the type.para role into the prop namespace
         assert d["props"] == {"owner": "xyb", "type.para": "project"}
         assert d["links"] == ["Design doc"]
         assert [c["id"] for c in d["children"]] == [2]
@@ -168,7 +168,7 @@ class TestShowJson:
         assert d["metrics"] and d["metrics"][0]["tag"] == "pullups"
 
     def test_json_single_object_multi_array(self, cli):
-        cli("add", "a", "-k", "task"); cli("add", "b", "-k", "task")
+        cli("add", "a"); cli("add", "b")
         import json
         _, one, _ = cli("show", "1", "-o", "json")
         assert isinstance(json.loads(one), dict)
@@ -181,7 +181,7 @@ class TestShowJson:
         assert code != 0 and "not found" in err
 
     def test_text_default_unchanged(self, cli):
-        cli("add", "plain", "-k", "task")
+        cli("add", "plain")
         _, out, _ = cli("show", "1")
         assert "#1" in out and "plain" in out
         assert not out.lstrip().startswith("{")   # default is rich text, not json
@@ -190,8 +190,8 @@ class TestShowJson:
 class TestShowMultiId:
     """show several ids (from test_ux)"""
     def test_show_multiple_ids(self, cli):
-        cli("add", "t1", "-k", "task")
-        cli("add", "t2", "-k", "task")
+        cli("add", "t1")
+        cli("add", "t2")
         _, out, _ = cli("show", "1", "2")
         assert "#1" in out and "t1" in out
         assert "#2" in out and "t2" in out

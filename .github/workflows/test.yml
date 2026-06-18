@@ -44,7 +44,7 @@ jobs:
           export WORKLOG_DB=$(mktemp -d)/worklog.db
           uv run wl init
           uv run wl --version
-          uv run wl add "ci smoke task" -k task -p A --sched today
+          uv run wl add "ci smoke task" -p A --sched today
           uv run wl log 1 "hello from CI"
           uv run wl recap "ci smoke recap"   # creates today's day skeleton so the overview renders
           uv run wl show 1

@@ -5,12 +5,12 @@ import pytest
 
 class TestFocus:
     def _seed(self, cli):
-        cli("add", "2026-05", "-k", "month")                     # 1
-        cli("add", "data-viz", "-k", "project", "-t", "gaming", "--parent", "1")  # 2
-        cli("add", "login fix", "-k", "task", "-t", "gaming,work,P0", "--parent", "1")     # 3
-        cli("add", "decision meeting", "-k", "meetlog", "-t", "gaming,work,P0,strategy", "--parent", "1")  # 4
-        cli("add", "digest system", "-k", "task", "-t", "gaming,followup", "--parent", "4")    # 5 (meeting subtask)
-        cli("add", "unrelated task", "-k", "task", "-t", "biz_agg,work", "--parent", "1")       # 6
+        cli("add", "2026-05", "--prop", "type.date=month")                     # 1
+        cli("add", "data-viz", "--para", "project", "-t", "gaming", "--parent", "1")  # 2
+        cli("add", "login fix", "-t", "gaming,work,P0", "--parent", "1")     # 3
+        cli("add", "decision meeting", "--prop", "type.meetlog=true", "-t", "gaming,work,P0,strategy", "--parent", "1")  # 4
+        cli("add", "digest system", "-t", "gaming,followup", "--parent", "4")    # 5 (meeting subtask)
+        cli("add", "unrelated task", "-t", "biz_agg,work", "--parent", "1")       # 6
 
     def test_focus_shows_upstream_self_downstream(self, cli):
         self._seed(cli)
@@ -31,7 +31,7 @@ class TestFocus:
         assert "unrelated task" not in rel_section
 
     def test_focus_related_only_generic_tags(self, cli):
-        cli("add", "isolated", "-k", "task", "-t", "work,P0,planned")  # all generic tags
+        cli("add", "isolated", "-t", "work,P0,planned")  # all generic tags
         code, out, _ = cli("focus", "1", "--related")
         assert "only generic-dimension tags" in out
 
@@ -45,11 +45,11 @@ class TestFocusDayNode:
     parent_id children — same semantics as `wl tree` / `wl day` for day nodes."""
 
     def _seed(self, cli, date="2026-05-28"):
-        cli("add", "2026-05", "-k", "month")                                      # 1
-        cli("add", date, "-k", "day", "--parent", "1")                            # 2 (day node)
-        cli("add", "project X", "-k", "project", "-t", "work", "--parent", "1")   # 3
-        cli("add", "task with log today", "-k", "task", "-t", "work", "--parent", "3")  # 4
-        cli("add", "today's meetlog", "-k", "meetlog", "-t", "work", "--parent", "3")   # 5
+        cli("add", "2026-05", "--prop", "type.date=month")                                      # 1
+        cli("add", date, "--prop", "type.date=day", "--parent", "1")                            # 2 (day node)
+        cli("add", "project X", "--para", "project", "-t", "work", "--parent", "1")   # 3
+        cli("add", "task with log today", "-t", "work", "--parent", "3")  # 4
+        cli("add", "today's meetlog", "--prop", "type.meetlog=true", "-t", "work", "--parent", "3")   # 5
         # neither task's parent is the day node; they belong to the day only via log date
         cli("log", "4", "did work today", "--date", date)
         cli("log", "5", "had a meeting today", "--date", date)
@@ -66,10 +66,10 @@ class TestFocusDayNode:
 
 class TestAncestorsDescendants:
     def _seed(self, cli):
-        cli("add", "year", "-k", "year")                  # 1
-        cli("add", "month", "-k", "month", "--parent", "1")  # 2
-        cli("add", "task", "-k", "task", "--parent", "2")  # 3
-        cli("add", "children", "-k", "task", "--parent", "3")  # 4
+        cli("add", "year", "--prop", "type.date=year")                  # 1
+        cli("add", "month", "--prop", "type.date=month", "--parent", "1")  # 2
+        cli("add", "task", "--parent", "2")  # 3
+        cli("add", "children", "--parent", "3")  # 4
 
     def test_ancestors_chain(self, cli):
         self._seed(cli)
@@ -90,8 +90,8 @@ class TestAncestorsDescendants:
 class TestAncestorsChainBreak:
     def test_dangling_parent_id_breaks_loop(self, cli):
         """parent_id points to missing node → mid-chain break (with FK off)"""
-        cli("add", "p1", "-k", "task")
-        cli("add", "c1", "-k", "task", "--parent", "1")
+        cli("add", "p1")
+        cli("add", "c1", "--parent", "1")
         from worklog import cli as wl
         con = wl.db_connect()
         # temporarily disable FK to perform the edit, then re-enable
@@ -114,6 +114,6 @@ class TestFocusRelatedEmpty:
     """cmd_focus on a node with semantic tags but no peers sharing them: (no other nodes)."""
 
     def test_focus_related_no_peers(self, cli):
-        cli("add", "lonely-task", "-k", "task", "-t", "unique-topic-xyz")
+        cli("add", "lonely-task", "-t", "unique-topic-xyz")
         _, out, _ = cli("focus", "1", "--related")
         assert "no other nodes" in out

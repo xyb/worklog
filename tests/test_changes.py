@@ -5,10 +5,10 @@ import pytest
 
 class TestChanges:
     def _seed(self, cli):
-        cli("add", "projectX", "-k", "project", "-p", "A", "-t", "projX")  # 1
-        cli("add", "completed task", "-k", "task", "-t", "projX")             # 2
-        cli("add", "open task", "-k", "task", "-t", "projX")           # 3
-        cli("add", "task with log", "-k", "task", "-t", "projX")              # 4
+        cli("add", "projectX", "--para", "project", "-p", "A", "-t", "projX")  # 1
+        cli("add", "completed task", "-t", "projX")             # 2
+        cli("add", "open task", "-t", "projX")           # 3
+        cli("add", "task with log", "-t", "projX")              # 4
         cli("done", "2")
         cli("log", "4", "today's progress")
 

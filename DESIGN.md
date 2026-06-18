@@ -134,7 +134,7 @@ metric + done), and the compound `add --log/--done/--at/--link/--sched/--metric`
 **C. View** — read-only cross-entity rendering, no single-row CRUD: `ls` / `tree` /
 `day` / `agenda` / `projects` / `changes` / `summary` / `focus` / `ancestors` /
 `descendants` / `find` / `logs` / `show`. These share the unified filter (§ shared
-`--tag/--kind/--status/--priority/--prop`), time-window (§8) and `--by` (§9) conventions. `--prop`
+`--tag/--para/--status/--priority/--prop`), time-window (§8) and `--by` (§9) conventions. `--prop`
 is repeatable (AND) and honors the namespace convention — exact `K=V` (matches a member of a
 comma-joined value), key existence `K`, and `GROUP.` / `GROUP.*` prefix (see §2 / `wl help prop`).
 
@@ -275,7 +275,7 @@ Both `tree` and `summary` support `--by`; future aggregation commands follow the
 
 ### 9.1 `wl tree` default behavior (anti-blast)
 
-Fully expanding both trees would print thousands of lines. **Bare `wl tree` (no --root/--kind/--depth/--by) is a dedicated overview view `_print_default_tree`**:
+Fully expanding both trees would print thousands of lines. **Bare `wl tree` (no --root/--para/--depth/--by) is a dedicated overview view `_print_default_tree`**:
 
 - **Time line expanded to today**: year → quarter → month → week → today (only the path to today, no other months/weeks/days), and today's day node lists **only tasks with a log today** (task/habit/meetlog, no log body). You see the current month yet stay focused on today.
 - **Areas are one level only**: 7 areas show only area names, no project expansion.

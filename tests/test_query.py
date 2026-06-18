@@ -20,9 +20,9 @@ def _fake_embed(texts, input_type, cfg):
 @pytest.fixture
 def seeded(cli, monkeypatch):
     monkeypatch.setattr(emb, "embed", _fake_embed)
-    cli("add", "alpha task", "-k", "task")     # 1
-    cli("add", "beta task", "-k", "task")       # 2
-    cli("add", "gamma notes", "-k", "task")     # 3
+    cli("add", "alpha task")     # 1
+    cli("add", "beta task")       # 2
+    cli("add", "gamma notes")     # 3
     return cli
 
 
@@ -34,7 +34,7 @@ class TestReindex:
 
     def test_query_before_reindex_hints(self, cli, monkeypatch):
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        cli("add", "alpha task", "-k", "task")
+        cli("add", "alpha task")
         code, out, err = cli("query", "alpha")
         assert "reindex" in (out + err).lower()
 
@@ -63,7 +63,7 @@ class TestHitExplanation:
 
     def test_shows_matched_log_chunk(self, cli, monkeypatch):
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        cli("add", "weekly review", "-k", "task")          # title has no 'alpha'
+        cli("add", "weekly review")          # title has no 'alpha'
         cli("log", "1", "alpha specific finding")           # only this log matches
         cli("reindex")
         code, out, _ = cli("--color", "never", "query", "alpha")
@@ -74,7 +74,7 @@ class TestHitExplanation:
         # the head chunk joins title+body with a newline; the display must flatten it onto
         # the `↳` line, not spill the body to column 0 (the alignment bug)
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        cli("add", "alpha proj", "-k", "task")
+        cli("add", "alpha proj")
         cli("node", "edit", "1", "--body", "extra context line")
         cli("reindex")
         code, out, _ = cli("--color", "never", "query", "alpha")
@@ -84,7 +84,7 @@ class TestHitExplanation:
 
     def test_shows_matched_head_chunk(self, cli, monkeypatch):
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        cli("add", "alpha project", "-k", "task")           # title matches, no logs
+        cli("add", "alpha project")           # title matches, no logs
         cli("reindex")
         code, out, _ = cli("--color", "never", "query", "alpha")
         assert "↳ head:" in out
@@ -97,7 +97,7 @@ class TestHitExplanation:
 
     def test_multiword_query_highlights_each_term(self, cli, monkeypatch):
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        cli("add", "notes", "-k", "task")
+        cli("add", "notes")
         cli("log", "1", "alpha and beta together")
         cli("reindex")
         code, out, _ = cli("--color", "never", "query", "alpha beta")
@@ -106,7 +106,7 @@ class TestHitExplanation:
 
     def test_matched_chunk_carries_tags(self, cli, monkeypatch):
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        cli("add", "alpha task", "-k", "task")
+        cli("add", "alpha task")
         cli("tag", "1", "gamma")
         cli("reindex")
         code, out, _ = cli("--color", "never", "query", "alpha")
@@ -140,7 +140,7 @@ class TestBackendFallback:
     def test_core_command_unaffected_without_extra(self, cli, monkeypatch):
         import sys
         monkeypatch.setitem(sys.modules, "lancedb", None)  # simulate not-installed
-        assert cli("add", "ordinary task", "-k", "task")[0] == 0
+        assert cli("add", "ordinary task")[0] == 0
         code, out, _ = cli("ls")
         assert code == 0 and "ordinary task" in out
 
@@ -148,7 +148,7 @@ class TestBackendFallback:
         import sys
         monkeypatch.setattr(emb, "embed", _fake_embed)
         monkeypatch.setitem(sys.modules, "lancedb", None)  # no fast backend
-        cli("add", "alpha task", "-k", "task")
+        cli("add", "alpha task")
         code, out, err = cli("reindex")
         assert code == 0                       # succeeds, no install prompt
         assert "1" in out                      # indexed the node
@@ -158,7 +158,7 @@ class TestBackendFallback:
         import sys
         monkeypatch.setattr(emb, "embed", _fake_embed)
         monkeypatch.setitem(sys.modules, "lancedb", None)
-        cli("add", "alpha task", "-k", "task")
+        cli("add", "alpha task")
         cli("reindex")
         code, out, _ = cli("--color", "never", "query", "alpha")
         assert code == 0
@@ -204,8 +204,8 @@ class TestHybrid:
         # 'xyzzy' is not in the fake embedder's vocab (neutral vector), but appears literally
         # in node 2's log — hybrid's keyword side must surface it.
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        cli("add", "alpha task", "-k", "task")              # 1
-        cli("add", "ordinary", "-k", "task")                # 2
+        cli("add", "alpha task")              # 1
+        cli("add", "ordinary")                # 2
         cli("log", "2", "the xyzzy marker is here")
         cli("reindex")
         code, out, _ = cli("--color", "never", "query", "xyzzy")
@@ -217,8 +217,8 @@ class TestHybrid:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text("[synonyms]\nnyc = new york\n", encoding="utf-8")
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        cli("add", "trip to new york", "-k", "task")        # 1: contains "new york", not "nyc"
-        cli("add", "other", "-k", "task")
+        cli("add", "trip to new york")        # 1: contains "new york", not "nyc"
+        cli("add", "other")
         cli("reindex")
         code, out, _ = cli("--color", "never", "query", "nyc")
         assert "#1 " in out                                 # nyc → new york via synonyms
@@ -226,9 +226,9 @@ class TestHybrid:
 
 class TestKeywordRank:
     def test_ranks_by_distinct_terms_matched(self, cli, tmp_db):
-        cli("add", "alpha beta gamma", "-k", "task")   # 1: matches both terms
-        cli("add", "alpha only", "-k", "task")          # 2: matches one
-        cli("add", "unrelated", "-k", "task")           # 3: matches none
+        cli("add", "alpha beta gamma")   # 1: matches both terms
+        cli("add", "alpha only")          # 2: matches one
+        cli("add", "unrelated")           # 3: matches none
         from worklog.commands import semantic
         con = tmp_db.db_connect()
         try:
@@ -239,9 +239,9 @@ class TestKeywordRank:
         assert 2 in ranked and 3 not in ranked
 
     def test_matches_log_and_tag(self, cli, tmp_db):
-        cli("add", "plain", "-k", "task")               # 1
+        cli("add", "plain")               # 1
         cli("log", "1", "needle in the log")
-        cli("add", "tagged", "-k", "task")              # 2
+        cli("add", "tagged")              # 2
         cli("tag", "2", "needle")
         from worklog.commands import semantic
         con = tmp_db.db_connect()
@@ -312,7 +312,7 @@ class TestDocBuilding:
     def test_indexes_body_logs_tags(self, cli, monkeypatch):
         # a node carrying body + a log + a tag exercises the full doc concatenation
         monkeypatch.setattr(emb, "embed", _fake_embed)
-        cli("add", "plain title", "-k", "task")           # 1
+        cli("add", "plain title")           # 1
         cli("node", "edit", "1", "--body", "alpha body")
         cli("log", "1", "beta progress")
         cli("tag", "1", "gamma")
@@ -351,7 +351,7 @@ class TestErrors:
         assert code != 0 and "unreachable" in err.lower()
 
     def test_backend_unreachable_surfaced(self, cli, monkeypatch):
-        cli("add", "alpha task", "-k", "task")
+        cli("add", "alpha task")
 
         def boom(*a, **k):
             raise emb.EmbeddingError("backend unreachable at http://x")
@@ -365,7 +365,7 @@ class TestSemanticInternals:
     """Edge paths in the reindex/query plumbing."""
 
     def test_node_chunks_skips_whitespace_only_log(self, cli, tmp_db):
-        cli("add", "task one", "-k", "task")               # node 1
+        cli("add", "task one")               # node 1
         con = tmp_db.db_connect()
         try:
             con.execute("INSERT INTO log (node_id, body) VALUES (1, '   ')")  # blank-body log
@@ -403,7 +403,7 @@ class TestQueryKeywordPriority:
 
     def test_full_term_match_not_in_index_surfaces_first(self, seeded):
         seeded("reindex")                                  # indexes #1-#3 only
-        seeded("add", "alpha beta combo", "-k", "task")    # #4, created AFTER reindex -> not in vector index
+        seeded("add", "alpha beta combo")    # #4, created AFTER reindex -> not in vector index
         code, out, _ = seeded("--color", "never", "query", "alpha beta")
         assert code == 0
         hit_lines = [l for l in out.splitlines() if "#" in l and l.lstrip()[0].isdigit()]
@@ -422,7 +422,7 @@ class TestQueryHighlightTerms:
 
     def test_separated_terms_highlight(self, seeded):
         seeded("reindex")
-        seeded("add", "alpha gap beta", "-k", "task")   # both terms, separated by 'gap'
+        seeded("add", "alpha gap beta")   # both terms, separated by 'gap'
         # plain (no color) marks matches as *term*; the raw-substring highlighter would miss
         # 'alpha beta' (not contiguous) — per-term highlight lights 'alpha' and 'beta'
         code, out, _ = seeded("query", "alpha beta")
@@ -436,7 +436,7 @@ class TestQueryStaleIndex:
 
     def test_warns_when_node_added_after_reindex(self, seeded):
         seeded("reindex")                              # indexes #1-#3
-        seeded("add", "delta task", "-k", "task")      # #4 — not in the index
+        seeded("add", "delta task")      # #4 — not in the index
         code, out, err = seeded("query", "alpha")
         assert code == 0
         assert "reindex" in err.lower()                # hint points at the fix
@@ -453,7 +453,7 @@ class TestReindexIncremental:
 
     def test_adds_new_node(self, seeded):
         seeded("reindex")                              # indexes #1-#3
-        seeded("add", "delta task", "-k", "task")      # #4
+        seeded("add", "delta task")      # #4
         code, out, _ = seeded("reindex", "--incremental")
         assert code == 0 and "+1 new" in out
         code, out2, err = seeded("query", "delta")
@@ -478,7 +478,7 @@ class TestReindexIncremental:
 
     def test_embeds_only_dirty(self, seeded, monkeypatch):
         seeded("reindex")
-        seeded("add", "delta task", "-k", "task")       # only #4 dirty
+        seeded("add", "delta task")       # only #4 dirty
         n = []
         monkeypatch.setattr(emb, "embed", lambda texts, t, cfg: (n.append(len(texts)), _fake_embed(texts, t, cfg))[1])
         seeded("reindex", "--incremental")
@@ -490,7 +490,7 @@ class TestReindexAuto:
 
     def test_auto_indexes_new_nodes(self, seeded):
         seeded("reindex")
-        seeded("add", "delta task", "-k", "task")
+        seeded("add", "delta task")
         code, _, _ = seeded("reindex", "--auto")
         assert code == 0
         _, out2, err = seeded("query", "delta")
@@ -502,7 +502,7 @@ class TestReindexAuto:
         lock = tmp_path / "reindex.lock"
         monkeypatch.setattr(s, "_reindex_lock_path", lambda args: lock)
         seeded("reindex")
-        seeded("add", "delta task", "-k", "task")
+        seeded("add", "delta task")
         held = open(lock, "w")
         fcntl.flock(held.fileno(), fcntl.LOCK_EX)               # simulate another worker holding it
         try:

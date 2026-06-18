@@ -1,19 +1,19 @@
-"""Tests for the shared --tag / --kind / --status filter (make_node_filter), wired via
+"""Tests for the shared --tag / --para / --status filter (make_node_filter), wired via
 the `filters` parent parser into ls / tree / day / logs / agenda. One definition, same
-semantics everywhere: --tag is comma-separated AND, --kind/--status are equality."""
+semantics everywhere: --tag is comma-separated AND, --para/--status are equality."""
 import pytest
 
 
 class TestFilters:
     def _seed(self, cli, date="2026-05-28"):
-        cli("add", "Lifetime", "-k", "lifetime")                                    # 1
-        cli("add", "work area", "-k", "area", "-t", "work", "--parent", "1")            # 2
-        cli("add", "personal area", "-k", "area", "-t", "personal", "--parent", "1")        # 3
-        cli("add", "project A", "-k", "project", "-t", "work", "--parent", "2")          # 4
-        cli("add", "write code", "-k", "task", "-t", "work", "--parent", "4", "--sched", date)      # 5
-        cli("add", "buy groceries", "-k", "task", "-t", "personal", "--parent", "3", "--sched", date)    # 6
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")                                    # 1
+        cli("add", "work area", "--para", "area", "-t", "work", "--parent", "1")            # 2
+        cli("add", "personal area", "--para", "area", "-t", "personal", "--parent", "1")        # 3
+        cli("add", "project A", "--para", "project", "-t", "work", "--parent", "2")          # 4
+        cli("add", "write code", "-t", "work", "--parent", "4", "--sched", date)      # 5
+        cli("add", "buy groceries", "-t", "personal", "--parent", "3", "--sched", date)    # 6
         # a node carrying BOTH tags (to exercise AND)
-        cli("add", "retro", "-k", "task", "-t", "work,personal", "--parent", "4", "--sched", date)  # 7
+        cli("add", "retro", "-t", "work,personal", "--parent", "4", "--sched", date)  # 7
         # logs dated to the viewed day (a bare --log on add lands at *now*, not `date`)
         cli("log", "5", "wrote filter", "--date", date)
         cli("log", "6", "bought food", "--date", date)
@@ -39,9 +39,9 @@ class TestFilters:
         assert "retro" in out
         assert "write code" not in out and "buy groceries" not in out
 
-    def test_ls_kind_filter(self, cli):
+    def test_ls_para_filter(self, cli):
         self._seed(cli)
-        _, out, _ = cli("ls", "--kind", "project")
+        _, out, _ = cli("ls", "--para", "project")
         assert "project A" in out
         assert "write code" not in out
 
@@ -123,12 +123,12 @@ class TestFilterEdgeCases:
     """Regression cases from the cross-model review (GPT-5.5)."""
 
     def _seed(self, cli, date="2026-05-28"):
-        cli("add", "Lifetime", "-k", "lifetime")                                    # 1
-        cli("add", "work area", "-k", "area", "-t", "work", "--parent", "1")            # 2
-        cli("add", "personal area", "-k", "area", "-t", "personal", "--parent", "1")        # 3
-        cli("add", "project A", "-k", "project", "-t", "work", "--parent", "2")          # 4
-        cli("add", "write code", "-k", "task", "-t", "work", "--parent", "4", "--sched", date)    # 5
-        cli("add", "buy groceries", "-k", "task", "-t", "personal", "--parent", "3", "--sched", date)  # 6
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")                                    # 1
+        cli("add", "work area", "--para", "area", "-t", "work", "--parent", "1")            # 2
+        cli("add", "personal area", "--para", "area", "-t", "personal", "--parent", "1")        # 3
+        cli("add", "project A", "--para", "project", "-t", "work", "--parent", "2")          # 4
+        cli("add", "write code", "-t", "work", "--parent", "4", "--sched", date)    # 5
+        cli("add", "buy groceries", "-t", "personal", "--parent", "3", "--sched", date)  # 6
         cli("log", "5", "wrote filter", "--date", date)
         cli("log", "6", "bought food", "--date", date)
 
@@ -179,10 +179,10 @@ class TestFilterEdgeCases:
         # work view must not report the personal task's clock time
         assert "CLOCK" not in workout
 
-    # finding 4: --by project + --kind project keeps the project headers
-    def test_tree_by_project_kind_project(self, cli):
+    # finding 4: --by project + --para project keeps the project headers
+    def test_tree_by_project_para_project(self, cli):
         self._seed(cli)
-        _, out, _ = cli("tree", "--by", "project", "--kind", "project")
+        _, out, _ = cli("tree", "--by", "project", "--para", "project")
         assert "project A" in out
 
 
@@ -190,10 +190,10 @@ class TestPriorityFilter:
     """--priority / -p on the shared filter (A/B/C or P0/P1/P2; comma = any-of) + --status comma-OR."""
 
     def _seed(self, cli):
-        cli("add", "alpha", "-k", "task", "-p", "A")   # 1
-        cli("add", "bravo", "-k", "task", "-p", "B")   # 2
-        cli("add", "charlie", "-k", "task", "-p", "C")  # 3
-        cli("add", "delta", "-k", "task")               # 4 (no priority)
+        cli("add", "alpha", "-p", "A")   # 1
+        cli("add", "bravo", "-p", "B")   # 2
+        cli("add", "charlie", "-p", "C")  # 3
+        cli("add", "delta")               # 4 (no priority)
 
     def test_priority_exact(self, cli):
         self._seed(cli)
@@ -223,21 +223,21 @@ class TestPriorityFilter:
         assert code != 0 and "invalid --priority" in err
 
     def test_priority_combines_with_tag(self, cli):
-        cli("add", "work-a", "-k", "task", "-p", "A", "-t", "work")
-        cli("add", "personal-a", "-k", "task", "-p", "A", "-t", "personal")
+        cli("add", "work-a", "-p", "A", "-t", "work")
+        cli("add", "personal-a", "-p", "A", "-t", "personal")
         _, out, _ = cli("ls", "-p", "A", "-t", "work")
         assert "work-a" in out and "personal-a" not in out
 
     def test_status_comma_or(self, cli):
-        cli("add", "todo-task", "-k", "task")
-        cli("add", "doing-task", "-k", "task")
+        cli("add", "todo-task")
+        cli("add", "doing-task")
         cli("start", "2")   # doing-task → DOING
         _, out, _ = cli("ls", "--status", "TODO,DOING")
         assert "todo-task" in out and "doing-task" in out
 
     def test_priority_filter_on_tree(self, cli):
         self._seed(cli)
-        _, out, _ = cli("tree", "-p", "A", "--kind", "task")
+        _, out, _ = cli("tree", "-p", "A")
         assert "alpha" in out and "bravo" not in out
 
 
@@ -245,13 +245,13 @@ class TestPropFilter:
     """--prop on the shared filter: exact K=V (comma-member aware) / K existence / GROUP. prefix; repeat = AND."""
 
     def _seed(self, cli):
-        cli("add", "a", "-k", "task")                          # 1
+        cli("add", "a")                          # 1
         cli("set", "1", "github.repo", "xyb/worklog")
         cli("set", "1", "github.pr", "10,11")
-        cli("add", "b", "-k", "task")                          # 2
+        cli("add", "b")                          # 2
         cli("set", "2", "github.repo", "xyb/worklog")
         cli("set", "2", "linear.id", "LUM-5")
-        cli("add", "c", "-k", "task")                          # 3 (no props)
+        cli("add", "c")                          # 3 (no props)
 
     def test_exact(self, cli):
         self._seed(cli)
@@ -301,13 +301,13 @@ class TestTreeByEmptiesGroup:
     skipped (the `continue` branches), distinct from a filter that only partly trims a group."""
 
     def _two_directions(self, cli):
-        cli("add", "work item", "-k", "task", "-t", "work")
-        cli("add", "home item", "-k", "task", "-t", "personal")
+        cli("add", "work item", "-t", "work")
+        cli("add", "home item", "-t", "personal")
 
     def test_by_tag_filter_drops_nonmatching_groups(self, cli):
         # non-generic tags (work/personal are excluded from the tag axis)
-        cli("add", "alpha item", "-k", "task", "-t", "alpha")
-        cli("add", "beta item", "-k", "task", "-t", "beta")
+        cli("add", "alpha item", "-t", "alpha")
+        cli("add", "beta item", "-t", "beta")
         # filter to `alpha` → the whole `beta` tag group empties → skipped
         code, out, _ = cli("tree", "--by", "tag", "-t", "alpha")
         assert code == 0
@@ -320,7 +320,7 @@ class TestTreeByEmptiesGroup:
         assert "home item" not in out
 
     def test_by_project_filter(self, cli):
-        cli("add", "Proj A", "-k", "project", "-t", "work")        # 1
-        cli("add", "a task", "-k", "task", "--parent", "1", "-t", "work")  # 2
+        cli("add", "Proj A", "--para", "project", "-t", "work")        # 1
+        cli("add", "a task", "--parent", "1", "-t", "work")  # 2
         code, out, _ = cli("tree", "--by", "project", "-t", "work")
         assert code == 0

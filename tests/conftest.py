@@ -19,6 +19,16 @@ PROJ_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJ_ROOT / "src"))
 
 
+@pytest.fixture(autouse=True, scope="session")
+def _never_touch_real_db(tmp_path_factory):
+    """SAFETY NET: pin WORKLOG_DB to a throwaway for the WHOLE session, so a test that forgets the
+    tmp_db fixture can NEVER ensure_db / migrate the real database. Per-test tmp_db overrides this
+    with its own path; this is the backstop that keeps the suite from ever touching real data
+    (a forgotten fixture once let migrations run against the real DB)."""
+    os.environ["WORKLOG_DB"] = str(tmp_path_factory.mktemp("wl-safety") / "session-safety.db")
+    yield
+
+
 @pytest.fixture
 def tmp_db(tmp_path, monkeypatch):
     """One temp DB per test; cleaned automatically when the test ends."""

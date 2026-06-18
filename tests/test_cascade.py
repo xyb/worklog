@@ -53,7 +53,7 @@ class TestSoftDeleteCascade:
         assert "doomed" in out
 
     def test_soft_delete_log_tombstones_its_metrics(self, cli, tmp_db):
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
         cli("metric", "add", "1", "glucose", "5.4")  # creates a carrier log + metric
         con = tmp_db.db_connect()
         log_id = con.execute("SELECT log_id FROM metric WHERE id=1").fetchone()["log_id"]
@@ -69,11 +69,11 @@ class TestTombstoneHiddenEverywhere:
 
     def _seed_and_delete(self, cli):
         import tempfile, os
-        cli("add", "2026", "-k", "year")                                      # 1
-        cli("add", "keepproj", "-k", "project", "-t", "work", "--parent", "1")  # 2
-        cli("add", "keepme", "-k", "task", "-t", "work", "--parent", "2",
+        cli("add", "2026", "--prop", "type.date=year")                                      # 1
+        cli("add", "keepproj", "--para", "project", "-t", "work", "--parent", "1")  # 2
+        cli("add", "keepme", "-t", "work", "--parent", "2",
             "--log", "kept", "--sched", "2026-06-06")                          # 3
-        cli("add", "doomed", "-k", "task", "-t", "work", "--parent", "2",
+        cli("add", "doomed", "-t", "work", "--parent", "2",
             "--log", "gone", "--sched", "2026-06-06")                          # 4
         f = tempfile.NamedTemporaryFile("w", suffix=".wld", delete=False, encoding="utf-8")
         f.write("- #4 doomed\n")
@@ -106,7 +106,7 @@ class TestTombstoneReAdd:
     or hard-replaced by OR REPLACE."""
 
     def test_readd_removed_tag(self, cli, tmp_db):
-        cli("add", "t", "-k", "task", "-t", "work")
+        cli("add", "t", "-t", "work")
         cli("tag", "1", "-work")          # soft-delete the tag
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM tag WHERE node_id=1 AND deleted_at IS NULL").fetchone()[0] == 0
@@ -138,7 +138,7 @@ class TestTombstoneReAdd:
 
     def test_find_tolerates_orphan_spoke(self, cli, tmp_db):
         # a live log whose node is tombstoned must not crash find (n is None) nor be returned
-        cli("add", "doomed", "-k", "task")
+        cli("add", "doomed")
         cli("log", "1", "uniqueneedle")
         con = tmp_db.db_connect()
         con.execute("UPDATE node SET deleted_at='2026-06-06 00:00:00' WHERE id=1")  # tombstone node, leave log live

@@ -123,7 +123,7 @@ class TestLogHistoricalDate:
 
 class TestRelog:
     def test_relog_body_positional(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "wrong")
         _, out, _ = cli("relog", "1", "fixed")
         assert "relog #1" in out
@@ -132,35 +132,35 @@ class TestRelog:
         assert "wrong" not in show
 
     def test_relog_body_via_m(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "wrong")
         cli("relog", "L1", "-m", "fixed via m")
         _, show, _ = cli("show", "1")
         assert "fixed via m" in show
 
     def test_relog_at_hhmm(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x")
         cli("relog", "#L1", "--at", "14:30")
         _, show, _ = cli("show", "1")
         assert "14:30:00" in show
 
     def test_relog_at_full_ts(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x")
         cli("relog", "1", "--at", "2025-01-02 09:15")
         _, show, _ = cli("show", "1")
         assert "2025-01-02 09:15:00" in show
 
     def test_relog_at_only_date(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x")
         cli("relog", "1", "--at", "2025-01-02")
         _, show, _ = cli("show", "1")
         assert "2025-01-02" in show
 
     def test_relog_body_and_at_together(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "old")
         cli("relog", "1", "new", "--at", "10:00")
         _, show, _ = cli("show", "1")
@@ -170,7 +170,7 @@ class TestRelog:
 
 
     def test_relog_invalid_at(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x")
         code, _, _ = cli("relog", "1", "--at", "25:00")
         assert code != 0
@@ -183,21 +183,21 @@ class TestRelog:
         assert "not found" in err or "not found" in _
 
     def test_relog_body_and_m_conflict(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x")
         code, _, _ = cli("relog", "1", "pos", "-m", "msg")
         assert code != 0
 
     def test_relog_at_total_garbage(self, cli):
         """--at doesn't look like a time (not HH:MM / date / full ts) → ValueError branch"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x")
         code, _, _ = cli("relog", "1", "--at", "totally-not-a-time")
         assert code != 0
 
     def test_relog_editor_modify(self, cli, monkeypatch):
         """no body / no --at → EDITOR path; monkeypatch subprocess.call writes new text"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "old")
         def fake_call(argv):
             with open(argv[-1], "w") as f:
@@ -212,7 +212,7 @@ class TestRelog:
 
     def test_relog_editor_unchanged_cancels(self, cli, monkeypatch):
         """EDITOR exits with text unchanged → canceled; body preserved"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "keep me")
         import subprocess as _sp
         monkeypatch.setattr(_sp, "call", lambda argv: 0)  # don't touch the file
@@ -223,7 +223,7 @@ class TestRelog:
 
     def test_relog_editor_rc_nonzero_cancels(self, cli, monkeypatch):
         """EDITOR exit code != 0 → treated as abort"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "keep me")
         import subprocess as _sp
         monkeypatch.setattr(_sp, "call", lambda argv: 1)
@@ -245,12 +245,12 @@ class TestUnlogErrorPaths:
         assert "not found" in err or "not found" in _
 
     def test_unlog_invalid_date(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         code, _, _ = cli("unlog", "--node", "1", "--date", "junk-date")
         assert code != 0
 
     def test_unlog_node_no_log_that_day(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         # no log today
         _, out, _ = cli("unlog", "--node", "1")
         assert "no non-CLOCK logs" in out or "no logs" in out
@@ -258,7 +258,7 @@ class TestUnlogErrorPaths:
 
 class TestInsertLogAutoStatus:
     def test_log_to_todo_promotes_to_doing(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "first progress")
         _, out, _ = cli("ls", "--all")
         # marker [/] may be followed by align spaces before #id
@@ -269,37 +269,37 @@ class TestLogTimeAndDate:
     """cmd_log --date + --time combinations"""
 
     def test_log_with_date_only(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x", "--date", "2025-01-02")
         _, show, _ = cli("show", "1")
         assert "2025-01-02" in show
 
     def test_log_with_date_and_time(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x", "--date", "2025-01-02", "--time", "14:30")
         _, show, _ = cli("show", "1")
         assert "2025-01-02 14:30:00" in show
 
     def test_log_with_time_only(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x", "--time", "09:15")
         _, show, _ = cli("show", "1")
         from datetime import date
         assert f"{date.today().isoformat()} 09:15:00" in show
 
     def test_log_with_time_seconds(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "x", "--time", "09:15:30")
         _, show, _ = cli("show", "1")
         assert "09:15:30" in show
 
     def test_log_invalid_time(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         code, _, _ = cli("log", "1", "x", "--time", "25:00")
         assert code != 0
 
     def test_log_invalid_time_with_date(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         code, _, _ = cli("log", "1", "x", "--date", "2025-01-02", "--time", "99:99")
         assert code != 0
 
@@ -307,7 +307,7 @@ class TestLogTimeAndDate:
 class TestInsertLogClockNotPromote:
     def test_clock_in_does_not_promote(self, cli):
         """CLOCK_IN log must not auto-advance TODO to DOING (start command sets status itself)"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         # don't call start; insert CLOCK_IN log via internal API
         from worklog import cli as wl
         con = wl.db_connect()
@@ -355,7 +355,7 @@ class TestDurationAndAutoProgress:
     """§26 duration summary + §27 auto status advancement."""
 
     def test_log_keep_status_disables_auto(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         _, out, _ = cli("log", "1", "progress", "--keep-status")
         assert "TODO → DOING" not in out
         _, show, _ = cli("show", "1")
@@ -364,14 +364,14 @@ class TestDurationAndAutoProgress:
 
     def test_log_with_date_keeps_status(self, cli):
         """backfilling a historical log does not change status"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "history", "--date", "2020-01-01")
         _, show, _ = cli("show", "1")
         assert "TODO" in show
 
     def test_log_done_not_reverted(self, cli):
         """logging after DONE does not auto-revert status"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("done", "1")
         cli("log", "1", "addendum")
         _, show, _ = cli("show", "1")
@@ -379,14 +379,14 @@ class TestDurationAndAutoProgress:
 
     def test_duration_format(self, cli):
         """log span duration shown as [Xh Ym]"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "a", "--time", "10:00")
         cli("log", "1", "b", "--time", "12:30")
         _, out, _ = cli("ls")
         assert "[2h30m]" in out
 
     def test_duration_under_hour(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "a", "--time", "10:00")
         cli("log", "1", "b", "--time", "10:45")
         _, out, _ = cli("ls")
@@ -394,7 +394,7 @@ class TestDurationAndAutoProgress:
 
     def test_duration_zero_hidden(self, cli):
         """single log has no span; no duration shown"""
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("log", "1", "single")
         _, out, _ = cli("ls")
         assert "[" not in out.split("single")[1] if "single" in out else True
@@ -403,7 +403,7 @@ class TestDurationAndAutoProgress:
 class TestLogDateWords:
     """log --date relative words + empty-body guard (from test_ux)"""
     def test_log_date_accepts_yesterday(self, cli):
-        cli("add", "work item", "-k", "task")
+        cli("add", "work item")
         cli("log", "1", "yesterday thing", "--date", "yesterday")
         _, show, _ = cli("show", "1")
         # "yesterday" is resolved to a concrete date and stored in logged_at
@@ -412,7 +412,7 @@ class TestLogDateWords:
         assert yday in show
 
     def test_logs_empty_body_rejected(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         code, _, err = cli("log", "1", "")
         assert code != 0
         code2, _, _ = cli("log", "1", "   ")

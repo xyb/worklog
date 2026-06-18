@@ -45,9 +45,9 @@ class TestSmallGaps:
         assert "rich" in out
 
     def test_tree_children_with_canceled_excluded(self, cli):
-        cli("add", "p1", "-k", "project")  # id 1
-        cli("add", "c1", "-k", "task", "--parent", "1")  # id 2
-        cli("add", "c2", "-k", "task", "--parent", "1")  # id 3
+        cli("add", "p1", "--para", "project")  # id 1
+        cli("add", "c1", "--parent", "1")  # id 2
+        cli("add", "c2", "--parent", "1")  # id 3
         cli("cancel", "3")  # c2 cancel
         _, out, _ = cli("tree", "--root", "1")
         assert "c1" in out
@@ -55,7 +55,7 @@ class TestSmallGaps:
 
     def test_node_project_direct_no_ancestor(self, cli):
         """_node_project: direct call; node with no project ancestor → fallback returns None"""
-        cli("add", "lonely", "-k", "task")
+        cli("add", "lonely")
         from worklog import cli as wl
         con = wl.db_connect()
         pid, ptitle = wl._node_project(con, 1)
@@ -64,8 +64,8 @@ class TestSmallGaps:
 
     def test_node_project_direct_with_ancestor(self, cli):
         """_node_project: node under a project → returns project id+title"""
-        cli("add", "p1", "-k", "project")  # id 1
-        cli("add", "t1", "-k", "task", "--parent", "1")  # id 2
+        cli("add", "p1", "--para", "project")  # id 1
+        cli("add", "t1", "--parent", "1")  # id 2
         from worklog import cli as wl
         con = wl.db_connect()
         pid, ptitle = wl._node_project(con, 2)
@@ -76,16 +76,16 @@ class TestSmallGaps:
         """log_tail=3 default: 5 logs → omission line shown"""
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "Lifetime", "-k", "lifetime")
-        cli("add", today, "-k", "day", "--parent", "1")
-        cli("add", "t1", "-k", "task")
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")
+        cli("add", today, "--prop", "type.date=day", "--parent", "1")
+        cli("add", "t1")
         for i in range(6):
             cli("log", "3", f"log-{i}")
         _, out, _ = cli("tree", "--root", "2", "--depth", "2")
         assert "elided" in out or "log-5" in out  # default tail=3; at least expand tail
 
     def test_ls_with_status_filter(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         cli("done", "1")
         _, out, _ = cli("ls", "--status", "DONE")
         assert "t1" in out

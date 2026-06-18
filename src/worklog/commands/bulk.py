@@ -13,6 +13,7 @@ from pathlib import Path
 from .. import render
 from .. import db_table as _db
 from .. import timeutil as _tu
+from ..node import create_node
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -50,7 +51,8 @@ from ..queries import (
     _status_filter_sql,
     _upsert_prop,
     write_kind_type_props,
-    sync_kind_column,
+    sync_time_node_dates,
+    DATE_SYNC_KEYS,
     _upsert_link,
     _delete_link,
 )
@@ -205,19 +207,17 @@ def _apply_execute(con, ops):
             status = _MARKER_STATUS.get(f.get("marker", " "), "TODO")
             kind = f.get("kind", "task")
             now = _tu.utc_now()
-            node_row = {
-                "parent_id": parent_id, "title": f["title"], "kind": kind,
-                "status": status, "priority": f.get("priority"), "created_at": now,
-            }
-            if status == "DONE":
-                node_row["closed_at"] = now
-            nid = _db.insert(con, "node", node_row)
-            write_kind_type_props(con, nid, kind, f["title"])   # dual-write the type.* namespace
+            nid = create_node(
+                con, title=f["title"], parent_id=parent_id, status=status,
+                priority=f.get("priority"), created_at=now,
+                closed_at=now if status == "DONE" else None,
+            )
+            write_kind_type_props(con, nid, kind, f["title"])   # populate the type.* namespace
             for t in f.get("tags", []):
                 _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
             for kind_, val in o["subs"]:
                 _apply_sub(con, nid, kind_, val)
-            # (a sub @prop type.* auto-syncs the kind column via _upsert_prop)
+
             counts["add"] += 1
             stack[depth] = nid
     except Exception as e:
@@ -267,21 +267,24 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         counters["add"] += 1
     else:
         now = _tu.utc_now()
-        node_row = {
-            "parent_id": pid, "title": title, "kind": kind, "status": status,
-            "priority": spec.get("priority"), "scheduled_date": sched,
-            "deadline_date": spec.get("deadline"), "body": spec.get("body"),
-            "created_at": now,
-        }
-        if status == "DONE":
-            node_row["closed_at"] = now
-        nid = _db.insert(con, "node", node_row)
-        write_kind_type_props(con, nid, kind, title)   # dual-write the type.* namespace
+        nid = create_node(
+            con, title=title, parent_id=pid, status=status,
+            priority=spec.get("priority"), scheduled_date=sched,
+            deadline_date=spec.get("deadline"), body=spec.get("body"),
+            created_at=now, closed_at=now if status == "DONE" else None,
+        )
+        write_kind_type_props(con, nid, kind, title)   # populate the type.* namespace
         counters["add"] += 1
         for t in spec.get("tags", []):
             _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
+        sub_keys = set()
         for k, v in (spec.get("props") or {}).items():
-            _upsert_prop(con, nid, k, str(v))   # a type.* prop auto-syncs the kind column
+            _upsert_prop(con, nid, k, str(v))
+            sub_keys.add(k)
+        if sub_keys & DATE_SYNC_KEYS:
+            # a raw type.date/date.period prop bypasses write_kind_type_props' completion — re-sync
+            # so an imported time node gets its date.period/start/end (findable by date queries).
+            sync_time_node_dates(con, nid)
         for d in spec.get("links", []):
             _upsert_link(con, nid, d)
         for entry in spec.get("logs", []):
@@ -542,11 +545,11 @@ def _exec_update(con, o):
         elif field == "prop":
             if action == "set":
                 k, v = value
-                _upsert_prop(con, nid, k, v)   # a type.* prop auto-syncs the kind column
+                _upsert_prop(con, nid, k, v)
+                if k in DATE_SYNC_KEYS:
+                    sync_time_node_dates(con, nid)   # complete a time node set via raw prop
             else:
                 _db.delete(con, "prop", node_id=nid, key=value)
-                if str(value).startswith("type."):
-                    sync_kind_column(con, nid)   # delete path: not through _upsert_prop, sync here
 
 def _fieldop_desc(action, field, value):
     if action == "clear":
@@ -567,11 +570,12 @@ def _apply_sub(con, nid, kind, val):
     elif kind == "prop":
         if "=" in val:
             k, v = val.split("=", 1)
-            _upsert_prop(con, nid, k.strip(), v.strip())
+            k = k.strip()
+            _upsert_prop(con, nid, k, v.strip())
+            if k in DATE_SYNC_KEYS:
+                sync_time_node_dates(con, nid)   # complete a time node set via raw `prop` sub
 
 
 
 _VALID_FIND_FIELDS = {"title", "body", "log", "tag", "prop", "link"}
-_VALID_KINDS = {"task", "project", "area", "year", "quarter", "month", "week", "day",
-                "lifetime", "decade", "habit", "signal", "meetlog"}
 

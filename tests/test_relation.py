@@ -7,7 +7,7 @@ import pytest
 def _mk(cli, n):
     """Create n bare tasks, returns nothing (ids are 1..n)."""
     for i in range(n):
-        cli("add", f"task {i + 1}", "-k", "task")
+        cli("add", f"task {i + 1}")
 
 
 class TestRelationWrite:
@@ -92,7 +92,7 @@ class TestRelationRemove:
 class TestAddRelation:
     def test_add_with_relation_writes_both_sides(self, cli):
         _mk(cli, 2)  # #1 #2
-        code, out, _ = cli("add", "derived", "-k", "task",
+        code, out, _ = cli("add", "derived",
                            "--relation", "split-from 1", "--relation", "related 2")
         assert code == 0
         assert "relation(s)" in out  # the success hint mentions relations
@@ -106,30 +106,30 @@ class TestAddRelation:
 
     def test_add_relation_multiple_ids(self, cli):
         _mk(cli, 2)
-        cli("add", "x", "-k", "task", "--relation", "related 1 2")
+        cli("add", "x", "--relation", "related 1 2")
         _, j, _ = cli("show", "3", "-o", "json")
         assert json.loads(j)["relations"]["related"] == [1, 2]
 
     def test_add_relation_underscore_and_hash(self, cli):
         _mk(cli, 1)
-        cli("add", "x", "-k", "task", "--relation", "split_from #1")
+        cli("add", "x", "--relation", "split_from #1")
         _, j, _ = cli("show", "2", "-o", "json")
         assert json.loads(j)["relations"]["split_from"] == [1]
 
     def test_add_relation_bad_type_errors(self, cli):
         _mk(cli, 1)
-        code, _, err = cli("add", "x", "-k", "task", "--relation", "foo 1")
+        code, _, err = cli("add", "x", "--relation", "foo 1")
         assert code != 0
         assert "unknown relation type" in err
 
     def test_add_relation_missing_id_errors(self, cli):
         _mk(cli, 1)
-        code, _, err = cli("add", "x", "-k", "task", "--relation", "split-from")
+        code, _, err = cli("add", "x", "--relation", "split-from")
         assert code != 0
         assert "need '<type> <id>'" in err
 
     def test_add_relation_nonexistent_target_errors(self, cli):
-        code, _, err = cli("add", "x", "-k", "task", "--relation", "related 999")
+        code, _, err = cli("add", "x", "--relation", "related 999")
         assert code != 0
         assert "not found" in err
 
@@ -168,37 +168,37 @@ class TestRelationList:
 
 class TestBacklinks:
     def test_text_mention_shows_linked_from(self, cli):
-        cli("add", "target", "-k", "task")          # #1
-        cli("add", "depends on it", "-k", "task")    # #2
+        cli("add", "target")          # #1
+        cli("add", "depends on it")    # #2
         cli("log", "2", "blocked on #1 result")      # #2's log mentions #1
         _, out, _ = cli("show", "1")
         assert "=backrels" in out and "#2" in out
 
     def test_wl_prefix_counts(self, cli):
-        cli("add", "target", "-k", "task")           # #1
-        cli("add", "other", "-k", "task")            # #2
+        cli("add", "target")           # #1
+        cli("add", "other")            # #2
         cli("log", "2", "see WL#1 for context")
         _, out, _ = cli("show", "1")
         assert "=backrels" in out and "#2" in out
 
     def test_pr_ref_and_self_excluded(self, cli):
-        cli("add", "target", "-k", "task")           # #1
-        cli("add", "other", "-k", "task")            # #2
+        cli("add", "target")           # #1
+        cli("add", "other")            # #2
         cli("log", "2", "merged PR#1, not a node ref")   # PR#1 must NOT backlink #1
         cli("log", "1", "self mention #1")               # self excluded
         _, out, _ = cli("show", "1")
         assert "=backrels" not in out
 
     def test_no_substring_false_match(self, cli):
-        cli("add", "target", "-k", "task")           # #1
-        cli("add", "other", "-k", "task")            # #2
+        cli("add", "target")           # #1
+        cli("add", "other")            # #2
         cli("log", "2", "see #12 and #100")          # neither is #1
         _, out, _ = cli("show", "1")
         assert "=backrels" not in out
 
     def test_backlinks_in_json(self, cli):
-        cli("add", "target", "-k", "task")           # #1
-        cli("add", "other", "-k", "task")            # #2
+        cli("add", "target")           # #1
+        cli("add", "other")            # #2
         cli("log", "2", "ref #1")
         _, j, _ = cli("show", "1", "-o", "json")
         assert json.loads(j)["backrels"] == [2]
@@ -266,8 +266,8 @@ class TestRelationShow:
         # a long related title wraps with hang-indent (like children/_node_line) instead of
         # overflowing the terminal width — the whole point of routing through _hang_wrap
         monkeypatch.setenv("COLUMNS", "60")
-        cli("add", "x" * 200, "-k", "task")  # #1 long title (ASCII so len == display width)
-        cli("add", "src", "-k", "task")      # #2
+        cli("add", "x" * 200)  # #1 long title (ASCII so len == display width)
+        cli("add", "src")      # #2
         cli("relation", "2", "related", "1")
         _, out, _ = cli("relation", "2")
         assert all(len(l) <= 60 for l in out.splitlines())   # nothing overflows
@@ -280,7 +280,7 @@ class TestAddRelationParse:
     def test_add_relation_non_numeric_id_errors(self, cli):
         # `wl add --relation` parses the spec at creation time; a non-numeric id is rejected
         # (distinct entry point from `wl relation <id> <type> <ids>`).
-        code, _, err = cli("add", "child", "-k", "task", "--relation", "related abc")
+        code, _, err = cli("add", "child", "--relation", "related abc")
         assert code != 0
         assert "not a node id" in err
 

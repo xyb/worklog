@@ -56,7 +56,7 @@ def _checkin_collect(con, args):
     """Collect today's habits to check in. Returns [{id, title, priority, kind, already}]."""
     today = _tu.today()
     sched_ids = _scheduled_node_ids(con, today)
-    kinds = {args.kind} if args.kind else {"habit"}
+    kinds = {"habit"}
     if args.all_kinds:
         kinds = {"habit", "task", "meetlog"}
 

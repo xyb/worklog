@@ -14,10 +14,10 @@ class TestTree:
         assert any("  " in l and "child" in l for l in lines)
         assert any("    " in l and "grandchild" in l for l in lines)
 
-    def test_tree_filter_kind(self, cli):
-        cli("add", "yr", "-k", "year")
-        cli("add", "task1", "-k", "task")
-        code, out, _ = cli("tree", "--kind", "year")
+    def test_tree_filter_prop(self, cli):
+        cli("add", "yr", "--prop", "type.date=year")
+        cli("add", "task1")
+        code, out, _ = cli("tree", "--prop", "type.date=year")
         assert "yr" in out
         assert "task1" not in out
 
@@ -43,11 +43,11 @@ class TestTree:
 
 class TestTreeRoot:
     def _seed(self, cli):
-        cli("add", "month", "-k", "month")            # 1
-        cli("add", "projectX", "-k", "project", "--parent", "1")  # 2
-        cli("add", "subtaskA", "-k", "task", "--parent", "2")    # 3
-        cli("add", "subtaskB", "-k", "task", "--parent", "2")    # 4
-        cli("add", "grandchild", "-k", "task", "--parent", "3")      # 5
+        cli("add", "month", "--prop", "type.date=month")            # 1
+        cli("add", "projectX", "--para", "project", "--parent", "1")  # 2
+        cli("add", "subtaskA", "--parent", "2")    # 3
+        cli("add", "subtaskB", "--parent", "2")    # 4
+        cli("add", "grandchild", "--parent", "3")      # 5
 
     def test_tree_root_starts_from_mid_node(self, cli):
         self._seed(cli)
@@ -67,14 +67,14 @@ class TestTreeRoot:
 
 class TestTreeBy:
     def _seed(self, cli):
-        cli("add", "2026-05", "-k", "month")                                          # 1
-        cli("add", "data-viz", "-k", "project", "-t", "gaming,work", "--parent", "1")  # 2
-        cli("add", "investment", "-k", "project", "-t", "invest,personal", "--parent", "1")          # 3
-        cli("add", "login fix", "-k", "task", "-t", "gaming,work,P0", "--parent", "1")           # 4
-        cli("add", "ingest pipeline", "-k", "task", "-t", "gaming,work", "--parent", "1")        # 5
-        cli("add", "reconcile", "-k", "task", "-t", "invest,personal", "--parent", "1")           # 6
-        cli("add", "structural child", "-k", "task", "--parent", "2")                                 # 7 (under project #2)
-        cli("add", "morning check", "-k", "task", "-t", "work,P0", "--parent", "1")                      # 8 (no project tag = orphan)
+        cli("add", "2026-05", "--prop", "type.date=month")                                          # 1
+        cli("add", "data-viz", "--para", "project", "-t", "gaming,work", "--parent", "1")  # 2
+        cli("add", "investment", "--para", "project", "-t", "invest,personal", "--parent", "1")          # 3
+        cli("add", "login fix", "-t", "gaming,work,P0", "--parent", "1")           # 4
+        cli("add", "ingest pipeline", "-t", "gaming,work", "--parent", "1")        # 5
+        cli("add", "reconcile", "-t", "invest,personal", "--parent", "1")           # 6
+        cli("add", "structural child", "--parent", "2")                                 # 7 (under project #2)
+        cli("add", "morning check", "-t", "work,P0", "--parent", "1")                      # 8 (no project tag = orphan)
 
     def test_by_tag_groups(self, cli):
         self._seed(cli)
@@ -119,9 +119,9 @@ class TestTreeDepthSortActivity:
 
     def test_tree_default_area_one_level(self, cli):
         # default tree: area lists only one level (area name); projects not expanded; use --root <area> to see them
-        cli("add", "life", "-k", "lifetime")           # 1
-        cli("add", "data", "-k", "area", "--parent", "1")  # 2
-        cli("add", "proj", "-k", "project", "--parent", "2")  # 3
+        cli("add", "life", "--prop", "type.date=lifetime")           # 1
+        cli("add", "data", "--para", "area", "--parent", "1")  # 2
+        cli("add", "proj", "--para", "project", "--parent", "2")  # 3
         code, out, _ = cli("tree")
         assert "data" in out          # area name appears
         assert "proj" not in out      # project not expanded by default
@@ -129,17 +129,17 @@ class TestTreeDepthSortActivity:
         assert "proj" in out2
 
     def test_tree_time_nodes_sorted_by_date(self, cli):
-        cli("add", "2026-05", "-k", "month")              # 1
-        cli("add", "2026-W22", "-k", "week", "--parent", "1")  # 2 added first (smaller id)
-        cli("add", "2026-W18", "-k", "week", "--parent", "1")  # 3 added second (larger id)
+        cli("add", "2026-05", "--prop", "type.date=month")              # 1
+        cli("add", "2026-W22", "--prop", "type.date=week", "--parent", "1")  # 2 added first (smaller id)
+        cli("add", "2026-W18", "--prop", "type.date=week", "--parent", "1")  # 3 added second (larger id)
         code, out, _ = cli("tree", "--root", "1", "--depth", "1")
         assert out.index("2026-W18") < out.index("2026-W22")  # sorted by date not id
 
     def test_tree_day_shows_activity(self, cli):
-        cli("add", "2026-05", "-k", "month")                   # 1
-        cli("add", "2026-05-18", "-k", "day", "--parent", "1") # 2
-        cli("add", "proj", "-k", "project")                    # 3
-        cli("add", "did work", "-k", "task", "--parent", "3")        # 4
+        cli("add", "2026-05", "--prop", "type.date=month")                   # 1
+        cli("add", "2026-05-18", "--prop", "type.date=day", "--parent", "1") # 2
+        cli("add", "proj", "--para", "project")                    # 3
+        cli("add", "did work", "--parent", "3")        # 4
         cli("log", "4", "today's progress", "--date", "2026-05-18")
         cli("log", "4", "other day's progress", "--date", "2026-05-20")
         code, out, _ = cli("tree", "--root", "2", "--depth", "3")
@@ -157,7 +157,7 @@ class TestTreeEmpty:
         # An orphan task (parent_id NULL, not a time/area node) is outside the default
         # overview's scope, but the DB is NOT empty — the message must say so and point at
         # how to see it, never imply "no nodes" (regression: it used to print "(no root nodes)").
-        cli("add", "orphan task", "-k", "task")
+        cli("add", "orphan task")
         _, out, _ = cli("tree")
         assert "empty" not in out.lower()
         assert "1 node" in out and "overview" in out
@@ -166,11 +166,11 @@ class TestTreeEmpty:
         _, deep, _ = cli("tree", "--depth", "9")
         assert "orphan task" in deep
 
-    def test_tree_root_no_kind_filter_match(self, cli):
-        cli("add", "t1", "-k", "task")  # parent_id=NULL, kind=task
-        # --kind now flows through the shared filter (make_node_filter); an unmatched
+    def test_tree_root_no_prop_filter_match(self, cli):
+        cli("add", "t1")  # parent_id=NULL, a bare task
+        # --prop flows through the shared filter (make_node_filter); an unmatched
         # filter prunes the tree to nothing.
-        _, out, _ = cli("tree", "--kind", "nosuch")
+        _, out, _ = cli("tree", "--prop", "type.nosuch")
         assert "nothing matches the filter" in out
 
 
@@ -178,9 +178,9 @@ class TestDefaultTreeAreaListing:
     """_print_default_tree: lifetime + area + today / month fallback branches."""
 
     def test_default_tree_lists_area_children(self, cli):
-        cli("add", "Lifetime", "-k", "lifetime")
-        cli("add", "work", "-k", "area", "--parent", "1")
-        cli("add", "personal", "-k", "area", "--parent", "1")
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")
+        cli("add", "work", "--para", "area", "--parent", "1")
+        cli("add", "personal", "--para", "area", "--parent", "1")
         _, out, _ = cli("tree")
         assert "work" in out and "personal" in out
 
@@ -188,17 +188,17 @@ class TestDefaultTreeAreaListing:
         """lifetime + today's day node → dayn branch (chain + _print_day_activity)"""
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "Lifetime", "-k", "lifetime")
-        cli("add", "2026", "-k", "year", "--parent", "1")
-        cli("add", today, "-k", "day", "--parent", "2")
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")
+        cli("add", "2026", "--prop", "type.date=year", "--parent", "1")
+        cli("add", today, "--prop", "type.date=day", "--prop", f"date.period={today}", "--parent", "2")
         _, out, _ = cli("tree")
         assert today in out
         assert "2026" in out
 
     def test_default_tree_month_fallback(self, cli):
         """no day node today, has month → month fallback branch"""
-        cli("add", "Lifetime", "-k", "lifetime")
-        cli("add", "2026-05", "-k", "month", "--parent", "1")
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")
+        cli("add", "2026-05", "--prop", "type.date=month", "--parent", "1")
         _, out, _ = cli("tree")
         assert "2026-05" in out
 
@@ -210,9 +210,9 @@ class TestPrintDayActivityEdges:
         """wl tree --no-logs → log_tail=0; logs not expanded but tasks still listed"""
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "Lifetime", "-k", "lifetime")
-        cli("add", today, "-k", "day", "--parent", "1")
-        cli("add", "t1", "-k", "task")
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")
+        cli("add", today, "--prop", "type.date=day", "--prop", f"date.period={today}", "--parent", "1")
+        cli("add", "t1")
         cli("log", "3", "hidden-body")
         _, out, _ = cli("tree", "--no-logs")
         assert "t1" in out
@@ -223,33 +223,33 @@ class TestTreeBy:
     """cmd_tree --by tag/project/direction grouping dimensions."""
 
     def test_tree_by_tag_no_semantic(self, cli):
-        cli("add", "t1", "-k", "task", "-t", "work")  # work is a generic tag
+        cli("add", "t1", "-t", "work")  # work is a generic tag
         _, out, _ = cli("tree", "--by", "tag")
         assert "no semantic" in out or "(no " in out
 
     def test_tree_by_tag_with_semantic(self, cli):
-        cli("add", "t1", "-k", "task", "-t", "team-dev")
-        cli("add", "t2", "-k", "task", "-t", "team-dev")
+        cli("add", "t1", "-t", "team-dev")
+        cli("add", "t2", "-t", "team-dev")
         _, out, _ = cli("tree", "--by", "tag")
         assert "team-dev" in out
 
     def test_tree_by_project_no_projects(self, cli):
-        cli("add", "t1", "-k", "task")
+        cli("add", "t1")
         _, out, _ = cli("tree", "--by", "project")
         assert "no project" in out
 
     def test_tree_by_project_with_orphan(self, cli):
-        cli("add", "P1", "-k", "project")  # id 1
-        cli("add", "child", "-k", "task", "--parent", "1")  # id 2 under P1
-        cli("add", "orphan", "-k", "task")  # id 3 orphan
+        cli("add", "P1", "--para", "project")  # id 1
+        cli("add", "child", "--parent", "1")  # id 2 under P1
+        cli("add", "orphan")  # id 3 orphan
         _, out, _ = cli("tree", "--by", "project")
         assert "P1" in out
         assert "unassigned" in out
         assert "orphan" in out
 
     def test_tree_by_direction(self, cli):
-        cli("add", "w1", "-k", "task", "-t", "work")
-        cli("add", "p1", "-k", "task", "-t", "personal")
+        cli("add", "w1", "-t", "work")
+        cli("add", "p1", "-t", "personal")
         _, out, _ = cli("tree", "--by", "direction")
         assert "w1" in out and "p1" in out
 
@@ -258,9 +258,9 @@ class TestPrintDayActivityHabit:
     def test_habit_with_today_log_shows_x(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "Lifetime", "-k", "lifetime")
-        cli("add", today, "-k", "day", "--parent", "1")
-        cli("add", "h1", "-k", "habit")
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")
+        cli("add", today, "--prop", "type.date=day", "--parent", "1")
+        cli("add", "h1", "--prop", "type.habit=true")
         cli("tick", "3")  # check-in (writes a checkin metric) = done today
         _, out, _ = cli("tree", "--root", "2", "--depth", "2")
         # habit checked in that day should render [x]
@@ -271,9 +271,9 @@ class TestTreeByProjectSharedTag:
     """tree --by project: tasks sharing a semantic tag with a project are listed under it."""
 
     def test_task_with_shared_tag_appears_under_project(self, cli):
-        cli("add", "proj-x", "-k", "project", "-p", "A", "-t", "topic-x,work")
+        cli("add", "proj-x", "--para", "project", "-p", "A", "-t", "topic-x,work")
         # Task is NOT a child of proj-x, but shares 'topic-x' tag
-        cli("add", "shared-task", "-k", "task", "-t", "topic-x")
+        cli("add", "shared-task", "-t", "topic-x")
         _, out, _ = cli("tree", "--by", "project")
         # both project header and the task ID should appear
         assert "proj-x" in out
@@ -287,12 +287,12 @@ class TestTreeTimePins:
     it and a duplicate gets created."""
 
     def _seed(self, cli):
-        cli("add", "Lifetime", "-k", "lifetime")                       # 1
-        cli("add", "2026", "-k", "year", "--parent", "1")              # 2
-        cli("add", "2026-06", "-k", "month", "--parent", "2")          # 3
-        cli("add", "proj", "-k", "project", "--parent", "1")           # 4
-        cli("add", "month task", "-k", "task", "--parent", "4", "--scheduled", "2026-06")  # 5
-        cli("add", "week task", "-k", "task", "--parent", "4", "--scheduled", "2026-W23")  # 6
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")                       # 1
+        cli("add", "2026", "--prop", "type.date=year", "--parent", "1")              # 2
+        cli("add", "2026-06", "--prop", "type.date=month", "--parent", "2")          # 3
+        cli("add", "proj", "--para", "project", "--parent", "1")           # 4
+        cli("add", "month task", "--parent", "4", "--scheduled", "2026-06")  # 5
+        cli("add", "week task", "--parent", "4", "--scheduled", "2026-W23")  # 6
 
     def test_tree_root_month_shows_pinned(self, cli):
         self._seed(cli)
@@ -317,12 +317,12 @@ class TestTreeTimePins:
     def test_filtered_tree_root_month_shows_matching_pins(self, cli):
         # a filtered drill-down on a month must still surface its @-pins
         # that match the filter (they hang under their project, not the month subtree)
-        cli("add", "Lifetime", "-k", "lifetime")                       # 1
-        cli("add", "2026", "-k", "year", "--parent", "1")              # 2
-        cli("add", "2026-06", "-k", "month", "--parent", "2")          # 3
-        cli("add", "proj", "-k", "project", "--parent", "1")           # 4
-        cli("add", "work pin", "-k", "task", "--parent", "4", "-t", "work", "--scheduled", "2026-06")      # 5
-        cli("add", "personal pin", "-k", "task", "--parent", "4", "-t", "personal", "--scheduled", "2026-06")  # 6
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")                       # 1
+        cli("add", "2026", "--prop", "type.date=year", "--parent", "1")              # 2
+        cli("add", "2026-06", "--prop", "type.date=month", "--parent", "2")          # 3
+        cli("add", "proj", "--para", "project", "--parent", "1")           # 4
+        cli("add", "work pin", "--parent", "4", "-t", "work", "--scheduled", "2026-06")      # 5
+        cli("add", "personal pin", "--parent", "4", "-t", "personal", "--scheduled", "2026-06")  # 6
         _, out, _ = cli("tree", "--root", "3", "-t", "work")
         assert "work pin" in out
         assert "personal pin" not in out
@@ -330,9 +330,9 @@ class TestTreeTimePins:
 
 class TestTreeJson:
     def test_tree_json_nested(self, cli):
-        cli("add", "area", "-k", "area")                       # 1
-        cli("add", "proj", "-k", "project", "--parent", "1")    # 2
-        cli("add", "t", "-k", "task", "--parent", "2")          # 3
+        cli("add", "area", "--para", "area")                       # 1
+        cli("add", "proj", "--para", "project", "--parent", "1")    # 2
+        cli("add", "t", "--parent", "2")          # 3
         import json
         code, out, _ = cli("tree", "--depth", "5", "-o", "json")
         d = json.loads(out)
@@ -342,8 +342,8 @@ class TestTreeJson:
         assert root["children"][0]["children"][0]["id"] == 3
 
     def test_tree_json_root_subtree(self, cli):
-        cli("add", "proj", "-k", "project")                     # 1
-        cli("add", "t", "-k", "task", "--parent", "1")          # 2
+        cli("add", "proj", "--para", "project")                     # 1
+        cli("add", "t", "--parent", "1")          # 2
         import json
         _, out, _ = cli("tree", "--root", "1", "-o", "json")
         d = json.loads(out)

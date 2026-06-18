@@ -5,9 +5,22 @@ import pytest
 from datetime import date
 
 
+def _restore_legacy_kind_column(tmp_db, con):
+    """Re-add the `node.kind` column (dropped by migration 0011) and backfill it from each
+    node's derived legacy kind. The legacy 0003/0004 migration SQL bodies read `n.kind`; these
+    tests run those bodies against a reconstructed pre-0006 schema, so the column must be present
+    and populated for the legacy logic to behave as it did when the column was live."""
+    from worklog import node_types as nt, queries
+    con.execute("ALTER TABLE node ADD COLUMN kind TEXT")
+    for (nid,) in con.execute("SELECT id FROM node").fetchall():
+        con.execute("UPDATE node SET kind=? WHERE id=?",
+                    (nt.legacy_kind(queries.node_props(con, nid)), nid))
+    con.commit()
+
+
 class TestMetricAdd:
     def _node(self, cli):
-        cli("add", "blood sugar", "-k", "habit")  # node 1
+        cli("add", "blood sugar", "--prop", "type.habit=true")  # node 1
 
     def test_add_numeric_creates_carrier_log_and_metric(self, cli, tmp_db):
         self._node(cli)
@@ -79,7 +92,7 @@ class TestMetricAdd:
 
     def test_add_on_log_wrong_node_rejected(self, cli):
         self._node(cli)
-        cli("add", "other", "-k", "task")  # node 2
+        cli("add", "other")  # node 2
         cli("log", "2", "x")               # log on node 2
         code, _, err = cli("metric", "add", "1", "glucose", "6.1", "--on-log", "1")
         assert code != 0 and "belongs to node #2" in err
@@ -118,7 +131,7 @@ class TestMetricAdd:
 
 class TestMetricLs:
     def _seed(self, cli):
-        cli("add", "h", "-k", "habit")  # node 1
+        cli("add", "h", "--prop", "type.habit=true")  # node 1
         cli("metric", "add", "1", "glucose", "5.4", "--at", "2026-06-01")
         cli("metric", "add", "1", "glucose", "6.0", "--at", "2026-06-02")
         cli("metric", "add", "1", "weight", "70", "--at", "2026-06-02", "--note", "am")
@@ -145,18 +158,18 @@ class TestMetricLs:
 
     def test_ls_default_window_shows_today(self, cli):
         from datetime import date
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
         cli("metric", "add", "1", "glucose", "5.5")  # at = now (today)
         _, out, _ = cli("metric", "ls", "1")  # default window includes today
         assert "#M1" in out
 
     def test_ls_empty(self, cli):
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
         _, out, _ = cli("metric", "ls", "1", "--all")
         assert "no metrics" in out
 
     def test_ls_empty_with_tag_filter_shows_filter(self, cli):
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
         _, out, _ = cli("metric", "ls", "1", "--all", "--tag", "glucose")
         assert "tag=glucose" in out
 
@@ -167,7 +180,7 @@ class TestMetricLs:
 
 class TestMetricEdit:
     def _one(self, cli):
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
         cli("metric", "add", "1", "glucose", "5.4", "--unit", "mmol/L")
 
     def test_edit_value_autodetect(self, cli, tmp_db):
@@ -234,7 +247,7 @@ class TestMetricEdit:
 
 class TestMetricRm:
     def _two(self, cli):
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
         cli("metric", "add", "1", "glucose", "5.4")
         cli("metric", "add", "1", "weight", "70")
 
@@ -261,7 +274,7 @@ class TestMetricReviewFixes:
     """Behaviors added after the cross-model code review of the CRUD."""
 
     def _node(self, cli):
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
 
     def test_add_marker_carrier_log_typed_metric(self, cli, tmp_db):
         self._node(cli)
@@ -372,7 +385,7 @@ class TestMetricHelperParams:
     """--metric shortcut on `wl log` and `wl add` (one-step log + datapoint)."""
 
     def test_log_metric_attaches_to_the_log(self, cli, tmp_db):
-        cli("add", "h", "-k", "habit")  # node 1
+        cli("add", "h", "--prop", "type.habit=true")  # node 1
         cli("log", "1", "morning", "--metric", "glucose 5.4 mmol/L", "--metric", "mood good")
         con = tmp_db.db_connect()
         rows = con.execute("SELECT * FROM metric ORDER BY id").fetchall()
@@ -384,19 +397,19 @@ class TestMetricHelperParams:
         assert con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0] == 1
 
     def test_log_metric_inherits_log_timestamp(self, cli, tmp_db):
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
         cli("log", "1", "backfilled", "--date", "2026-06-01", "--metric", "glucose 5.4")
         con = tmp_db.db_connect()
         m = con.execute("SELECT at FROM metric").fetchone()
         assert m["at"] == "2026-06-01"
 
     def test_log_metric_hint_in_output(self, cli):
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
         _, out, _ = cli("log", "1", "x", "--metric", "glucose 5")
         assert "1 metric(s)" in out
 
     def test_add_metric_without_log_creates_carrier(self, cli, tmp_db):
-        cli("add", "weigh-in", "-k", "task", "--metric", "weight 70 kg")  # node 1
+        cli("add", "weigh-in", "--metric", "weight 70 kg")  # node 1
         con = tmp_db.db_connect()
         log = con.execute("SELECT tag FROM log").fetchone()
         assert log["tag"] == "metric"  # dedicated carrier
@@ -404,7 +417,7 @@ class TestMetricHelperParams:
         assert m["tag"] == "weight" and m["value_num"] == 70 and m["unit"] == "kg"
 
     def test_add_metric_reuses_log_carrier(self, cli, tmp_db):
-        cli("add", "run", "-k", "task", "--log", "5k done", "--metric", "distance 5 km", "--metric", "checkin")
+        cli("add", "run", "--log", "5k done", "--metric", "distance 5 km", "--metric", "checkin")
         con = tmp_db.db_connect()
         # only one log (the --log one), both metrics on it
         assert con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0] == 1
@@ -413,13 +426,13 @@ class TestMetricHelperParams:
         assert rows[1]["tag"] == "checkin" and rows[1]["value_num"] == 1
 
     def test_add_metric_at_inherited(self, cli, tmp_db):
-        cli("add", "t", "-k", "task", "--at", "2026-06-01 08:00", "--metric", "glucose 5.4")
+        cli("add", "t", "--at", "2026-06-01 08:00", "--metric", "glucose 5.4")
         con = tmp_db.db_connect()
         # --at local (+08:00) → metric inherits the UTC instant (08:00 local = 00:00 UTC)
         assert con.execute("SELECT at FROM metric").fetchone()["at"] == "2026-06-01 00:00:00"
 
     def test_log_metric_empty_spec_errors(self, cli):
-        cli("add", "h", "-k", "habit")
+        cli("add", "h", "--prop", "type.habit=true")
         code, _, err = cli("log", "1", "x", "--metric", "   ")
         assert code != 0 and "spec is empty" in err
 
@@ -429,22 +442,22 @@ class TestCheckinViaMetric:
     detection reads it (not 'any log that day'), fixing the loose old heuristic."""
 
     def test_tick_writes_checkin_metric(self, cli, tmp_db):
-        cli("add", "exercise", "-k", "habit")
+        cli("add", "exercise", "--prop", "type.habit=true")
         cli("tick", "1")
         con = tmp_db.db_connect()
         m = con.execute("SELECT * FROM metric WHERE tag='checkin'").fetchone()
         assert m is not None and m["value_num"] == 1 and m["node_id"] == 1
 
     def test_tick_idempotent_same_day(self, cli, tmp_db):
-        cli("add", "exercise", "-k", "habit")
+        cli("add", "exercise", "--prop", "type.habit=true")
         cli("tick", "1")
         cli("tick", "1")  # second tick same day
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM metric WHERE tag='checkin'").fetchone()[0] == 1
 
     def test_day_habit_done_only_with_checkin(self, cli):
-        cli("add", "exercise", "-k", "habit")   # node 1
-        cli("add", "vitamins", "-k", "habit")   # node 2
+        cli("add", "exercise", "--prop", "type.habit=true")   # node 1
+        cli("add", "vitamins", "--prop", "type.habit=true")   # node 2
         cli("tick", "1")                          # checkin
         cli("log", "2", "just a note")              # a plain note, NOT a check-in
         _, out, _ = cli("day")
@@ -454,12 +467,14 @@ class TestCheckinViaMetric:
     def test_checkin_backfill_migration_sql(self, cli, tmp_db):
         """0003 backfill: a legacy habit log (no checkin metric) gets one synthesized."""
         import pathlib
-        cli("add", "exercise", "-k", "habit")
+        cli("add", "exercise", "--prop", "type.habit=true")
         cli("log", "1", "✓ done")  # plain log, no checkin auto-created
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM metric WHERE tag='checkin'").fetchone()[0] == 0
-        # 0003 runs before the log.type→tag rename (0006); recreate its pre-0006 schema
+        # 0003 runs before the log.type→tag rename (0006) and before the kind column was
+        # dropped (0011); recreate its pre-0006 schema, restoring the legacy kind column it reads.
         con.execute("ALTER TABLE log RENAME COLUMN tag TO type")
+        _restore_legacy_kind_column(tmp_db, con)
         # run the 0003 backfill body against this legacy-shaped data
         mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0003_backfill_checkin_metrics.sql"
         con.executescript(mig.read_text())
@@ -534,7 +549,7 @@ class TestMetaTypedLogs:
         assert con.execute("SELECT COUNT(*) FROM log WHERE tag='goal'").fetchone()[0] == 2  # history kept
 
     def test_set_meta_key_writes_typed_log_not_prop(self, cli, tmp_db):
-        cli("add", "2026-W23", "-k", "week")  # node 1
+        cli("add", "2026-W23", "--prop", "type.date=week")  # node 1
         _, out, _ = cli("set", "1", "goal", "this week's focus")
         assert "logged" in out
         con = tmp_db.db_connect()
@@ -542,7 +557,7 @@ class TestMetaTypedLogs:
         assert con.execute("SELECT COUNT(*) FROM prop WHERE node_id=1 AND key='goal'").fetchone()[0] == 0
 
     def test_set_non_meta_key_still_prop(self, cli, tmp_db):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         cli("set", "1", "owner", "xyb")
         con = tmp_db.db_connect()
         assert con.execute("SELECT value FROM prop WHERE node_id=1 AND key='owner'").fetchone()["value"] == "xyb"
@@ -550,15 +565,17 @@ class TestMetaTypedLogs:
     def test_meta_prop_migration_sql(self, cli, tmp_db):
         """0004: a legacy goal/summary prop is converted to a typed log + the prop dropped."""
         import pathlib
-        cli("add", "2026-06-01", "-k", "day")  # node 1
+        cli("add", "2026-06-01", "--prop", "type.date=day")  # node 1
         con = tmp_db.db_connect()
         # seed legacy props (as the pre-0004 world stored them)
         con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'goal', 'legacy goal')")
         con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'summary', 'legacy recap')")
         con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'summary_at', '2026-06-01 18:00:00')")
         con.commit()
-        # 0004 runs before the log.type→tag rename (0006); recreate its pre-0006 schema
+        # 0004 runs before the log.type→tag rename (0006) and before the kind column was
+        # dropped (0011); recreate its pre-0006 schema, restoring the legacy kind column it reads.
         con.execute("ALTER TABLE log RENAME COLUMN tag TO type")
+        _restore_legacy_kind_column(tmp_db, con)
         mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0004_meta_props_to_typed_logs.sql"
         con.executescript(mig.read_text())
         con.commit()
@@ -575,7 +592,7 @@ class TestMetricShowFolding:
     render as a 📊 line (not a blank ✎ log); over-count is elided."""
 
     def test_metrics_folded_under_log(self, cli):
-        cli("add", "bg", "-k", "habit")
+        cli("add", "bg", "--prop", "type.habit=true")
         cli("log", "1", "morning", "--metric", "glucose 5.4 mmol/L", "--metric", "mood good")
         _, out, _ = cli("show", "1")
         assert "✎ log" in out and "morning" in out
@@ -583,7 +600,7 @@ class TestMetricShowFolding:
         assert "↳ [mood] good" in out
 
     def test_empty_carrier_shows_as_metric_line(self, cli):
-        cli("add", "bg", "-k", "habit")
+        cli("add", "bg", "--prop", "type.habit=true")
         cli("metric", "add", "1", "weight", "70", "--unit", "kg")  # empty carrier
         _, out, _ = cli("show", "1")
         assert "📊 metric" in out and "[weight] 70 kg" in out
@@ -591,7 +608,7 @@ class TestMetricShowFolding:
         assert "✎ log" not in out
 
     def test_over_count_elision(self, cli):
-        cli("add", "cgm", "-k", "habit")
+        cli("add", "cgm", "--prop", "type.habit=true")
         cli("log", "1", "batch")  # log #1
         # attach 8 metrics to the one log
         for i in range(8):
@@ -607,7 +624,7 @@ class TestMetricDayFolding:
     def test_day_folds_metrics(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "bg", "-k", "habit")
+        cli("add", "bg", "--prop", "type.habit=true")
         cli("sched", "1", today)
         cli("tick", "1")  # checkin
         cli("log", "1", "morning", "--metric", "glucose 5.4 mmol/L", "--metric", "weight 70 kg")
@@ -619,7 +636,7 @@ class TestMetricDayFolding:
     def test_day_metric_elision(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "cgm", "-k", "habit")
+        cli("add", "cgm", "--prop", "type.habit=true")
         cli("sched", "1", today)
         cli("log", "1", "batch")  # log #1 today
         for i in range(8):
@@ -630,9 +647,9 @@ class TestMetricDayFolding:
     def test_tree_day_expansion_folds_metrics(self, cli):
         from datetime import date
         today = date.today().isoformat()
-        cli("add", "Lifetime", "-k", "lifetime")          # 1
-        cli("add", today, "-k", "day", "--parent", "1")   # 2
-        cli("add", "bg", "-k", "habit")                    # 3
+        cli("add", "Lifetime", "--prop", "type.date=lifetime")          # 1
+        cli("add", today, "--prop", "type.date=day", "--parent", "1")   # 2
+        cli("add", "bg", "--prop", "type.habit=true")                    # 3
         cli("log", "3", "reading", "--metric", "glucose 6.1 mmol/L")
         _, out, _ = cli("tree", "--root", "2", "--depth", "2")
         assert "↳ [glucose] 6.1 mmol/L" in out
@@ -644,7 +661,7 @@ class TestHabitMonthProgress:
     def test_day_shows_habit_month_rate(self, cli):
         from datetime import date, timedelta
         today = date.today()
-        cli("add", "exercise", "-k", "habit")
+        cli("add", "exercise", "--prop", "type.habit=true")
         cli("sched", "1", "--recur", "daily")
         cli("tick", "1")  # today
         # a past day this month: 2 days ago (guard against month boundary by using day-before-yesterday only if same month)
@@ -659,7 +676,7 @@ class TestHabitMonthProgress:
 
     def test_no_schedule_no_rate(self, cli):
         # a habit with no schedule shows no (this month N/M)
-        cli("add", "ad-hoc habit", "-k", "habit")
+        cli("add", "ad-hoc habit", "--prop", "type.habit=true")
         cli("tick", "1")
         _, out, _ = cli("day")
         # ticked today's day node exists; the habit line has no this-month rate
@@ -680,7 +697,7 @@ class TestMetricDispatch:
 
 class TestMetricEmptyTag:
     def test_metric_add_empty_tag_rejected(self, cli):
-        cli("add", "t", "-k", "task")
+        cli("add", "t")
         code, _, err = cli("metric", "add", "1", "")
         assert code != 0 and "tag cannot be empty" in err
 
@@ -689,8 +706,8 @@ class TestMetricLsGlobal:
     """`wl metric ls --tag X` with the node omitted searches every node (locate a tag)."""
 
     def test_global_ls_by_tag_spans_nodes(self, cli):
-        cli("add", "n1", "-k", "habit")
-        cli("add", "n2", "-k", "habit")
+        cli("add", "n1", "--prop", "type.habit=true")
+        cli("add", "n2", "--prop", "type.habit=true")
         cli("metric", "add", "1", "pullups", "8")
         cli("metric", "add", "2", "pullups", "5")
         cli("metric", "add", "1", "glucose", "5.4")
@@ -701,8 +718,8 @@ class TestMetricLsGlobal:
         assert "glucose" not in out             # tag filter applied
 
     def test_node_scoped_still_works(self, cli):
-        cli("add", "n1", "-k", "habit")
-        cli("add", "n2", "-k", "habit")
+        cli("add", "n1", "--prop", "type.habit=true")
+        cli("add", "n2", "--prop", "type.habit=true")
         cli("metric", "add", "1", "pullups", "8")
         cli("metric", "add", "2", "pullups", "5")
         code, out, _ = cli("metric", "ls", "1", "--tag", "pullups", "--all")
