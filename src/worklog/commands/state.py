@@ -113,11 +113,11 @@ def _find_similar_open(con, title, node_type):
         # OR a bare node (no type.* classification at all → a plain task).
         "SELECT * FROM node n WHERE "
         "(EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.para' "
-        "        AND value IN ('task','project') AND deleted_at IS NULL) "
-        " OR NOT EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key LIKE 'type.%' AND deleted_at IS NULL)) "
+        f"        AND value IN ('task','project') AND {_db.ALIVE}) "
+        f" OR NOT EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key LIKE 'type.%' AND {_db.ALIVE})) "
         # project status is NULL (DESIGN §40); NULL NOT IN (...) is NULL, not TRUE, so
         # guard explicitly or projects would never match.
-        "AND (n.status IS NULL OR n.status NOT IN ('DONE','CANCELED')) AND n.deleted_at IS NULL ORDER BY id"
+        f"AND (n.status IS NULL OR n.status NOT IN ('DONE','CANCELED')) AND n.{_db.ALIVE} ORDER BY id"
     ).fetchall()
     hits = []
     for r in rows:
@@ -756,7 +756,7 @@ def cmd_unlog(args, con):
         date = _tu.today()
 
     sql = (f"SELECT id, logged_at, body FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} = ? "
-           "AND deleted_at IS NULL ORDER BY id DESC")
+           f"AND {_db.ALIVE} ORDER BY id DESC")
     if not args.all:
         sql += " LIMIT 1"
     rows = list(con.execute(sql, (nid, date)))
@@ -924,10 +924,10 @@ def cmd_active(args, con):
     """
     from datetime import datetime as _dt, date as _date
 
-    rows = con.execute("""
+    rows = con.execute(f"""
         SELECT c.node_id, c.start_at, n.title, n.status, n.priority
         FROM clock c JOIN node n ON c.node_id = n.id
-        WHERE c.end_at IS NULL AND c.deleted_at IS NULL AND n.deleted_at IS NULL
+        WHERE c.end_at IS NULL AND c.{_db.ALIVE} AND n.{_db.ALIVE}
         ORDER BY c.start_at DESC
     """).fetchall()
 
@@ -950,7 +950,7 @@ def cmd_active(args, con):
             continue
         # today's completed clock total + the current open session (helps decide "continue or stop")
         done_sec = con.execute(
-            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ? AND deleted_at IS NULL",
+            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ? AND {_db.ALIVE}",
             (r["node_id"], today),
         ).fetchone()["s"]
         total_min = mins + int((done_sec or 0) / 60)  # includes current open session
@@ -1360,7 +1360,7 @@ def _agent_ls(args, con):
         act = (last["m"] if last else None) or (node["created_at"] if node else "") or ""
         bl = con.execute(
             "SELECT MAX(l.logged_at) AS m FROM log l JOIN metric mt ON mt.log_id = l.id "
-            "WHERE l.node_id = ? AND mt.tag = ? AND mt.value_text = ? AND l.deleted_at IS NULL",
+            f"WHERE l.node_id = ? AND mt.tag = ? AND mt.value_text = ? AND l.{_db.ALIVE}",
             (nid, _SESSION_METRIC_TAG, sid)).fetchone()
         bound = (bl["m"] if bl else None) or ""
         items.append({"id": nid, "agent": r["key"][len(_AGENT_PREFIX):],

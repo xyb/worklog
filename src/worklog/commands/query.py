@@ -190,7 +190,7 @@ def _ls_build_query(con, args):
     if args.parent is not None:
         simple["parent_id"] = args.parent
     where, params = _db.clause(**simple)
-    where.append("deleted_at IS NULL")  # hide soft-deleted nodes
+    where.append(_db.ALIVE)  # hide soft-deleted nodes
     if getattr(args, "root", None) is not None:
         # --root: the whole subtree under this node (all descendants, flat), vs --parent (1 level)
         desc = _collect_descendants(con, args.root)
@@ -206,18 +206,18 @@ def _ls_build_query(con, args):
             where.append(frag)
             params.extend(p)
     if getattr(args, "unscheduled", False):
-        where.append("id NOT IN (SELECT node_id FROM sched WHERE deleted_at IS NULL)")
+        where.append(f"id NOT IN (SELECT node_id FROM sched WHERE {_db.ALIVE})")
     if getattr(args, "recent", None):
         from datetime import date, timedelta
         cutoff = (_tu.today_date() - timedelta(days=args.recent)).isoformat()
         where.append(f"({_tu.local_day_sql('created_at')} >= ? OR {_tu.local_day_sql('closed_at')} >= ? "
-                     f"OR id IN (SELECT node_id FROM log WHERE {_tu.local_day_sql('logged_at')} >= ? AND deleted_at IS NULL))")
+                     f"OR id IN (SELECT node_id FROM log WHERE {_tu.local_day_sql('logged_at')} >= ? AND {_db.ALIVE}))")
         params.extend([cutoff, cutoff, cutoff])
 
     sort_key = getattr(args, "sort", "pri") or "pri"
     if sort_key == "updated":
         # subquery: each node's latest log time; nodes with no log fall back to created_at
-        sql = ("SELECT n.*, COALESCE((SELECT MAX(logged_at) FROM log WHERE node_id = n.id AND deleted_at IS NULL), n.created_at) "
+        sql = (f"SELECT n.*, COALESCE((SELECT MAX(logged_at) FROM log WHERE node_id = n.id AND {_db.ALIVE}), n.created_at) "
                "AS _last FROM node n")
         order_by = "_last DESC, id DESC"
     else:
@@ -366,7 +366,7 @@ def cmd_find(args, con):
             tg = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid, tag__like=like)]
             out(_detail_line("tag:", _hl(", ".join(tg), q)))
         if "prop" in where:
-            for r in con.execute("SELECT key,value FROM prop WHERE node_id=? AND (key LIKE ? OR value LIKE ?) AND deleted_at IS NULL", (nid, like, like)):
+            for r in con.execute(f"SELECT key,value FROM prop WHERE node_id=? AND (key LIKE ? OR value LIKE ?) AND {_db.ALIVE}", (nid, like, like)):
                 out(_detail_line("prop:", _hl(f"{r['key']}={r['value']}", q)))
         if "link" in where:
             for r in _db.query(con, "link", cols="vault_doc", node_id=nid, vault_doc__like=like):
@@ -527,7 +527,7 @@ def cmd_projects(args, con):
     else:
         since = None
     where = ("WHERE EXISTS(SELECT 1 FROM prop WHERE node_id=node.id AND key='type.para' "
-             "AND value='project' AND deleted_at IS NULL) AND node.deleted_at IS NULL")
+             f"AND value='project' AND {_db.ALIVE}) AND node.{_db.ALIVE}")
     proj_params = []
     if not args.all:
         frag, p = _status_filter_sql(inc_cancel, hide_done=True)
@@ -551,7 +551,7 @@ def cmd_projects(args, con):
         if ids:
             qm = ",".join("?" * len(ids))
             for r in con.execute(
-                f"SELECT status, COUNT(*) c FROM node WHERE id IN ({qm}) AND deleted_at IS NULL GROUP BY status",
+                f"SELECT status, COUNT(*) c FROM node WHERE id IN ({qm}) AND {_db.ALIVE} GROUP BY status",
                 list(ids),
             ):
                 c = r["c"]
@@ -614,7 +614,7 @@ def cmd_types(args, con):
     from collections import OrderedDict
     rows = con.execute(
         "SELECT key, value, COUNT(*) c FROM prop "
-        "WHERE deleted_at IS NULL AND (key LIKE 'type.%' OR key LIKE 'date.%') "
+        f"WHERE {_db.ALIVE} AND (key LIKE 'type.%' OR key LIKE 'date.%') "
         "GROUP BY key, value ORDER BY key, c DESC, value").fetchall()
     by_key = OrderedDict()
     for r in rows:
@@ -644,7 +644,7 @@ def _list_vocab(con, table, col, *, output, style, sort_by_count=True):
     the `tags`/`props`/`metrics` "what vocabulary is in use" lists. `table`/`col` are
     code-controlled (never user input). JSON: `[{<col>: value, "count": n}]`."""
     rows = con.execute(
-        f"SELECT {col} AS v, COUNT(*) c FROM {table} WHERE deleted_at IS NULL GROUP BY {col}"
+        f"SELECT {col} AS v, COUNT(*) c FROM {table} WHERE {_db.ALIVE} GROUP BY {col}"
     ).fetchall()
     key = (lambda r: (-r["c"], str(r["v"]))) if sort_by_count else (lambda r: str(r["v"]))
     rows = sorted(rows, key=key)
@@ -700,7 +700,7 @@ def cmd_changes(args, con):
             elif in_win(n["created_at"]):
                 added_open.append(n)
             has_log = con.execute(
-                f"SELECT 1 FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} BETWEEN ? AND ? AND deleted_at IS NULL LIMIT 1",
+                f"SELECT 1 FROM log WHERE node_id = ? AND {_tu.local_day_sql('logged_at')} BETWEEN ? AND ? AND {_db.ALIVE} LIMIT 1",
                 (mid, since, until),
             ).fetchone()
             if has_log:
@@ -741,7 +741,7 @@ def _summary_buckets(con, args):
         # ts is a UTC *_at instant -> compare on its local calendar day
         return bool(ts) and since <= _tu.local_day_of(ts) <= until
 
-    sql = f"SELECT * FROM node n WHERE n.deleted_at IS NULL AND ({workitem_sql('n')})"
+    sql = f"SELECT * FROM node n WHERE n.{_db.ALIVE} AND ({workitem_sql('n')})"
     sm_params = []
     frag, p = _status_filter_sql(include_canceled=inc_cancel)
     if frag:
@@ -851,7 +851,7 @@ def _render_summary(con, args, b):
         seen = defaultdict(set)
         rows = con.execute(
             f"SELECT DISTINCT node_id, {_tu.local_day_sql('logged_at')} AS d FROM log "
-            f"WHERE deleted_at IS NULL AND {_tu.local_day_sql('logged_at')} BETWEEN ? AND ?",
+            f"WHERE {_db.ALIVE} AND {_tu.local_day_sql('logged_at')} BETWEEN ? AND ?",
             (since, until)).fetchall()
         for r in rows:
             n = nmap.get(r["node_id"])
@@ -1063,8 +1063,8 @@ def cmd_logs(args, con):
     if getattr(args, "until", None):
         where.append(f"{_tu.local_day_sql('logged_at')} <= ?")
         params.append(args.until)
-    where.append("log.deleted_at IS NULL")
-    where.append("node.deleted_at IS NULL")
+    where.append(f"log.{_db.ALIVE}")
+    where.append(f"node.{_db.ALIVE}")
     grouped = getattr(args, "group", "none") == "day"
     cols = "log.id, log.node_id, log.logged_at, log.tag, log.body, node.title"
     if grouped:

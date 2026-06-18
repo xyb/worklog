@@ -92,7 +92,7 @@ def backfill_node_types(con, commit=True):
     # without touching a user's stray prop (already tombstoned, so excluded by `deleted_at IS NULL`).
     con.execute(
         "UPDATE prop SET deleted_at = (SELECT deleted_at FROM node WHERE node.id = prop.node_id) "
-        "WHERE (key LIKE 'type.%' OR key LIKE 'date.%') AND deleted_at IS NULL "
+        f"WHERE (key LIKE 'type.%' OR key LIKE 'date.%') AND {_db.ALIVE} "
         "AND node_id IN (SELECT id FROM node WHERE deleted_at IS NOT NULL)")
     if commit:
         con.commit()   # a Python migration passes commit=False — it owns the upgrade transaction

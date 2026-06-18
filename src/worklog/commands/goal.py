@@ -168,8 +168,8 @@ def _recap_diff(con, nid, day_iso, label):
     rows = con.execute(
         f"SELECT id, node_id, logged_at, body FROM log l "
         f"WHERE l.logged_at > ? AND {_tu.local_day_sql('l.logged_at')} = ? "
-        f"AND l.tag IS NULL AND l.deleted_at IS NULL "
-        f"AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.log_id = l.id AND m.deleted_at IS NULL) "
+        f"AND l.tag IS NULL AND l.{_db.ALIVE} "
+        f"AND NOT EXISTS (SELECT 1 FROM metric m WHERE m.log_id = l.id AND m.{_db.ALIVE}) "
         f"ORDER BY l.logged_at, l.id",
         (at, day_iso),
     ).fetchall()

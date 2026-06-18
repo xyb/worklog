@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from .. import timeutil as _tu
 from .. import timemodel as _tm
+from .. import db_table as _db
 from ..node import create_node
 
 
@@ -30,9 +31,9 @@ def _ensure_time_ancestors(con, d):
         # the exact ISO title. Reuse keyed on the DERIVED time level (type.date prop), column-free.
         op = "LIKE" if like else "="
         row = con.execute(
-            f"SELECT n.id FROM node n WHERE n.deleted_at IS NULL AND n.title {op} ? "
+            f"SELECT n.id FROM node n WHERE n.{_db.ALIVE} AND n.title {op} ? "
             "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' "
-            "AND value=? AND deleted_at IS NULL) ORDER BY n.id LIMIT 1", (match, level)).fetchone()
+            f"AND value=? AND {_db.ALIVE}) ORDER BY n.id LIMIT 1", (match, level)).fetchone()
         if row:
             return row["id"]
         nid = create_node(con, title=new_title, parent_id=parent_id)
@@ -40,8 +41,8 @@ def _ensure_time_ancestors(con, d):
         return nid
 
     lt = con.execute(
-        "SELECT n.id FROM node n WHERE n.deleted_at IS NULL AND EXISTS(SELECT 1 FROM prop "
-        "WHERE node_id=n.id AND key='type.date' AND value='lifetime' AND deleted_at IS NULL) "
+        f"SELECT n.id FROM node n WHERE n.{_db.ALIVE} AND EXISTS(SELECT 1 FROM prop "
+        f"WHERE node_id=n.id AND key='type.date' AND value='lifetime' AND {_db.ALIVE}) "
         "ORDER BY n.id LIMIT 1").fetchone()
     lt_id = lt["id"] if lt else None
     yr_id = _get_or_make("year", f"{y}%", str(y), lt_id, like=True)
@@ -58,9 +59,9 @@ def _ensure_day(con, d):
     dangles. Works for any date, not just today — back-fills past days too."""
     iso = d.isoformat()
     r = con.execute(
-        "SELECT n.id FROM node n WHERE n.deleted_at IS NULL AND n.title LIKE ? "
+        f"SELECT n.id FROM node n WHERE n.{_db.ALIVE} AND n.title LIKE ? "
         "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' "
-        "AND value='day' AND deleted_at IS NULL) ORDER BY n.id LIMIT 1", (iso + "%",)).fetchone()
+        f"AND value='day' AND {_db.ALIVE}) ORDER BY n.id LIMIT 1", (iso + "%",)).fetchone()
     if r:
         return r["id"]
     wk_id = _ensure_time_ancestors(con, d)

@@ -29,6 +29,12 @@ import re
 
 from . import timeutil as _tu
 
+#: SQL predicate for a live (non-tombstoned) row — the single source of the soft-delete filter.
+#: `_where`/`clause` AND it on automatically; raw-SQL readers interpolate `{ALIVE}` (bare) or
+#: `{alias}.{ALIVE}` (qualified) instead of hand-writing the string, so the tombstone convention
+#: has one definition.
+ALIVE = "deleted_at IS NULL"
+
 # a bare identifier, optionally qualified as `table.col`
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)?$")
 
@@ -94,7 +100,7 @@ def _where(conds: dict, *, alive: bool = True):
     tombstone filter is ANDed on so reads skip soft-deleted rows."""
     frags, params = _clause(conds)
     if alive:
-        frags = frags + ["deleted_at IS NULL"]
+        frags = frags + [ALIVE]
     if not frags:
         return "", []
     return " WHERE " + " AND ".join(frags), params

@@ -63,7 +63,7 @@ def _project_members(con, proj_id):
     ids = set()
     proj_tags = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=proj_id)} - GENERIC_TAGS
     for r in con.execute(
-            f"SELECT id FROM node n WHERE n.parent_id=? AND n.deleted_at IS NULL AND ({workitem_sql('n')})",
+            f"SELECT id FROM node n WHERE n.parent_id=? AND n.{_db.ALIVE} AND ({workitem_sql('n')})",
             (proj_id,)):
         ids.add(r["id"])
     if proj_tags:
@@ -348,7 +348,7 @@ def _has_checkin(con, node_id, day):
     This is the structured 'done today' signal (G1) — replaces the old, too-loose
     'did any log exist that day' heuristic, so a stray note no longer counts as done."""
     return con.execute(
-        f"SELECT 1 FROM metric WHERE node_id = ? AND tag = 'checkin' AND {_tu.local_day_sql('at')} = ? AND deleted_at IS NULL LIMIT 1",
+        f"SELECT 1 FROM metric WHERE node_id = ? AND tag = 'checkin' AND {_tu.local_day_sql('at')} = ? AND {_db.ALIVE} LIMIT 1",
         (node_id, day),
     ).fetchone() is not None
 
@@ -365,7 +365,7 @@ def _node_clock_min(con, nid, day=None):
     # 1. structured clock intervals (precise, from wl start/stop/spent)
     if day:
         secs = con.execute(
-            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ? AND deleted_at IS NULL",
+            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ? AND {_db.ALIVE}",
             (nid, day),
         ).fetchone()["s"]
     else:
@@ -379,7 +379,7 @@ def _node_clock_min(con, nid, day=None):
     if day:
         rows = list(con.execute(
             f"SELECT DISTINCT logged_at FROM log WHERE node_id = ? AND tag IS NULL "
-            f"AND {_tu.local_day_sql('logged_at')} = ? AND deleted_at IS NULL ORDER BY logged_at",
+            f"AND {_tu.local_day_sql('logged_at')} = ? AND {_db.ALIVE} ORDER BY logged_at",
             (nid, day),
         ))
     else:
@@ -596,8 +596,8 @@ def nodes_with_type(con, key, value=None, *, cols="*", order=None):
     """Live nodes carrying the prop ``key`` (optionally ``=value``) — the column-free single-value
     classification lookup (``type.para=project``, ``type.date=day``, ``type.habit`` existence, …).
     Tombstone-filtered on both node and prop."""
-    sql = (f"SELECT {cols} FROM node n WHERE n.deleted_at IS NULL AND EXISTS("
-           "SELECT 1 FROM prop WHERE node_id=n.id AND key=? AND deleted_at IS NULL"
+    sql = (f"SELECT {cols} FROM node n WHERE n.{_db.ALIVE} AND EXISTS("
+           f"SELECT 1 FROM prop WHERE node_id=n.id AND key=? AND {_db.ALIVE}"
            + (" AND value=?" if value is not None else "") + ")")
     params = [key] + ([value] if value is not None else [])
     if order:
@@ -610,9 +610,9 @@ def time_node_by_period(con, level, period, *, cols="*"):
     ``2026-06-14``, month ``2026-06``) — the column-free time-node lookup, matching on
     ``type.date`` + ``date.period``. Returns a Row, or None."""
     return con.execute(
-        f"SELECT {cols} FROM node n WHERE n.deleted_at IS NULL "
-        "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' AND value=? AND deleted_at IS NULL) "
-        "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='date.period' AND value=? AND deleted_at IS NULL) "
+        f"SELECT {cols} FROM node n WHERE n.{_db.ALIVE} "
+        f"AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' AND value=? AND {_db.ALIVE}) "
+        f"AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='date.period' AND value=? AND {_db.ALIVE}) "
         "ORDER BY n.id LIMIT 1", (level, period)).fetchone()
 
 
@@ -632,7 +632,7 @@ def workitem_sql(alias="n"):
     time level AND no custom type.<x> (a bare node, or a pure habit/meetlog — those reserved keys
     aren't the 'custom' the last clause excludes)."""
     def _ex(cond):  # EXISTS a live prop on this node matching cond
-        return "EXISTS(SELECT 1 FROM prop WHERE node_id=" + alias + ".id AND " + cond + " AND deleted_at IS NULL)"
+        return "EXISTS(SELECT 1 FROM prop WHERE node_id=" + alias + ".id AND " + cond + " AND " + _db.ALIVE + ")"
     para_task = _ex("key='type.para' AND value='task'")
     has_para = _ex("key='type.para'")
     has_date = _ex("key='type.date'")
@@ -719,11 +719,11 @@ def _backrels(con, nid):
     found = set()
     like = f"%#{nid}%"
     for src_id, body in con.execute(
-        "SELECT DISTINCT node_id, body FROM log WHERE deleted_at IS NULL AND body LIKE ?", (like,)):
+        f"SELECT DISTINCT node_id, body FROM log WHERE {_db.ALIVE} AND body LIKE ?", (like,)):
         if src_id != nid and pat.search(body or ""):
             found.add(src_id)
     for src_id, body in con.execute(
-        "SELECT id, body FROM node WHERE deleted_at IS NULL AND body LIKE ?", (like,)):
+        f"SELECT id, body FROM node WHERE {_db.ALIVE} AND body LIKE ?", (like,)):
         if src_id != nid and pat.search(body or ""):
             found.add(src_id)
     return sorted(found)
