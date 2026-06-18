@@ -230,7 +230,7 @@ def _args_node_add(p):
     p.add_argument("--para", choices=["area", "project", "task"],
                    help="responsibility-line role — writes type.para (the same flag as `wl ls --para`). "
                         "A bare add (no --para) is a loose task with no role; for a time node / soft "
-                        "type / custom kind use --prop (e.g. --prop type.date=day, --prop type.habit).")
+                        "type / custom type use --prop (e.g. --prop type.date=day, --prop type.habit).")
     p.add_argument("-p", "--priority", choices=["A", "B", "C"],
                    help="priority: A = P0 (highest) / B = P1 / C = P2")
     p.add_argument("-t", "--tag", help="comma-separated tags, e.g. -t work or -t work,urgent (work/personal drive bucketing)")
@@ -474,7 +474,7 @@ def build_parser():
         ),
         epilog="""\
 Concepts (the data model):
-  `node`     everything is one node in a single tree; its `kind` is task · project · area (PARA, below) · habit (recurring) · meetlog (meeting note) · day/week/month/… (time)
+  `node`     everything is one node in a single tree; its `type` is task · project · area (PARA, below) · habit (recurring) · meetlog (meeting note) · day/week/month/… (time)
   `log`      a timestamped progress entry on a node (each append is kept = history)
   `tag`      labels on a node; work / personal drive the `wl day` buckets
   `prop`     a static key=value attribute (owner, linear-id, …) — single value, overwritten
@@ -1169,7 +1169,7 @@ tree view misses month/week/someday-pinned items.
 
     pj = sub.add_parser("projects", parents=[window, output_parent],
         help="list active projects + subtask counts + recent activity",
-        description="List all active projects (kind=project, status not DONE/CANCELED) with subtask counts + last log time. --since filters to projects with activity after that date.",
+        description="List all active projects (type.para=project, status not DONE/CANCELED) with subtask counts + last log time. --since filters to projects with activity after that date.",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
@@ -1246,7 +1246,7 @@ More: `wl help day` · `wl help planning` (the optional per-level planning caden
 
     g = sub.add_parser("goal",
         help="goal CRUD: read/write a node's goal — what you aim to deliver (history-preserving)",
-        description="Read or write a goal — a short statement of what you aim to deliver. Bare `wl goal` reads/writes TODAY's goal (the default form, auto-creates today's day node); `wl goal set/ls/rm <node>` reach any node (day / week / month / year — the level is the node's kind). Stored as a `goal` log (history-preserving: each write appends, the latest is current). `wl day` shows today's at the top. A goal can carry trailing node ids — its target nodes, in priority order — stored as `goal` metrics so the link is structured, not parsed from the prose.",
+        description="Read or write a goal — a short statement of what you aim to deliver. Bare `wl goal` reads/writes TODAY's goal (the default form, auto-creates today's day node); `wl goal set/ls/rm <node>` reach any node (day / week / month / year — the level is the node's type). Stored as a `goal` log (history-preserving: each write appends, the latest is current). `wl day` shows today's at the top. A goal can carry trailing node ids — its target nodes, in priority order — stored as `goal` metrics so the link is structured, not parsed from the prose.",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
@@ -1668,7 +1668,7 @@ More: `wl help logs` (vs `wl day` structured view / `wl show <id>` single-node t
     sub.add_parser("types", parents=[output_parent],
         help="list the type.*/date.* classification props in use + counts (raw, grouped by key)",
         formatter_class=_WlHelpFormatter,
-        epilog="The raw classification vocabulary grouped by `type.*`/`date.*` key — no auto-mapping to a collapsed `kind`, so a node shows under every facet it carries. `-o json` for the machine list. Filter by role with `wl ls --para <role>`, or by classification prop with `wl ls --prop type.<x>`.")
+        epilog="The raw classification vocabulary grouped by `type.*`/`date.*` key — each facet shown on its own, so a node shows under every facet it carries. `-o json` for the machine list. Filter by role with `wl ls --para <role>`, or by classification prop with `wl ls --prop type.<x>`.")
 
     sub.add_parser("tags", parents=[output_parent],
         help="list every tag in use + a count of nodes carrying it",

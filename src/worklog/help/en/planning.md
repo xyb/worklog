@@ -12,7 +12,7 @@ Planning the work:
   wl defer <id> someday   a loose backlog item (status LATER, no committed day)
 
 The narrative rhythm (history-preserving reserved-tag logs — each edit is kept). The goal is
-the same `goal` tag at every level; the node's kind (day / week / month / …) is the level:
+the same `goal` tag at every level; the node's type (day / week / month / …) is the level:
   day      `wl goal "..."`                       what you aim to deliver today
            `wl recap "..."`                       what actually happened (evening)
   week     `wl goal set <week_id> "..."`          this week's focus / P0-P1

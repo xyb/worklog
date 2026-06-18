@@ -176,7 +176,7 @@ def cmd_tree(args, con):
 
 # wl day header reserved-tag logs, each with a distinct marker: one glance tells today's goal
 # from recap from the week's goal from the month's goal. Week/month goals are the same `goal`
-# tag on the ancestor week/month node — the level is the node's kind.
+# tag on the ancestor week/month node — the level is the node's type.
 _DAY_MARKERS = {
     "goal":    "🎯 ",
     "summary": "📝 Recap: ",
@@ -304,7 +304,7 @@ def _emit_day_json(con, target, day, items, sched_ids):
         n = it["node"]
         tasks.append({
             # day's node row is partial (id is the dict key), so build the facet from nid directly
-            # rather than via node_view; kind → orthogonal type facet (WL#765/#901).
+            # rather than via node_view; the orthogonal type facet (WL#765/#901).
             "id": nid, "title": n["title"], "status": n["status"],
             "priority": n["priority"], "type": _type_facet(node_props(con, nid)),
             "planned": nid in sched_ids,
@@ -592,7 +592,7 @@ def _tree_by(con, by, nf=None):
                 out(_node_line(con, n))
 
 def _tree_children(con, node, include_canceled=False):
-    """Children ordering: time-kinds ascending by title (date); others by priority -> id. CANCELED excluded by default."""
+    """Children ordering: time nodes ascending by title (date); others by priority -> id. CANCELED excluded by default."""
     sql = "SELECT * FROM node WHERE parent_id = ? AND deleted_at IS NULL"
     sql_params = [node["id"]]
     frag, p = _status_filter_sql(include_canceled=include_canceled)

@@ -413,7 +413,12 @@ class TestPriorityMarker:
         assert a_line.index("#") == u_line.index("#")
 
     def test_pri_marker_helper(self):
+        from worklog import render
         from worklog.render import _pri_marker
+        # this is a plain-mode unit test; render._CONSOLE is a module global the cli-reload fixture
+        # doesn't reset, so pin it to None here to establish the documented "no console" precondition
+        # (otherwise a sibling test's `--color always` console can leak in).
+        render._CONSOLE = None
         # plain mode (no console) returns the bare markers
         assert _pri_marker("A") == "[#A]"
         assert _pri_marker(None) == "[# ]"

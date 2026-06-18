@@ -155,7 +155,7 @@ def _has_tag(con, nid, tag):
 def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
     """Nodes carrying ANY of `tags` (a str or an iterable) — the single-table
     decomposition of `node JOIN tag`: collect node ids from the tag table, then
-    read those nodes. `types` further restricts by derived kind; `cols` / `order` pass
+    read those nodes. `types` further restricts by derived type; `cols` / `order` pass
     through to the node read. Returns list[Row] (deduped by node; empty tags → [])."""
     tag_list = [tags] if isinstance(tags, str) else list(tags)
     if not tag_list:
@@ -164,7 +164,7 @@ def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
     if not ids:
         return []
     if types is not None:
-        # restrict by DERIVED kind (column-free): filter the id list, then read
+        # restrict by DERIVED type (column-free): filter the id list, then read
         want = set(types)
         ids = [i for i in ids if node_type(con, i) in want]
         if not ids:
@@ -241,7 +241,7 @@ def make_node_filter(con, args):
     comma-separated OR; `--para` is sugar for an exact `type.para` prop condition (the
     responsibility role); `--prop` is repeatable, AND across conditions (exact key=value / key
     existence / `group.` namespace prefix). Classification beyond the PARA role (meetlog / habit /
-    time level) filters through `--prop type.*` — there is no separate `--kind` filter."""
+    time level) filters through `--prop type.*`."""
     tag = getattr(args, "tag", None)
     status = getattr(args, "status", None)
     priority = getattr(args, "priority", None)
@@ -252,8 +252,8 @@ def make_node_filter(con, args):
     statuses = {s.strip().upper() for s in status.split(",") if s.strip()} if status else set()
     pris = _parse_priority_filter(priority) if priority else set()
     prop_conds = [_parse_prop_cond(s) for s in (getattr(args, "prop", None) or []) if s and s.strip()]
-    # --para is sugar for an exact type.para prop condition, so it filters on the new model
-    # (the same role create writes), not the legacy kind column.
+    # --para is sugar for an exact type.para prop condition, so it filters on the
+    # same role that create writes.
     para = getattr(args, "para", None)
     if para:
         prop_conds.append(("exact", _nt.K_PARA, para))
@@ -309,7 +309,7 @@ def _latest_typed_log(con, node_id, log_type):
 # stored as `goal` metrics on the log itself (value_num = node id, metric insertion order =
 # priority). The caller supplies the ids explicitly; wl never parses them from the prose. Any
 # number is allowed (we suggest ~5 for a month). The metric tag is the bare word `goal`, the same
-# as the carrier log's own tag; the node's kind (day / week / month / year) distinguishes the level
+# as the carrier log's own tag; the node's type (day / week / month / year) distinguishes the level
 # at query time. `summary` logs are prose only. The latest goal log's `goal` metrics are current.
 _GOAL_METRIC = "goal"
 
@@ -335,7 +335,7 @@ def _log_goals(con, node_id):
     """The goal node ids of a node's CURRENT goal log — the `goal` metrics on its latest goal log,
     in priority order (metric insertion order). [] if there's no goal log or it carries none. The
     display numbers these to show priority; reverse queries hit the metric table directly
-    (tag=goal), narrowing by node kind for the level."""
+    (tag=goal), narrowing by node type for the level."""
     row = _db.query_one(con, "log", cols="id", node_id=node_id, tag="goal", order="id DESC")
     if not row:
         return []
@@ -551,9 +551,9 @@ def write_kind_type_props(con, nid, kind, title, *, para_role="__auto__"):
     elif kind == "meetlog":
         _upsert_prop(con, nid, _nt.K_MEETLOG, "")
     elif kind and kind not in ("task", "signal"):
-        # a custom kind is preserved as a generic type.<kind> existence prop, so readers
-        # derive it instead of collapsing it to a bare task. (task = bare default; signal is
-        # the retired dead kind → bare.)
+        # a custom type is preserved as a generic type.<kind> existence prop, so readers
+        # derive it instead of collapsing it to a bare task. (task = bare default; signal
+        # maps to bare.)
         _upsert_prop(con, nid, "type." + kind, "true")
 
 
@@ -610,16 +610,16 @@ def node_type_from_props(props) -> str:
 
 
 def node_type(con, n):
-    """The node's single representative type token, derived from its ``type.*`` props (the kind
-    column is gone; readers derive the token). ``n`` is a node row or an id."""
+    """The node's single representative type token, derived from its ``type.*`` props.
+    ``n`` is a node row or an id."""
     nid = n if isinstance(n, int) else n["id"]
     return node_type_from_props(node_props(con, nid))
 
 
 def nodes_with_type(con, key, value=None, *, cols="*", order=None):
-    """Live nodes carrying the prop ``key`` (optionally ``=value``) — the column-free replacement
-    for the old ``_db.query(con,'node',kind=…)`` single-value lookups (``type.para=project``,
-    ``type.date=day``, ``type.habit`` existence, …). Tombstone-filtered on both node and prop."""
+    """Live nodes carrying the prop ``key`` (optionally ``=value``) — the column-free single-value
+    classification lookup (``type.para=project``, ``type.date=day``, ``type.habit`` existence, …).
+    Tombstone-filtered on both node and prop."""
     sql = (f"SELECT {cols} FROM node n WHERE n.deleted_at IS NULL AND EXISTS("
            "SELECT 1 FROM prop WHERE node_id=n.id AND key=? AND deleted_at IS NULL"
            + (" AND value=?" if value is not None else "") + ")")
@@ -631,8 +631,8 @@ def nodes_with_type(con, key, value=None, *, cols="*", order=None):
 
 def time_node_by_period(con, level, period, *, cols="*"):
     """The live time node of ``level`` whose ``date.period`` == ``period`` (e.g. day
-    ``2026-06-14``, month ``2026-06``) — the column-free replacement for the old
-    ``kind=<level>, title__like=…`` time-node lookup. Returns a Row, or None."""
+    ``2026-06-14``, month ``2026-06``) — the column-free time-node lookup, matching on
+    ``type.date`` + ``date.period``. Returns a Row, or None."""
     return con.execute(
         f"SELECT {cols} FROM node n WHERE n.deleted_at IS NULL "
         "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' AND value=? AND deleted_at IS NULL) "
@@ -648,7 +648,7 @@ def node_has_type(con, nid, key, value=None):
 
 
 def workitem_sql(alias="n"):
-    """SQL predicate: the node (table aliased ``alias``) has DERIVED kind task/habit/meetlog — an
+    """SQL predicate: the node (table aliased ``alias``) has DERIVED type task/habit/meetlog — an
     actionable work item — expressed purely from type.* props (column-free). Must match
     node_types.node_type_from_props's precedence (para > date > habit > meetlog > custom > task) exactly,
     so it equals ``node_type_from_props(props) IN ('task','habit','meetlog')``: a node is a work item iff
@@ -663,7 +663,7 @@ def workitem_sql(alias="n"):
     has_habit = _ex("key='type.habit'")
     has_meetlog = _ex("key='type.meetlog'")
     # length(key) > 5 mirrors node_type_from_props's `len(k) > len(TYPE_NS)` guard: a bare 'type.' key
-    # (empty suffix) is NOT a custom kind, so it must not exclude the node from the work-item set.
+    # (empty suffix) is NOT a custom type, so it must not exclude the node from the work-item set.
     has_custom = _ex("key LIKE 'type.%' AND length(key) > 5 "
                      "AND key NOT IN ('type.para','type.date','type.habit','type.meetlog')")
     # node_type_from_props precedence para > date > habit > meetlog > custom > task, restricted to the

@@ -5,7 +5,7 @@ see_also: recap, planning, day
 ---
 `wl goal` reads/writes a goal — a short statement of what you aim to deliver. Bare `wl goal` is
 the shortcut for TODAY (auto-creates today's day node); `wl goal set/ls/rm <node>` reach any node
-(day / week / month / year — the level is just the node's kind). Stored as a `goal` log
+(day / week / month / year — the level is just the node's type). Stored as a `goal` log
 (history-preserving: each write appends, the latest is current).
 
   wl goal "ship the Q3 report draft"         # today's goal

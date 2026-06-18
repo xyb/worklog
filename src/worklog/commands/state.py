@@ -98,18 +98,18 @@ def _norm_title(s):
     import re as _re
     return _re.sub(r"[\s\W_]+", "", (s or "").lower())
 
-def _find_similar_open(con, title, kind):
+def _find_similar_open(con, title, node_type):
     """Open (non-terminal) task/project nodes whose title looks like a duplicate of
     `title`: identical after normalization, or one normalized title contains the other
     (with the shorter ≥4 chars, to avoid trivial substring noise). Best-effort, used
     only to warn before creating a possible duplicate."""
-    if kind not in ("task", "project"):
+    if node_type not in ("task", "project"):
         return []
     nt = _norm_title(title)
     if not nt:
         return []
     rows = con.execute(
-        # derived kind IN ('task','project'), column-free: an explicit type.para=task/project,
+        # derived type IN ('task','project'): an explicit type.para=task/project,
         # OR a bare node (no type.* classification at all → a plain task).
         "SELECT * FROM node n WHERE "
         "(EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.para' "
@@ -202,10 +202,10 @@ def cmd_add(args, con):
     if not args.title or not args.title.strip():
         sys.exit("✗ title cannot be empty")
     args.title = args.title.strip()
-    # The node's classification is no longer a kind column — it's the type.* props written below.
-    # `kind` is just a local token for the duplicate-check + the echo line: --para names a PARA
-    # role; otherwise a bare add is a loose `task` (any other classification comes via --prop and
-    # is derived afterwards from the props actually written).
+    # The node's classification is the type.* props written below. `para` is just a local token
+    # for the duplicate-check + the echo line: --para names a PARA role; otherwise a bare add is a
+    # loose `task` (any other classification comes via --prop and is derived afterwards from the
+    # props actually written).
     para = getattr(args, "para", None)
     if args.sched and args.scheduled:
         sys.exit("✗ --sched (precise, writes sched table) and --scheduled (rough hint, writes node.scheduled_date) are mutually exclusive; use --sched day-to-day")
@@ -240,7 +240,7 @@ def cmd_add(args, con):
     if not status and derived_type in ("task", "habit"):
         status = "TODO"
     # Duplicate check (warn only, never block): a related open task/project may already exist,
-    # pinned at @month/@someday and easy to miss. Probe with the DERIVED kind so a date/meetlog
+    # pinned at @month/@someday and easy to miss. Probe with the DERIVED type so a date/meetlog
     # add isn't searched as a task. Run before insert so the new node can't match itself.
     similar = _find_similar_open(con, args.title, derived_type)
     # --done overrides status directly (one-shot retrospective entry)
@@ -267,8 +267,8 @@ def cmd_add(args, con):
     # resolved instant). One `now` read shared by both so a created-and-done task has
     # created_at == closed_at.
     now = _tu.utc_now()
-    # The ONE create path: node.create_node is the only INSERT INTO node. It writes no kind
-    # column — classification is --para (type.para) + props (type.*), validated there.
+    # The ONE create path: node.create_node is the only INSERT INTO node. Classification is
+    # --para (type.para) + props (type.*), validated there.
     try:
         node_id = create_node(
             con, title=args.title, parent_id=args.parent, status=status,
@@ -288,7 +288,7 @@ def cmd_add(args, con):
 
     con.commit()
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
-    # echo the node's DERIVED kind (post --prop) so a `--prop type.habit` add reports "habit", not "task"
+    # echo the node's DERIVED type (post --prop) so a `--prop type.habit` add reports "habit", not "task"
     echo_type = node_type(con, node_id)
     out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{echo_type} '{args.title}'")
         + st + sched_hint + link_hint + rel_hint + log_hint + metric_hint
@@ -877,10 +877,10 @@ def cmd_log_show(args, con):
         sys.exit(f"✗ no log #L{args.log_id}")
     node = _db.get(con, "node", row["node_id"])
     title = node["title"] if node else "?"
-    kind = row["tag"] or "note"
+    label = row["tag"] or "note"
     out(_c(f"#L{row['id']}", "id") + " "
         + _c(f"[{_tu.utc_to_local(row['logged_at'])}]", "meta") + " "
-        + _c(kind, "meta") + " "
+        + _c(label, "meta") + " "
         + _c(f"#{row['node_id']}", "id") + " " + _c(f"'{title}'", "meta"))
     out(row["body"])
 

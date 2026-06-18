@@ -11,7 +11,7 @@ book *Building a Second Brain*). It sorts everything into four buckets — **P**
   • Resources  — reference material for later
   • Archives   — anything from the above that's now inactive
 
-wl maps the first two onto node kinds (Projects/Areas) and adds `task` for concrete actions;
+wl maps the first two onto node types (Projects/Areas) and adds `task` for concrete actions;
 Resources/Archives map loosely to tags and the hidden DONE/CANCELED states. You build the
 tree by nesting nodes with `--parent`:
 
@@ -27,7 +27,7 @@ Example:
   wl add "Q3 revamp" --para project --parent 10  # → #11
   wl add "draft homepage copy" --parent 11      # a task under the project
 
-Other kinds aren't PARA but share the tree: `habit` (recurring), `meetlog` (a meeting
+Other types aren't PARA but share the tree: `habit` (recurring), `meetlog` (a meeting
 note), and the auto-built time skeleton (year ▸ quarter ▸ month ▸ week ▸ day) that
 scheduling and day-views hang off of — you never create those by hand.
 

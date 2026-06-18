@@ -4,7 +4,8 @@ category: concept
 see_also: para, project, area, status
 ---
 A **task** is a concrete action — the leaf you actually do (e.g. "draft the homepage copy"). It
-is the DEFAULT kind: `wl add "..."` with no `-k` creates a task.
+is the DEFAULT type: a bare `wl add "..."` (no `--para`, no classification prop) creates a task —
+a task carries no `type.*` prop, so it's what a node with no classification derives to.
 
   wl add "draft homepage copy" --parent 11     # a task under project #11
   wl add "pay the invoice"                     # a loose task (no parent)

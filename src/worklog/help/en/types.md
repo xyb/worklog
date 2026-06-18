@@ -4,9 +4,9 @@ category: command
 see_also: ls, tree, projects, node, para
 ---
 `wl types` lists the `type.*` / `date.*` classification props in use + a count of each value — the
-RAW classification vocabulary, grouped by key. Unlike the retired `wl kinds`, it does NOT collapse
-a node into one derived `kind`; it exposes the underlying namespaced props directly, so a node
-appears under every facet it carries (a habit task counts under both `type.para=task` AND
+RAW classification vocabulary, grouped by key. It keeps each facet on its own rather than
+collapsing a node into one derived token; it exposes the underlying namespaced props directly, so a
+node appears under every facet it carries (a habit task counts under both `type.para=task` AND
 `type.habit` — the orthogonal model is visible).
 
   wl types            # type.*/date.* keys + value counts, grouped by key

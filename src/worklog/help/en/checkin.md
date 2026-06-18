@@ -3,7 +3,7 @@ title: checkin — daily habit check-ins
 category: command
 see_also: metric, tag, day
 ---
-For habits (kind `habit`), a **check-in** records "done today" as a structured `checkin`
+For habits (`type.habit`), a **check-in** records "done today" as a structured `checkin`
 metric — not merely "a log exists", so a stray note never counts as completion.
 
   wl tick 39                     # one-key check-in (log "✓ done" + a checkin metric)

@@ -16,9 +16,8 @@ string — never from a ``parent_id`` link between time levels. So:
   interval is unambiguous from the value;
 - ``lifetime`` is a date-less global singleton.
 
-This module owns the new mechanics. A time node carries no legacy ``kind`` column
-(it was dropped); its level lives entirely in ``type.date`` + the ``date.*`` props
-written by :func:`write_time_props`."""
+This module owns the new mechanics. A time node's classification lives in
+``type.date`` + the ``date.*`` props written by :func:`write_time_props`."""
 from __future__ import annotations
 
 from . import db_table as _db

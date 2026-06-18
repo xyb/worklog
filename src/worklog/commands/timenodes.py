@@ -25,18 +25,18 @@ def _ensure_time_ancestors(con, d):
     iso = d.isocalendar()
     q = (m - 1) // 3 + 1
 
-    def _get_or_make(kind, match, new_title, parent_id, *, like=False):
+    def _get_or_make(level, match, new_title, parent_id, *, like=False):
         # lenient reuse: year matches a `2026%` LIKE probe (any title style); the rest match
         # the exact ISO title. Reuse keyed on the DERIVED time level (type.date prop), column-free.
         op = "LIKE" if like else "="
         row = con.execute(
             f"SELECT n.id FROM node n WHERE n.deleted_at IS NULL AND n.title {op} ? "
             "AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' "
-            "AND value=? AND deleted_at IS NULL) ORDER BY n.id LIMIT 1", (match, kind)).fetchone()
+            "AND value=? AND deleted_at IS NULL) ORDER BY n.id LIMIT 1", (match, level)).fetchone()
         if row:
             return row["id"]
         nid = create_node(con, title=new_title, parent_id=parent_id)
-        _tm.write_time_props(con, nid, kind, new_title)   # dual-write the type.date/date.* namespace
+        _tm.write_time_props(con, nid, level, new_title)   # dual-write the type.date/date.* namespace
         return nid
 
     lt = con.execute(

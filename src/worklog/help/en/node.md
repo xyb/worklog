@@ -8,7 +8,7 @@ areas, habits, meeting notes (meetlog), and even the time skeleton
 (year / quarter / month / week / day) are all the same underlying thing — a node.
 
 A node has:
-  • a title and a `kind` (derived from its `type.*` props): task · project · area · habit · meetlog · day/week/…
+  • a title and a `type` (derived from its `type.*` props): task · project · area · habit · meetlog · day/week/…
   • a priority (-p A/B/C — see `wl help priority`) and a status (see `wl help status`)
   • a parent (--parent), which is how the tree is built
   • created/closed timestamps

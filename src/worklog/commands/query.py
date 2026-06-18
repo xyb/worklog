@@ -133,7 +133,7 @@ def _node_summary_dict(con, n):
     """Compact node form for list output (`wl ls -o json`): identity + the fields you filter /
     sort by + tags. Full detail (props/links/logs/metrics/timeline) is `wl show -o json`. The
     single declarative contract is `node_schema.NodeView` (WL#765/#901): classification is the
-    orthogonal `type` facet object, not a collapsed `kind`."""
+    orthogonal `type` facet object (the independent `type.*` facets)."""
     return _node_view(con, n, _SUMMARY).to_dict(_SUMMARY)
 
 
@@ -492,8 +492,8 @@ def cmd_agenda(args, con):
                 and n["status"] in ("DONE", "CANCELED")
                 and not (inc_cancel and n["status"] == "CANCELED")):
             continue
-        kind = _sched_level(val)
-        if kind in ("someday", "fuzzy"):
+        level = _sched_level(val)
+        if level in ("someday", "fuzzy"):
             someday.append((n, val))
             continue
         anchor = _sched_anchor(val)
@@ -608,7 +608,7 @@ def cmd_projects(args, con):
 
 def cmd_types(args, con):
     """List the ``type.*`` / ``date.*`` classification props in use + counts — the RAW vocabulary
-    grouped by key, NOT collapsed into a single derived kind. Exposes the underlying namespaced
+    grouped by key, each facet shown on its own. Exposes the underlying namespaced
     props directly (no auto-mapping): a node appears under every facet it carries, so the orthogonal
     model is visible (a habit task counts under both ``type.para=task`` and ``type.habit``). WL#901."""
     from collections import OrderedDict
@@ -641,7 +641,7 @@ def cmd_types(args, con):
 
 def _list_vocab(con, table, col, *, output, style, sort_by_count=True):
     """List the distinct `col` values in use (live rows) + a count of each — the shared engine for
-    the `kinds`/`tags`/`props`/`metrics` "what vocabulary is in use" lists. `table`/`col` are
+    the `tags`/`props`/`metrics` "what vocabulary is in use" lists. `table`/`col` are
     code-controlled (never user input). JSON: `[{<col>: value, "count": n}]`."""
     rows = con.execute(
         f"SELECT {col} AS v, COUNT(*) c FROM {table} WHERE deleted_at IS NULL GROUP BY {col}"
@@ -1210,8 +1210,8 @@ def _show_timeline(con, args, n):
     if brief:
         return
     logs = _db.query(con, "log", cols="id, logged_at, body, tag", node_id=args.id, order="id")
-    # event tuple: (ts, kind_label, extra, log_id) -- log_id only for log events, meta events None
-    # events: (ts, kind, extra, log_id, metrics) — metrics folded under their log line
+    # event tuple: (ts, label, extra, log_id, metrics) — log_id only for log events, meta events None;
+    # metrics folded under their log line
     def _mline(m):
         return f"[{m['tag']}] {_fmt_value(m)}".rstrip()
 
@@ -1228,14 +1228,14 @@ def _show_timeline(con, args, n):
         if r["tag"] == "metric" and not (r["body"] or "").strip() and mrows:
             events.append((r["logged_at"], "📊 metric", _mline(mrows[0]), None, mrows[1:]))
         else:
-            # timeline log row: "    YYYY-MM-DD HH:MM:SS  #L<id>  ✎ <kind>  <body>". The kind shows
-            # the log's tag when it has one (goal/summary reserved-tag logs, or any custom
+            # timeline log row: "    YYYY-MM-DD HH:MM:SS  #L<id>  ✎ <label>  <body>". The label
+            # shows the log's tag when it has one (goal/summary reserved-tag logs, or any custom
             # tag) so a tagged log is distinguishable, not rendered the same as a plain note; an
             # untagged log is just "✎ log". Budget body against the *actual* prefix width.
-            kind = f"✎ {r['tag']}" if r["tag"] else "✎ log"
-            prefix = f"    {_tu.utc_to_local(r['logged_at'])}  #L{r['id']}  {kind}  "
+            label = f"✎ {r['tag']}" if r["tag"] else "✎ log"
+            prefix = f"    {_tu.utc_to_local(r['logged_at'])}  #L{r['id']}  {label}  "
             head = _truncate_log_body(r["body"], indent_cols=_display_width(prefix), full=_log_full(args))
-            events.append((r["logged_at"], kind, head, r["id"], mrows))
+            events.append((r["logged_at"], label, head, r["id"], mrows))
     # structured clock intervals (start→end, from the clock table)
     for c in _db.query(con, "clock", cols="start_at, end_at, elapsed_sec", node_id=args.id, order="id"):
         if c["end_at"]:
@@ -1257,10 +1257,10 @@ def _show_timeline(con, args, n):
             out("    " + _c(f"… ({len(events) - tail} earlier elided; use --all-timelines for full)", "meta"))
         # log.id used for operations (wl unlog #L<id>); meta events have no id, just a placeholder for alignment
         # prefix #L<id> mirrors node #123 with '#'; 'L' distinguishes (letter prefix = log, plain digits = node)
-        for ts, kind, extra, lid, metrics in shown:
+        for ts, label, extra, lid, metrics in shown:
             lid_str = _c(f"#L{lid}", "id") if lid is not None else _c("     ", "meta")
             # instants (created/closed/log/clock, len-19) render local; literal dates (scheduled) pass through
-            out("    " + _c(_tu.utc_to_local(ts), "meta") + "  " + lid_str + "  " + _c(kind) + (f"  {_c(extra)}" if extra else ""))
+            out("    " + _c(_tu.utc_to_local(ts), "meta") + "  " + lid_str + "  " + _c(label) + (f"  {_c(extra)}" if extra else ""))
             # fold a log's metrics beneath it (over-count elision keeps it tidy)
             for line in metric_rows(metrics, "           "):
                 out(line)

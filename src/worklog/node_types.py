@@ -1,8 +1,8 @@
 """The `type.*` reserved-property namespace — single source of truth for node
-classification, replacing the old polymorphic `kind` column.
+classification.
 
-A node's category is no longer one mutually-exclusive `kind` value; it is a set
-of independent, namespaced reserved properties (see DESIGN §"node types"):
+A node's category is a set of independent, namespaced reserved properties
+(see DESIGN §"node types"):
 
 - ``type.para``  — responsibility-line role: ``area`` / ``project`` / ``task``
 - ``type.date``  — which time level a node is: ``lifetime`` … ``day``
@@ -12,7 +12,7 @@ of independent, namespaced reserved properties (see DESIGN §"node types"):
 
 Because these are separate ``(node_id, key)`` prop rows, orthogonal concepts
 coexist — a recurring habit task is ``type.para=task`` + ``type.habit`` at once,
-which the old mutually-exclusive ``kind`` could never express.
+a combination a single mutually-exclusive classification could never express.
 
 Time values live in the sibling ``date.*`` namespace: ``date.period`` is the
 canonical "which period" value (``2026-06-14`` / ``2026-06`` / ``2026-W24``);

@@ -7,8 +7,9 @@ a builder can't silently emit or drop a field (the guard against the "add a colu
 `move` fails" bug class). Field declaration order IS the JSON key order.
 
 Classification is the orthogonal ``type`` facet object (the ``type.*`` props with the ``type.``
-prefix stripped), NOT a collapsed ``kind`` token — a habit task is ``{"para":"task","habit":true}``,
-not the lossy ``"task"`` that precedence-collapse produced.
+prefix stripped), keeping every facet independently — a habit task is
+``{"para":"task","habit":true}``, never a single lossy ``"task"`` that precedence-collapse would
+produce.
 """
 from __future__ import annotations
 
@@ -28,8 +29,8 @@ def _f(view, **kw):
 
 
 def type_facet(props: dict) -> dict:
-    """The node's orthogonal ``type.*`` facets as a dict, ``type.`` prefix stripped — the
-    column-free, non-collapsing successor to ``kind``. Existence facets (habit/meetlog stored as
+    """The node's orthogonal ``type.*`` facets as a dict, ``type.`` prefix stripped — a
+    column-free, non-collapsing classification. Existence facets (habit/meetlog stored as
     the canonical ``"true"`` or ``""``) → ``True``; valued facets (``type.para=project``,
     ``type.date=day``, a sub-classified ``type.meetlog=dating``) keep the value. A bare task → ``{}``.
     ``date.*`` time-values are NOT facets (they live in the full payload's ``props``)."""
@@ -50,7 +51,7 @@ class NodeView:
     title: str    = _f(CORE, default=None)
     status: str   = _f(CORE, default=None)
     priority: str = _f(CORE, default=None)
-    type: dict    = _f(CORE, default_factory=dict)   # orthogonal type.* facets, not a collapsed kind
+    type: dict    = _f(CORE, default_factory=dict)   # orthogonal type.* facets, each kept independently
     # ── summary: the flat list views (ls / projects / summary / day) add identity + plan + tags ──
     parent_id: int      = _f(SUMMARY, default=None)
     scheduled_date: str = _f(SUMMARY, default=None)

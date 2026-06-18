@@ -442,7 +442,7 @@ def _log_full(args):
     return getattr(args, "log_format", "oneline") == "full"
 
 
-# SQL / kind constants shared between command modules
+# SQL / time-level constants shared between command modules
 _ORDER_BY_PRI_ID = "ORDER BY priority NULLS LAST, id"
 _TIME_LEVELS = {"lifetime", "decade", "year", "quarter", "month", "week", "day"}
 

@@ -15,8 +15,8 @@ def create_node(con, *, title, parent_id=None, status=None, priority=None,
                 scheduled_date=None, deadline_date=None, body=None,
                 created_at=None, closed_at=None, para=None, props=None):
     """The SINGLE entry point for creating a node — there is no other ``INSERT INTO node``
-    (wl add / import / any future caller route here). Writes NO ``kind`` column (retired): a
-    node's classification is the type.* namespace, set explicitly — ``para`` → ``type.para``,
+    (wl add / import / any future caller route here). A node's classification lives in the
+    type.* prop namespace, set explicitly — ``para`` → ``type.para``,
     and ``props`` (a dict, or an iterable of ``(key, value)``) of reserved ``type.*`` / ``date.*``
     or user props, each validated by ``_upsert_prop``. A bare create (no para, no props) is a
     plain task. ``created_at`` defaults to now (UTC). Returns the new node id. No commit — the

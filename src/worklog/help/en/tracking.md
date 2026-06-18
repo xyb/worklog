@@ -5,7 +5,7 @@ see_also: checkin, metric, sched, tag
 ---
 Two related ideas:
 
-  • habits   — a node of kind `habit` you do regularly. `wl tick <id>` records "done today"
+  • habits   — a node with `type.habit` you do regularly. `wl tick <id>` records "done today"
     (a structured `checkin` metric — not merely "a log exists"); `wl checkin` reviews today's
     not-yet-done habits interactively. Make it recur with `wl sched <id> --recur daily`.
   • metrics  — structured datapoints hanging off a log: a number or a marker.

@@ -2,7 +2,7 @@
 
 `goal` (forward) and `summary` (backward recap) are the two reserved-tag logs (`log.tag`):
 history-preserving (each write appends, latest = current), a distinct store from props. A goal
-is the same `goal` tag at every time level — the node's kind (day/week/month/year) is the level.
+is the same `goal` tag at every time level — the node's type (day/week/month/year) is the level.
 A goal can carry structured target node ids (priority order), stored as `goal` metrics."""
 from __future__ import annotations
 

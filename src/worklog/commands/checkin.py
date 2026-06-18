@@ -14,9 +14,9 @@ def cmd_checkin(args, con):
     """Interactive check-in for today's habits.
     Default: multi-select (up/down + space + Enter), pick all at once and check in.
     --per-item: per-item prompt mode (allows per-item note; also the fallback for non-TTY / piped input)."""
-    rows, today, kinds = _checkin_collect(con, args)
+    rows, today, types = _checkin_collect(con, args)
     if not rows:
-        out(_c(f"(no {'/'.join(kinds)} scheduled to check in for {today})", "meta"))
+        out(_c(f"(no {'/'.join(types)} scheduled to check in for {today})", "meta"))
         return
 
     pending = [r for r in rows if not r["already"]]
@@ -53,20 +53,20 @@ def cmd_checkin(args, con):
 
 
 def _checkin_collect(con, args):
-    """Collect today's habits to check in. Returns [{id, title, priority, kind, already}]."""
+    """Collect today's habits to check in. Returns [{id, title, priority, type, already}]."""
     today = _tu.today()
     sched_ids = _scheduled_node_ids(con, today)
-    kinds = {"habit"}
+    types = {"habit"}
     if args.all_kinds:
-        kinds = {"habit", "task", "meetlog"}
+        types = {"habit", "task", "meetlog"}
 
     rows = []
     for nid in sorted(sched_ids):
         n = _db.get(con, "node", nid)
         if not n:
             continue
-        nk = node_type(con, n)
-        if nk not in kinds:
+        ntype = node_type(con, n)
+        if ntype not in types:
             continue
         if n["status"] == "CANCELED" and not getattr(args, "show_canceled", False):
             continue
@@ -74,9 +74,9 @@ def _checkin_collect(con, args):
         already = _has_checkin(con, nid, today)
         rows.append({
             "id": n["id"], "title": n["title"], "priority": n["priority"],
-            "kind": nk, "already": bool(already),
+            "type": ntype, "already": bool(already),
         })
-    return rows, today, kinds
+    return rows, today, types
 
 
 def _is_interactive_tty():
