@@ -80,6 +80,5 @@ just burns tokens). `wl agent set` / `rm` delete that cache on every bind / rebi
 the next prompt re-fetches and re-injects. On the common (cached) path it spawns nothing.
 
 **Status line.** Pipe your status-line command's stdin JSON through `statusline-wl.sh`; it appends
-` 📌WL#<id>`. It calls `wl` per refresh (simple, dependency-light). For a faster segment, query
-the DB directly instead: `sqlite3 "$DB" "SELECT node_id FROM prop WHERE key LIKE 'agent_session.%'
-AND value='$sid' AND deleted_at IS NULL LIMIT 1;"` (needs `sqlite3` + a way to read `session_id`).
+` 📌WL#<id>`. It calls `wl` per refresh (simple, dependency-light); for a faster segment, adapt
+that script to read the binding from the DB directly.
