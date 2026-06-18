@@ -54,7 +54,6 @@ from ..queries import (
     _status_filter_sql,
     _upsert_prop,
     node_kind,
-    node_props,
     sync_time_node_dates,
     _strip_wikilink,
     _upsert_link,
