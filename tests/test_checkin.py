@@ -229,16 +229,16 @@ class TestCheckin:
 
 
 class TestCheckinCollectGaps:
-    """_checkin_collect: --all-kinds / CANCELED filtering / already-logged marker."""
+    """_checkin_collect: --all-types / CANCELED filtering / already-logged marker."""
 
-    def test_checkin_all_kinds_includes_task(self, cli, monkeypatch):
+    def test_checkin_all_types_includes_task(self, cli, monkeypatch):
         from datetime import date
         today = date.today().isoformat()
         cli("add", "task-x")
         cli("sched", "1", today)
-        # EOF straight away → immediate interrupt, but _checkin_collect already covered --all-kinds branch
+        # EOF straight away → immediate interrupt, but _checkin_collect already covered --all-types branch
         monkeypatch.setattr("builtins.input", lambda *a: (_ for _ in ()).throw(EOFError()))
-        _, out, _ = cli("checkin", "--all-kinds", "--per-item")
+        _, out, _ = cli("checkin", "--all-types", "--per-item")
         assert "task-x" in out or "done" in out or "interrupted" in out
 
     def test_checkin_skips_canceled(self, cli, monkeypatch):
@@ -277,14 +277,14 @@ class TestCheckinPerItemActuallyRuns:
 
 
 class TestCheckinAllKinds:
-    def test_checkin_all_kinds_includes_task(self, cli, monkeypatch):
+    def test_checkin_all_types_includes_task(self, cli, monkeypatch):
         from datetime import date
         today = date.today().isoformat()
         cli("add", "t-task")
         cli("sched", "1", today)
-        # --all-kinds → kinds = {habit, task, meetlog}; the scheduled task should be collected
+        # --all-types → kinds = {habit, task, meetlog}; the scheduled task should be collected
         monkeypatch.setattr("builtins.input", lambda *a: "n")
-        _, out, _ = cli("checkin", "--all-kinds", "--per-item")
+        _, out, _ = cli("checkin", "--all-types", "--per-item")
         # reaching the per-item path is good enough; 1 item collected
         assert "1 items" in out or "1/1" in out
 
@@ -300,7 +300,7 @@ class TestCheckinCollectAlreadyLogged:
         from worklog import cli as wl
         con = wl.db_connect()
         # mock args
-        class A: kind = None; all_kinds = False; show_canceled = False
+        class A: kind = None; all_types = False; show_canceled = False
         # _checkin_collect returns (rows, today, kinds)
         rows, today_str, kinds = wl._checkin_collect(con, A())
         assert rows

@@ -98,7 +98,7 @@ wl tick 39                            # check in one habit today (writes a check
 wl tick 39 40 41 --note "…"           # bulk check-in
 wl checkin                            # default multi-select (↑↓ space enter)
 wl checkin --per-item                 # alt: one-by-one y/n/note/q prompt
-wl checkin --all-kinds                # not limited to the habit type (task/meetlog too)
+wl checkin --all-types                # not limited to the habit type (task/meetlog too)
 ```
 
 ## Goal / summary keep history (reserved-tag logs, not props)

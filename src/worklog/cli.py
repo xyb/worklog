@@ -1424,11 +1424,11 @@ A metric must hang off a log; without --on-log a (possibly empty-body) carrier l
 Common examples:
   wl checkin                          # default multi-select (arrows / space / Enter)
   wl checkin --per-item               # fallback: prompt y/n/note/q per item (allows per-item note)
-  wl checkin --all-kinds              # not just habit; include all task/meetlog/... scheduled today
+  wl checkin --all-types              # not just habit; include all task/meetlog/... scheduled today
 
 End-of-day: run wl checkin once to review every habit that's due today.
 For single habit check-in, use wl tick <id>.""")
-    ci.add_argument("--all-kinds", action="store_true",
+    ci.add_argument("--all-types", action="store_true",
                     help="review all scheduled items (habit + task + meetlog), not just habits (the default)")
     ci.add_argument("--per-item", action="store_true",
                     help="fallback mode: prompt y/n/note/q per item (allows per-item note; auto-used when not on a TTY)")

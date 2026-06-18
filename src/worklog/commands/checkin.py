@@ -57,7 +57,7 @@ def _checkin_collect(con, args):
     today = _tu.today()
     sched_ids = _scheduled_node_ids(con, today)
     types = {"habit"}
-    if args.all_kinds:
+    if args.all_types:
         types = {"habit", "task", "meetlog"}
 
     rows = []
