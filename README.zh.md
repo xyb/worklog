@@ -144,7 +144,7 @@ pip install 'pyworklog[semantic]'   # 快路径:LanceDB + jieba
 六个表;一切都是 `node`。
 
 ```
-node (id, parent_id→node, title, kind, status, priority,
+node (id, parent_id→node, title, status, priority,
       created_at, scheduled_at, deadline_at, closed_at, body)
 tag  (node_id→node, tag)                    # 多对多
 log  (id, node_id→node, logged_at, body)    # 一个 node 多次 log entry
@@ -153,7 +153,7 @@ link (node_id→node, vault_doc)              # vault wikilink 双链
 v_node_path                                  # 递归 CTE view, 树状路径
 ```
 
-`kind` 字段让一个表能装任意执行体系实体。级联删除会传播到 `tag/log/prop/link`;`parent_id` 用 `ON DELETE SET NULL`,删父不会孤儿杀子。
+一个 `node` 表装下所有执行体系实体;分类由正交的 `type.*` prop 命名空间承担(没有专门的列)。级联删除会传播到 `tag/log/prop/link`;`parent_id` 用 `ON DELETE SET NULL`,删父不会孤儿杀子。
 
 ## 状态机
 

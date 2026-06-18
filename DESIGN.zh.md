@@ -38,26 +38,26 @@ worklog 刻意保持**少依赖、低抽象**：运行时只有 **stdlib + `rich
 - 动词在前：`wl <verb> [args] [--flags]`
 - 子命令名用全小写单词：`add` / `done` / `tree` / `projects` / `changes` / `summary` / `focus` …
 - 操作单个节点的命令第一个位置参数是 `id`（int）：`wl show 42` / `wl done 42` / `wl log 42 "..."`
-- 长 flag 用 `--xxx`，短 flag 仅给最高频的（`-k` kind / `-p` priority / `-t` tag）
+- 长 flag 用 `--xxx`，短 flag 仅给最高频的（`-p` priority / `-t` tag）
 - 节点不存在一律 `sys.exit(f"✗ ... #{id} not found")`，退出码非 0
 
 ## 2. 数据模型（`src/worklog/migrations/`）
 
-单 `node` 表承载一切，`kind` 字段区分类型，`parent_id` 自引用建树。schema 以编号 SQL migrations 的形式发布,放在 `src/worklog/migrations/NNNN_*.sql`,`PRAGMA user_version` 记录最高已应用版本。`ensure_db()` 每条命令都自动 apply pending migrations,显式形式是 `wl migrate`。初始版本见 `src/worklog/migrations/0001_initial_schema.sql`,整体概览见 `README.md`。
+单 `node` 表承载一切，分类由正交的 `type.*` prop 命名空间承担（没有专门的列），`parent_id` 自引用建树。schema 以编号 SQL migrations 的形式发布,放在 `src/worklog/migrations/NNNN_*.sql`,`PRAGMA user_version` 记录最高已应用版本。`ensure_db()` 每条命令都自动 apply pending migrations,显式形式是 `wl migrate`。初始版本见 `src/worklog/migrations/0001_initial_schema.sql`,整体概览见 `README.md`。
 
 > **migration 编写规则**：runner 把每个文件包进一个 `BEGIN/COMMIT`(中途失败整文件回滚),所以 migration 文件本身**不要**写 `BEGIN`/`COMMIT`。
 
-- **kind 取值**：`lifetime / decade / year / quarter / month / week / day / area / project / task / meetlog / habit / signal`（可扩展，但加新 kind 要想清楚它在 tree / projects / summary 里怎么归类）
+- **分类取值**（正交的 `type.*` props，没有单列）：`type.para` = PARA 角色 `area / project / task`；`type.date` = 时间层级 `lifetime / decade / year / quarter / month / week / day`；`type.habit`；`type.meetlog`；自定义 `type.<x>`（可扩展，但加新 type 要想清楚它在 tree / projects / summary 里怎么归类）。一个 node 可同时持有多个；需要单个代表 token 时由 `node_type` / `node_type_from_props` 派生（优先级 para > date > habit > meetlog > custom > task）
 - **status 只在 task / habit / meetlog 类用**；时间层级类（year/month/...）跟 project 类 status 留 NULL
 - 表：`node / tag / log / metric / clock / prop / link / sched / date_meta` + 派生 view `v_node_path`
 - **`node → log → metric` 主干**（log 为中心的核心）：一个 `node` 挂多条 `log`；一条 `log`(带 `tag`——`note`/`goal`/`summary`/`metric`(载体)/…，NULL = 普通笔记)下挂 0..N 条 `metric`。`metric` 是结构化数据点(`tag` = 它是什么，如 `glucose`/`pullups`/`checkin`，或 `goal` = 一条 goal log 按优先级排序的目标 node id；外加 `value_num`/`value_text`/`unit`/`note`/`at`)。**`tag` 是三处统一的分类字段**——node(多值标签集)、log(角色,单值)、metric(种类,单值);同一个词、不同范围、SQL 不混。metric **必须挂在一条 log 上**(`metric.log_id` NOT NULL)——所以每个数据点都有 log 载体；`CHECK` 要求有值(纯标记如打卡存 `value_num=1`)。`metric.node_id` 是反范式冗余(免 join 查某 node 的数据点，无 FK；trigger 保证它始终等于载体 log 的 node)。CRUD 入口：`wl metric add/ls/edit/rm`(`add` 不带 `--on-log` 时建载体 log；无值标记存 `value_num=1`);`wl log`/`wl add` 的 `--metric` 和 `wl import` 的 `metrics` 可内联挂数据点。habit「今天做没做」= 当天有没有 `tag=checkin` 的 metric(`wl tick`/`wl checkin` 写),不再是「那天有没有 log」。
-- **保留 tag 的 log = 历史保留**：`goal`(前瞻,任意时间层级)和 `summary`(后顾日终)都是 `log.tag` 化的 log(最新一条=当前值,每次改追加一条),有自己的 `wl goal set/ls/rm <node>` 组(`--summary` 改写 summary),也由 bare `wl goal`/`wl recap`(今日自动)和 key-route 的 `wl set <node> goal|summary` 写。goal **每个层级同一个 `goal` tag**——node 的 kind(day/week/month/year)就是层级;旧的 week `overview`、month `top5` 已并入 goal(迁移 0010)。一条 goal 可带结构化目标(写时显式给的 node id,顺序=优先级,存成 `goal` metric);`wl day`/`wl goal` 展示 goal + 编号带状态的目标列表 + `[done/total]`。(`prop` 回归只放真正静态的单值属性。)
+- **保留 tag 的 log = 历史保留**：`goal`(前瞻,任意时间层级)和 `summary`(后顾日终)都是 `log.tag` 化的 log(最新一条=当前值,每次改追加一条),有自己的 `wl goal set/ls/rm <node>` 组(`--summary` 改写 summary),也由 bare `wl goal`/`wl recap`(今日自动)和 key-route 的 `wl set <node> goal|summary` 写。goal **每个层级同一个 `goal` tag**——node 的 type(day/week/month/year)就是层级;旧的 week `overview`、month `top5` 已并入 goal(迁移 0010)。一条 goal 可带结构化目标(写时显式给的 node id,顺序=优先级,存成 `goal` metric);`wl day`/`wl goal` 展示 goal + 编号带状态的目标列表 + `[done/total]`。(`prop` 回归只放真正静态的单值属性。)
 - **`clock` = 结构化计时**:`clock(node_id, start_at, end_at, elapsed_sec)`,由 `wl start`/`stop`/`spent`/`wait` 读写——替代旧的 `CLOCK_IN`/`CLOCK_OUT` log-body 约定;时长从 `elapsed_sec` 求和,不再从文本解析。
 - **两条并列树（都挂 lifetime 下）**（2026-05-29 起）：
   - **责任领域线**：`lifetime → area → project → task`（PARA：area 是跨时间的责任领域，project 归 area，task 归 project）
   - **时间线**：`lifetime → year → quarter → month → week → day`（承载时间骨架 + 保留 tag 的 log：每个层级的 `goal`、day 的 `summary` 日终）
     - 小结(`summary` log)自带 `logged_at` = 写入时间。`wl day` 显示「(写于 …)」,若当天小结后还有普通笔记 log(`tag IS NULL`)就提示「⚠ 小结后又有 N 条变更, 建议重写 recap」。(替代旧的 `summary_at` prop。)
-  - **project 不再挂 month**（旧设计曾挂月，已迁到 area）。日/月/周视图靠 **log 的 logged_at**（时间维度）跟 **kind/tag/祖先链**（领域维度）解耦：`wl day` 按 log 日期驱动、project 经祖先链解析、bucket 经 work/personal tag——所以 project 移到 area 下不影响任何按天/按项目视图
+  - **project 不再挂 month**（旧设计曾挂月，已迁到 area）。日/月/周视图靠 **log 的 logged_at**（时间维度）跟 **type/tag/祖先链**（领域维度）解耦：`wl day` 按 log 日期驱动、project 经祖先链解析、bucket 经 work/personal tag——所以 project 移到 area 下不影响任何按天/按项目视图
 
 ## 3. 状态机（#+TODO 风格）
 
@@ -155,7 +155,7 @@ DONE / DEFERRED / CANCELED   (已了结)
 
 底层 `_print_tree`（--root/--depth 路径）规则：
 - **限深**：有 `--root` 默认 3，无 root（`--depth` 显式）按给的值；`_print_tree(max_depth)` 截断。
-- **时间节点按日期排序**（`_tree_children`）：kind ∈ 时间类按 `title`(日期)升序，其他按 优先级→id（否则按 id 会 W22 排 W18 前）。
+- **时间节点按日期排序**（`_tree_children`）：type ∈ 时间层级按 `title`(日期)升序，其他按 优先级→id（否则按 id 会 W22 排 W18 前）。
 - **day 节点展开 = 当天活动**（`_print_day_activity`）：area 化后 day 无真子节点，改展开"当天有 log 的任务 + 只含当天的 log"（log 驱动，跟 `wl day` 同源）。**task 不要挂 day（挂 project）**，day 内容靠 log 日期推。
 
 ## 10. 项目↔任务关联（`_project_members`）
@@ -242,7 +242,7 @@ dev ai sync strategy reflection reading family health morning_check slack_scan
 
 约定：
 
-- **分类 = `props` 里的 `type.*` 键**（没有 `kind` 字段）：`{"type.para":"project"}`（或 `area`/`task`）、`{"type.date":"day"}`（week/month/…）、`{"type.habit":"true"}`、`{"type.meetlog":"true"}`；无 `type.*` 的裸节点就是普通 task。`type.date` 会按 title 自动补全 `date.period`/区间
+- **分类 = `props` 里的 `type.*` 键**：`{"type.para":"project"}`（或 `area`/`task`）、`{"type.date":"day"}`（week/month/…）、`{"type.habit":"true"}`、`{"type.meetlog":"true"}`；无 `type.*` 的裸节点就是普通 task。`type.date` 会按 title 自动补全 `date.period`/区间
 - **父子两种表达并存**：`children` 嵌套（父 id 自动传子，灌时间分层天然用）+ `ref`/`parent_ref`（同批次临时引用，扁平交叉用）。`ref` 必须先定义后引用
 - **status=DONE 自动写 closed_at**（add 跟 update 都是）
 - **update 可改字段**：`status`/`priority`/`title`/`scheduled_at`/`deadline_at`/`body`/`parent`(move, 校验存在) + `add_tags`/`remove_tags`/`add_logs`/`add_links`。⚠️ 没列在白名单的 key 被静默忽略——`parent` 曾漏在白名单导致 move 静默失败（2026-05-29 修），加字段务必同步白名单
@@ -341,7 +341,7 @@ marker → status：`[ ]`TODO `[x]`DONE `[/]`DOING `[>]`LATER `[?]`WAIT `[-]`CAN
 **没有名叫 `default` 的调色板**——`default` 曾是第 4 个独立配色，语义混乱（既不是 dark 也不是 light）。现在只有三个真实调色板 + 一个 `auto` 选择器：
 
 `THEMES` 字典：每个调色板把语义名映射到 rich style。语义名（不是颜色名），全集见 `_THEME_KEYS`：
-`done/doing/later/wait/todo/canceled`（状态）、`pri_a/pri_b/pri_c`（优先级）、`id/kind/tag/hit/header/meta/planned/clock`。
+`done/doing/later/wait/todo/canceled`（状态）、`pri_a/pri_b/pri_c`（优先级）、`id/type/tag/hit/header/meta/planned/clock`。
 - `dark`：深色背景，`bright_*` 提对比度
 - `light`：浅色背景，深色饱和色（`green4`/`red3`/`dark_orange3`/`dark_cyan`/`purple`/`grey42`…），避免亮色/白色在白底糊掉
 - `mono`：全 `default`（rich 的 default 风格=终端默认前景，无色），给"想要 rich 布局但不要颜色"的场景
@@ -361,7 +361,7 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
 
 - `_CONSOLE is None`（纯文本）：`_c` 原样返回 `str(text)`，零开销
 - styled：`_c` **先 `rich.markup.escape` 内容**（防 title 里的 `[x]`/`[[doc]]` 被当 markup 吃掉），再包 `[style]…[/style]`；`style=None` 只 escape 不包色
-- **铁律：任何要进 `out()` 的片段，凡可能含 `[` `]`（marker `[x]` / 优先级 `[#A]` / kind `[day]` / wikilink `[[doc]]` / 时间戳 `[ts]`），必须经 `_c` 包一层**。直接把含方括号的裸串塞进 `out()` 会触发 rich MarkupError 或被静默吞掉
+- **铁律：任何要进 `out()` 的片段，凡可能含 `[` `]`（marker `[x]` / 优先级 `[#A]` / type `[day]` / wikilink `[[doc]]` / 时间戳 `[ts]`），必须经 `_c` 包一层**。直接把含方括号的裸串塞进 `out()` 会触发 rich MarkupError 或被静默吞掉
 
 ### 19.4 `out()` 取代 `print()`
 
@@ -394,10 +394,10 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
   - 规范格式直接校验（非法日期/月份/周号抛 `ValueError`，在 dry-run 即报，不写脏数据）
   - 相对词归一化：`今天/today`→日期、`明天/tomorrow`→日期、`下周/next-week`→`YYYY-Www`、`下月/next-month`→`YYYY-MM`、`下季/next-quarter`→`YYYY-Qn`、`以后/someday`→`someday`
   - 无法识别 → `ValueError` + 提示合法格式（不静默吞）
-- **粒度 `_sched_kind(s)`** / **排序 `_sched_sort_key(s)`**：排序键 = `(起始日 anchor, 粒度 rank)`；模糊值 anchor 到其时间段起点（`2026-06`→`2026-06-01`、`2026-Q3`→`2026-07-01`），`someday` anchor 远未来排最后；同 anchor 时粒度细的排前
+- **粒度 `_sched_level(s)`** / **排序 `_sched_sort_key(s)`**：排序键 = `(起始日 anchor, 粒度 rank)`；模糊值 anchor 到其时间段起点（`2026-06`→`2026-06-01`、`2026-Q3`→`2026-07-01`），`someday` anchor 远未来排最后；同 anchor 时粒度细的排前
 - **显示 `_sched_display(s)`**：精确日去年只显 `MM-DD`，模糊值显原样（`2026-06`/`2026-Q3`/`someday`）；`_node_line(sched=True)` 用 `@<display>`（planned 风格高亮；前缀 `@` 而非 emoji——📅 太扎眼，`@` 轻量且在 plain 无色模式下跟前文分隔），ls / day / summary 默认开 `sched=True`
 
-加 / 改计划时间相关时，`_norm_sched` / `_sched_kind` / `_sched_anchor` / `_sched_sort_key` / `_sched_display` / `cmd_add` / `cmd_defer` / `_import_node` / `_validate_fieldop` / `_exec_update` / `_node_line` 跟本节同步。
+加 / 改计划时间相关时，`_norm_sched` / `_sched_level` / `_sched_anchor` / `_sched_sort_key` / `_sched_display` / `cmd_add` / `cmd_defer` / `_import_node` / `_validate_fieldop` / `_exec_update` / `_node_line` 跟本节同步。
 
 ## 22. 当天复现视图 `wl day` + `wl logs --group`（markdown 日结构）
 
@@ -407,7 +407,7 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
 - **桶（bucket）= `work`/`personal` tag** → `工作`/`个人`/`其他`（`_node_bucket`），顺序 `_BUCKET_ORDER`
 - **次级分组 `--by`**（`_sec_group` / `_sec_sort_key`）：
   - `plan`（**`wl day` 默认**，设计决策 2026-05-29——最贴近 markdown 日结构）：当天有排期（或迁移期 `planned` tag）→ `计划内`；其余 → `计划外`。（原来单独的 `计划外（未标）` 一档已并入 `计划外`——现在计划内外靠 sched 推导，那个 tag 区分没价值且 `（未标）` 文案误导，会被当成"没打 work/personal tag"。）
-  - `project`：项目祖先（`_node_project` 取 kind=project 的 ancestor）。`wl logs --group day` 仍默认 `project`
+  - `project`：项目祖先（`_node_project` 取项目祖先，`type.para=project`）。`wl logs --group day` 仍默认 `project`
   - `priority`：`A/B/C → P0/P1/P2`，无优先级 `—`（默认当计划外，但标注未显式确认，设计决策 2026-05-29）。⚠️ **计划内/计划外本质是 per-day（per-log）属性**（同一任务今天计划内、明天可能计划外），归并迁移后挂在任务上只是近似；要精确需把标记下沉到 log 行（schema 未做，留待决策）
 - **`wl logs --group day [--by ...]`** 复用 `_render_day_group`：先按日期 header 分组，每天内同 `wl day` 结构
 - **`wl logs` 默认时间窗**：无 `--id`/`--date`/`--since` 时只列**最近 `--days`（默认 7）天**，防全量刷屏（数据涨上来还能用）；`--since`/`--until`/`--date` 显式覆盖
@@ -436,7 +436,7 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
 
 2026-05-29 拍板（vault §八 4/5）：
 
-- **wl day 顶部的 goal / summary**（2026-05-29 起为 prop，后演进，**以下为现状**）：`goal`（前瞻，任意层级）和 `summary`（日终）是节点上保留 tag 的 **log**（历史保留，非 prop）——day 写 goal/summary，week/month 写 goal（同一个 `goal` tag，靠 node kind 区分层级；旧的 `overview`/`top5` 已并入 goal）。`wl goal`/`wl recap`/`wl goal set <node>` 写，goal 可带结构化目标 node id（`goal` metric，顺序=优先级）。`wl day` 顶部按 `> 🎯 / > 📝 Recap / > 📅 This week / > ⭐ This month` blockquote 渲染 + 编号带状态的目标列表 + `[done/total]`。
+- **wl day 顶部的 goal / summary**（2026-05-29 起为 prop，后演进，**以下为现状**）：`goal`（前瞻，任意层级）和 `summary`（日终）是节点上保留 tag 的 **log**（历史保留，非 prop）——day 写 goal/summary，week/month 写 goal（同一个 `goal` tag，靠 node type 区分层级；旧的 `overview`/`top5` 已并入 goal）。`wl goal`/`wl recap`/`wl goal set <node>` 写，goal 可带结构化目标 node id（`goal` metric，顺序=优先级）。`wl day` 顶部按 `> 🎯 / > 📝 Recap / > 📅 This week / > ⭐ This month` blockquote 渲染 + 编号带状态的目标列表 + `[done/total]`。
 - **日期上下文 → 专门 `date_meta` 表**：`(date PRIMARY KEY, label)`。`label` = 节日/休假/调休/节气（劳动节假期 / 调休上班 / 小满 / 年假 …）。**不依赖 day 节点**，可全年预导入假期表 + 自定义。
   - **周X 自动算**（`_cn_weekday`，不存储），`date_meta` 只存非自动信息。
   - `wl day` 头部 = `<date> <周X>[ · <label>]`（`_date_label` 查表）。day 节点标题统一存**纯日期** `YYYY-MM-DD`（周X/节日不进标题，避免与自动算/查表重复）。
@@ -520,7 +520,7 @@ total = max(clock_total, log_span)
 | 类别 | 参数(顶层全局 OR 子命令本地) | 描述 |
 |---|---|---|
 | **状态过滤** | `--show-canceled`(顶层全局, 默认隐) / `--all`(本地, ls/projects: 包括 DONE+CANCELED) / `--status STATUS`(本地, ls 已有) | 默认隐 DONE 和/或 CANCELED |
-| **类型过滤** | `--para {area,project,task}`(本地, ls/tree/find/day) 走 type.para 精确匹配; 其它分类用 `--prop type.<x>`(如 type.meetlog / type.date=day) | kind 列已废弃, 分类改由 type.* 派生 |
+| **类型过滤** | `--para {area,project,task}`(本地, ls/tree/find/day) 走 type.para 精确匹配; 其它分类用 `--prop type.<x>`(如 type.meetlog / type.date=day) | 分类由 type.* 派生 |
 | **优先级过滤** | `--priority A/B/C`(待加, ls/find/day) | 限 P0/P1/P2 |
 | **标签过滤** | `--tag TAG`(本地, ls 已有, AND filter) | 多 tag 逗号分隔 AND |
 | **时间范围** | `--since/--until/--week/--month/--date`(parent parser, changes/summary/logs/projects 已用) | 时间窗口 |

@@ -234,7 +234,7 @@ class TestMigrateAndVerify:
         # every node whose original column value is a preserved one derives back to that value
         from worklog import node_types as nt, queries
         for n in _db.query(con, "node", cols="id, kind"):
-            if n["kind"] in nt.KNOWN_KINDS:
+            if n["kind"] in nt.KNOWN_TYPES:
                 assert queries.node_type_from_props(queries.node_props(con, n["id"])) == n["kind"]
         con.close()
 

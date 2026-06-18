@@ -112,7 +112,7 @@ def snapshot_kinds(con):
 
 def verify_roundtrip(con, original_kinds=None):
     """Integrity check for the kind→type.* migration: for every node (live AND tombstoned) whose
-    *original* kind is a preserved one (node_types.KNOWN_KINDS), the kind derived from its type.\\*
+    *original* kind is a preserved one (node_types.KNOWN_TYPES), the kind derived from its type.\\*
     props must equal that original kind. ``original_kinds`` is the pre-backfill snapshot from
     :func:`snapshot_kinds`; pass it so the comparison is against the ORIGINAL kind. When omitted,
     it reads the live ``node.kind`` column — valid ONLY on a pre-0011 (v10) DB (it SELECTs
@@ -137,8 +137,8 @@ def verify_roundtrip(con, original_kinds=None):
         props = node_props(con, n["id"], include_deleted=n["deleted_at"] is not None)
         derived = node_type_from_props(props)
         if derived != orig:
-            (mismatches if orig in _nt.KNOWN_KINDS else retired).append(
-                (n["id"], orig, derived) if orig in _nt.KNOWN_KINDS else (n["id"], orig))
+            (mismatches if orig in _nt.KNOWN_TYPES else retired).append(
+                (n["id"], orig, derived) if orig in _nt.KNOWN_TYPES else (n["id"], orig))
         lvl = props.get(_nt.K_DATE)
         if lvl and lvl != "lifetime" and _nt.K_PERIOD not in props:
             period_lost.append((n["id"], lvl))

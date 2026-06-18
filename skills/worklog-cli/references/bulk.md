@@ -16,7 +16,7 @@ echo '{
 }' | wl import -
 ```
 
-- **classification = `props` with `type.*` keys** (no `kind` field): `{"type.para":"project"}` (or `area`/`task`), `{"type.date":"day"}` (week/month/…), `{"type.habit":"true"}`, `{"type.meetlog":"true"}`; a bare node (no `type.*`) is a plain task
+- **classification = `props` with `type.*` keys**: `{"type.para":"project"}` (or `area`/`task`), `{"type.date":"day"}` (week/month/…), `{"type.habit":"true"}`, `{"type.meetlog":"true"}`; a bare node (no `type.*`) is a plain task
 - `children` nesting (parent id auto-propagates) + `ref`/`parent_ref` (in-batch reference)
 - a log entry may carry `"metrics":[{"tag":"glucose","value":5.4,"unit":"mmol/L"}]`; a node may
   carry node-level `"metrics":[...]` (one carrier log → N datapoints)

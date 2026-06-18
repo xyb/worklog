@@ -167,7 +167,7 @@ one-line note when it does. Nothing else changes, and the core CLI never needs e
 Six tables; everything is a `node`.
 
 ```
-node (id, parent_id→node, title, kind, status, priority,
+node (id, parent_id→node, title, status, priority,
       created_at, scheduled_at, deadline_at, closed_at, body)
 tag  (node_id→node, tag)                    # many-to-many
 log  (id, node_id→node, logged_at, body)    # one node, many log entries
@@ -176,7 +176,7 @@ link (node_id→node, vault_doc)              # vault wikilink
 v_node_path                                  # recursive CTE view, tree path
 ```
 
-The `kind` field lets one table hold any execution-system entity. Cascade delete propagates to `tag/log/prop/link`; `parent_id` uses `ON DELETE SET NULL` so deleting a parent doesn't orphan-kill children.
+One `node` table holds every execution-system entity; classification is the orthogonal `type.*` prop namespace (no dedicated column). Cascade delete propagates to `tag/log/prop/link`; `parent_id` uses `ON DELETE SET NULL` so deleting a parent doesn't orphan-kill children.
 
 ## Status states
 

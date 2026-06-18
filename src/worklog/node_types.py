@@ -54,11 +54,11 @@ DATE_LEVELS = ("lifetime", "decade", "year", "quarter", "month", "week", "day")
 #: existence-based soft subtypes
 SOFT_TYPES = ("habit", "meetlog")
 
-#: every legacy kind the type.* model preserves losslessly (a migrated node of one of these
-#: must round-trip exactly). ``signal`` and any user-custom kind are intentionally NOT here —
-#: they collapse to a bare node (``signal`` is retired by design), which is a deliberate
+#: every classification value the type.* model preserves losslessly (a migrated node of one of
+#: these must round-trip exactly). ``signal`` and any user-custom value are intentionally NOT here
+#: — they collapse to a bare node (``signal`` is retired by design), which is a deliberate
 #: transformation, not data loss.
-KNOWN_KINDS = frozenset(PARA_ROLES) | frozenset(DATE_LEVELS) | frozenset(SOFT_TYPES)
+KNOWN_TYPES = frozenset(PARA_ROLES) | frozenset(DATE_LEVELS) | frozenset(SOFT_TYPES)
 
 #: the value the system writes for an existence-only prop with no sub-class (DESIGN ⑤:
 #: canonical is ``"true"`` — meaningful + satisfies prop.value NOT NULL; reads don't care)
