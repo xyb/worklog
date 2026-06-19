@@ -451,10 +451,12 @@ class TestAgentJson:
         rows = _j(cli, "agent", "ls", "-o", "json")
         assert rows == []
 
-    def test_show_unbound_returns_null(self, cli, monkeypatch):
+    def test_show_unbound_returns_structured(self, cli, monkeypatch):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-session-xyz")
         result = _j(cli, "agent", "-o", "json")
-        assert result is None
+        assert result["node_id"] is None
+        assert result["agent"] is None
+        assert result["session_id"] == "test-session-xyz"
 
     def test_ls_after_bind(self, cli, monkeypatch):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-session-xyz")

@@ -1531,7 +1531,7 @@ def _agent_show(args, con):
     row = _db.query_one(con, "prop", cols="node_id, key", key__like=_AGENT_PREFIX + "%", value=sid)
     if not row:
         out(_c(f"(session {sid[:8]}… 未绑定任何任务)", "meta"))
-        return None
+        return {"node_id": None, "title": None, "agent": None, "session_id": sid}
     agent = row["key"][len(_AGENT_PREFIX):]
     title = (_db.get(con, "node", row["node_id"]) or {})["title"]
     idstr = f"#{row['node_id']}"
