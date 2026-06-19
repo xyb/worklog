@@ -1083,7 +1083,7 @@ Common examples:
 
 More: `wl help node`.""")
     _ndsub = nd.add_subparsers(dest="node_sub")
-    _args_node_add(_ndsub.add_parser("add", help="create a node (= wl add)",
+    _args_node_add(_ndsub.add_parser("add", parents=[output_parent], help="create a node (= wl add)",
         description="Create a node — the canonical primitive. Also: the top-level shortcut `wl add` (identical, same handler)."))
     _args_node_ls(_ndsub.add_parser("ls", parents=[filters, output_parent], help="list nodes (= wl ls)",
         description="List nodes. Also: the top-level shortcut `wl ls` (identical, same handler)."))
@@ -1531,12 +1531,12 @@ Common examples:
   wl date rm 2026-05-01                  # clear (= wl dateinfo 2026-05-01 --clear)
   wl date import holidays.json           # batch {"YYYY-MM-DD":"label"} (= wl dateinfo --import)""")
     _dtsub = dt.add_subparsers(dest="date_sub")
-    _dtset = _dtsub.add_parser("set", help="set/update a date's label (= wl dateinfo <date> <label>)")
+    _dtset = _dtsub.add_parser("set", parents=[output_parent], help="set/update a date's label (= wl dateinfo <date> <label>)")
     _dtset.add_argument("date", help="YYYY-MM-DD")
     _dtset.add_argument("label", help="label, e.g. Labor Day / swap working day / vacation")
     _dtls = _dtsub.add_parser("ls", parents=[output_parent], help="list date metadata, or show one date (= bare wl dateinfo)")
     _dtls.add_argument("date", nargs="?", help="YYYY-MM-DD (omit to list all)")
-    _dtsub.add_parser("rm", help="clear a date's label (= wl dateinfo <date> --clear)").add_argument("date", help="YYYY-MM-DD")
+    _dtsub.add_parser("rm", parents=[output_parent], help="clear a date's label (= wl dateinfo <date> --clear)").add_argument("date", help="YYYY-MM-DD")
     _dtsub.add_parser("import", help='batch import {"YYYY-MM-DD":"label"} JSON (= wl dateinfo --import)').add_argument("file", help="JSON file path, or - for stdin")
 
     # (the former `wl meta` group is merged into `wl goal` — goal/summary reserved-tag logs

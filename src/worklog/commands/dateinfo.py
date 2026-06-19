@@ -50,7 +50,10 @@ def cmd_date_set(args, con):
     (= `wl dateinfo <date> <label>`)."""
     _db.upsert(con, "date_meta", {"date": args.date, "label": args.label}, key=("date",))
     con.commit()
-    out(_c(f"✓ {args.date} {_cn_weekday(args.date)} · {args.label}", "meta"))
+    if _is_json(args):
+        _emit_json({"date": args.date, "label": args.label})
+    else:
+        out(_c(f"✓ {args.date} {_cn_weekday(args.date)} · {args.label}", "meta"))
 
 
 def cmd_date_ls(args, con):
@@ -80,8 +83,11 @@ def cmd_date_rm(args, con):
     (= `wl dateinfo <date> --clear`)."""
     n = _db.delete(con, "date_meta", date=args.date)
     con.commit()
-    out(_c(f"✓ cleared metadata for {args.date}", "meta") if n
-        else _c(f"({args.date} had no metadata)", "meta"))
+    if _is_json(args):
+        _emit_json({"date": args.date, "cleared": n})
+    else:
+        out(_c(f"✓ cleared metadata for {args.date}", "meta") if n
+            else _c(f"({args.date} had no metadata)", "meta"))
 
 
 def cmd_date_import(args, con):
