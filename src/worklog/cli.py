@@ -357,7 +357,7 @@ _DEFAULT_VERB_ENTITIES = {
     "goal": ("today", frozenset(("today", "set", "ls", "rm"))),
 }
 # global flags that consume the next token as their value (skip it when locating the subcommand)
-_GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format", "--width", "--title"))
+_GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format", "--width", "--title", "-o", "--output"))
 
 # commands without a same-named help topic → the topic that covers them (a family guide or
 # a sibling command's topic), so every command's --help can auto-link into `wl help` (§25).
@@ -1270,6 +1270,7 @@ More: `wl help day` · `wl help planning` (the optional per-level planning caden
                     help="full log expansion, no elision (overrides default tail=3)")
 
     g = sub.add_parser("goal",
+        parents=[output_parent],
         help="goal CRUD: read/write a node's goal — what you aim to deliver (history-preserving)",
         description="Read or write a goal — a short statement of what you aim to deliver. Bare `wl goal` reads/writes TODAY's goal (the default form, auto-creates today's day node); `wl goal set/ls/rm <node>` reach any node (day / week / month / year — the level is the node's type). Stored as a `goal` log (history-preserving: each write appends, the latest is current). `wl day` shows today's at the top. A goal can carry trailing node ids — its target nodes, in priority order — stored as `goal` metrics so the link is structured, not parsed from the prose.",
         formatter_class=_WlHelpFormatter,

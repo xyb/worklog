@@ -347,9 +347,11 @@ def cmd_find(args, con):
         limit = 20
     if limit and limit > 0 and total > limit:
         rows = rows[:limit]
-        out(_c(f"'{q}' {total} hits (showing first {limit}; use --all or --limit 0 to see all):", "header"))
+        if not _is_json(args):
+            out(_c(f"'{q}' {total} hits (showing first {limit}; use --all or --limit 0 to see all):", "header"))
     else:
-        out(_c(f"'{q}' {total} hits:", "header"))
+        if not _is_json(args):
+            out(_c(f"'{q}' {total} hits:", "header"))
     if _is_json(args):
         _emit_json([{
             "id": n["id"], "title": n["title"], "type": node_type(con, n),
