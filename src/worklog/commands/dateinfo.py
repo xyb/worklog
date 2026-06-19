@@ -10,6 +10,7 @@ from pathlib import Path
 from .. import db_table as _db
 from ..render import _c, out
 from .views import _cn_weekday, _date_label
+from .output import _is_json, _emit_json
 
 
 def cmd_dateinfo(args, con):
@@ -58,9 +59,15 @@ def cmd_date_ls(args, con):
     d = getattr(args, "date", None)
     if d:
         lbl = _date_label(con, d)
+        if _is_json(args):
+            _emit_json({"date": d, "label": lbl})
+            return
         out(_c(f"{d} {_cn_weekday(d)}" + (f" · {lbl}" if lbl else " (no label)"), "meta"))
         return
     rows = _db.query(con, "date_meta", cols="date, label", order="date")
+    if _is_json(args):
+        _emit_json([{"date": r["date"], "label": r["label"]} for r in rows])
+        return
     if not rows:
         out(_c("(no date metadata)", "meta"))
         return

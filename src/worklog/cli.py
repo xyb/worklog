@@ -970,7 +970,7 @@ More: `wl help agent`.""")
         help="append a one-off history log carrying an `agent_session` metric (session id) + an `agent` metric (runtime name), so `wl metric ls <id> --tag agent_session --all` recovers every session it was worked under (default on; `--no-record` for a pointer-only bind)")
     _ags.add_argument("--agent", default=None, metavar="NAME",
         help="which agent runtime this is (claude / cursor / codex / …); recorded with the session so the history shows what worked the node. Default: $WL_AGENT, else 'claude'")
-    _agls = _agsub.add_parser("ls", help="list session→task bindings, most-recently-active first")
+    _agls = _agsub.add_parser("ls", parents=[output_parent], help="list session→task bindings, most-recently-active first")
     _agls.add_argument("--all", action="store_true", help="show every binding (default elides older ones to avoid a screen-flood)")
     _agls.add_argument("--by", choices=["active", "bound"], default="active",
                        help="sort axis: active = node's latest log/update time (default); bound = session bind time")
@@ -1533,7 +1533,7 @@ Common examples:
     _dtset = _dtsub.add_parser("set", help="set/update a date's label (= wl dateinfo <date> <label>)")
     _dtset.add_argument("date", help="YYYY-MM-DD")
     _dtset.add_argument("label", help="label, e.g. Labor Day / swap working day / vacation")
-    _dtls = _dtsub.add_parser("ls", help="list date metadata, or show one date (= bare wl dateinfo)")
+    _dtls = _dtsub.add_parser("ls", parents=[output_parent], help="list date metadata, or show one date (= bare wl dateinfo)")
     _dtls.add_argument("date", nargs="?", help="YYYY-MM-DD (omit to list all)")
     _dtsub.add_parser("rm", help="clear a date's label (= wl dateinfo <date> --clear)").add_argument("date", help="YYYY-MM-DD")
     _dtsub.add_parser("import", help='batch import {"YYYY-MM-DD":"label"} JSON (= wl dateinfo --import)').add_argument("file", help="JSON file path, or - for stdin")

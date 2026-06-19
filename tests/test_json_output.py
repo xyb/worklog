@@ -346,3 +346,140 @@ class TestWriteCommandsJson:
         cli("add", "b")
         rows = _j(cli, "done", "1", "2", "-o", "json")
         assert len(rows) == 2 and {r["id"] for r in rows} == {1, 2}
+
+
+class TestLogShowJson:
+    def test_returns_log_fields(self, cli):
+        cli("add", "task")
+        _, out, _ = cli("-o", "json", "log", "1", "full body text")
+        import json as _json
+        log_id = _json.loads(out)["id"]
+        d = _j(cli, "log", "show", str(log_id), "-o", "json")
+        assert d["id"] == log_id and d["body"] == "full body text"
+        assert {"id", "node_id", "tag", "body", "logged_at"} <= d.keys()
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "task")
+        _, out, _ = cli("-o", "json", "log", "1", "entry")
+        import json as _json
+        log_id = _json.loads(out)["id"]
+        d = _j(cli, "-o", "json", "log", "show", str(log_id))
+        assert d["body"] == "entry"
+
+
+class TestActiveJson:
+    def test_empty_when_nothing_running(self, cli):
+        cli("add", "task")
+        rows = _j(cli, "active", "-o", "json")
+        assert rows == []
+
+    def test_running_task_appears(self, cli):
+        cli("add", "task")
+        cli("start", "1")
+        rows = _j(cli, "active", "-o", "json")
+        assert len(rows) == 1
+        r = rows[0]
+        assert r["node_id"] == 1 and r["title"] == "task"
+        assert {"node_id", "title", "status", "priority", "start_at", "elapsed_min"} <= r.keys()
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "task")
+        cli("start", "1")
+        rows = _j(cli, "-o", "json", "active")
+        assert rows[0]["node_id"] == 1
+
+
+class TestRelationJson:
+    def test_read_empty(self, cli):
+        cli("add", "task")
+        d = _j(cli, "relation", "1", "-o", "json")
+        assert d == {"split-from": [], "split-into": [], "related": []}
+
+    def test_read_with_relation(self, cli):
+        cli("add", "a")
+        cli("add", "b")
+        cli("relation", "1", "related", "2")
+        d = _j(cli, "relation", "1", "-o", "json")
+        assert 2 in d["related"]
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "task")
+        d = _j(cli, "-o", "json", "relation", "1")
+        assert "split-from" in d and "related" in d
+
+
+class TestRecapJson:
+    def test_read_null_when_no_recap(self, cli):
+        result = _j(cli, "recap", "-o", "json")
+        assert result is None
+
+    def test_read_returns_body_and_logged_at(self, cli):
+        cli("recap", "shipped the feature")
+        d = _j(cli, "recap", "-o", "json")
+        assert d["body"] == "shipped the feature" and "logged_at" in d
+
+    def test_prefix_syntax(self, cli):
+        cli("recap", "prefix recap")
+        d = _j(cli, "-o", "json", "recap")
+        assert d["body"] == "prefix recap"
+
+
+class TestClockLsJson:
+    def test_returns_intervals(self, cli):
+        cli("add", "task")
+        cli("start", "1")
+        cli("stop", "1")
+        rows = _j(cli, "clock", "ls", "1", "-o", "json")
+        assert len(rows) == 1
+        assert {"id", "start_at", "end_at", "elapsed_sec"} <= rows[0].keys()
+        assert rows[0]["end_at"] is not None
+
+    def test_empty_returns_empty_list(self, cli):
+        cli("add", "bare")
+        rows = _j(cli, "clock", "ls", "1", "-o", "json")
+        assert rows == []
+
+    def test_open_clock_has_null_end(self, cli):
+        cli("add", "task")
+        cli("start", "1")
+        rows = _j(cli, "clock", "ls", "1", "-o", "json")
+        assert rows[0]["end_at"] is None
+
+
+class TestAgentJson:
+    def test_ls_empty(self, cli):
+        rows = _j(cli, "agent", "ls", "-o", "json")
+        assert rows == []
+
+    def test_show_unbound_returns_null(self, cli, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-session-xyz")
+        result = _j(cli, "agent", "-o", "json")
+        assert result is None
+
+    def test_ls_after_bind(self, cli, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "test-session-xyz")
+        cli("add", "bound task")
+        cli("agent", "1")
+        rows = _j(cli, "agent", "ls", "-o", "json")
+        assert len(rows) >= 1
+        assert {"id", "agent", "sid", "title", "act", "bound"} <= rows[0].keys()
+
+
+class TestDateLsJson:
+    def test_returns_date_label_list(self, cli):
+        cli("dateinfo", "2026-10-01", "National Day")
+        cli("dateinfo", "2026-10-07", "last day holiday")
+        rows = _j(cli, "date", "ls", "-o", "json")
+        dates = {r["date"] for r in rows}
+        assert "2026-10-01" in dates
+        for r in rows:
+            assert "date" in r and "label" in r
+
+    def test_single_date_lookup(self, cli):
+        cli("dateinfo", "2026-05-01", "Labor Day")
+        d = _j(cli, "date", "ls", "2026-05-01", "-o", "json")
+        assert d["date"] == "2026-05-01" and d["label"] == "Labor Day"
+
+    def test_empty_returns_empty_list(self, cli):
+        rows = _j(cli, "date", "ls", "-o", "json")
+        assert rows == []
