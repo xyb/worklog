@@ -524,7 +524,7 @@ Good to know:
     p.add_argument("-q", "--brief", action="store_true",
                    help="brief output: skip log body/timeline/detail in every command, token-saving for AI")
     p.add_argument("-o", "--output", choices=["text", "json"], default="text",
-                   help="output format: text (default) or json; also accepted per-command after the verb (wl ls -o json)")
+                   help="output format: text (default) or json (machine-readable); place before or after the verb — wl -o json ls / wl ls -o json. See: wl help output")
     p.add_argument("--log-format", choices=["oneline", "full"], default="oneline",
                    help="log body render style (default oneline = truncate to terminal width with …; full = expand; applies across wl day/tree/logs/show)")
     p.add_argument("--show-canceled", action="store_true",
@@ -556,7 +556,7 @@ Good to know:
     # when it serializes to json; others don't accept the flag (no silent text fallback).
     output_parent = argparse.ArgumentParser(add_help=False)
     output_parent.add_argument("-o", "--output", choices=["text", "json"], default=argparse.SUPPRESS,
-                               help="output format: text (default) or json (machine-readable)")
+                               help="output format: text (default) or json (machine-readable); place before or after the verb. See: wl help output")
 
     _real_sub = p.add_subparsers(dest="cmd", required=False, metavar="<command>")
 

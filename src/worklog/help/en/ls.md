@@ -1,7 +1,7 @@
 ---
 title: ls — a flat, sorted list of nodes
 category: command
-see_also: tree, find, status, priority
+see_also: tree, find, status, priority, output
 ---
 `wl ls` lists nodes as a flat, sorted list (DONE/CANCELED hidden, capped at 20 by default) —
 the `ls -t`/`-S`/`-r`-style view of your work.

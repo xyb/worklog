@@ -1,7 +1,7 @@
 ---
 title: query — hybrid (meaning + keyword) search
 category: command
-see_also: find, reindex, config
+see_also: find, reindex, config, output
 ---
 `wl query "<text>"` is **hybrid** search: it fuses a *semantic* ranking (meaning, even when no
 words are shared — the paraphrase matches `wl find` misses) with a *keyword* ranking (exact
