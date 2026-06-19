@@ -1624,24 +1624,26 @@ More: `wl help find` (vs `wl ls --tag` precise filter / `wl ls --recent` by time
         help="query template ({query} placeholder; pass '' to disable) — overrides config/env")
 
     rx = sub.add_parser("reindex", parents=[embed_parent],
-        help="(re)build the semantic search index (embeds every node)",
+        help="build/update the semantic search index (incremental by default)",
         formatter_class=_WlHelpFormatter,
-        description="Embed every live node (title+body+logs+tags) via the configured embedding "
-                    "server and store the vectors in a sidecar store. Run after bulk changes; "
-                    "`wl query` reads what this builds. Uses LanceDB if the 'semantic' extra is "
-                    "installed, else a slower pure-Python SQLite fallback (no extra needed).",
+        description="Embed live nodes (title+body+logs+tags) via the configured embedding server "
+                    "and store the vectors in a sidecar store. Default = incremental: only "
+                    "new/changed nodes are re-embedded and deleted ones are evicted. On first run "
+                    "(no index yet) it automatically does a full pass. `wl query` reads what this "
+                    "builds. Uses LanceDB if the 'semantic' extra is installed, else a slower "
+                    "pure-Python SQLite fallback (no extra needed).",
         epilog="""\
 Common examples:
-  wl reindex                          # full rebuild with the configured backend
-  wl reindex --incremental            # cheap top-up: embed only new/changed nodes, drop deleted
+  wl reindex                          # incremental top-up (full on first run)
+  wl reindex --full                   # full rebuild — use after a model change
   wl reindex --endpoint http://host:11434/v1/embeddings --model qwen3-embedding
 
 Vector backend: LanceDB (fast, the optional 'semantic' extra) on any Python 3.9–3.14 on Linux
 or Apple-Silicon macOS; falls back automatically to a pure-Python SQLite store where no LanceDB
 wheel exists (Intel macOS, musl/Alpine, …) — same results, slower at large scale.
 More: `wl query` to search; configure the backend in config.ini [embedding] / $WORKLOG_EMBED_*.""")
-    rx.add_argument("--incremental", action="store_true",
-                    help="embed only nodes new/changed since the last index (+ drop deleted) — the cheap day-to-day top-up vs a full rebuild")
+    rx.add_argument("--full", action="store_true",
+                    help="force a full rebuild (drop the index and re-embed every node) — use after a model change or to repair a corrupt index")
     rx.add_argument("--auto", action="store_true",
                     help="single-flight background worker: hold a lock (skip if one's running) and loop incremental passes until the index is clean. Spawned automatically after a write when [index] auto_reindex is on")
 

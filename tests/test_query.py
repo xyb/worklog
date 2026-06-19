@@ -449,31 +449,37 @@ class TestQueryStaleIndex:
 
 
 class TestReindexIncremental:
-    """#806 Phase 1: `wl reindex --incremental` embeds only new/changed nodes + drops deleted."""
+    """reindex is incremental by default (embeds only new/changed nodes + drops deleted).
+    First run (empty index) falls back to full automatically. --full rebuilds everything."""
+
+    def test_first_run_does_full_build(self, seeded):
+        # empty store → incremental falls back to full
+        code, out, _ = seeded("reindex")
+        assert code == 0 and "indexed 3" in out
 
     def test_adds_new_node(self, seeded):
-        seeded("reindex")                              # indexes #1-#3
+        seeded("reindex")                              # first run: full (indexes #1-#3)
         seeded("add", "delta task")      # #4
-        code, out, _ = seeded("reindex", "--incremental")
+        code, out, _ = seeded("reindex")               # second run: incremental
         assert code == 0 and "+1 new" in out
         code, out2, err = seeded("query", "delta")
         assert "#4 " in out2 and "not indexed" not in err.lower()
 
     def test_up_to_date_noop(self, seeded):
         seeded("reindex")
-        code, out, _ = seeded("reindex", "--incremental")
+        code, out, _ = seeded("reindex")
         assert "up to date" in out.lower()
 
     def test_changed_node_reembedded(self, seeded):
         seeded("reindex")
         seeded("log", "1", "a brand new log on node one", "--keep-status")  # #1 chunk set changes
-        code, out, _ = seeded("reindex", "--incremental")
+        code, out, _ = seeded("reindex")
         assert "~1 changed" in out
 
     def test_removed_node_evicted(self, seeded):
         seeded("reindex")
         seeded("node", "rm", "3")                       # soft-delete #3
-        code, out, _ = seeded("reindex", "--incremental")
+        code, out, _ = seeded("reindex")
         assert "-1 removed" in out
 
     def test_embeds_only_dirty(self, seeded, monkeypatch):
@@ -481,8 +487,13 @@ class TestReindexIncremental:
         seeded("add", "delta task")       # only #4 dirty
         n = []
         monkeypatch.setattr(emb, "embed", lambda texts, t, cfg: (n.append(len(texts)), _fake_embed(texts, t, cfg))[1])
-        seeded("reindex", "--incremental")
+        seeded("reindex")
         assert sum(n) <= 2   # just #4's chunk(s), not all four nodes
+
+    def test_force_rebuilds_all(self, seeded):
+        seeded("reindex")                              # first run
+        code, out, _ = seeded("reindex", "--full")   # full rebuild despite existing index
+        assert code == 0 and "indexed 3" in out
 
 
 class TestReindexAuto:

@@ -196,9 +196,9 @@ def _chunk_rows(chunks, vecs, cfg, dim):
 
 
 def cmd_reindex(args, con):
-    """(Re)build the semantic index. Default = full rebuild (embed every node, replace the
-    store). `--incremental` = embed only nodes new/changed since the last index + drop deleted
-    ones (the cheap day-to-day top-up; full is for first build / model change)."""
+    """(Re)build the semantic index. Default = incremental (embed only new/changed nodes, drop
+    deleted; falls back to a full pass when no index exists yet). `--full` = always full
+    rebuild (use after a model change or to repair a corrupt index)."""
     if getattr(args, "auto", False):     # background single-flight worker (spawned after a write)
         _reindex_auto(args, con)
         return
@@ -208,7 +208,8 @@ def cmd_reindex(args, con):
         out(_c("(nothing to index — no nodes yet)", "meta"))
         return
     db = _open_store(args)
-    if getattr(args, "incremental", False):
+    if not getattr(args, "full", False):
+        # Default: incremental; _reindex_incremental falls back to full when store is empty/new
         _reindex_incremental(con, db, cfg, chunks)
         return
     try:
@@ -252,12 +253,15 @@ def _reindex_incremental(con, db, cfg, chunks, *, quiet=False):
         _vs.upsert(db, _chunk_rows(chunks, vecs, cfg, len(vecs[0]) if vecs else 0))
         if not quiet:
             out(_c(f"✓ indexed {len({c[0] for c in chunks})} node(s) ({len(chunks)} chunks)", "done"))
+            if _vs.backend_name(db) == "sqlite":
+                out(_c("  (sqlite fallback backend — install the 'semantic' extra "
+                       "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
         return True
     if im[0] != cfg["model"]:
         if quiet:
             return False                 # model changed → needs a full rebuild; don't churn here
         sys.exit(f"✗ index was built with model '{im[0]}' but config is '{cfg['model']}' — "
-                 f"run a full `wl reindex` (without --incremental) to rebuild with the new model")
+                 f"run `wl reindex --full` to rebuild with the new model")
     by_node, cur_text = {}, {}
     for c in chunks:
         by_node.setdefault(c[0], []).append(c)

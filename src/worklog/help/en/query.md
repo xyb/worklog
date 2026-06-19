@@ -22,8 +22,9 @@ Fusion**. Each hit shows its matching chunk (`↳ …`), query terms highlighted
 
 `--threshold` filters the *semantic* side; keyword matches still surface regardless.
 
-First run `wl reindex` to build the index — `wl query` reads what it builds, and won't see
-nodes added since the last reindex until you rebuild.
+Run `wl reindex` to build or update the index — `wl query` reads what it builds. The first
+`wl reindex` does a full build; subsequent runs are incremental (only new/changed nodes).
+Use `wl reindex --full` to force a complete rebuild, e.g. after switching embedding models.
 
 Backends degrade gracefully, so this works with **no** required extras: the vector store is
 LanceDB when the optional `semantic` extra is installed (`pip install 'pyworklog[semantic]'`,
