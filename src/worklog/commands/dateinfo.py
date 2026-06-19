@@ -13,6 +13,7 @@ from .views import _cn_weekday, _date_label
 from .output import output_format
 
 
+@output_format
 def cmd_dateinfo(args, con):
     """Date metadata: holiday / vacation / working-day-swap label. Set one / batch-import a yearly holiday table / list."""
     if args.import_file:
@@ -25,24 +26,30 @@ def cmd_dateinfo(args, con):
             n += 1
         con.commit()
         out(_c(f"✓ imported {n} date metadata entries", "meta"))
-        return
+        return {"imported": n}
     if args.date and args.label:
         _db.upsert(con, "date_meta", {"date": args.date, "label": args.label}, key=("date",))
         con.commit()
         out(_c(f"✓ {args.date} {_cn_weekday(args.date)} · {args.label}", "meta"))
-        return
+        return {"date": args.date, "label": args.label}
     if args.date and args.clear:
-        _db.delete(con, "date_meta", date=args.date)
+        n = _db.delete(con, "date_meta", date=args.date)
         con.commit()
-        out(_c(f"✓ cleared metadata for {args.date}", "meta"))
-        return
+        out(_c(f"✓ cleared metadata for {args.date}", "meta") if n
+            else _c(f"({args.date} had no metadata)", "meta"))
+        return {"date": args.date, "cleared": n}
     # no args / only date: list
     if args.date:
         lbl = _date_label(con, args.date)
         out(_c(f"{args.date} {_cn_weekday(args.date)}" + (f" · {lbl}" if lbl else " (no label)"), "meta"))
+        return {"date": args.date, "label": lbl}
+    rows = _db.query(con, "date_meta", cols="date, label", order="date")
+    if not rows:
+        out(_c("(no date metadata)", "meta"))
     else:
-        for r in _db.query(con, "date_meta", cols="date, label", order="date"):
+        for r in rows:
             out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
+    return [{"date": r["date"], "label": r["label"]} for r in rows]
 
 
 @output_format
@@ -84,6 +91,7 @@ def cmd_date_rm(args, con):
     return {"date": args.date, "cleared": n}
 
 
+@output_format
 def cmd_date_import(args, con):
     """Batch-import a {"YYYY-MM-DD": "label"} JSON table (= `wl dateinfo --import`).
     `-` reads stdin."""
@@ -96,6 +104,7 @@ def cmd_date_import(args, con):
         n += 1
     con.commit()
     out(_c(f"✓ imported {n} date metadata entries", "meta"))
+    return {"imported": n}
 
 
 def cmd_date_group(args, con):

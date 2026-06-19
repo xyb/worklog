@@ -28,14 +28,15 @@ def cmd_sched(args, con):
         con.commit()
         return {"cleared": total}
     if not args.when and not args.recur:
-        # if multiple ids, show schedule for each (caters to single-id scenario)
+        result = []
         for nid in ids:
             rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
             if not rows:
                 out(_c(f"#{nid} has no schedule", "meta"))
             for r in rows:
                 out("  " + _c(f"#{nid} @" + (r["on_date"] or r["rrule"]), "planned"))
-        return None
+                result.append({"node_id": nid, "on_date": r["on_date"], "rrule": r["rrule"]})
+        return result
     if args.recur:
         try:
             rule = _norm_rrule(args.recur)

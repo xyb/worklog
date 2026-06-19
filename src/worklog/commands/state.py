@@ -407,7 +407,7 @@ def cmd_start(args, con):
     for nid in started:
         out(f"✓ #{nid} → DOING, clocked in{note}")
     if not started:
-        return None
+        return []
     from .query import _node_summary_dict
     return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in started]
 
@@ -728,6 +728,7 @@ def cmd_tag_group(args, con):
         sys.exit("✗ usage: wl tag <id> +x -y  |  wl tag <add|ls|rm> … (see `wl tag --help`)")
     {"add": cmd_tag, "ls": cmd_tag_ls, "rm": cmd_tag_rm}[sub](args, con)
 
+@output_format
 def cmd_tick(args, con):
     """Quick check-in: add a log for today to one or more nodes (default body='✓ done', overridable with --note).
     --done also marks the node DONE. Bulk habit check-in: `wl tick 39 40 41 --note "..."`."""
@@ -737,15 +738,18 @@ def cmd_tick(args, con):
     note = (args.note or "").strip()
     body = note if note else "✓ done"
     today = _tu.today()
+    result = []
     for nid in ids:
         log_id = _insert_log(con, nid, body)
         # structured "done today" signal (one per node per day) — not "a log exists"
         checkin_metric(con, log_id, nid, today)
         if args.done:
             _db.update(con, "node", nid, {"status": "DONE", "closed_at": _tu.utc_now()})
+        result.append({"node_id": nid, "log_id": log_id, "done": args.done})
     con.commit()
     for nid in ids:
         out(_c(f"✓ #{nid} checked in", "meta") + (_c(" + DONE", "done") if args.done else ""))
+    return result
 
 @output_format
 def cmd_wait(args, con):
@@ -905,7 +909,7 @@ def cmd_relog(args, con):
         new_body = _edit_in_editor(row["body"], suffix=".log.txt")
         if new_body is None or new_body.strip() == row["body"]:
             out(_c("(no change; relog canceled)", "meta"))
-            return
+            return {"id": log_id, "canceled": True}
         new_body = new_body.strip()
 
     changes = {}
@@ -962,6 +966,7 @@ def cmd_log_show(args, con):
             "body": row["body"], "logged_at": row["logged_at"]}
 
 
+@output_format
 def cmd_retag(args, con):
     """Change one log's `tag` directly (`wl retag #L282 goal`). The tag classifies a log's
     role (goal / summary / a custom marker); a plain note has no tag. Passing `note` / `none`
@@ -974,6 +979,7 @@ def cmd_retag(args, con):
     _db.update(con, "log", args.log_id, {"tag": new})
     con.commit()
     out(_c("✓", "done") + " " + _c(f"#L{args.log_id}", "id") + f" tag → {new or 'note'}")
+    return {"log_id": args.log_id, "tag": new}
 
 
 def cmd_log_group(args, con):
@@ -1124,6 +1130,7 @@ def _edit_in_editor(initial_text, suffix=".txt"):
 
 
 
+@output_format
 def cmd_node_reparent(args, con):
     """Move a node under a new parent — changes the real `parent_id`,
     not a UDA prop. 'none'/'root'/0 detaches to the top level. Refuses a cycle (the new
@@ -1149,6 +1156,7 @@ def cmd_node_reparent(args, con):
     con.commit()
     where = "the top level" if new_parent is None else f"#{new_parent}"
     out(_c(f"✓ #{nid} moved under {where}", "meta"))
+    return {"node_id": nid, "parent_id": new_parent}
 
 
 @output_format
@@ -1510,10 +1518,10 @@ def _agent_rm(args, con):
 def _agent_context(args, con):
     # Machine output for integrations (the context hook): a `<node_id>\t<title>` line, or
     # with --hook the ready-to-emit UserPromptSubmit JSON (so the hook needs no `jq`). Empty
-    # when unbound. Plain print (not `out`) — consumed by scripts, not rendered.
+    # when unbound. Plain print (not out()) — consumed by scripts; title can contain Rich
+    # markup chars like [tag] that out() would mangle.
     sid = _current_session_id()
     print(_agent_hook_json(con, sid) if getattr(args, "hook", False) else _agent_context_line(con, sid))
-    return
 
 @output_format
 def _agent_show(args, con):
@@ -1528,18 +1536,18 @@ def _agent_show(args, con):
     idstr = f"#{row['node_id']}"
     if render.is_plain():
         out(f"{idstr} ← {agent}:{sid} · {title}")    # plain: full sid + full title, no truncation
-        return {"node_id": row["node_id"], "title": title, "agent": agent, "session_id": sid}
-    # interactive: full sid when it fits leaving the title room; shrink uniformly when tight
-    base = len(idstr) + len(" ← ") + len(agent) + 1 + len(" · ")
-    MIN_TITLE = 16
-    sidlen = len(sid)
-    if base + sidlen + MIN_TITLE > _term_width():
-        sidlen = max(8, _term_width() - base - MIN_TITLE)
-    sid_show = sid if len(sid) <= sidlen else sid[:sidlen - 1] + "…"
-    seg = f"{agent}:{sid_show}"
-    prefix_plain = f"{idstr} ← {seg} · "
-    shown = _truncate_log_body(title, indent_cols=_display_width(prefix_plain), full=False)
-    out(_c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + shown)
+    else:
+        # interactive: full sid when it fits leaving the title room; shrink uniformly when tight
+        base = len(idstr) + len(" ← ") + len(agent) + 1 + len(" · ")
+        MIN_TITLE = 16
+        sidlen = len(sid)
+        if base + sidlen + MIN_TITLE > _term_width():
+            sidlen = max(8, _term_width() - base - MIN_TITLE)
+        sid_show = sid if len(sid) <= sidlen else sid[:sidlen - 1] + "…"
+        seg = f"{agent}:{sid_show}"
+        prefix_plain = f"{idstr} ← {seg} · "
+        shown = _truncate_log_body(title, indent_cols=_display_width(prefix_plain), full=False)
+        out(_c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + shown)
     return {"node_id": row["node_id"], "title": title, "agent": agent, "session_id": sid}
 
 def cmd_agent(args, con):

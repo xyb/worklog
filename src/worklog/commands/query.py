@@ -141,20 +141,19 @@ def _node_summary_dict(con, n):
 @output_format
 def cmd_show(args, con):
     ids = _ids_list(args)
-    # build JSON result (used in JSON mode; computed regardless so we can return it)
-    nodes = []
-    for nid in ids:
-        n = _db.get(con, "node", nid)
-        if not n:
-            sys.exit(f"✗ node #{nid} not found")
-        nodes.append(_node_to_dict(con, n))
-    # multiple ids: show each in turn, blank-line separated; same rendering
+    if getattr(args, "output", "text") == "json":
+        nodes = []
+        for nid in ids:
+            n = _db.get(con, "node", nid)
+            if not n:
+                sys.exit(f"✗ node #{nid} not found")
+            nodes.append(_node_to_dict(con, n))
+        return nodes[0] if len(nodes) == 1 else nodes
     for i, nid in enumerate(ids):
         if i > 0:
             out("")
         args.id = nid
         _show_one(args, con)
-    return nodes[0] if len(nodes) == 1 else nodes
 
 def _ls_ids(con, args):
     """`wl ls --ids 1 2 3`: list specific nodes directly (like `ls file1 file2`), skipping filters.
@@ -267,9 +266,10 @@ def cmd_ls(args, con):
     # default limit 20 (avoids flooding on bare ls); --all / --limit 0 removes it; --limit N / --top N is explicit
     explicit_limit = getattr(args, "limit", None)
     explicit_top = getattr(args, "top", None)
+    _ls_args = args
     if explicit_limit is None and explicit_top is None and not args.all:
-        args.limit = 20  # default 20 injected into args so _apply_top_limit sees it
-    rows, total = _apply_top_limit(rows, args)
+        _ls_args = argparse.Namespace(**{**vars(args), "limit": 20})  # don't mutate caller's args
+    rows, total = _apply_top_limit(rows, _ls_args)
     if len(rows) < total:
         out(_c(f"(showing {len(rows)}/{total}; --limit N to adjust / --all to see all)", "meta"))
 
@@ -381,12 +381,6 @@ def cmd_focus(args, con):
 
     chain = _ancestors_chain(con, args.id)
     upstream = chain[:-1]
-    children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
-    json_result = {
-        "node": _node_summary_dict(con, n),
-        "upstream": [{"id": p["id"], "title": p["title"], "type": node_type(con, p)} for p in upstream],
-        "downstream": [_node_summary_dict(con, c) for c in children],
-    }
 
     # upstream path (excludes self)
     if upstream:
@@ -407,6 +401,7 @@ def cmd_focus(args, con):
         children = []  # for the related-section exclude set below
         pinned = []
     else:
+        children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
         # a time node's @-pinned tasks (scheduled_date == its title) hang under their
         # project, not here — surface them too so focus on a month/week shows them
         inc_cancel = getattr(args, "show_canceled", False)
@@ -436,7 +431,11 @@ def cmd_focus(args, con):
                     out(_node_line(con, r, indent="  "))
             else:
                 out(_c(f"related (tag {'/'.join(sem_tags)}): (no other nodes)", "meta"))
-    return json_result
+    return {
+        "node": _node_summary_dict(con, n),
+        "upstream": [{"id": p["id"], "title": p["title"], "type": node_type(con, p)} for p in upstream],
+        "downstream": [_node_summary_dict(con, c) for c in children] + [_node_summary_dict(con, p) for p in pinned],
+    }
 
 @output_format
 def cmd_ancestors(args, con):
@@ -963,7 +962,8 @@ def cmd_summary(args, con):
 
 def _render_logs(con, args, rows):
     """Render fetched log rows in text mode: --group day (day-view grouping), --by-task
-    (per-task last-N), or the flat one-line-per-log list. Tail/brief/limit all resolved here."""
+    (per-task last-N), or the flat one-line-per-log list. Tail/brief/limit all resolved here.
+    Returns the (possibly tail/limit-sliced) rows so the caller can use them for JSON output."""
     brief = _is_brief(args, "no_body")
     by_task = getattr(args, "by_task", False)
     grouped = getattr(args, "group", "none") == "day"
@@ -987,7 +987,7 @@ def _render_logs(con, args, rows):
                               sched_ids=_scheduled_node_ids(con, d), log_tail=log_tail,
                               full=_log_full(args))
             out("")
-        return
+        return rows
 
     if by_task:
         # aggregate by task: last N per task (default all)
@@ -1018,7 +1018,7 @@ def _render_logs(con, args, rows):
                 # --by-task indent "    [YYYY-MM-DD HH:MM:SS] " ~ 26 cols
                 body = _truncate_log_body(r["body"], indent_cols=26, full=_log_full(args))
                 out("    " + _c(f"[{_tu.utc_to_local(r['logged_at'])}]", "meta") + " " + _c(body))
-        return
+        return rows
 
     # --tail N also works in --id single-task mode (consistent with --by-task tail)
     # without --by-task, tail directly slices the flat list tail, coordinating with _apply_top_limit
@@ -1047,6 +1047,7 @@ def _render_logs(con, args, rows):
             body_indent = fixed_w + _display_width(title_disp)
             body = _truncate_log_body(r["body"], indent_cols=body_indent, full=_log_full(args))
             out(_c(f"[{lat}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"'{title_disp}': {body}"))
+    return rows
 
 
 
@@ -1131,7 +1132,7 @@ def cmd_logs(args, con):
             out(_c(f"(no logs {' '.join(hint)})", "meta"))
         return _logs_json_data(rows)
 
-    _render_logs(con, args, rows)
+    rows = _render_logs(con, args, rows)
     return _logs_json_data(rows)
 # --- completion generator (argparse -> fish/bash/zsh) ---
 # loaded via ~/.config/<shell>/<config> | source pattern; does not write a persistent file

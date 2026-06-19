@@ -142,8 +142,7 @@ def cmd_summary_prop(args, con):
         label = "today"
     nid = _ensure_day(con, d)
     if getattr(args, "diff", False):
-        _recap_diff(con, nid, d.isoformat(), label)
-        return None
+        return _recap_diff(con, nid, d.isoformat(), label)
     if not args.text:
         row = _latest_typed_log(con, nid, "summary")
         if not row or not row["body"]:
@@ -164,11 +163,12 @@ def _recap_diff(con, nid, day_iso, label):
     written — the same set `wl day`'s '⚠ N change(s) after recap' counts (tag IS NULL,
     logged_at > the summary's write time), minus metric-carrier logs (checkin / tick /
     `metric add`), which are tracking noise, not missed prose. Lets you judge whether real
-    content was logged after recapping (rewrite) vs only cross-day status/clock churn (skip)."""
+    content was logged after recapping (rewrite) vs only cross-day status/clock churn (skip).
+    Returns structured data (for -o json callers)."""
     row = _latest_typed_log(con, nid, "summary")
     if not row or not row["body"]:
         out(_c(f"(no recap for {label} — nothing to diff)", "meta"))
-        return
+        return {"recap_at": None, "changes": []}
     at = row["logged_at"]
     when = _tu.utc_to_local(at)[5:16] if at else "?"
     rows = con.execute(
@@ -181,8 +181,9 @@ def _recap_diff(con, nid, day_iso, label):
     ).fetchall()
     if not rows:
         out(_c(f"(no changes after {label}'s recap, written {when})", "meta"))
-        return
+        return {"recap_at": at, "changes": []}
     out(_c(f"{len(rows)} change(s) after {label}'s recap (written {when}) — judge: real content → rewrite via wl recap; only churn → skip", "doing"))
+    result_rows = []
     for r in rows:
         node = _db.get(con, "node", r["node_id"])
         title = node["title"] if node else "?"
@@ -190,11 +191,15 @@ def _recap_diff(con, nid, day_iso, label):
         out("  " + _c(f"#L{r['id']}", "id") + " "
             + _c(f"[{_tu.utc_to_local(r['logged_at'])[11:16]}]", "meta") + " "
             + _c(f"#{r['node_id']} '{title}'", "meta") + ": " + body)
+        result_rows.append({"log_id": r["id"], "node_id": r["node_id"], "title": title,
+                             "logged_at": r["logged_at"], "body": r["body"]})
+    return {"recap_at": at, "changes": result_rows}
 
 
 # --- goal group: set / ls / rm for the reserved-tag logs (goal / summary) on ANY node.
 # `wl set <node> <key>` routes here as a documented shortcut (parallel to `wl set` → `wl prop
 # set`); bare `wl goal` / `wl recap` are the today-auto shortcuts. ---
+@output_format
 def cmd_goal_set(args, con):
     """Set a goal (or summary, via --summary) on a node — the create/update verb of the goal
     group. Each write appends a reserved-tag log (history kept; latest is current). `--ids`
@@ -205,7 +210,7 @@ def cmd_goal_set(args, con):
         if args.value:
             sys.exit("✗ give a goal text OR --ids <ids>, not both")
         _set_goal_targets(con, args.id, set_ids)
-        return
+        return {"node_id": args.id, "targets": set_ids}
     if not args.value:
         sys.exit('✗ need a goal/summary text (or --ids <ids> to set targets on the current goal)')
     field = "summary" if getattr(args, "summary", False) else "goal"
@@ -222,6 +227,7 @@ def cmd_goal_set(args, con):
     if field == "goal":
         _goal_id_hint(con, args.value, goals,
                       f"wl goal set {args.id} --ids", f'wl goal set {args.id} "{args.value}"')
+    return {"node_id": args.id, "field": field, "log_id": log_id, "body": args.value, "logged_at": at}
 
 
 @output_format
@@ -234,19 +240,17 @@ def cmd_goal_ls(args, con):
         row = _latest_typed_log(con, args.id, field)
         if row and row["body"]:
             result[field] = {"body": row["body"], "logged_at": row["logged_at"]}
-    shown = False
     for field in _RESERVED_LOG_TAGS:
-        row = _latest_typed_log(con, args.id, field)
-        if row and row["body"]:
-            shown = True
-            out(_c(f"  #{args.id} {field}", "id") + _c(": ", "meta") + row["body"])
-            if field == "goal":          # list the goal's structured targets, same as wl day
+        if field in result:
+            out(_c(f"  #{args.id} {field}", "id") + _c(": ", "meta") + result[field]["body"])
+            if field == "goal":
                 _emit_goal_targets(con, args.id, indent="       ")
-    if not shown:
+    if not result:
         out(_c(f"#{args.id} has no goal / summary", "meta"))
     return result
 
 
+@output_format
 def cmd_goal_rm(args, con):
     """Clear a node's goal (or summary, via --summary) — the delete verb of the goal group.
     Soft-deletes the field's typed logs (reversible). Also reachable as `wl unset <node> <key>`."""
@@ -256,6 +260,7 @@ def cmd_goal_rm(args, con):
     con.commit()
     out(_c(f"✓ #{args.id} {field} cleared ({n} log(s))" if n
            else f"(#{args.id} has no {field})", "meta"))
+    return {"node_id": args.id, "field": field, "cleared": n}
 
 
 def cmd_goal_group(args, con):
