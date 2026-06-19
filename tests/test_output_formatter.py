@@ -145,9 +145,21 @@ class TestJSONFormatter:
         fmt.emit(None)
         assert json.loads(capsys.readouterr().out) is None
 
-    def test_teardown_clears_error_formatter(self):
+    def test_teardown_restores_previous_error_formatter(self):
+        # Without an outer context, teardown restores to None.
         fmt = JSONFormatter()
         fmt.setup()
         fmt.teardown()
-        # After teardown, die() should emit plain text, not RFC 9457
+        assert _render._active_error_formatter is None
+
+    def test_nested_setup_teardown_restores_outer(self):
+        # Inner teardown must not clobber outer formatter (main() + @output_format nesting).
+        outer = JSONFormatter()
+        outer.setup()
+        inner = JSONFormatter()
+        inner.setup()
+        inner.teardown()
+        # After inner teardown, outer's format_error is back.
+        assert _render._active_error_formatter is JSONFormatter.format_error
+        outer.teardown()
         assert _render._active_error_formatter is None

@@ -17,7 +17,7 @@ import json
 import sys
 from functools import wraps
 
-from ..render import set_suppress_output, set_active_error_formatter
+from ..render import set_suppress_output, set_active_error_formatter, get_active_error_formatter
 
 
 class Formatter:
@@ -66,13 +66,17 @@ class JSONFormatter(Formatter):
             "detail": str(msg),
         }, ensure_ascii=False), file=sys.stderr)
 
+    def __init__(self) -> None:
+        self._saved_error_formatter = None
+
     def setup(self) -> None:
+        self._saved_error_formatter = get_active_error_formatter()
         set_active_error_formatter(JSONFormatter.format_error)
         set_suppress_output(True)
 
     def teardown(self) -> None:
         set_suppress_output(False)
-        set_active_error_formatter(None)
+        set_active_error_formatter(self._saved_error_formatter)
 
     def emit(self, data) -> None:
         print(json.dumps(data, ensure_ascii=False, indent=2))

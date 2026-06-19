@@ -9,7 +9,6 @@ would not follow mutations).
 """
 from __future__ import annotations
 
-import json
 import os
 import re
 import sys
@@ -181,11 +180,17 @@ def set_suppress_output(flag: bool) -> None:
     _SUPPRESS_DEPTH += 1 if flag else -1
 
 
+def get_active_error_formatter():
+    """Return the current error-formatting callback (None = plain text)."""
+    return _active_error_formatter
+
+
 def set_active_error_formatter(fn) -> None:
     """Register the error-formatting callback for die().
 
-    Called by Formatter.setup() / teardown() — not by application code directly.
-    Pass None to restore plain-text error output.
+    Formatters should save the previous value in setup() and restore it in
+    teardown() so nested formatters (e.g. main() + @output_format) don't
+    clobber each other's state.
     """
     global _active_error_formatter
     _active_error_formatter = fn
