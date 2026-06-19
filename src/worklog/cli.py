@@ -936,6 +936,7 @@ More: `wl help prop`.""")
         description="Remove a UDA prop (soft-delete the row). Also: the top-level shortcut `wl unset`."))
 
     ag = sub.add_parser("agent",
+        parents=[output_parent],
         help="bind the current AI agent session to a task: wl agent <id> (set) / wl agent (show) / wl agent ls / wl agent rm",
         description="Bind the current AI agent session to a node so the agent knows which task it's on and the status line / hook context can surface it. Stored as an `agent_session.<agent>` prop on the node (agent = claude / cursor / codex / …, from $WL_AGENT or --agent, default claude) — no new table. `wl agent <id>` is the set shortcut (default verb).",
         formatter_class=_WlHelpFormatter,
@@ -1010,7 +1011,8 @@ Create intervals with the composite helpers:
   - wl start 42 / wl stop 42          live timing
   - wl spent 42 90m                   record a past duration""")
     _cksub = ck.add_subparsers(dest="clock_sub")
-    _cksub.add_parser("ls", help="list a node's clock intervals").add_argument("id", type=int)
+    _ckls = _cksub.add_parser("ls", parents=[output_parent], help="list a node's clock intervals")
+    _ckls.add_argument("id", type=int)
     _cke = _cksub.add_parser("edit", help="edit an interval's start/end (recomputes duration)")
     _cke.add_argument("clock_id", type=int, metavar="clock_id")
     _cke.add_argument("--start", help="new start (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
@@ -1312,6 +1314,7 @@ Planning rhythm (all optional, all history-preserving):
     _grm.add_argument("--summary", action="store_true", help="clear the summary instead of the goal")
 
     rc = sub.add_parser("recap",
+        parents=[output_parent],
         help="read/write a day's end-of-day summary — what actually happened (history-preserving)",
         description="Read or write a day's end-of-day summary — a short reflection on what actually happened. Stored as the day node's `summary` reserved-tag log (history-preserving); the write time is recorded so `wl day` can warn if you log more after recapping. The evening counterpart to `wl goal`.",
         formatter_class=_WlHelpFormatter,

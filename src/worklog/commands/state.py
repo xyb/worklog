@@ -1416,7 +1416,10 @@ def _agent_set(args, con):
 def _agent_ls(args, con):
     rows = _db.query(con, "prop", cols="node_id, key, value", key__like=_AGENT_PREFIX + "%")
     if not rows:
-        out(_c("(no session bindings)", "meta"))
+        if _is_json(args):
+            _emit_json([])
+        else:
+            out(_c("(no session bindings)", "meta"))
         return
     # two time axes per binding: `act` = node's latest log/update time (most-recently-worked);
     # `bound` = when this session was bound to the node (latest agent_session bind-history log).
@@ -1437,6 +1440,9 @@ def _agent_ls(args, con):
     by = getattr(args, "by", "active")
     keyf = (lambda it: it["bound"] or it["act"]) if by == "bound" else (lambda it: it["act"])
     items.sort(key=keyf, reverse=True)                 # most-recent (by chosen axis) first
+    if _is_json(args):
+        _emit_json(items)
+        return
     plain = render.is_plain()
     # plain/piped or --all → show all (a script needs the lot); else elide older to avoid flood
     show_all = plain or getattr(args, "all", False)
@@ -1494,10 +1500,16 @@ def _agent_show(args, con):
     sid = _agent_need_sid()
     row = _db.query_one(con, "prop", cols="node_id, key", key__like=_AGENT_PREFIX + "%", value=sid)
     if not row:
-        out(_c(f"(session {sid[:8]}… 未绑定任何任务)", "meta"))
+        if _is_json(args):
+            _emit_json(None)
+        else:
+            out(_c(f"(session {sid[:8]}… 未绑定任何任务)", "meta"))
         return
     agent = row["key"][len(_AGENT_PREFIX):]
     title = (_db.get(con, "node", row["node_id"]) or {})["title"]
+    if _is_json(args):
+        _emit_json({"node_id": row["node_id"], "title": title, "agent": agent, "session_id": sid})
+        return
     idstr = f"#{row['node_id']}"
     if render.is_plain():
         out(f"{idstr} ← {agent}:{sid} · {title}")    # plain: full sid + full title, no truncation
@@ -1527,6 +1539,10 @@ def cmd_clock_ls(args, con):
     """List a node's clock intervals (start → end, duration). Read primitive for clock."""
     _require_node(con, args.id)
     rows = _db.query(con, "clock", cols="id, start_at, end_at, elapsed_sec", node_id=args.id, order="id")
+    if _is_json(args):
+        _emit_json([{"id": r["id"], "start_at": r["start_at"], "end_at": r["end_at"],
+                     "elapsed_sec": r["elapsed_sec"]} for r in rows])
+        return
     if not rows:
         out(_c(f"(#{args.id} has no clock intervals)", "meta"))
         return

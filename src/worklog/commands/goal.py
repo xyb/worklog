@@ -146,6 +146,9 @@ def cmd_summary_prop(args, con):
         return
     if not args.text:
         row = _latest_typed_log(con, nid, "summary")
+        if _is_json(args):
+            _emit_json({"body": row["body"], "logged_at": row["logged_at"]} if (row and row["body"]) else None)
+            return
         if not row or not row["body"]:
             out(_c(f"(no summary set for {label})", "meta"))
             return
