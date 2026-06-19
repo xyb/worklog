@@ -17,7 +17,7 @@ from difflib import get_close_matches
 from pathlib import Path
 
 from .. import render as _render
-from ..render import _c, out
+from ..render import _c, die, out
 from ..helpers import _cw
 
 HELP_DIR = Path(__file__).resolve().parent.parent / "help"
@@ -520,10 +520,10 @@ def cmd_help(args, con=None):
     if p is None:
         known = list(_list_topics(lang))
         near = get_close_matches(topic, known, n=3, cutoff=0.5)
-        msg = f"✗ no help topic '{topic}'"
+        msg = f"no help topic '{topic}'"
         if near:
             msg += " — did you mean: " + ", ".join(near) + "?"
         msg += "\n  run `wl help` for the topic list"
-        sys.exit(msg)
+        die(msg)
     meta, body = _parse_doc(p.read_text(encoding="utf-8"))
     _render_topic(topic, meta, body, lang)

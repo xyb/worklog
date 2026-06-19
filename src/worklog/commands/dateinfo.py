@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from .. import db_table as _db
-from ..render import _c, out
+from ..render import _c, die, out
 from .views import _cn_weekday, _date_label
 from .output import output_format
 
@@ -113,6 +113,6 @@ def cmd_date_group(args, con):
     is the polymorphic everyday shortcut over the same date_meta table."""
     sub = getattr(args, "date_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl date <set|ls|rm|import> … (see `wl date --help`)")
+        die("usage: wl date <set|ls|rm|import> … (see `wl date --help`)")
     {"set": cmd_date_set, "ls": cmd_date_ls, "rm": cmd_date_rm,
      "import": cmd_date_import}[sub](args, con)

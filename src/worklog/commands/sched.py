@@ -7,7 +7,7 @@ from .. import timeutil as _tu
 from .. import db_table as _db
 from ..queries import _check_ids_exist
 from ..helpers import _resolve_concrete_date
-from ..render import _c, out
+from ..render import _c, die, out
 from .state import _ids_list
 from .views import _WEEKDAY_ABBR
 from .output import output_format
@@ -41,7 +41,7 @@ def cmd_sched(args, con):
         try:
             rule = _norm_rrule(args.recur)
         except ValueError as e:
-            sys.exit(f"✗ {e}")
+            die(f"{e}")
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, rrule) row
             exists = _db.exists(con, "sched", node_id=nid, rrule=rule)
@@ -56,7 +56,7 @@ def cmd_sched(args, con):
         try:
             d = _resolve_concrete_date(args.when)
         except ValueError:
-            sys.exit(f"✗ invalid date '{args.when}' — sched takes a concrete day: YYYY-MM-DD / "
+            die(f"invalid date '{args.when}' — sched takes a concrete day: YYYY-MM-DD / "
                      f"today / tomorrow / day-after-tomorrow / +1 / -2w / next-week / next-month / "
                      f"next-quarter (resolved to the period's first day). For 'someday' use `wl defer`.")
         for nid in ids:
@@ -109,7 +109,7 @@ def cmd_sched_group(args, con):
     lists, `rm` clears. `wl defer` (status=LATER + rough hint) stays its own command."""
     sub = getattr(args, "sched_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl sched <id> <when>  |  wl sched <add|ls|rm> … (see `wl sched --help`)")
+        die("usage: wl sched <id> <when>  |  wl sched <add|ls|rm> … (see `wl sched --help`)")
     {"add": cmd_sched, "ls": cmd_sched_ls, "rm": cmd_sched_rm}[sub](args, con)
 
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import sys
 
-from ..render import _c, out
+from ..render import _c, die, out
 from ..xdg import _resolve_aliases_path
 
 # Lazy access to the cli module (for HANDLERS) — at call time, to avoid the cli ↔ commands cycle.
@@ -51,13 +51,13 @@ def cmd_alias_add(args, con):
     effect on the next wl invocation (aliases are wired into the parser at startup)."""
     name, target = args.name.strip(), args.target.strip()
     if not name or not target:
-        sys.exit("✗ alias name and target are both required")
+        die("alias name and target are both required")
     valid = set(_cli.HANDLERS)
     cmd = target.split()[0]   # the target may carry args; only its first word is the command
     if cmd not in valid:
-        sys.exit(f"✗ unknown command '{cmd}' — an alias target must start with a wl command")
+        die(f"unknown command '{cmd}' — an alias target must start with a wl command")
     if name in valid:
-        sys.exit(f"✗ '{name}' is already a wl command — an alias can't shadow it")
+        die(f"'{name}' is already a wl command — an alias can't shadow it")
     cfg, p = _read_aliases_cfg()
     cfg["aliases"][name] = target
     _write_aliases_cfg(cfg, p)
@@ -80,5 +80,5 @@ def cmd_alias(args, con):
     """Dispatch `wl alias <add|ls|rm>` — manage command aliases in aliases.ini."""
     sub = getattr(args, "alias_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl alias <add|ls|rm> … (see `wl alias --help`)")
+        die("usage: wl alias <add|ls|rm> … (see `wl alias --help`)")
     {"add": cmd_alias_add, "ls": cmd_alias_ls, "rm": cmd_alias_rm}[sub](args, con)

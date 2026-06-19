@@ -79,6 +79,7 @@ from ..render import (
     _resolve_theme,
     THEMES,
     _c,
+    die,
     _hl,
     _pri_marker,
     _node_line,
@@ -139,7 +140,7 @@ def _add_sched(con, node_id, args):
     try:
         d = _resolve_concrete_date(args.sched)
     except ValueError:
-        sys.exit(f"✗ invalid --sched date '{args.sched}' (use YYYY-MM-DD / today / tomorrow / day-after-tomorrow / yesterday)")
+        die(f"invalid --sched date '{args.sched}' (use YYYY-MM-DD / today / tomorrow / day-after-tomorrow / yesterday)")
     _db.insert(con, "sched", {"node_id": node_id, "on_date": d, "created_at": _tu.utc_now()})
     return " " + _c(f"@{d}", "planned")
 
@@ -202,7 +203,7 @@ def _add_log_and_metrics(con, node_id, args, at_ts):
 @output_format
 def cmd_add(args, con):
     if not args.title or not args.title.strip():
-        sys.exit("✗ title cannot be empty")
+        die("title cannot be empty")
     args.title = args.title.strip()
     # The node's classification is the type.* props written below. `para` is just a local token
     # for the duplicate-check + the echo line: --para names a PARA role; otherwise a bare add is a
@@ -210,7 +211,7 @@ def cmd_add(args, con):
     # props actually written).
     para = getattr(args, "para", None)
     if args.sched and args.scheduled:
-        sys.exit("✗ --sched (precise, writes sched table) and --scheduled (rough hint, writes node.scheduled_date) are mutually exclusive; use --sched day-to-day")
+        die("--sched (precise, writes sched table) and --scheduled (rough hint, writes node.scheduled_date) are mutually exclusive; use --sched day-to-day")
     tags = [t.strip() for t in (args.tag or "").split(",") if t.strip()]
     props = {}
     if args.proj:
@@ -255,7 +256,7 @@ def cmd_add(args, con):
         try:
             at_ts = _resolve_at_ts(args.at)
         except ValueError as e:
-            sys.exit(f"✗ {e}")
+            die(f"{e}")
     closed_at = None
     if status == "DONE":
         closed_at = at_ts if at_ts else "__NOW__"  # placeholder, SQL below decides
@@ -263,7 +264,7 @@ def cmd_add(args, con):
     try:
         scheduled = _norm_sched(args.scheduled)
     except ValueError as e:
-        sys.exit(f"✗ {e}")
+        die(f"{e}")
 
     # created_at is always stamped (UTC); closed_at only when --done (now) or --done --at (a
     # resolved instant). One `now` read shared by both so a created-and-done task has
@@ -279,7 +280,7 @@ def cmd_add(args, con):
             closed_at=(now if closed_at == "__NOW__" else (closed_at or None)),
             para=para, props=props)
     except ValueError as e:
-        sys.exit(f"✗ {e}")
+        die(f"{e}")
     for t in tags:
         _db.upsert(con, "tag", {"node_id": node_id, "tag": t}, key=("node_id", "tag"))
     # creation-time side effects, each returning its echo hint (order fixed by the output line below)
@@ -315,7 +316,7 @@ def cmd_add(args, con):
 def cmd_log(args, con):
     _require_node(con, args.id)
     if not args.body or not args.body.strip():
-        sys.exit("✗ log body cannot be empty")
+        die("log body cannot be empty")
     args.body = args.body.strip()
     date = getattr(args, "date", None)
     time_ = getattr(args, "time", None)
@@ -326,7 +327,7 @@ def cmd_log(args, con):
     try:
         log_id = _insert_log(con, args.id, entry)
     except ValueError as e:
-        sys.exit(f"✗ invalid date: {e}")
+        die(f"invalid date: {e}")
     # auto TODO -> DOING (when no --date, "I logged something" implies "I'm working on it")
     # backfilling history (--date) does not change status; --keep-status explicitly disables
     auto_progress_hint = ""
@@ -374,7 +375,7 @@ def cmd_defer(args, con):
     try:
         when = _norm_sched(args.date)
     except ValueError as e:
-        sys.exit(f"✗ {e}")
+        die(f"{e}")
     for nid in ids:
         _db.update(con, "node", nid, {"status": "LATER", "scheduled_date": when})
     con.commit()
@@ -391,7 +392,7 @@ def cmd_start(args, con):
     try:
         ts = _resolve_at_ts(getattr(args, "at", None))
     except ValueError as e:
-        sys.exit(f"✗ {e}")
+        die(f"{e}")
     note = f" @{_tu.utc_to_local(ts)[11:16]}" if getattr(args, "at", None) else ""
     started = []
     for nid in ids:
@@ -419,15 +420,15 @@ def cmd_stop(args, con):
     try:
         stop_ts = _resolve_at_ts(getattr(args, "at", None))
     except ValueError as e:
-        sys.exit(f"✗ {e}")
+        die(f"{e}")
     for nid in ids:
         row = _db.query_one(con, "clock", cols="id, start_at", node_id=nid, end_at=None, order="id DESC")
         if not row:
-            sys.exit(f"✗ no open clock for #{nid}")
+            die(f"no open clock for #{nid}")
         started = datetime.fromisoformat(row["start_at"])
         stopped = datetime.fromisoformat(stop_ts)
         if stopped < started:
-            sys.exit(f"✗ --at {stop_ts} is earlier than the clock start {row['start_at']} (#{nid})")
+            die(f"--at {stop_ts} is earlier than the clock start {row['start_at']} (#{nid})")
         secs = max(60, int((stopped - started).total_seconds()))  # floor at 1 min
         _db.update(con, "clock", row["id"], {"end_at": stop_ts, "elapsed_sec": secs})
         out(f"✓ #{nid} stopped, elapsed {secs // 60} min")
@@ -454,13 +455,13 @@ def cmd_spent(args, con):
     elif _re.fullmatch(r"\d+", s):
         mins = int(s)
     else:
-        sys.exit(f"✗ invalid duration '{s}': supported formats: 90 / 90m / 1h30m / 2h")
+        die(f"invalid duration '{s}': supported formats: 90 / 90m / 1h30m / 2h")
     if mins <= 0:
-        sys.exit("✗ duration must be > 0")
+        die("duration must be > 0")
     try:
         end_ts = _resolve_at_ts(getattr(args, "at", None))
     except ValueError as e:
-        sys.exit(f"✗ {e}")
+        die(f"{e}")
     end_dt = datetime.fromisoformat(end_ts)
     from datetime import timedelta as _td
     start_dt = end_dt - _td(minutes=mins)
@@ -478,7 +479,7 @@ def cmd_spent(args, con):
 def cmd_link(args, con):
     doc = _strip_wikilink(args.vault_doc)
     if not doc:
-        sys.exit("✗ vault_doc cannot be empty")
+        die("vault_doc cannot be empty")
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     for nid in ids:
@@ -498,7 +499,7 @@ def cmd_unlink(args, con):
     previously a mistaken link could only be cleared wholesale via `wl set links ''`."""
     doc = _strip_wikilink(args.vault_doc)
     if not doc:
-        sys.exit("✗ vault_doc cannot be empty")
+        die("vault_doc cannot be empty")
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     for nid in ids:
@@ -532,7 +533,7 @@ def _norm_relation_type(rtype):
     the `wl add --relation` spec parser."""
     rt = (rtype or "").strip().lower().replace("_", "-")
     if rt not in _RELATION_TYPES:
-        sys.exit(f"✗ unknown relation type '{rtype}' — use one of: " + ", ".join(_RELATION_TYPES))
+        die(f"unknown relation type '{rtype}' — use one of: " + ", ".join(_RELATION_TYPES))
     return rt
 
 
@@ -561,14 +562,14 @@ def _parse_relation_spec(spec):
     e.g. 'split-from 42' or 'related 42 43'."""
     parts = (spec or "").split()
     if len(parts) < 2:
-        sys.exit(f"✗ --relation '{spec}': need '<type> <id>' (e.g. 'split-from 42' / 'related 42 43')")
+        die(f"--relation '{spec}': need '<type> <id>' (e.g. 'split-from 42' / 'related 42 43')")
     rtype = _norm_relation_type(parts[0])
     ids = []
     for tok in parts[1:]:
         try:
             ids.append(int(tok.lstrip("#")))
         except ValueError:
-            sys.exit(f"✗ --relation '{spec}': '{tok}' is not a node id")
+            die(f"--relation '{spec}': '{tok}' is not a node id")
     return rtype, ids
 
 
@@ -597,9 +598,9 @@ def cmd_relation(args, con):
         try:
             others.append(int(s))
         except ValueError:
-            sys.exit(f"✗ '{raw}' is not a node id")
+            die(f"'{raw}' is not a node id")
     if not others:
-        sys.exit(f"✗ give at least one related node id, e.g. `wl relation {args.id} {rtype} 42`")
+        die(f"give at least one related node id, e.g. `wl relation {args.id} {rtype} 42`")
     _check_ids_exist(con, others)
     rm = getattr(args, "rm", False)
     for o in others:
@@ -619,13 +620,13 @@ def cmd_relation(args, con):
 def cmd_set(args, con):
     _require_node(con, args.id)
     if not args.key or not args.key.strip():
-        sys.exit("✗ prop key cannot be empty")
+        die("prop key cannot be empty")
     args.key = args.key.strip()
     hint = _reserved_prop_hint(args.key)
     if hint:
         # a reserved key: either a core node field (status/priority/title/…) that a prop would
         # shadow, or a system-managed prop (plan.*). Reject with a pointer to the right command.
-        sys.exit(f"✗ '{args.key}' is reserved, not a free UDA prop — {hint}")
+        die(f"'{args.key}' is reserved, not a free UDA prop — {hint}")
     if args.key in _RESERVED_LOG_TAGS:
         # goal/summary are history-preserving reserved-tag logs, stored in the log table (not
         # single-value props): each write appends a log, the latest is current. This is the
@@ -646,7 +647,7 @@ def cmd_set(args, con):
             sync_time_node_dates(con, args.id)
     except ValueError as e:
         # the reserved type.*/date.* validator (or a shadow-field backstop) rejected the value
-        sys.exit(f"✗ {e}")
+        die(f"{e}")
     con.commit()
     out(f"✓ #{args.id} {args.key}={args.value}")
     _h = _nt.existence_empty_hint(args.id, args.key, args.value)
@@ -725,7 +726,7 @@ def cmd_tag_group(args, con):
     full +add / -remove / bare-add / empty-list grammar; `ls` / `rm` are single-purpose."""
     sub = getattr(args, "tag_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl tag <id> +x -y  |  wl tag <add|ls|rm> … (see `wl tag --help`)")
+        die("usage: wl tag <id> +x -y  |  wl tag <add|ls|rm> … (see `wl tag --help`)")
     {"add": cmd_tag, "ls": cmd_tag_ls, "rm": cmd_tag_rm}[sub](args, con)
 
 @output_format
@@ -800,12 +801,12 @@ def cmd_unlog(args, con):
     log_id = getattr(args, "log_id", None)
     nid = getattr(args, "node", None)
     if (log_id is None) == (nid is None):
-        sys.exit("✗ provide either positional <log_id> or --node <id>; pick one")
+        die("provide either positional <log_id> or --node <id>; pick one")
 
     if log_id is not None:
         row = _db.get(con, "log", log_id)
         if not row:
-            sys.exit(f"✗ log #{log_id} not found")
+            die(f"log #{log_id} not found")
         nmetric = _db.count(con, "metric", log_id=log_id)
         soft_delete_log(con, log_id)
         con.commit()
@@ -821,7 +822,7 @@ def cmd_unlog(args, con):
         try:
             date = _resolve_concrete_date(date)
         except ValueError:
-            sys.exit(f"✗ invalid --date '{date}'")
+            die(f"invalid --date '{date}'")
     else:
         date = _tu.today()
 
@@ -863,12 +864,12 @@ def cmd_relog(args, con):
     log_id = args.log_id
     row = _db.get(con, "log", log_id)
     if not row:
-        sys.exit(f"✗ log #{log_id} not found")
+        die(f"log #{log_id} not found")
 
     # body: positional or -m, mutually exclusive; both empty -> EDITOR (only when --at also missing)
     new_body = None
     if args.body and args.message:
-        sys.exit("✗ positional body and -m/--message are mutually exclusive; pick one")
+        die("positional body and -m/--message are mutually exclusive; pick one")
     if args.body:
         new_body = " ".join(args.body).strip()
     elif args.message:
@@ -902,7 +903,7 @@ def cmd_relog(args, con):
                 raise ValueError("format")
             new_ts = _tu.local_to_utc(local_ts)
         except ValueError:
-            sys.exit(f"✗ invalid --at '{at}': supported formats: HH:MM / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
+            die(f"invalid --at '{at}': supported formats: HH:MM / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
 
     if new_body is None and new_ts is None:
         # nothing given -> open EDITOR to edit body
@@ -953,7 +954,7 @@ def cmd_log_show(args, con):
     line; this prints the whole body. Accepts #L282 / L282 / 282."""
     row = _db.get(con, "log", args.log_id)
     if row is None:
-        sys.exit(f"✗ no log #L{args.log_id}")
+        die(f"no log #L{args.log_id}")
     node = _db.get(con, "node", row["node_id"])
     title = node["title"] if node else "?"
     label = row["tag"] or "note"
@@ -973,7 +974,7 @@ def cmd_retag(args, con):
     / `-` / empty clears it back to a plain note (NULL). Accepts #L282 / L282 / 282."""
     row = _db.get(con, "log", args.log_id)
     if row is None:
-        sys.exit(f"✗ no log #L{args.log_id}")
+        die(f"no log #L{args.log_id}")
     raw = (args.tag or "").strip()
     new = None if raw.lower() in ("", "-", "note", "none") else raw
     _db.update(con, "log", args.log_id, {"tag": new})
@@ -989,7 +990,7 @@ def cmd_log_group(args, con):
     prints one log's full content."""
     sub = getattr(args, "log_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl log <id> \"body\"  |  wl log <add|ls|edit|rm|show> … (see `wl log --help`)")
+        die("usage: wl log <id> \"body\"  |  wl log <add|ls|edit|rm|show> … (see `wl log --help`)")
     {"add": cmd_log, "ls": cmd_log_ls, "edit": cmd_relog, "rm": cmd_unlog, "show": cmd_log_show}[sub](args, con)
 
 
@@ -1073,7 +1074,7 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
         try:
             at_ts = _resolve_at_ts(args.at)
         except ValueError as e:
-            sys.exit(f"✗ {e}")
+            die(f"{e}")
 
     # --log: insert log first (use at_ts; default to NOW if no at)
     log_body = getattr(args, "log", None)
@@ -1144,14 +1145,14 @@ def cmd_node_reparent(args, con):
         try:
             new_parent = int(args.parent)
         except ValueError:
-            sys.exit(f"✗ parent must be a node id or 'none'/'root'/'0' (detach), got {args.parent!r}")
+            die(f"parent must be a node id or 'none'/'root'/'0' (detach), got {args.parent!r}")
         if not _node_exists(con, new_parent):
-            sys.exit(f"✗ parent node #{new_parent} not found")
+            die(f"parent node #{new_parent} not found")
         if new_parent == nid:
-            sys.exit("✗ a node cannot be its own parent")
+            die("a node cannot be its own parent")
         # include_deleted: catch a live descendant reachable through a tombstoned intermediate
         if new_parent in _collect_descendants(con, nid, include_deleted=True):
-            sys.exit(f"✗ #{new_parent} is a descendant of #{nid} — reparenting there would make a cycle")
+            die(f"#{new_parent} is a descendant of #{nid} — reparenting there would make a cycle")
     _db.update(con, "node", nid, {"parent_id": new_parent})
     con.commit()
     where = "the top level" if new_parent is None else f"#{new_parent}"
@@ -1185,7 +1186,7 @@ def cmd_node_edit(args, con):
     changes = {}
     if args.title is not None:
         if not args.title.strip():
-            sys.exit("✗ title cannot be empty")
+            die("title cannot be empty")
         changes["title"] = args.title.strip()
     if args.priority is not None:
         changes["priority"] = args.priority
@@ -1195,12 +1196,12 @@ def cmd_node_edit(args, con):
         try:
             changes["scheduled_date"] = _norm_sched(args.scheduled) if args.scheduled else None
         except ValueError as e:
-            sys.exit(f"✗ {e}")
+            die(f"{e}")
     if args.deadline is not None:
         changes["deadline_date"] = args.deadline or None
     para = getattr(args, "para", None)
     if not changes and para is None:
-        sys.exit("✗ nothing to edit (give --title / --priority / --para / --body / --scheduled / --deadline)")
+        die("nothing to edit (give --title / --priority / --para / --body / --scheduled / --deadline)")
     if changes:
         _db.update(con, "node", nid, changes)
     conflicts = []
@@ -1250,7 +1251,7 @@ def cmd_prop_rm(args, con):
     _require_node(con, args.id)
     key = (args.key or "").strip()
     if not key:
-        sys.exit("✗ prop key cannot be empty")
+        die("prop key cannot be empty")
     if key in _RESERVED_LOG_TAGS:
         # key-routed shortcut, symmetric with `wl set`: goal/summary live in the log table
         # as reserved-tag logs, not props — clear it there (= wl goal rm).
@@ -1276,7 +1277,7 @@ def cmd_prop(args, con):
     """Dispatch `wl prop <set|ls|rm>` (the metric-style entity group)."""
     sub = getattr(args, "prop_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl prop <set|ls|rm> … (see `wl prop --help`)")
+        die("usage: wl prop <set|ls|rm> … (see `wl prop --help`)")
     {"set": cmd_set, "ls": cmd_prop_ls, "rm": cmd_prop_rm}[sub](args, con)
 
 
@@ -1416,7 +1417,7 @@ def _current_session_id():
 def _agent_need_sid():
     sid = _current_session_id()
     if not sid:
-        sys.exit("✗ no session id ($WL_SESSION_ID / $CLAUDE_CODE_SESSION_ID) — run inside a Claude Code session")
+        die("no session id ($WL_SESSION_ID / $CLAUDE_CODE_SESSION_ID) — run inside a Claude Code session")
     return sid
 
 def _agent_set(args, con):
@@ -1582,7 +1583,7 @@ def cmd_clock_edit(args, con):
     `wl start/stop/spent` entry."""
     row = _db.get(con, "clock", args.clock_id)
     if not row:
-        sys.exit(f"✗ clock interval #C{args.clock_id} not found")
+        die(f"clock interval #C{args.clock_id} not found")
     changes = {}
     start_at = row["start_at"]
     end_at = row["end_at"]
@@ -1590,16 +1591,16 @@ def cmd_clock_edit(args, con):
         try:
             start_at = _resolve_at_ts(args.start)
         except ValueError as e:
-            sys.exit(f"✗ --start: {e}")
+            die(f"--start: {e}")
         changes["start_at"] = start_at
     if args.end is not None:
         try:
             end_at = _resolve_at_ts(args.end) if args.end else None
         except ValueError as e:
-            sys.exit(f"✗ --end: {e}")
+            die(f"--end: {e}")
         changes["end_at"] = end_at
     if not changes:
-        sys.exit("✗ nothing to edit (give --start / --end)")
+        die("nothing to edit (give --start / --end)")
     # recompute elapsed from the resulting start/end when both are present
     if start_at and end_at:
         from datetime import datetime
@@ -1608,7 +1609,7 @@ def cmd_clock_edit(args, con):
         except (ValueError, TypeError):
             secs = None
         if secs is not None and secs < 0:
-            sys.exit(f"✗ end {end_at} is before start {start_at}")
+            die(f"end {end_at} is before start {start_at}")
         if secs is not None:
             changes["elapsed_sec"] = secs
     elif "end_at" in changes and end_at is None:
@@ -1626,7 +1627,7 @@ def cmd_clock_rm(args, con):
     """Soft-delete a clock interval — remove a wrong `wl spent`/start-stop entry."""
     for cid in args.clock_ids:
         if not _db.exists(con, "clock", id=cid):
-            sys.exit(f"✗ clock interval #C{cid} not found")
+            die(f"clock interval #C{cid} not found")
     for cid in args.clock_ids:
         _db.delete(con, "clock", id=cid)
     con.commit()
@@ -1639,7 +1640,7 @@ def cmd_clock(args, con):
     Creating intervals stays with the `start` / `stop` / `spent` composite helpers."""
     sub = getattr(args, "clock_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl clock <ls|edit|rm> … (create with start/stop/spent; see `wl clock --help`)")
+        die("usage: wl clock <ls|edit|rm> … (create with start/stop/spent; see `wl clock --help`)")
     {"ls": cmd_clock_ls, "edit": cmd_clock_edit, "rm": cmd_clock_rm}[sub](args, con)
 
 
@@ -1663,5 +1664,5 @@ def cmd_link_group(args, con):
     has the top-level shortcut `wl unlink`."""
     sub = getattr(args, "link_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl link <id…> <doc>  |  wl link <add|ls|rm> … (see `wl link --help`)")
+        die("usage: wl link <id…> <doc>  |  wl link <add|ls|rm> … (see `wl link --help`)")
     {"add": cmd_link, "ls": cmd_link_ls, "rm": cmd_unlink}[sub](args, con)

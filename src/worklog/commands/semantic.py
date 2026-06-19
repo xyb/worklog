@@ -16,7 +16,7 @@ from .. import embedding as _embedding
 from .. import vectorstore as _vs
 from .. import db_table as _db
 from .. import render
-from ..render import _c, _node_line, _hl_terms, _detail_line, out
+from ..render import _c, _node_line, _hl_terms, _detail_line, die, out
 from ..helpers import _truncate_log_body, _display_width
 from ..xdg import _resolve_vec_db_path
 from .output import output_format
@@ -185,7 +185,7 @@ def _open_store(args):
     try:
         return _vs.connect(_resolve_vec_db_path(args))
     except _vs.VectorStoreError as e:
-        sys.exit(f"✗ {e}")
+        die(f"{e}")
 
 
 def _chunk_rows(chunks, vecs, cfg, dim):
@@ -215,7 +215,7 @@ def cmd_reindex(args, con):
     try:
         vecs = _embed_with_progress([c[5] for c in chunks], cfg)
     except _embedding.EmbeddingError as e:
-        sys.exit(f"✗ {e}")
+        die(f"{e}")
     dim = len(vecs[0]) if vecs else 0
     rows = _chunk_rows(chunks, vecs, cfg, dim)
     _vs.clear(db)
@@ -243,7 +243,7 @@ def _reindex_incremental(con, db, cfg, chunks, *, quiet=False):
         except _embedding.EmbeddingError as e:
             if quiet:
                 return None              # give up this pass quietly; a later write retries
-            sys.exit(f"✗ {e}")
+            die(f"{e}")
 
     im = _vs.index_model(db)
     if im is None:                       # empty store → nothing to diff against, do a full build
@@ -260,7 +260,7 @@ def _reindex_incremental(con, db, cfg, chunks, *, quiet=False):
     if im[0] != cfg["model"]:
         if quiet:
             return False                 # model changed → needs a full rebuild; don't churn here
-        sys.exit(f"✗ index was built with model '{im[0]}' but config is '{cfg['model']}' — "
+        die(f"index was built with model '{im[0]}' but config is '{cfg['model']}' — "
                  f"run `wl reindex --full` to rebuild with the new model")
     by_node, cur_text = {}, {}
     for c in chunks:
@@ -342,15 +342,15 @@ def cmd_query(args, con):
     hit isn't lost to semantic dilution. Query terms are jieba-segmented + synonym-expanded."""
     q = (args.query or "").strip()
     if not q:
-        sys.exit("✗ search term cannot be empty")
+        die("search term cannot be empty")
     cfg = _config.resolve_embedding_config(args)
     db = _open_store(args)
     if _vs.index_model(db) is None:
-        sys.exit("✗ no semantic index yet — run `wl reindex` first to build it")
+        die("no semantic index yet — run `wl reindex` first to build it")
     try:
         qvec = _embedding.embed([q], "query", cfg)[0]
     except _embedding.EmbeddingError as e:
-        sys.exit(f"✗ {e}")
+        die(f"{e}")
     limit = getattr(args, "limit", None) or 10
     threshold = getattr(args, "threshold", None)
     terms = _expand_synonyms(_query_terms(q))

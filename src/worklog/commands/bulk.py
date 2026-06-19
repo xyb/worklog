@@ -64,6 +64,7 @@ from ..render import (
     _resolve_theme,
     THEMES,
     _c,
+    die,
     _hl,
     _node_line,
     _print_truncation_hint,
@@ -86,9 +87,9 @@ def cmd_import(args, con):
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
-        sys.exit(f"✗ JSON parse error: {e}")
+        die(f"JSON parse error: {e}")
     if not isinstance(data, dict):
-        sys.exit("✗ top level must be an object {add:[...], update:[...]}")
+        die("top level must be an object {add:[...], update:[...]}")
 
     ref_map = {}
     counters = {"add": 0, "update": 0}
@@ -100,7 +101,7 @@ def cmd_import(args, con):
             _import_update(con, spec, dry, counters)
     except (ValueError, KeyError) as e:
         con.rollback()
-        sys.exit(f"✗ import failed (rolled back): {e}")
+        die(f"import failed (rolled back): {e}")
 
     if dry:
         out(_c("[dry-run]", "meta") + _c(f" would add {counters['add']} · update {counters['update']} (not written)"))
@@ -157,7 +158,7 @@ def _apply_validate(con, ops):
             if "marker" in f and f["marker"] not in _MARKER_STATUS:
                 errors.append(f"line {ln}: unknown marker [{f['marker']}]")
     if errors:
-        sys.exit("✗ validation failed (not written):\n  " + "\n  ".join(errors))
+        die("validation failed (not written):\n  " + "\n  ".join(errors))
     return errors
 
 
@@ -222,7 +223,7 @@ def _apply_execute(con, ops):
             stack[depth] = nid
     except Exception as e:
         con.rollback()
-        sys.exit(f"✗ apply failed (rolled back): {e}")
+        die(f"apply failed (rolled back): {e}")
     return counts
 
 
@@ -232,10 +233,10 @@ def cmd_apply(args, con):
     try:
         ops = _parse_wld(raw)
     except ValueError as e:
-        sys.exit(f"✗ parse failed: {e}")
+        die(f"parse failed: {e}")
     errors = _apply_validate(con, ops)
     if errors:
-        sys.exit("✗ validation failed (not written):\n  " + "\n  ".join(errors))
+        die("validation failed (not written):\n  " + "\n  ".join(errors))
     plan = _apply_plan(ops)
     if args.dry_run:
         out(_c("[dry-run]", "meta") + _c(f" {len(plan)} operations (not written):", "header"))

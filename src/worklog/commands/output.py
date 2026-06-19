@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 from functools import wraps
 
-from ..render import set_suppress_output
+from ..render import set_suppress_output, set_json_mode
 
 
 def _emit_json(data) -> None:
@@ -33,11 +33,13 @@ def output_format(fn):
     @wraps(fn)
     def wrapper(args, con):
         if getattr(args, "output", "text") == "json":
+            set_json_mode(True)
             set_suppress_output(True)
             try:
                 result = fn(args, con)
             finally:
                 set_suppress_output(False)
+                set_json_mode(False)
             _emit_json(result)
         else:
             fn(args, con)

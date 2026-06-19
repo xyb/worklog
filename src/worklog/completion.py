@@ -16,6 +16,8 @@ import argparse
 import re
 import sys
 
+from .render import die
+
 
 _FISH_HELPERS = {
     # (sub_cmd, opt_name) → fish completion source
@@ -678,5 +680,5 @@ def cmd_print_completion(args, con=None):
     elif shell == "zsh":
         sys.stdout.write(_generate_zsh_completion(parser))
     else:
-        sys.exit(f"✗ shell '{shell}' not supported (fish / bash / zsh)")
+        die(f"shell '{shell}' not supported (fish / bash / zsh)")
 

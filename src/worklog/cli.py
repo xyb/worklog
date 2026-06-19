@@ -1871,7 +1871,7 @@ def cmd_node(args, con):
     """Dispatch `wl node <add|ls|show|edit|rm|reparent>` (the metric-style entity group). The top-level add/ls/show route to the same handlers."""
     sub = getattr(args, "node_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl node <add|ls|show|edit|rm|reparent> … (see `wl node --help`)")
+        render.die("usage: wl node <add|ls|show|edit|rm|reparent> … (see `wl node --help`)")
     {"add": cmd_add, "ls": cmd_ls, "show": cmd_show,
      "edit": cmd_node_edit, "rm": cmd_node_rm, "reparent": cmd_node_reparent}[sub](args, con)
 
@@ -1977,6 +1977,7 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
     if args.cmd == "print-completion":
         HANDLERS[args.cmd](args, None)
         return
+    render.set_json_mode(getattr(args, "output", "text") == "json")
     _init_console(args.color, args.theme)
     _set_width_cap(_resolve_width_cap(getattr(args, "width", None)))
     _set_title_mode(_resolve_title_mode(getattr(args, "title", None)))

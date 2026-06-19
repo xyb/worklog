@@ -70,6 +70,7 @@ from ..render import (
     _resolve_theme,
     THEMES,
     _c,
+    die,
     _hl,
     _pri_marker,
     _node_line,
@@ -146,7 +147,7 @@ def cmd_show(args, con):
         for nid in ids:
             n = _db.get(con, "node", nid)
             if not n:
-                sys.exit(f"✗ node #{nid} not found")
+                die(f"node #{nid} not found")
             nodes.append(_node_to_dict(con, n))
         return nodes[0] if len(nodes) == 1 else nodes
     for i, nid in enumerate(ids):
@@ -283,14 +284,14 @@ def cmd_find(args, con):
     """Full-text search nodes: title/body/log/tag/prop/link; mark hits + show hit content not in the title line in indented expansion."""
     q = args.query
     if not q or not q.strip():
-        sys.exit("✗ search term cannot be empty (empty query would dump all nodes)")
+        die("search term cannot be empty (empty query would dump all nodes)")
     q = q.strip()
     like = f"%{q}%"
     if args.in_:
         fields = set(args.in_.split(","))
         bad = fields - _VALID_FIND_FIELDS
         if bad:
-            sys.exit(f"✗ invalid --in fields: {sorted(bad)} (valid: {sorted(_VALID_FIND_FIELDS)})")
+            die(f"invalid --in fields: {sorted(bad)} (valid: {sorted(_VALID_FIND_FIELDS)})")
     else:
         fields = _VALID_FIND_FIELDS
     para = getattr(args, "para", None)   # exact type.para role filter (area/project/task)
@@ -377,7 +378,7 @@ def cmd_focus(args, con):
     """Focus on a node: upstream path + self + downstream subtree."""
     n = _db.get(con, "node", args.id)
     if not n:
-        sys.exit(f"✗ node #{args.id} not found")
+        die(f"node #{args.id} not found")
 
     chain = _ancestors_chain(con, args.id)
     upstream = chain[:-1]
@@ -442,7 +443,7 @@ def cmd_ancestors(args, con):
     """Show only the upstream path (root -> node)."""
     chain = _ancestors_chain(con, args.id)
     if not chain:
-        sys.exit(f"✗ node #{args.id} not found")
+        die(f"node #{args.id} not found")
     json_result = [{"id": p["id"], "title": p["title"], "type": node_type(con, p),
                     "status": p["status"], "priority": p["priority"]} for p in chain]
     for depth, node in enumerate(chain):
@@ -456,7 +457,7 @@ def cmd_descendants(args, con):
     """Show only the downstream subtree (node -> all descendants)."""
     n = _db.get(con, "node", args.id)
     if not n:
-        sys.exit(f"✗ node #{args.id} not found")
+        die(f"node #{args.id} not found")
     desc_ids = sorted(_collect_descendants(con, args.id))
     nodes = [_db.get(con, "node", nid) for nid in desc_ids]
     live_nodes = [nd for nd in nodes if nd]
@@ -473,7 +474,7 @@ def cmd_agenda(args, con):
         start = _resolve_concrete_date(args.start)
         end = _resolve_concrete_date(args.end)
     except ValueError as e:
-        sys.exit(f"✗ bad date: {e}")
+        die(f"bad date: {e}")
     if start > end:
         start, end = end, start
     inc_cancel = getattr(args, "show_canceled", False)
@@ -1086,7 +1087,7 @@ def cmd_logs(args, con):
         try:
             args.date = _resolve_concrete_date(args.date)
         except ValueError:
-            sys.exit(f"✗ invalid --date '{args.date}' (use YYYY-MM-DD / today / yesterday)")
+            die(f"invalid --date '{args.date}' (use YYYY-MM-DD / today / yesterday)")
         where.append(f"{_tu.local_day_sql('logged_at')} = ?")
         params.append(args.date)
     # default time window: when no id/date/since given, only the last N days (default 7)
@@ -1302,7 +1303,7 @@ def _show_timeline(con, args, n):
 def _show_one(args, con):
     n = _db.get(con, "node", args.id)
     if not n:
-        sys.exit(f"✗ node #{args.id} not found")
+        die(f"node #{args.id} not found")
     _show_detail(con, args, n)
     _show_timeline(con, args, n)
 

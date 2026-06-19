@@ -72,6 +72,7 @@ from ..render import (
     _resolve_theme,
     THEMES,
     _c,
+    die,
     _hl,
     _pri_marker,
     _hang_wrap,
@@ -99,7 +100,7 @@ def _tree_json_data(con, args):
     if args.root is not None:
         root = _db.get(con, "node", args.root)
         if not root:
-            sys.exit(f"✗ node #{args.root} not found")
+            die(f"node #{args.root} not found")
         roots = [root]
         max_depth = args.depth if args.depth is not None else 3
     else:
@@ -137,7 +138,7 @@ def cmd_tree(args, con):
         if args.root is not None:
             root_node = _db.get(con, "node", args.root)
             if not root_node:
-                sys.exit(f"✗ node #{args.root} not found")
+                die(f"node #{args.root} not found")
         _print_filtered_tree(con, nf, root_node=root_node,
                              include_canceled=inc_cancel, log_tail=log_tail, full=full)
         return _tree_json_data(con, args)
@@ -149,7 +150,7 @@ def cmd_tree(args, con):
         # expand subtree from a specified node as root (no longer requires parent_id IS NULL)
         root = _db.get(con, "node", args.root)
         if not root:
-            sys.exit(f"✗ node #{args.root} not found")
+            die(f"node #{args.root} not found")
         roots = [root]
     else:
         root_sql = f"SELECT * FROM node WHERE parent_id IS NULL AND {_db.ALIVE}"
@@ -414,7 +415,7 @@ def cmd_day(args, con):
         try:
             target = _resolve_concrete_date(args.date)
         except ValueError:
-            sys.exit(f"✗ invalid date '{args.date}' (use YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow)")
+            die(f"invalid date '{args.date}' (use YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow)")
     else:
         target = _tu.today()
     day = time_node_by_period(con, "day", target)

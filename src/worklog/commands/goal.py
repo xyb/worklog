@@ -20,7 +20,7 @@ from ..queries import (
     _RESERVED_LOG_TAGS,
 )
 from ..helpers import _resolve_concrete_date, _truncate_log_body
-from ..render import _c, out
+from ..render import _c, die, out
 from .timenodes import _ensure_day, _ensure_today_day
 from .views import _goal_progress, _emit_goal_targets
 from .output import output_format
@@ -54,7 +54,7 @@ def _set_goal_targets(con, node_id, ids):
     the complete set, not an append). Errors if the node has no goal yet."""
     row = _db.query_one(con, "log", cols="id", node_id=node_id, tag="goal", order="id DESC")
     if not row:
-        sys.exit(f'✗ #{node_id} has no goal yet — write one first (wl goal "...")')
+        die(f'#{node_id} has no goal yet — write one first (wl goal "...")')
     _check_ids_exist(con, ids)
     want = []
     for i in ids:        # dedupe, preserve priority order
@@ -134,7 +134,7 @@ def cmd_summary_prop(args, con):
         try:
             iso = _resolve_concrete_date(target)
         except ValueError as e:
-            sys.exit(f"✗ bad --date '{target}': {e}")
+            die(f"bad --date '{target}': {e}")
         d = _dt.strptime(iso, "%Y-%m-%d").date()
         label = iso
     else:
@@ -208,16 +208,16 @@ def cmd_goal_set(args, con):
     set_ids = getattr(args, "ids", None)
     if set_ids:                   # set the node's existing goal targets (no new log, no text)
         if args.value:
-            sys.exit("✗ give a goal text OR --ids <ids>, not both")
+            die("give a goal text OR --ids <ids>, not both")
         _set_goal_targets(con, args.id, set_ids)
         return {"node_id": args.id, "targets": set_ids}
     if not args.value:
-        sys.exit('✗ need a goal/summary text (or --ids <ids> to set targets on the current goal)')
+        die('need a goal/summary text (or --ids <ids> to set targets on the current goal)')
     field = "summary" if getattr(args, "summary", False) else "goal"
     goals = getattr(args, "goals", None) or []
     if goals:
         if field != "goal":
-            sys.exit("✗ target node ids only apply to a goal, not --summary")
+            die("target node ids only apply to a goal, not --summary")
         _check_ids_exist(con, goals)
     log_id = _set_typed_log(con, args.id, field, args.value, goals=goals)
     con.commit()

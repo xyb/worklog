@@ -14,6 +14,7 @@ from . import db_table as _db
 from . import node_types as _nt
 from .helpers import GENERIC_TAGS  # noqa: F401
 from .helpers import _resolve_concrete_date
+from .render import die
 
 
 def _insert_log(con, nid, entry):
@@ -209,7 +210,7 @@ def _parse_priority_filter(spec):
         if not t:
             continue
         if t not in _PRI_FILTER_ALIASES:
-            sys.exit(f"✗ invalid --priority '{tok}' (use A/B/C or P0/P1/P2; comma for any-of)")
+            die(f"invalid --priority '{tok}' (use A/B/C or P0/P1/P2; comma for any-of)")
         out.add(_PRI_FILTER_ALIASES[t])
     return out
 
@@ -405,7 +406,7 @@ def _require_node(con, node_id):
     node is missing. The single-id twin of :func:`_check_ids_exist` — every command that takes one
     node id routes its not-found check here instead of re-inlining the message."""
     if not _node_exists(con, node_id):
-        sys.exit(f"✗ node #{node_id} not found")
+        die(f"node #{node_id} not found")
 
 
 def _node_tags(con, nid):

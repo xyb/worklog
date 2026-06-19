@@ -170,12 +170,38 @@ def style_ansi(text, style_str):
 
 
 _SUPPRESS_DEPTH = 0  # ponytail: counter not bool, supports nested @output_format calls
+_JSON_MODE = False   # set by main() after arg parse; die() uses this + _SUPPRESS_DEPTH
 
 
 def set_suppress_output(flag: bool) -> None:
     """Enable/disable output suppression (used by @output_format in JSON mode)."""
     global _SUPPRESS_DEPTH
     _SUPPRESS_DEPTH += 1 if flag else -1
+
+
+def set_json_mode(flag: bool) -> None:
+    """Signal that -o json is active so die() emits RFC 9457 to stderr instead of plain text."""
+    global _JSON_MODE
+    _JSON_MODE = flag
+
+
+def die(msg: str, *, status: int = 400) -> None:
+    """Exit with a user-facing error.
+
+    In JSON mode: writes RFC 9457 Problem Details to stderr.
+    In text mode: writes '✗ <msg>' to stderr (same convention as old sys.exit('✗ ...')).
+    """
+    if _JSON_MODE or _SUPPRESS_DEPTH > 0:
+        import json as _json
+        print(_json.dumps({
+            "type": "about:blank",
+            "title": "Error",
+            "status": status,
+            "detail": str(msg),
+        }, ensure_ascii=False), file=sys.stderr)
+    else:
+        print(f"✗ {msg}", file=sys.stderr)
+    sys.exit(1 if status < 500 else 2)
 
 
 def out(s):

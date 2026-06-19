@@ -723,3 +723,34 @@ class TestLinkAddJson:
         result = _j(cli, "-o", "json", "link", "add", "1", "2", "Shared Doc")
         assert isinstance(result, list)
         assert all("links" in r for r in result)
+
+
+class TestDieJsonMode:
+    """die() in JSON mode emits RFC 9457 Problem Details to stderr."""
+
+    def test_not_found_emits_rfc9457_to_stderr(self, cli):
+        code, out, err = cli("show", "999", "-o", "json")
+        assert code == 1
+        assert out == ""
+        e = json.loads(err)
+        assert e["type"] == "about:blank"
+        assert e["status"] == 400
+        assert "detail" in e
+        assert "999" in e["detail"]
+
+    def test_stdout_empty_on_error(self, cli):
+        code, out, err = cli("log", "add", "999", "body", "-o", "json")
+        assert code == 1
+        assert out == ""
+
+    def test_text_mode_error_is_not_json(self, cli):
+        code, out, err = cli("show", "999")
+        assert code == 1
+        assert "✗" in err
+        assert out == ""
+
+    def test_json_mode_does_not_leak_into_next_command(self, cli):
+        # After a JSON mode error, subsequent text-mode errors must not emit JSON.
+        cli("show", "999", "-o", "json")
+        code, out, err = cli("show", "999")
+        assert "✗" in err

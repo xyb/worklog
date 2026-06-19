@@ -25,7 +25,7 @@ from .. import timeutil as _tu
 from .. import db_table as _db
 from ..helpers import _resolve_concrete_date, _resolve_window
 from ..queries import _require_node, _has_checkin
-from ..render import _c, out
+from ..render import _c, die, out
 from .output import output_format
 
 _CARRIER_TYPE = "metric"  # log.tag marking an auto-created metric carrier log
@@ -46,11 +46,11 @@ def _resolve_at(s):
     try:
         d = _resolve_concrete_date(parts[0])
     except ValueError:
-        sys.exit(f"✗ invalid --at date '{parts[0]}'")
+        die(f"invalid --at date '{parts[0]}'")
     if len(parts) == 2:
         t = parts[1].strip()
         if not re.match(r"^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$", t):
-            sys.exit(f"✗ invalid --at time '{t}' (expected HH:MM or HH:MM:SS)")
+            die(f"invalid --at time '{t}' (expected HH:MM or HH:MM:SS)")
         if t.count(":") == 1:
             t += ":00"
         # a date+time is a local instant -> store UTC; a bare date stays literal
@@ -80,7 +80,7 @@ def _clean_text(value_text):
         return None
     t = value_text.strip()
     if not t:
-        sys.exit("✗ value cannot be empty (omit the value entirely for a marker)")
+        die("value cannot be empty (omit the value entirely for a marker)")
     return t
 
 
@@ -135,7 +135,7 @@ def _insert_metric_on_log(con, log_id, node_id, tag, value, *,
     Returns the new metric id."""
     tag = (tag or "").strip()
     if not tag:
-        sys.exit("✗ metric tag cannot be empty")
+        die("metric tag cannot be empty")
     vnum, vtext = _parse_value(value, force_text)
     vtext = _clean_text(vtext)
     if vnum is None and vtext is None:
@@ -155,7 +155,7 @@ def _parse_metric_spec(s):
     'glucose 5.4 mmol/L' / 'pullups 8' / 'checkin'. → (tag, value, unit)."""
     parts = (s or "").split()
     if not parts:
-        sys.exit("✗ --metric spec is empty (expected 'tag [value] [unit]')")
+        die("--metric spec is empty (expected 'tag [value] [unit]')")
     return parts[0], (parts[1] if len(parts) > 1 else None), (parts[2] if len(parts) > 2 else None)
 
 
@@ -165,7 +165,7 @@ def import_metric(con, log_id, node_id, mspec, *, default_at=None):
     or string (autodetected numeric vs text); omit it for a marker. `at` falls back
     to default_at (typically the carrier log's timestamp). No commit."""
     if not isinstance(mspec, dict) or not str(mspec.get("tag") or "").strip():
-        sys.exit("✗ metric spec must be an object with a non-empty 'tag'")
+        die("metric spec must be an object with a non-empty 'tag'")
     return _insert_metric_on_log(
         con, log_id, node_id, str(mspec["tag"]), mspec.get("value"),
         unit=mspec.get("unit"), note=mspec.get("note"),
@@ -200,16 +200,16 @@ def cmd_metric_add(args, con):
     node = args.node
     _require_node(con, node)
     if not (args.tag or "").strip():
-        sys.exit("✗ metric tag cannot be empty")
+        die("metric tag cannot be empty")
     at = _resolve_at(args.at) if args.at else None
 
     # carrier log: an existing one (--on-log, must belong to the node, not CLOCK) or a new one.
     if args.on_log is not None:
         log = _db.get(con, "log", args.on_log)
         if not log:
-            sys.exit(f"✗ log #L{args.on_log} not found")
+            die(f"log #L{args.on_log} not found")
         if log["node_id"] != node:
-            sys.exit(f"✗ log #L{args.on_log} belongs to node #{log['node_id']}, not #{node}")
+            die(f"log #L{args.on_log} belongs to node #{log['node_id']}, not #{node}")
         log_id = args.on_log
         if at is None:
             at = log["logged_at"]  # inherit the existing log's time, not "now"
@@ -279,10 +279,10 @@ def cmd_metric_edit(args, con):
     mid = args.metric_id
     row = _db.get(con, "metric", mid)
     if not row:
-        sys.exit(f"✗ metric #M{mid} not found")
+        die(f"metric #M{mid} not found")
 
     if sum(x is not None for x in (args.value, args.num, args.text)) > 1:
-        sys.exit("✗ --value / --num / --text are mutually exclusive; pick one")
+        die("--value / --num / --text are mutually exclusive; pick one")
 
     # Resolve the resulting value (and whether it's numeric) first, so unit —
     # which only applies to a numeric value — can be validated consistently.
@@ -290,7 +290,7 @@ def cmd_metric_edit(args, con):
     becomes_num = None                 # True/False = changes type; None = value unchanged
     if args.num is not None:
         if not math.isfinite(args.num):
-            sys.exit("✗ --num must be a finite number")
+            die("--num must be a finite number")
         new_num, becomes_num = args.num, True
     elif args.text is not None:
         new_text, becomes_num = _clean_text(args.text), False
@@ -303,13 +303,13 @@ def cmd_metric_edit(args, con):
     is_num = becomes_num if becomes_num is not None else (row["value_num"] is not None)
 
     if args.unit is not None and args.unit and not is_num:
-        sys.exit("✗ unit only applies to a numeric value (this metric's value is text)")
+        die("unit only applies to a numeric value (this metric's value is text)")
 
     changes = {}
     if args.tag is not None:
         t = args.tag.strip()
         if not t:
-            sys.exit("✗ metric tag cannot be empty")
+            die("metric tag cannot be empty")
         changes["tag"] = t
     if becomes_num is not None:
         changes["value_num"], changes["value_text"] = new_num, new_text
@@ -324,7 +324,7 @@ def cmd_metric_edit(args, con):
         changes["at"] = _resolve_at(args.at)
 
     if not changes:
-        sys.exit("✗ nothing to change (give --value/--num/--text/--unit/--note/--tag/--at)")
+        die("nothing to change (give --value/--num/--text/--unit/--note/--tag/--at)")
 
     _db.update(con, "metric", mid, changes)
     con.commit()
@@ -373,5 +373,5 @@ def cmd_metric(args, con):
     """Dispatch `wl metric <add|ls|edit|rm>`."""
     sub = getattr(args, "metric_sub", None)
     if sub is None:
-        sys.exit("✗ usage: wl metric <add|ls|edit|rm> … (see `wl metric --help`)")
+        die("usage: wl metric <add|ls|edit|rm> … (see `wl metric --help`)")
     _SUBS[sub](args, con)
