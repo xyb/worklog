@@ -1977,7 +1977,8 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
     if args.cmd == "print-completion":
         HANDLERS[args.cmd](args, None)
         return
-    render.set_json_mode(getattr(args, "output", "text") == "json")
+    from .commands.output import set_json_error_mode
+    set_json_error_mode(getattr(args, "output", "text") == "json")
     _init_console(args.color, args.theme)
     _set_width_cap(_resolve_width_cap(getattr(args, "width", None)))
     _set_title_mode(_resolve_title_mode(getattr(args, "title", None)))

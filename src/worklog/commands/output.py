@@ -14,9 +14,10 @@ Add a new output format: subclass Formatter and register it in _FORMATTERS.
 from __future__ import annotations
 
 import json
+import sys
 from functools import wraps
 
-from ..render import set_suppress_output, set_json_mode
+from ..render import set_suppress_output, set_active_error_formatter
 
 
 class Formatter:
@@ -51,16 +52,27 @@ class JSONFormatter(Formatter):
     """JSON mode: suppress out() calls; emit the handler's return value as JSON.
 
     Mirrors the AWS CLI --output json formatter: structured data only,
-    no human-readable decoration.
+    no human-readable decoration. Also owns RFC 9457 error formatting so that
+    die() emits structured errors when this formatter is active.
     """
 
+    @staticmethod
+    def format_error(msg: str, status: int) -> None:
+        """Write an RFC 9457 Problem Details object to stderr."""
+        print(json.dumps({
+            "type": "about:blank",
+            "title": "Error",
+            "status": status,
+            "detail": str(msg),
+        }, ensure_ascii=False), file=sys.stderr)
+
     def setup(self) -> None:
-        set_json_mode(True)
+        set_active_error_formatter(JSONFormatter.format_error)
         set_suppress_output(True)
 
     def teardown(self) -> None:
         set_suppress_output(False)
-        set_json_mode(False)
+        set_active_error_formatter(None)
 
     def emit(self, data) -> None:
         print(json.dumps(data, ensure_ascii=False, indent=2))
@@ -113,6 +125,16 @@ def output_format(fn):
         fmt.emit(result)
 
     return wrapper
+
+
+def set_json_error_mode(flag: bool) -> None:
+    """For cli.py main(): activate JSON error formatting for group dispatchers.
+
+    @output_format handlers manage this automatically via Formatter.setup/teardown.
+    This covers the gap where die() is called before a decorated handler runs
+    (e.g. group dispatchers like cmd_node that dispatch based on a sub-command arg).
+    """
+    set_active_error_formatter(JSONFormatter.format_error if flag else None)
 
 
 # Register built-in formatters via the same public API used by external plugins.

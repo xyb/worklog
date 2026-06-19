@@ -172,7 +172,7 @@ def style_ansi(text, style_str):
 
 
 _SUPPRESS_DEPTH = 0  # ponytail: counter not bool, supports nested @output_format calls
-_JSON_MODE = False   # set by main() after arg parse; die() uses this + _SUPPRESS_DEPTH
+_active_error_formatter = None  # (msg: str, status: int) -> None; set by Formatter.setup()
 
 
 def set_suppress_output(flag: bool) -> None:
@@ -181,25 +181,24 @@ def set_suppress_output(flag: bool) -> None:
     _SUPPRESS_DEPTH += 1 if flag else -1
 
 
-def set_json_mode(flag: bool) -> None:
-    """Signal that -o json is active so die() emits RFC 9457 to stderr instead of plain text."""
-    global _JSON_MODE
-    _JSON_MODE = flag
+def set_active_error_formatter(fn) -> None:
+    """Register the error-formatting callback for die().
+
+    Called by Formatter.setup() / teardown() — not by application code directly.
+    Pass None to restore plain-text error output.
+    """
+    global _active_error_formatter
+    _active_error_formatter = fn
 
 
 def die(msg: str, *, status: int = 400) -> NoReturn:
     """Exit with a user-facing error.
 
-    In JSON mode: writes RFC 9457 Problem Details to stderr.
-    In text mode: writes '✗ <msg>' to stderr.
+    Delegates formatting to the active Formatter's error handler (set via
+    set_active_error_formatter). Defaults to plain '✗ <msg>' to stderr.
     """
-    if _JSON_MODE or _SUPPRESS_DEPTH > 0:
-        print(json.dumps({
-            "type": "about:blank",
-            "title": "Error",
-            "status": status,
-            "detail": str(msg),
-        }, ensure_ascii=False), file=sys.stderr)
+    if _active_error_formatter is not None:
+        _active_error_formatter(msg, status)
     else:
         print(f"✗ {msg}", file=sys.stderr)
     sys.exit(1 if status < 500 else 2)

@@ -15,7 +15,7 @@ from worklog.commands.output import (
     get_formatter,
     output_format,
 )
-from worklog.render import set_json_mode
+import worklog.render as _render
 
 
 # ---------------------------------------------------------------------------
@@ -145,10 +145,9 @@ class TestJSONFormatter:
         fmt.emit(None)
         assert json.loads(capsys.readouterr().out) is None
 
-    def test_teardown_resets_json_mode(self):
+    def test_teardown_clears_error_formatter(self):
         fmt = JSONFormatter()
         fmt.setup()
         fmt.teardown()
         # After teardown, die() should emit plain text, not RFC 9457
-        from worklog.render import _JSON_MODE
-        assert _JSON_MODE is False
+        assert _render._active_error_formatter is None
