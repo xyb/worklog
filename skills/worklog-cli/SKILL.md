@@ -5,7 +5,7 @@ description: Use the `wl` command to read/write a SQLite-backed execution-system
 
 # worklog-cli (wl)
 
-SQLite execution-system tool. A single `node` table carries lifetime/year/quarter/month/week/day/area/project/task/meetlog/habit; `parent_id` self-reference builds the tree. CLI mimics `todo.sh`. Global command name `wl` (installed via `pip install worklog`, or `~/bin/wl` → `<repo>/.venv/bin/wl` for editable dev installs).
+SQLite execution-system tool. A single `node` table carries lifetime/year/quarter/month/week/day/area/project/task/meetlog/habit; `parent_id` self-reference builds the tree. CLI mimics `todo.sh`. Global command name `wl` (installed via `make install` from a clean committed ref — isolated from the dev `.venv`; or `pip install pyworklog` for a standalone install).
 
 **Full design conventions in repo `DESIGN.md`** (required reading before adding commands or changing formats). This skill covers how AI uses `wl`. Detail beyond the everyday path lives in `references/` (loaded on demand — see § More detail at the bottom).
 

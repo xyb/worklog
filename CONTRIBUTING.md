@@ -2,6 +2,22 @@
 
 Thanks for considering a contribution! This guide covers the local setup, the development loop, and the two coding principles every change is held to: **TDD** and **DRY**.
 
+## Schema
+
+Six tables; everything is a `node`.
+
+```
+node (id, parent_id→node, title, status, priority,
+      created_at, scheduled_at, deadline_at, closed_at, body)
+tag  (node_id→node, tag)                    # many-to-many
+log  (id, node_id→node, logged_at, body)    # one node, many log entries
+prop (node_id→node, key, value)             # UDA
+link (node_id→node, vault_doc)              # vault wikilink
+v_node_path                                  # recursive CTE view, tree path
+```
+
+One `node` table holds every execution-system entity; classification is the orthogonal `type.*` prop namespace (no dedicated column). Cascade delete propagates to `tag/log/prop/link`; `parent_id` uses `ON DELETE SET NULL` so deleting a parent doesn't orphan-kill children. Full schema: `src/worklog/schema.sql`.
+
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) — install via `brew install uv` or `pipx install uv`.
@@ -12,11 +28,11 @@ Thanks for considering a contribution! This guide covers the local setup, the de
 ```fish
 git clone https://github.com/xyb/worklog.git ~/projects/worklog
 cd ~/projects/worklog
-make setup       # uv sync (creates .venv) + installs ~/bin/wl wrapper
+make sync        # uv sync --all-groups → creates .venv/ for dev/test
 make test        # run the full suite (parallel, 95% cov gate)
 ```
 
-`make setup` does two things: `uv sync --all-groups` materializes `.venv/` from `pyproject.toml` + `uv.lock`, and `make install` writes `~/bin/wl` pointing into that venv. From there, every command (`uv run pytest …`, `make test`, etc.) uses the same locked deps.
+`make sync` materializes `.venv/` from `pyproject.toml` + `uv.lock`. From there, every command (`uv run pytest …`, `make test`, etc.) uses the same locked deps. To install `wl` for daily use, run `make install` separately — it builds a frozen snapshot from a clean committed ref, isolated from this dev `.venv`.
 
 ## Day-to-day development loop
 
