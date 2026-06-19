@@ -66,10 +66,26 @@ class JSONFormatter(Formatter):
         print(json.dumps(data, ensure_ascii=False, indent=2))
 
 
-_FORMATTERS: dict[str, type[Formatter]] = {
-    "text": TextFormatter,
-    "json": JSONFormatter,
-}
+_FORMATTERS: dict[str, type[Formatter]] = {}
+
+
+def register_formatter(name: str, cls: type[Formatter]) -> None:
+    """Register a custom output formatter for use with -o <name>.
+
+    Example::
+
+        from worklog.commands.output import Formatter, register_formatter
+
+        class TableFormatter(Formatter):
+            def emit(self, data) -> None:
+                ...  # render data as a table
+
+        register_formatter("table", TableFormatter)
+
+    Call this before the CLI parses arguments (e.g. in a plugin's entry point).
+    The name becomes a valid -o value for all @output_format-decorated commands.
+    """
+    _FORMATTERS[name] = cls
 
 
 def get_formatter(name: str) -> Formatter:
@@ -97,3 +113,8 @@ def output_format(fn):
         fmt.emit(result)
 
     return wrapper
+
+
+# Register built-in formatters via the same public API used by external plugins.
+register_formatter("text", TextFormatter)
+register_formatter("json", JSONFormatter)
