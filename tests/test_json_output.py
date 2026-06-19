@@ -1,0 +1,348 @@
+"""Tests for -o json output across all commands that support it.
+
+Covers commands added in the global -o json feature (#921/#719):
+find, focus, ancestors, descendants, agenda, changes, goal (read+ls),
+prop ls, log ls, log show, link ls, tag ls, sched ls, metric ls,
+add (write), log (write), done, cancel, reopen, wait, defer, start, stop.
+"""
+import json
+import pytest
+
+
+def _j(cli, *args):
+    """Run CLI with given args, assert exit 0, parse and return JSON."""
+    code, out, err = cli(*args)
+    assert code == 0, f"exit {code}: {err}"
+    return json.loads(out)
+
+
+class TestFindJson:
+    def test_returns_list_with_matched_fields(self, cli):
+        cli("add", "keyword task", "-t", "work")
+        rows = _j(cli, "find", "keyword", "-o", "json")
+        assert isinstance(rows, list) and len(rows) >= 1
+        r = rows[0]
+        assert r["id"] == 1 and r["title"] == "keyword task"
+        assert "matched_fields" in r and "title" in r["matched_fields"]
+        assert "type" in r and "status" in r
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "pfx task")
+        rows = _j(cli, "-o", "json", "find", "pfx")
+        assert rows[0]["title"] == "pfx task"
+
+    def test_no_header_in_output(self, cli):
+        cli("add", "hdr task")
+        code, out, _ = cli("find", "hdr", "-o", "json")
+        assert out.strip().startswith("[")
+
+    def test_empty_returns_empty_list(self, cli):
+        rows = _j(cli, "find", "zzznomatch", "-o", "json")
+        assert rows == []
+
+
+class TestFocusJson:
+    def test_structure(self, cli):
+        cli("add", "proj", "--para", "project")
+        cli("add", "child", "--parent", "1")
+        d = _j(cli, "focus", "1", "-o", "json")
+        assert "node" in d and "upstream" in d and "downstream" in d
+        assert d["node"]["id"] == 1
+        assert d["downstream"][0]["id"] == 2
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "top")
+        d = _j(cli, "-o", "json", "focus", "1")
+        assert d["node"]["id"] == 1
+
+
+class TestAncestorsJson:
+    def test_returns_list(self, cli):
+        _, out, _ = cli("add", "root", "-o", "json")
+        import json as _json
+        root_id = _json.loads(out)["id"]
+        _, out2, _ = cli("add", "child", "--parent", str(root_id), "-o", "json")
+        child_id = _json.loads(out2)["id"]
+        rows = _j(cli, "ancestors", str(child_id), "-o", "json")
+        assert isinstance(rows, list)
+        assert any(r["id"] == root_id for r in rows)
+
+    def test_each_row_has_required_fields(self, cli):
+        _, out, _ = cli("add", "root", "-o", "json")
+        import json as _json
+        root_id = _json.loads(out)["id"]
+        _, out2, _ = cli("add", "child", "--parent", str(root_id), "-o", "json")
+        child_id = _json.loads(out2)["id"]
+        rows = _j(cli, "ancestors", str(child_id), "-o", "json")
+        for r in rows:
+            assert {"id", "title", "type", "status", "priority"} <= r.keys()
+
+
+class TestDescendantsJson:
+    def test_flat_list_of_all_descendants(self, cli):
+        cli("add", "root")
+        cli("add", "child1", "--parent", "1")
+        cli("add", "child2", "--parent", "1")
+        cli("add", "grandchild", "--parent", "2")
+        rows = _j(cli, "descendants", "1", "-o", "json")
+        ids = {r["id"] for r in rows}
+        assert {2, 3, 4} == ids
+
+    def test_empty_node_returns_empty(self, cli):
+        cli("add", "leaf")
+        rows = _j(cli, "descendants", "1", "-o", "json")
+        assert rows == []
+
+
+class TestAgendaJson:
+    def test_structure(self, cli):
+        cli("add", "sched task")
+        cli("sched", "1", "2026-07-01")
+        d = _j(cli, "agenda", "2026-07-01", "2026-07-01", "-o", "json")
+        assert "range" in d and "items" in d and "someday" in d
+        assert d["range"]["start"] == "2026-07-01"
+
+    def test_empty_range(self, cli):
+        d = _j(cli, "agenda", "2026-01-01", "2026-01-01", "-o", "json")
+        assert d["items"] == []
+
+    def test_item_in_range(self, cli):
+        cli("add", "agenda task")
+        cli("sched", "1", "2026-07-15")
+        d = _j(cli, "agenda", "2026-07-01", "2026-07-31", "-o", "json")
+        assert any(item["id"] == 1 for item in d["items"])
+
+
+class TestChangesJson:
+    def test_returns_list(self, cli):
+        cli("add", "proj", "--para", "project")
+        cli("add", "task", "--parent", "1")
+        cli("done", "2")
+        rows = _j(cli, "changes", "--month", "2026-06", "-o", "json")
+        assert isinstance(rows, list)
+
+    def test_bucket_structure(self, cli):
+        cli("add", "proj", "--para", "project")
+        cli("add", "work", "--parent", "1")
+        cli("done", "2")
+        rows = _j(cli, "changes", "--month", "2026-06", "-o", "json")
+        if rows:
+            b = rows[0]
+            assert "project" in b and "done" in b and "added_open" in b and "logged" in b
+
+
+class TestGoalJson:
+    def test_read_null_when_no_goal(self, cli):
+        result = _j(cli, "goal", "-o", "json")
+        assert result is None
+
+    def test_read_returns_body_and_logged_at(self, cli):
+        cli("goal", "ship the feature")
+        d = _j(cli, "goal", "-o", "json")
+        assert d["body"] == "ship the feature"
+        assert "logged_at" in d
+
+    def test_prefix_syntax(self, cli):
+        cli("goal", "prefix test")
+        d = _j(cli, "-o", "json", "goal")
+        assert d["body"] == "prefix test"
+
+    def test_goal_ls_returns_dict_by_field(self, cli):
+        cli("add", "node")
+        cli("goal", "set", "1", "deliver it")
+        d = _j(cli, "goal", "ls", "1", "-o", "json")
+        assert isinstance(d, dict) and "goal" in d
+        assert d["goal"]["body"] == "deliver it"
+
+    def test_goal_ls_empty_node(self, cli):
+        cli("add", "bare node")
+        d = _j(cli, "goal", "ls", "1", "-o", "json")
+        assert d == {}
+
+
+class TestPropLsJson:
+    def test_returns_key_value_list(self, cli):
+        cli("add", "task")
+        cli("set", "1", "owner", "alice")
+        cli("set", "1", "sprint", "42")
+        rows = _j(cli, "prop", "ls", "1", "-o", "json")
+        keys = {r["key"] for r in rows}
+        assert "owner" in keys and "sprint" in keys
+        for r in rows:
+            assert "key" in r and "value" in r
+
+    def test_empty_returns_empty_list(self, cli):
+        cli("add", "bare")
+        rows = _j(cli, "prop", "ls", "1", "-o", "json")
+        assert rows == []
+
+
+class TestLogLsJson:
+    def test_returns_logs_with_fields(self, cli):
+        cli("add", "task")
+        cli("log", "1", "first entry")
+        cli("log", "1", "second entry")
+        rows = _j(cli, "log", "ls", "1", "-o", "json")
+        assert len(rows) == 2
+        assert rows[0]["body"] == "first entry"
+        for r in rows:
+            assert {"id", "logged_at", "tag", "body"} <= r.keys()
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "task")
+        cli("log", "1", "entry")
+        rows = _j(cli, "-o", "json", "log", "ls", "1")
+        assert rows[0]["body"] == "entry"
+
+
+class TestLinkLsJson:
+    def test_returns_list_of_doc_names(self, cli):
+        cli("add", "task")
+        cli("link", "1", "Design doc")
+        cli("link", "1", "Meeting notes")
+        rows = _j(cli, "link", "ls", "1", "-o", "json")
+        assert set(rows) == {"Design doc", "Meeting notes"}
+
+    def test_empty_returns_empty_list(self, cli):
+        cli("add", "bare")
+        rows = _j(cli, "link", "ls", "1", "-o", "json")
+        assert rows == []
+
+
+class TestTagLsJson:
+    def test_returns_tag_list(self, cli):
+        cli("add", "task", "-t", "work,P0")
+        rows = _j(cli, "tag", "ls", "1", "-o", "json")
+        assert set(rows) == {"work", "P0"}
+
+    def test_empty_returns_empty_list(self, cli):
+        cli("add", "bare")
+        rows = _j(cli, "tag", "ls", "1", "-o", "json")
+        assert rows == []
+
+
+class TestSchedLsJson:
+    def test_one_off_date(self, cli):
+        cli("add", "task")
+        cli("sched", "1", "2026-09-01")
+        rows = _j(cli, "sched", "ls", "1", "-o", "json")
+        assert rows[0]["on_date"] == "2026-09-01"
+        assert rows[0]["rrule"] is None
+
+    def test_recurring_rule(self, cli):
+        cli("add", "task")
+        cli("sched", "1", "--recur", "weekly:Mon")
+        rows = _j(cli, "sched", "ls", "1", "-o", "json")
+        assert any(r["rrule"] == "weekly:Mon" for r in rows)
+
+    def test_empty_returns_empty_list(self, cli):
+        cli("add", "bare")
+        rows = _j(cli, "sched", "ls", "1", "-o", "json")
+        assert rows == []
+
+
+class TestMetricLsJson:
+    def test_returns_metric_rows(self, cli):
+        cli("add", "task")
+        cli("metric", "add", "1", "weight", "70", "--unit", "kg")
+        cli("metric", "add", "1", "weight", "71")
+        rows = _j(cli, "metric", "ls", "1", "-o", "json")
+        assert len(rows) == 2
+        assert rows[0]["tag"] == "weight"
+        assert rows[0]["value_num"] == 70.0
+        assert rows[0]["unit"] == "kg"
+        for r in rows:
+            assert {"id", "node_id", "log_id", "tag", "value_num", "value_text", "unit", "note", "at"} <= r.keys()
+
+    def test_empty_returns_empty_list(self, cli):
+        cli("add", "bare")
+        rows = _j(cli, "metric", "ls", "1", "-o", "json")
+        assert rows == []
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "task")
+        cli("metric", "add", "1", "hr", "60")
+        rows = _j(cli, "-o", "json", "metric", "ls", "1")
+        assert rows[0]["tag"] == "hr"
+
+
+class TestWriteCommandsJson:
+    def test_add_returns_node_summary(self, cli):
+        d = _j(cli, "add", "new task", "-o", "json")
+        assert d["id"] == 1 and d["title"] == "new task"
+        assert "status" in d and "type" in d
+
+    def test_add_prefix_syntax(self, cli):
+        d = _j(cli, "-o", "json", "add", "pfx task")
+        assert d["title"] == "pfx task"
+
+    def test_log_write_returns_log_entry(self, cli):
+        cli("add", "task")
+        d = _j(cli, "-o", "json", "log", "1", "progress note")
+        assert d["node_id"] == 1 and d["body"] == "progress note"
+        assert "id" in d and "logged_at" in d
+
+    def test_done_returns_node_list(self, cli):
+        cli("add", "task")
+        rows = _j(cli, "done", "1", "-o", "json")
+        assert isinstance(rows, list) and rows[0]["id"] == 1
+        assert rows[0]["status"] == "DONE"
+
+    def test_done_suppresses_text(self, cli):
+        cli("add", "task")
+        code, out, _ = cli("done", "1", "-o", "json")
+        assert "→ DONE" not in out
+
+    def test_cancel_returns_node_list(self, cli):
+        cli("add", "task")
+        rows = _j(cli, "cancel", "1", "-o", "json")
+        assert rows[0]["status"] == "CANCELED"
+
+    def test_reopen_returns_node_list(self, cli):
+        cli("add", "task")
+        cli("done", "1")
+        rows = _j(cli, "reopen", "1", "-o", "json")
+        assert rows[0]["status"] == "TODO"
+
+    def test_defer_returns_node_list(self, cli):
+        cli("add", "task")
+        rows = _j(cli, "defer", "1", "someday", "-o", "json")
+        assert rows[0]["status"] == "LATER"
+
+    def test_defer_suppresses_text(self, cli):
+        cli("add", "task")
+        code, out, _ = cli("defer", "1", "someday", "-o", "json")
+        assert "→ LATER" not in out
+
+    def test_start_returns_node_list(self, cli):
+        cli("add", "task")
+        rows = _j(cli, "start", "1", "-o", "json")
+        assert rows[0]["status"] == "DOING"
+
+    def test_start_suppresses_text(self, cli):
+        cli("add", "task")
+        code, out, _ = cli("start", "1", "-o", "json")
+        assert "clocked in" not in out
+
+    def test_stop_returns_node_list(self, cli):
+        cli("add", "task")
+        cli("start", "1")
+        rows = _j(cli, "stop", "1", "-o", "json")
+        assert isinstance(rows, list) and rows[0]["id"] == 1
+
+    def test_stop_suppresses_text(self, cli):
+        cli("add", "task")
+        cli("start", "1")
+        code, out, _ = cli("stop", "1", "-o", "json")
+        assert "stopped" not in out
+
+    def test_wait_returns_node_list(self, cli):
+        cli("add", "task")
+        rows = _j(cli, "wait", "1", "-o", "json")
+        assert rows[0]["status"] == "WAIT"
+
+    def test_done_multiple_ids(self, cli):
+        cli("add", "a")
+        cli("add", "b")
+        rows = _j(cli, "done", "1", "2", "-o", "json")
+        assert len(rows) == 2 and {r["id"] for r in rows} == {1, 2}

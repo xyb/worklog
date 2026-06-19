@@ -737,11 +737,15 @@ def cmd_wait(args, con):
         if args.note:
             _insert_log(con, nid, f"WAIT: {args.note}")
     con.commit()
-    for nid in ids:
-        msg = f"✓ #{nid} → WAIT"
-        if args.note:
-            msg += f" ({args.note})"
-        print(msg)
+    if _is_json(args):
+        from .query import _node_summary_dict
+        _emit_json([_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids])
+    else:
+        for nid in ids:
+            msg = f"✓ #{nid} → WAIT"
+            if args.note:
+                msg += f" ({args.note})"
+            print(msg)
 
 def cmd_reopen(args, con):
     """Undo DONE/CANCELED: back to TODO, clear closed_at. Common when a task was mistakenly closed."""

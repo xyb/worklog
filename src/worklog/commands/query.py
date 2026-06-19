@@ -336,7 +336,10 @@ def cmd_find(args, con):
             continue
         rows.append(n)
     if not rows:
-        print(f"(no matches for '{q}')")
+        if _is_json(args):
+            _emit_json([])
+        else:
+            print(f"(no matches for '{q}')")
         return
     rows.sort(key=lambda n: (n["priority"] or "Z", n["id"]))
     total = len(rows)
