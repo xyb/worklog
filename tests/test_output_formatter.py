@@ -10,6 +10,7 @@ from worklog.commands.output import (
     Formatter,
     TextFormatter,
     JSONFormatter,
+    TextRenderable,
     _FORMATTERS,
     register_formatter,
     get_formatter,
@@ -114,7 +115,7 @@ class TestFormatterLifecycle:
 
 
 # ---------------------------------------------------------------------------
-# TextFormatter: out() passthrough, emit is no-op
+# TextFormatter: calls TextRenderable.render(), ignores plain data
 # ---------------------------------------------------------------------------
 
 class TestTextFormatter:
@@ -123,10 +124,47 @@ class TestTextFormatter:
         fmt.setup()
         fmt.teardown()
 
-    def test_emit_ignores_data(self, capsys):
+    def test_emit_ignores_plain_data(self, capsys):
         fmt = TextFormatter()
         fmt.emit({"key": "value"})
         assert capsys.readouterr().out == ""
+
+    def test_emit_calls_render_on_text_renderable(self, capsys):
+        rendered = []
+        tr = TextRenderable({"id": 1}, lambda: rendered.append("called"))
+        fmt = TextFormatter()
+        fmt.emit(tr)
+        assert rendered == ["called"]
+
+    def test_emit_ignores_none(self, capsys):
+        fmt = TextFormatter()
+        fmt.emit(None)
+        assert capsys.readouterr().out == ""
+
+
+# ---------------------------------------------------------------------------
+# TextRenderable: data/render separation
+# ---------------------------------------------------------------------------
+
+class TestTextRenderable:
+    def test_data_accessible(self):
+        tr = TextRenderable({"id": 42}, lambda: None)
+        assert tr.data == {"id": 42}
+
+    def test_render_calls_fn(self):
+        called = []
+        tr = TextRenderable({}, lambda: called.append(True))
+        tr.render()
+        assert called == [True]
+
+    def test_json_formatter_uses_data_not_render(self, capsys):
+        rendered = []
+        tr = TextRenderable({"id": 1}, lambda: rendered.append("rendered"))
+        fmt = JSONFormatter()
+        fmt.emit(tr)
+        out = capsys.readouterr().out
+        assert json.loads(out) == {"id": 1}
+        assert rendered == []  # render fn must NOT be called in JSON mode
 
 
 # ---------------------------------------------------------------------------

@@ -63,7 +63,7 @@ from ..queries import (
     _upsert_prop,
 )
 from .metric import _fmt_value, metric_rows
-from .output import output_format
+from .output import output_format, TextRenderable
 from ..render import (
     _PRI_STYLE,
     _STATUS_STYLE,
@@ -126,25 +126,29 @@ def cmd_tree(args, con):
     inc_cancel = getattr(args, "show_canceled", False) or bool(getattr(args, "status", None))
     log_tail = _resolve_log_tail(args, _is_brief(args, "no_logs"), default_tail=3)
     nf = make_node_filter(con, args)  # shared --tag/--para/--status filter
-    if args.by:
-        _tree_by(con, args.by, nf=nf)
-        return _tree_json_data(con, args)
     full = _log_full(args)
+
+    if args.by:
+        return TextRenderable(_tree_json_data(con, args),
+                              lambda: _tree_by(con, args.by, nf=nf))
+
     # a filter prunes the structural tree to matching nodes + their ancestor paths
-    # (separate code path; the bare/unfiltered tree below stays byte-identical).
     if nf is not None:
         root_node = None
         if args.root is not None:
             root_node = _db.get(con, "node", args.root)
             if not root_node:
                 die(f"node #{args.root} not found")
-        _print_filtered_tree(con, nf, root_node=root_node,
-                             include_canceled=inc_cancel, log_tail=log_tail, full=full)
-        return _tree_json_data(con, args)
+        return TextRenderable(
+            _tree_json_data(con, args),
+            lambda: _print_filtered_tree(con, nf, root_node=root_node,
+                                         include_canceled=inc_cancel, log_tail=log_tail, full=full))
+
     if args.root is None and args.depth is None:
-        # bare wl tree: areas one level + timeline up to today
-        _print_default_tree(con, include_canceled=inc_cancel, log_tail=log_tail, full=full)
-        return _tree_json_data(con, args)
+        return TextRenderable(
+            _tree_json_data(con, args),
+            lambda: _print_default_tree(con, include_canceled=inc_cancel, log_tail=log_tail, full=full))
+
     if args.root is not None:
         # expand subtree from a specified node as root (no longer requires parent_id IS NULL)
         root = _db.get(con, "node", args.root)
@@ -162,15 +166,18 @@ def cmd_tree(args, con):
         roots = list(con.execute(root_sql, params_root))
 
     if not roots:
-        out(_c('(empty — add a task with `wl add "..."`)', "meta"))
-        return _tree_json_data(con, args)
+        return TextRenderable(_tree_json_data(con, args),
+                              lambda: out(_c('(empty — add a task with `wl add "..."`)', "meta")))
 
-    # default depth limit to avoid flooding: full tree default 2 (area->project / year->quarter overview), --root default 3 (one extra level for drill-down)
+    # default depth limit to avoid flooding
     max_depth = args.depth if args.depth is not None else (3 if args.root is not None else 2)
-    for root in roots:
-        _print_tree(con, root, depth=0, max_depth=max_depth,
-                    include_canceled=inc_cancel, log_tail=log_tail, full=full)
-    return _tree_json_data(con, args)
+
+    def _render():
+        for root in roots:
+            _print_tree(con, root, depth=0, max_depth=max_depth,
+                        include_canceled=inc_cancel, log_tail=log_tail, full=full)
+
+    return TextRenderable(_tree_json_data(con, args), _render)
 
 # wl day header reserved-tag logs, each with a distinct marker: one glance tells today's goal
 # from recap from the week's goal from the month's goal. Week/month goals are the same `goal`
@@ -418,22 +425,21 @@ def cmd_day(args, con):
     else:
         target = _tu.today()
     day = time_node_by_period(con, "day", target)
-    # header (date context + the day/week/month goal + recap cascade)
-    _emit_day_header(con, day, target)
 
     # an explicit --status filter (applied below via make_node_filter) must override the
     # default CANCELED hide, else `day --status CANCELED` would drop its own matches.
     inc_cancel = getattr(args, "show_canceled", False) or bool(getattr(args, "status", None))
     items, sched_ids = _collect_day_items(con, target, inc_cancel)
 
-    # shared --tag/--para/--status filter: keep only matching nodes. Empty buckets /
-    # groups then simply don't get rendered (_render_day_group builds them from items).
+    # shared --tag/--para/--status filter: keep only matching nodes.
     nf = make_node_filter(con, args)
     if nf:
         items = {nid: it for nid, it in items.items() if nf(nid)}
         if not items:
-            out(_c(f"  (nothing matches the filter on {target})", "meta"))
-            return _day_json_data(con, target, day, {}, sched_ids)
+            def _render_empty_filter():
+                _emit_day_header(con, day, target)
+                out(_c(f"  (nothing matches the filter on {target})", "meta"))
+            return TextRenderable(_day_json_data(con, target, day, {}, sched_ids), _render_empty_filter)
 
     if not items:
         # clock-only day: time was tracked (wl spent / start-stop) but nothing logged/planned
@@ -443,20 +449,22 @@ def cmd_day(args, con):
         ).fetchone()["s"]
         if clock_sec:
             cm = int(clock_sec / 60)
-            out(_c(f"  (no logged task progress for {target}) · CLOCK {cm}min ({cm // 60}h{cm % 60}m)", "meta"))
+            _empty_msg = _c(f"  (no logged task progress for {target}) · CLOCK {cm}min ({cm // 60}h{cm % 60}m)", "meta")
         else:
-            out(_c(f"  (no log progress for {target}, and nothing planned)", "meta"))
-        return _day_json_data(con, target, day, {}, sched_ids)
+            _empty_msg = _c(f"  (no log progress for {target}, and nothing planned)", "meta")
 
-    # log_tail priority: --no-logs/--brief -> 0 / --all-logs -> None (full) /
-    # --log-tail N -> N / default 3 (elide middle, only the end visible to keep wl day from blowing up on long logs)
+        def _render_empty():
+            _emit_day_header(con, day, target)
+            out(_empty_msg)
+
+        return TextRenderable(_day_json_data(con, target, day, {}, sched_ids), _render_empty)
+
     brief = _is_brief(args, "no_logs")
     log_tail = _resolve_log_tail(args, brief, default_tail=3)
-    _render_day_group(con, items, by=getattr(args, "by", "plan"),
-                      sched_ids=sched_ids, log_tail=log_tail,
-                      full=_log_full(args), day=target)
+    _by = getattr(args, "by", "plan")
+    _full = _log_full(args)
 
-    # bottom stats: per-status distribution + planned-not-done count + CLOCK time
+    # compute bottom stats now (computation, not render)
     logged = {nid: (it["node"]["status"] or "TODO") for nid, it in items.items() if it["logs"]}
     stats = {}
     for s in logged.values():
@@ -486,7 +494,6 @@ def cmd_day(args, con):
             (target,),
         ).fetchone()["s"]
     total_min = int((total_sec or 0) / 60)
-    out("")
     line = f"  ── {target}: {done_count}/{total} tasks with progress"
     if parts:
         line += " · " + " · ".join(parts)
@@ -494,9 +501,14 @@ def cmd_day(args, con):
         line += f" · planned·not-done {planned_undone}"
     if total_min:
         line += f" · CLOCK {total_min}min ({total_min // 60}h{total_min % 60}m)"
-    out(_c(line, "meta"))
 
-    return _day_json_data(con, target, day, items, sched_ids)
+    def _render():
+        _emit_day_header(con, day, target)
+        _render_day_group(con, items, by=_by, sched_ids=sched_ids, log_tail=log_tail, full=_full, day=target)
+        out("")
+        out(_c(line, "meta"))
+
+    return TextRenderable(_day_json_data(con, target, day, items, sched_ids), _render)
 
 def _tree_by(con, by, nf=None):
     """Flat 2-level view, regrouped by dimension (avoids deep time-layered nesting).

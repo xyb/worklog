@@ -19,7 +19,7 @@ from .. import render
 from ..render import _c, _node_line, _hl_terms, _detail_line, die, out
 from ..helpers import _truncate_log_body, _display_width
 from ..xdg import _resolve_vec_db_path
-from .output import output_format
+from .output import output_format, TextRenderable
 
 # Batch bounds for embedding: a CHARACTER budget (≈ equal work / batch, the basis for an
 # even progress bar) plus a node cap (keeps a single request's payload reasonable).
@@ -392,30 +392,27 @@ def cmd_query(args, con):
                          "score": round(h.get("score", 0.0), 4),
                          "matched_field": h.get("chunk_field", ""), "matched_text": h.get("chunk_text", "")})
 
-    if not fused:
-        out(_c(f"(no matches for '{q}')", "meta"))
-        return json_rows
-    out(_c(f"'{q}' — {len(fused)} hit(s) (semantic + keyword):", "header"))
-    for nid in fused:
-        n = _db.get(con, "node", nid)
-        if not n:
-            continue  # vector/keyword pointed at a since-deleted node — skip
-        h = vec_map.get(nid, {})
-        # Pass the score as the node-line's `indent` so its hang-wrap counts the score width:
-        # a wrapped title's continuation lines then align under the title, not column 0.
-        out(_node_line(con, n, indent=f"{h.get('score', 0.0):.3f}  ", hl=terms))
-        # show the best-matching chunk as the reason (the head chunk repeats title/body; a log
-        # chunk pins which log), clipped to one line via the same _truncate_log_body `wl day`
-        # uses, then highlighted per query term.
-        chunk = h.get("chunk_text", "")
-        if chunk:
-            flat = " ".join(chunk.split())
-            label = f"↳ {h.get('chunk_field', '')}:"
-            # width-clip the chunk exactly like `wl day` clips a log line (shared _truncate_log_body),
-            # accounting for the indent+label width, then render via the shared detail-line format.
-            body = _truncate_log_body(flat, indent_cols=_display_width("    " + label + " "))
-            out(_detail_line(label, _hl_terms(body, terms)))
-    return json_rows
+    # build node objects for rendering (avoid re-querying in _render)
+    fused_nodes = [(nid, _db.get(con, "node", nid), vec_map.get(nid, {})) for nid in fused]
+    fused_nodes = [(nid, n, h) for nid, n, h in fused_nodes if n]
+
+    def _render():
+        if not fused_nodes:
+            out(_c(f"(no matches for '{q}')", "meta"))
+            return
+        out(_c(f"'{q}' — {len(fused)} hit(s) (semantic + keyword):", "header"))
+        for nid, n, h in fused_nodes:
+            out(_node_line(con, n, indent=f"{h.get('score', 0.0):.3f}  ", hl=terms))
+            chunk = h.get("chunk_text", "")
+            if chunk:
+                flat = " ".join(chunk.split())
+                label = f"↳ {h.get('chunk_field', '')}:"
+                body = _truncate_log_body(flat, indent_cols=_display_width("    " + label + " "))
+                out(_detail_line(label, _hl_terms(body, terms)))
+
+    if not fused_nodes:
+        return TextRenderable(json_rows, lambda: out(_c(f"(no matches for '{q}')", "meta")))
+    return TextRenderable(json_rows, _render)
 
 
 def _segment(text):

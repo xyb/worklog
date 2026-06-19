@@ -6,8 +6,10 @@ decides how to render it.
 
     @output_format
     def cmd_foo(args, con):
-        out("✓ human-readable line")   # TextFormatter lets this through; JSONFormatter suppresses
-        return {"id": ..., "key": ...} # JSONFormatter emits this; TextFormatter ignores it
+        result = {"id": ..., "key": ...}
+        def _render():
+            out("✓ human-readable line")   # called by TextFormatter.emit()
+        return TextRenderable(result, _render)
 
 Add a new output format: subclass Formatter and register it in _FORMATTERS.
 """
@@ -18,6 +20,26 @@ import sys
 from functools import wraps
 
 from ..render import set_suppress_output, set_active_error_formatter, get_active_error_formatter
+
+
+class TextRenderable:
+    """Carries structured data (for JSON) and a text renderer (for text mode).
+
+    Return from @output_format handlers to separate data from presentation:
+      - TextFormatter.emit() calls .render() to produce human-readable output
+      - JSONFormatter.emit() serialises .data, never calls .render()
+
+    The render function is typically a closure that captures handler-local
+    context (computed labels, sibling rows, etc.) without polluting .data.
+    """
+    __slots__ = ("data", "_render")
+
+    def __init__(self, data, render):
+        self.data = data
+        self._render = render
+
+    def render(self):
+        self._render()
 
 
 class Formatter:
@@ -40,12 +62,16 @@ class Formatter:
 
 
 class TextFormatter(Formatter):
-    """Rich text mode: out() calls flow to the terminal; return value is unused.
+    """Rich text mode: out() calls in the render function flow to the terminal.
 
-    All three lifecycle methods are no-ops — the handler does its own rendering
-    inline via out(). TextFormatter is the extension point for future text-side
-    post-processing (pagination, colour themes, default fallback rendering).
+    emit() calls TextRenderable.render() when the handler returned one;
+    plain dicts/None are ignored (backward-compat for un-migrated handlers
+    that still call out() inline during the handler body).
     """
+
+    def emit(self, data) -> None:
+        if isinstance(data, TextRenderable):
+            data.render()
 
 
 class JSONFormatter(Formatter):
@@ -79,7 +105,8 @@ class JSONFormatter(Formatter):
         set_active_error_formatter(self._saved_error_formatter)
 
     def emit(self, data) -> None:
-        print(json.dumps(data, ensure_ascii=False, indent=2))
+        payload = data.data if isinstance(data, TextRenderable) else data
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 
 _FORMATTERS: dict[str, type[Formatter]] = {}
@@ -115,8 +142,9 @@ def get_formatter(name: str) -> Formatter:
 def output_format(fn):
     """Decorator: apply the active output Formatter to a command handler.
 
-    Text mode: out() calls flow normally; return value is ignored.
-    JSON mode:  out() calls are suppressed; return value is emitted as JSON.
+    Text mode: TextRenderable.render() is called by TextFormatter.emit().
+    JSON mode: out() calls are suppressed; TextRenderable.data (or the raw
+               return value) is emitted as JSON.
     """
     @wraps(fn)
     def wrapper(args, con):

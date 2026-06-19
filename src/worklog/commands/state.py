@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .. import timeutil as _tu
-from .output import output_format
+from .output import output_format, TextRenderable
 from .. import db_table as _db
 from .. import node_types as _nt
 from ..helpers import (
@@ -217,6 +217,7 @@ def cmd_add(args, con):
     if args.proj:
         props["project"] = args.proj
     # gather --prop K=V now (before the status default) so the node's classification is known up front
+    prop_warnings = []
     for spec in (getattr(args, "prop", None) or []):
         key, _, val = spec.partition("=")
         key = key.strip()
@@ -224,7 +225,7 @@ def cmd_add(args, con):
         if key:
             if key in props and props[key] != val:
                 # don't silently drop a conflicting earlier value (e.g. --proj X + --prop project=Y)
-                out(_c(f"⚠ {key}={val} overrides earlier {key}={props[key]}", "later"))
+                prop_warnings.append(_c(f"⚠ {key}={val} overrides earlier {key}={props[key]}", "later"))
             props[key] = val
     if args.deadline:
         deadline = args.deadline
@@ -295,21 +296,27 @@ def cmd_add(args, con):
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
     # echo the node's DERIVED type (post --prop) so a `--prop type.habit` add reports "habit", not "task"
     echo_type = node_type(con, node_id)
-    out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{echo_type} '{args.title}'")
-        + st + sched_hint + link_hint + rel_hint + log_hint + metric_hint
-        + _c(f"  @{_tu.local_now()[:16]}", "meta"))   # stamp "now" so the caller (esp. an AI) sees the real current time
-    if similar:
-        out(_c(f"⚠ {len(similar)} similar open {echo_type}(s) already exist — reuse instead of duplicating?", "later"))
-        for r in similar[:5]:
-            out("  " + _node_line(con, r, sched=True))
-        out(_c("  if it's the same thing: wl sched <id> <day> to reschedule, or wl link / wl log it", "meta"))
+
     # nudge (with a copy-paste fix on its own line) when a custom type.* facet was created empty
     for _k, _v in props.items():
         _h = _nt.existence_empty_hint(node_id, _k, _v)
         if _h:
             print(f"  tip: {_h[0]}", file=sys.stderr)
             print(f"  {_h[1]}", file=sys.stderr)
-    return result
+
+    def _render():
+        for w in prop_warnings:
+            out(w)
+        out(_c("✓", "done") + " " + _c(f"#{node_id}", "id") + " " + _c(f"{echo_type} '{args.title}'")
+            + st + sched_hint + link_hint + rel_hint + log_hint + metric_hint
+            + _c(f"  @{_tu.local_now()[:16]}", "meta"))   # stamp "now" so the caller (esp. an AI) sees the real current time
+        if similar:
+            out(_c(f"⚠ {len(similar)} similar open {echo_type}(s) already exist — reuse instead of duplicating?", "later"))
+            for r in similar[:5]:
+                out("  " + _node_line(con, r, sched=True))
+            out(_c("  if it's the same thing: wl sched <id> <day> to reschedule, or wl link / wl log it", "meta"))
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -345,28 +352,31 @@ def cmd_log(args, con):
         metric_hint = f" + {nm} metric(s)"
     con.commit()
     row = _db.get(con, "log", log_id)
-    out(f"✓ log added to #{args.id}{auto_progress_hint}{metric_hint}  @{_tu.local_now()[:16]}")
-    return {"id": log_id, "node_id": args.id, "body": row["body"], "logged_at": row["logged_at"]}
+    result = {"id": log_id, "node_id": args.id, "body": row["body"], "logged_at": row["logged_at"]}
+
+    def _render():
+        out(f"✓ log added to #{args.id}{auto_progress_hint}{metric_hint}  @{_tu.local_now()[:16]}")
+
+    return TextRenderable(result, _render)
 
 
 @output_format
 def cmd_done(args, con):
-    _warn_recurring_done(con, _ids_list(args))
-    return _bulk_status_change(con, args, "DONE", close=True)
+    ids = _ids_list(args)
+    recurring = [(nid, r["rrule"]) for nid in ids
+                 for r in [_db.query_one(con, "sched", cols="rrule", node_id=nid, rrule__ne=None)]
+                 if r]
+    inner = _bulk_status_change(con, args, "DONE", close=True)
 
-
-def _warn_recurring_done(con, ids):
-    """`wl done` on a recurring task (has an rrule) sets global status DONE, which makes it
-    show as completed on EVERY scheduled day and stop re-triggering. That is the "retire the
-    whole recurring task" semantic. To mark just today's occurrence, `wl tick` is the right
-    tool (adds a log, keeps status open). Warn so the two don't get confused."""
-    for nid in ids:
-        rule = _db.query_one(con, "sched", cols="rrule", node_id=nid, rrule__ne=None)
-        if rule:
+    def _render():
+        for nid, rrule in recurring:
             out(_c(
-                f"! #{nid} is recurring ({rule['rrule']}): `wl done` retires the whole task "
+                f"! #{nid} is recurring ({rrule}): `wl done` retires the whole task "
                 f"(shows done on all scheduled days). For just today's occurrence use `wl tick {nid}`.",
                 "planned"))
+        inner.render()
+
+    return TextRenderable(inner.data, _render)
 
 @output_format
 def cmd_defer(args, con):
@@ -379,10 +389,14 @@ def cmd_defer(args, con):
     for nid in ids:
         _db.update(con, "node", nid, {"status": "LATER", "scheduled_date": when})
     con.commit()
-    for nid in ids:
-        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " → LATER, scheduled " + _c(_sched_display(when), "planned"))
     from .query import _node_summary_dict
-    return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+    result = [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+
+    def _render():
+        for nid in ids:
+            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " → LATER, scheduled " + _c(_sched_display(when), "planned"))
+
+    return TextRenderable(result, _render)
 
 @output_format
 def cmd_start(args, con):
@@ -394,23 +408,33 @@ def cmd_start(args, con):
     except ValueError as e:
         die(f"{e}")
     note = f" @{_tu.utc_to_local(ts)[11:16]}" if getattr(args, "at", None) else ""
+    skipped = []
     started = []
     for nid in ids:
         # don't open a second interval on a node that's already running (would leave
         # a stale open clock + duplicate wl active rows); stop the current one first.
         if _db.exists(con, "clock", node_id=nid, end_at=None):
-            out(_c(f"⚠ #{nid} already has a running clock — wl stop it first (skipped)", "later"))
+            skipped.append(nid)
             continue
         _db.update(con, "node", nid, {"status": "DOING"})
         _db.insert(con, "clock", {"node_id": nid, "start_at": ts})
         started.append(nid)
     con.commit()
-    for nid in started:
-        out(f"✓ #{nid} → DOING, clocked in{note}")
     if not started:
-        return []
+        def _render():
+            for nid in skipped:
+                out(_c(f"⚠ #{nid} already has a running clock — wl stop it first (skipped)", "later"))
+        return TextRenderable([], _render)
     from .query import _node_summary_dict
-    return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in started]
+    result = [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in started]
+
+    def _render():
+        for nid in skipped:
+            out(_c(f"⚠ #{nid} already has a running clock — wl stop it first (skipped)", "later"))
+        for nid in started:
+            out(f"✓ #{nid} → DOING, clocked in{note}")
+
+    return TextRenderable(result, _render)
 
 @output_format
 def cmd_stop(args, con):
@@ -421,6 +445,7 @@ def cmd_stop(args, con):
         stop_ts = _resolve_at_ts(getattr(args, "at", None))
     except ValueError as e:
         die(f"{e}")
+    stop_lines = []
     for nid in ids:
         row = _db.query_one(con, "clock", cols="id, start_at", node_id=nid, end_at=None, order="id DESC")
         if not row:
@@ -431,10 +456,16 @@ def cmd_stop(args, con):
             die(f"--at {stop_ts} is earlier than the clock start {row['start_at']} (#{nid})")
         secs = max(60, int((stopped - started).total_seconds()))  # floor at 1 min
         _db.update(con, "clock", row["id"], {"end_at": stop_ts, "elapsed_sec": secs})
-        out(f"✓ #{nid} stopped, elapsed {secs // 60} min")
+        stop_lines.append((nid, secs))
     con.commit()
     from .query import _node_summary_dict
-    return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+    result = [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+
+    def _render():
+        for nid, secs in stop_lines:
+            out(f"✓ #{nid} stopped, elapsed {secs // 60} min")
+
+    return TextRenderable(result, _render)
 
 @output_format
 def cmd_spent(args, con):
@@ -470,9 +501,13 @@ def cmd_spent(args, con):
                                    "elapsed_sec": mins * 60})
     con.commit()
     r = _db.get(con, "clock", cid)
-    out(f"✓ #{nid} spent {mins}min ({_tu.utc_to_local(start_ts)[11:16]} → {_tu.utc_to_local(end_ts)[11:16]})")
-    return {"id": r["id"], "node_id": r["node_id"],
-            "start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"]}
+    result = {"id": r["id"], "node_id": r["node_id"],
+              "start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"]}
+
+    def _render():
+        out(f"✓ #{nid} spent {mins}min ({_tu.utc_to_local(start_ts)[11:16]} → {_tu.utc_to_local(end_ts)[11:16]})")
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -485,13 +520,17 @@ def cmd_link(args, con):
     for nid in ids:
         _upsert_link(con, nid, doc)
     con.commit()
-    for nid in ids:
-        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{doc}]]"))
     result = []
     for nid in ids:
         links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid, order="vault_doc")]
         result.append({"node_id": nid, "links": links})
-    return result if len(result) > 1 else result[0]
+    payload = result if len(result) > 1 else result[0]
+
+    def _render():
+        for nid in ids:
+            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{doc}]]"))
+
+    return TextRenderable(payload, _render)
 
 @output_format
 def cmd_unlink(args, con):
@@ -502,18 +541,24 @@ def cmd_unlink(args, con):
         die("vault_doc cannot be empty")
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
+    unlink_results = []
     for nid in ids:
         _, n = _delete_link(con, nid, doc)
-        if n:
-            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"unlinked [[{doc}]]"))
-        else:
-            out(_c(f"#{nid} had no link to [[{doc}]]", "meta"))
+        unlink_results.append((nid, bool(n)))
     con.commit()
     all_links = []
     for nid in ids:
         all_links.extend(r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc",
                                                             node_id=nid, order="vault_doc"))
-    return all_links
+
+    def _render():
+        for nid, found in unlink_results:
+            if found:
+                out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"unlinked [[{doc}]]"))
+            else:
+                out(_c(f"#{nid} had no link to [[{doc}]]", "meta"))
+
+    return TextRenderable(all_links, _render)
 
 def _print_relations(con, nid):
     """Render a node's resolved relations block (own + derived reverse). Shared by
@@ -586,8 +631,8 @@ def cmd_relation(args, con):
     others_raw = list(args.others or [])
     from ..queries import relation_view
     if rtype is None:
-        _print_relations(con, args.id)
-        return relation_view(con, args.id)
+        result = relation_view(con, args.id)
+        return TextRenderable(result, lambda: _print_relations(con, args.id))
     if rtype not in _RELATION_TYPES:
         # the type word was omitted: the first token is actually a node id → default to `related`
         others_raw.insert(0, rtype)
@@ -603,17 +648,21 @@ def cmd_relation(args, con):
         die(f"give at least one related node id, e.g. `wl relation {args.id} {rtype} 42`")
     _check_ids_exist(con, others)
     rm = getattr(args, "rm", False)
-    for o in others:
-        if o == args.id:
-            out(_c(f"(skip #{o}: a node can't relate to itself)", "meta"))
+    self_refs = [o for o in others if o == args.id]
     done = _apply_relation(con, args.id, rtype, others, rm=rm)
     con.commit()
-    if done:
-        verb = "removed" if rm else "set"
-        out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + f" {rtype} {verb}: "
-            + _c(", ".join(f"#{o}" for o in done)))
-    _print_relations(con, args.id)
-    return relation_view(con, args.id)
+    result = relation_view(con, args.id)
+    verb = "removed" if rm else "set"
+
+    def _render():
+        for o in self_refs:
+            out(_c(f"(skip #{o}: a node can't relate to itself)", "meta"))
+        if done:
+            out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + f" {rtype} {verb}: "
+                + _c(", ".join(f"#{o}" for o in done)))
+        _print_relations(con, args.id)
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -634,8 +683,9 @@ def cmd_set(args, con):
         log_id = _set_typed_log(con, args.id, args.key, args.value)
         con.commit()
         log = _db.get(con, "log", log_id)
-        out(_c(f"✓ #{args.id} {args.key} (logged at {log['logged_at']}): {args.value}", "meta"))
-        return {"key": args.key, "body": log["body"], "logged_at": log["logged_at"]}
+        result = {"key": args.key, "body": log["body"], "logged_at": log["logged_at"]}
+        _node_id, _key, _ts, _val = args.id, args.key, log["logged_at"], args.value
+        return TextRenderable(result, lambda: out(_c(f"✓ #{_node_id} {_key} (logged at {_ts}): {_val}", "meta")))
     try:
         _upsert_prop(con, args.id, args.key, args.value)
         # Setting type.date / date.period must keep the time node COHERENT: re-derive its full
@@ -649,12 +699,17 @@ def cmd_set(args, con):
         # the reserved type.*/date.* validator (or a shadow-field backstop) rejected the value
         die(f"{e}")
     con.commit()
-    out(f"✓ #{args.id} {args.key}={args.value}")
     _h = _nt.existence_empty_hint(args.id, args.key, args.value)
     if _h:
         print(f"  tip: {_h[0]}", file=sys.stderr)
         print(f"  {_h[1]}", file=sys.stderr)
-    return {"key": args.key, "value": args.value}
+    result = {"key": args.key, "value": args.value}
+    _node_id, _key, _val = args.id, args.key, args.value
+
+    def _render():
+        out(f"✓ #{_node_id} {_key}={_val}")
+
+    return TextRenderable(result, _render)
 
 @output_format
 def cmd_tag(args, con):
@@ -666,8 +721,9 @@ def cmd_tag(args, con):
     ops = [o.strip() for o in (args.ops or []) if o.strip()]
     tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
     if not ops:
-        out(_c(f"#{args.id} tags: " + (":".join(tags) if tags else "(none)"), "meta"))
-        return tags
+        result = tags
+        _nid = args.id
+        return TextRenderable(result, lambda: out(_c(f"#{_nid} tags: " + (":".join(tags) if tags else "(none)"), "meta")))
     added, removed = [], []
     for op in ops:
         if op.startswith("-"):
@@ -681,13 +737,18 @@ def cmd_tag(args, con):
                 _db.upsert(con, "tag", {"node_id": args.id, "tag": t}, key=("node_id", "tag"))
                 added.append(t)
     con.commit()
-    parts = []
-    if added:
-        parts.append(_c("+" + ",".join(added), "planned"))
-    if removed:
-        parts.append(_c("-" + ",".join(removed), "later"))
-    out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + " tags " + " ".join(parts))
-    return [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+    result = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+    _nid = args.id
+
+    def _render():
+        parts = []
+        if added:
+            parts.append(_c("+" + ",".join(added), "planned"))
+        if removed:
+            parts.append(_c("-" + ",".join(removed), "later"))
+        out(_c("✓", "done") + " " + _c(f"#{_nid}", "id") + " tags " + " ".join(parts))
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -695,8 +756,8 @@ def cmd_tag_ls(args, con):
     """List a node's real tags — the read verb of the tag group (= bare `wl tag <id>`)."""
     _require_node(con, args.id)
     tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
-    out(_c(f"#{args.id} tags: " + (":".join(tags) if tags else "(none)"), "meta"))
-    return tags
+    _nid = args.id
+    return TextRenderable(tags, lambda: out(_c(f"#{_nid} tags: " + (":".join(tags) if tags else "(none)"), "meta")))
 
 
 @output_format
@@ -712,12 +773,17 @@ def cmd_tag_rm(args, con):
             _db.delete(con, "tag", node_id=args.id, tag=t)
             removed.append(t)
     con.commit()
-    if removed:
-        out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + " tags "
-            + _c("-" + ",".join(removed), "later"))
-    else:
-        out(_c(f"#{args.id} no tags removed", "meta"))
-    return [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+    result = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+    _nid = args.id
+
+    def _render():
+        if removed:
+            out(_c("✓", "done") + " " + _c(f"#{_nid}", "id") + " tags "
+                + _c("-" + ",".join(removed), "later"))
+        else:
+            out(_c(f"#{_nid} no tags removed", "meta"))
+
+    return TextRenderable(result, _render)
 
 
 def cmd_tag_group(args, con):
@@ -748,9 +814,12 @@ def cmd_tick(args, con):
             _db.update(con, "node", nid, {"status": "DONE", "closed_at": _tu.utc_now()})
         result.append({"node_id": nid, "log_id": log_id, "done": args.done})
     con.commit()
-    for nid in ids:
-        out(_c(f"✓ #{nid} checked in", "meta") + (_c(" + DONE", "done") if args.done else ""))
-    return result
+
+    def _render():
+        for nid in ids:
+            out(_c(f"✓ #{nid} checked in", "meta") + (_c(" + DONE", "done") if args.done else ""))
+
+    return TextRenderable(result, _render)
 
 @output_format
 def cmd_wait(args, con):
@@ -769,13 +838,18 @@ def cmd_wait(args, con):
         if args.note:
             _insert_log(con, nid, f"WAIT: {args.note}")
     con.commit()
-    for nid in ids:
-        msg = f"✓ #{nid} → WAIT"
-        if args.note:
-            msg += f" ({args.note})"
-        out(msg)
     from .query import _node_summary_dict
-    return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+    result = [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+    _note = args.note
+
+    def _render():
+        for nid in ids:
+            msg = f"✓ #{nid} → WAIT"
+            if _note:
+                msg += f" ({_note})"
+            out(msg)
+
+    return TextRenderable(result, _render)
 
 @output_format
 def cmd_reopen(args, con):
@@ -812,8 +886,9 @@ def cmd_unlog(args, con):
         con.commit()
         body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
-        out(_c(f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {_tu.utc_to_local(row['logged_at'])}): {body_preview}", "meta"))
-        return {"deleted": [log_id], "node_id": row["node_id"], "metrics_deleted": nmetric}
+        result = {"deleted": [log_id], "node_id": row["node_id"], "metrics_deleted": nmetric}
+        _msg = f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {_tu.utc_to_local(row['logged_at'])}): {body_preview}"
+        return TextRenderable(result, lambda: out(_c(_msg, "meta")))
 
     # --node <id>: delete latest log for that day
     _require_node(con, nid)
@@ -832,8 +907,8 @@ def cmd_unlog(args, con):
         sql += " LIMIT 1"
     rows = list(con.execute(sql, (nid, date)))
     if not rows:
-        out(_c(f"(node #{nid} has no non-CLOCK logs on {date})", "meta"))
-        return {"deleted": []}
+        return TextRenderable({"deleted": []}, lambda: out(_c(f"(node #{nid} has no non-CLOCK logs on {date})", "meta")))
+    deleted_lines = []
     deleted_ids = []
     for r in rows:
         nmetric = _db.count(con, "metric", log_id=r["id"])
@@ -841,9 +916,14 @@ def cmd_unlog(args, con):
         deleted_ids.append(r["id"])
         body_preview = r["body"][:60] + ("…" if len(r["body"]) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
-        out(_c(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}", "meta"))
+        deleted_lines.append(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}")
     con.commit()
-    return {"deleted": deleted_ids}
+
+    def _render():
+        for msg in deleted_lines:
+            out(_c(msg, "meta"))
+
+    return TextRenderable({"deleted": deleted_ids}, _render)
 
 @output_format
 def cmd_relog(args, con):
@@ -909,8 +989,8 @@ def cmd_relog(args, con):
         # nothing given -> open EDITOR to edit body
         new_body = _edit_in_editor(row["body"], suffix=".log.txt")
         if new_body is None or new_body.strip() == row["body"]:
-            out(_c("(no change; relog canceled)", "meta"))
-            return {"id": log_id, "canceled": True}
+            return TextRenderable({"id": log_id, "canceled": True},
+                                  lambda: out(_c("(no change; relog canceled)", "meta")))
         new_body = new_body.strip()
 
     changes = {}
@@ -923,9 +1003,10 @@ def cmd_relog(args, con):
 
     new_row = _db.get(con, "log", log_id)
     body_preview = new_row["body"][:60] + ("…" if len(new_row["body"]) > 60 else "")
-    out(_c(f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}", "meta"))
-    return {"id": new_row["id"], "node_id": new_row["node_id"], "tag": new_row["tag"],
-            "body": new_row["body"], "logged_at": new_row["logged_at"]}
+    result = {"id": new_row["id"], "node_id": new_row["node_id"], "tag": new_row["tag"],
+              "body": new_row["body"], "logged_at": new_row["logged_at"]}
+    _msg = f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}"
+    return TextRenderable(result, lambda: out(_c(_msg, "meta")))
 
 
 @output_format
@@ -935,16 +1016,21 @@ def cmd_log_ls(args, con):
     --id <id>` (presets, --since/--until, --by-task, --group, …)."""
     _require_node(con, args.id)
     rows = _db.query(con, "log", cols="id, logged_at, body, tag", node_id=args.id, order="logged_at")
-    if not rows:
-        out(_c(f"#{args.id} has no logs", "meta"))
-    else:
-        full = _log_full(args)
-        for r in rows:
-            prefix = f"#L{r['id']} [{_tu.utc_to_local(r['logged_at'])}] "
-            body = _truncate_log_body(r["body"], len(prefix), full=full)
-            out(_c(f"#L{r['id']}", "id") + " "
-                + _c(f"[{_tu.utc_to_local(r['logged_at'])}]", "meta") + " " + body)
-    return [{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]} for r in rows]
+    result = [{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]} for r in rows]
+    _nid = args.id
+    full = _log_full(args)
+
+    def _render():
+        if not rows:
+            out(_c(f"#{_nid} has no logs", "meta"))
+        else:
+            for r in rows:
+                prefix = f"#L{r['id']} [{_tu.utc_to_local(r['logged_at'])}] "
+                body = _truncate_log_body(r["body"], len(prefix), full=full)
+                out(_c(f"#L{r['id']}", "id") + " "
+                    + _c(f"[{_tu.utc_to_local(r['logged_at'])}]", "meta") + " " + body)
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -958,13 +1044,17 @@ def cmd_log_show(args, con):
     node = _db.get(con, "node", row["node_id"])
     title = node["title"] if node else "?"
     label = row["tag"] or "note"
-    out(_c(f"#L{row['id']}", "id") + " "
-        + _c(f"[{_tu.utc_to_local(row['logged_at'])}]", "meta") + " "
-        + _c(label, "meta") + " "
-        + _c(f"#{row['node_id']}", "id") + " " + _c(f"'{title}'", "meta"))
-    out(row["body"])
-    return {"id": row["id"], "node_id": row["node_id"], "tag": row["tag"],
-            "body": row["body"], "logged_at": row["logged_at"]}
+    result = {"id": row["id"], "node_id": row["node_id"], "tag": row["tag"],
+              "body": row["body"], "logged_at": row["logged_at"]}
+
+    def _render():
+        out(_c(f"#L{row['id']}", "id") + " "
+            + _c(f"[{_tu.utc_to_local(row['logged_at'])}]", "meta") + " "
+            + _c(label, "meta") + " "
+            + _c(f"#{row['node_id']}", "id") + " " + _c(f"'{title}'", "meta"))
+        out(row["body"])
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -979,8 +1069,9 @@ def cmd_retag(args, con):
     new = None if raw.lower() in ("", "-", "note", "none") else raw
     _db.update(con, "log", args.log_id, {"tag": new})
     con.commit()
-    out(_c("✓", "done") + " " + _c(f"#L{args.log_id}", "id") + f" tag → {new or 'note'}")
-    return {"log_id": args.log_id, "tag": new}
+    result = {"log_id": args.log_id, "tag": new}
+    _lid, _tag = args.log_id, new
+    return TextRenderable(result, lambda: out(_c("✓", "done") + " " + _c(f"#L{_lid}", "id") + f" tag → {_tag or 'note'}"))
 
 
 def cmd_log_group(args, con):
@@ -1017,39 +1108,46 @@ def cmd_active(args, con):
     """).fetchall()
 
     if not rows:
-        out(_c("(no active task right now; use wl start <id> to start timing, wl day for today's progress)", "meta"))
-        return []
+        return TextRenderable([], lambda: out(_c("(no active task right now; use wl start <id> to start timing, wl day for today's progress)", "meta")))
 
     brief = getattr(args, "brief", False)
     now = _dt.fromisoformat(_tu.utc_now())  # UTC, to match the UTC-stored start_at
     today = _tu.today()
     full = _log_full(args)
     result = []
+    render_rows = []
     for r in rows:
         started = _dt.fromisoformat(r["start_at"])
         mins = int((now - started).total_seconds() / 60)
         result.append({"node_id": r["node_id"], "title": r["title"],
                        "status": r["status"], "priority": r["priority"],
                        "start_at": r["start_at"], "elapsed_min": mins})
-        pri = _pri_marker(r["priority"]) + " "
-        # head: id + priority + title + current session
-        head_tail = "" if brief else " " + _c(f"({mins}min, since {_tu.utc_to_local(r['start_at'])[11:16]})", "meta")
-        out(_c("⏱", "clock") + " " + _c(f"#{r['node_id']}", "id") + " " + pri + _c(r["title"]) + head_tail)
-        if brief:
-            continue
-        # today's completed clock total + the current open session (helps decide "continue or stop")
-        done_sec = con.execute(
-            f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ? AND {_db.ALIVE}",
-            (r["node_id"], today),
-        ).fetchone()["s"]
-        total_min = mins + int((done_sec or 0) / 60)  # includes current open session
-        out("    " + _c(f"today's total {total_min}min ({total_min // 60}h{total_min % 60}m), includes current session", "meta"))
-        # latest plain-note log (oneline truncated)
-        last = _db.query_one(con, "log", cols="body", node_id=r["node_id"], tag=None, order="id DESC")
-        if last:
-            body_one = _truncate_log_body(last["body"], indent_cols=_display_width("    latest log: "), full=full)
-            out("    " + _c(f"latest log: {body_one}", "meta"))
-    return result
+        if not brief:
+            done_sec = con.execute(
+                f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ? AND {_db.ALIVE}",
+                (r["node_id"], today),
+            ).fetchone()["s"]
+            total_min = mins + int((done_sec or 0) / 60)
+            last = _db.query_one(con, "log", cols="body", node_id=r["node_id"], tag=None, order="id DESC")
+            last_body = last["body"] if last else None
+        else:
+            total_min = None
+            last_body = None
+        render_rows.append((r, mins, total_min, last_body))
+
+    def _render():
+        for r, mins, total_min, last_body in render_rows:
+            pri = _pri_marker(r["priority"]) + " "
+            head_tail = "" if brief else " " + _c(f"({mins}min, since {_tu.utc_to_local(r['start_at'])[11:16]})", "meta")
+            out(_c("⏱", "clock") + " " + _c(f"#{r['node_id']}", "id") + " " + pri + _c(r["title"]) + head_tail)
+            if brief:
+                continue
+            out("    " + _c(f"today's total {total_min}min ({total_min // 60}h{total_min % 60}m), includes current session", "meta"))
+            if last_body:
+                body_one = _truncate_log_body(last_body, indent_cols=_display_width("    latest log: "), full=full)
+                out("    " + _c(f"latest log: {body_one}", "meta"))
+
+    return TextRenderable(result, _render)
 
 def _ids_list(args):
     """argparse compat: if args.ids (list, nargs='+') is set use it, else fall back to [args.id] (older type=int)."""
@@ -1064,6 +1162,7 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
     - otherwise: only change status
 
     If args has a .log field, insert a log per id first (via _insert_log, supporting args.at).
+    Returns TextRenderable so callers (done/reopen/cancel) can compose render phases.
     """
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
@@ -1099,10 +1198,14 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
     label = msg or ("reopened → " + new_status if reopen else "→ " + new_status)
     note = f" @{_tu.utc_to_local(at_ts)[11:16]}" if at_ts else ""
     log_hint = " + log" if log_body else ""
-    for nid in ids:
-        out(f"✓ #{nid} {label}{note}{log_hint}")
     from .query import _node_summary_dict
-    return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+    result = [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+
+    def _render():
+        for nid in ids:
+            out(f"✓ #{nid} {label}{note}{log_hint}")
+
+    return TextRenderable(result, _render)
 
 
 # --- scheduled time: precise dates + fuzzy granularity (month/week/quarter/year/someday) ---
@@ -1156,8 +1259,9 @@ def cmd_node_reparent(args, con):
     _db.update(con, "node", nid, {"parent_id": new_parent})
     con.commit()
     where = "the top level" if new_parent is None else f"#{new_parent}"
-    out(_c(f"✓ #{nid} moved under {where}", "meta"))
-    return {"node_id": nid, "parent_id": new_parent}
+    result = {"node_id": nid, "parent_id": new_parent}
+    _msg = f"✓ #{nid} moved under {where}"
+    return TextRenderable(result, lambda: out(_c(_msg, "meta")))
 
 
 @output_format
@@ -1172,8 +1276,9 @@ def cmd_node_rm(args, con):
         for did in [nid] + _collect_descendants(con, nid, include_deleted=True):
             soft_delete_node(con, did)
     con.commit()
-    out(_c(f"✓ soft-deleted {len(args.ids)} node(s) + subtree (reversible; clear deleted_at to restore)", "meta"))
-    return {"deleted": list(args.ids)}
+    result = {"deleted": list(args.ids)}
+    _n = len(args.ids)
+    return TextRenderable(result, lambda: out(_c(f"✓ soft-deleted {_n} node(s) + subtree (reversible; clear deleted_at to restore)", "meta")))
 
 
 @output_format
@@ -1219,14 +1324,19 @@ def cmd_node_edit(args, con):
         have = {r["key"] for r in _db.query(con, "prop", cols="key", node_id=nid)}
         conflicts = [_LABELS[k] for k in (_nt.K_DATE, _nt.K_HABIT, _nt.K_MEETLOG) if k in have]
     con.commit()
-    out(_c(f"✓ #{nid} updated: " + ", ".join(f"{k}={v}" if k == "para" else k for k, v in changes.items()), "meta"))
-    if conflicts:
-        out(_c(f"⚠ #{nid} still carries {', '.join(conflicts)} alongside type.para={para} — "
-               f"clear the stale one with `wl prop rm {nid} <key>` if this should be a plain {para}", "later"))
     row = _db.get(con, "node", nid)
-    return {"id": row["id"], "title": row["title"], "status": row["status"],
-            "priority": row["priority"],
-            "scheduled_date": row["scheduled_date"], "deadline_date": row["deadline_date"]}
+    result = {"id": row["id"], "title": row["title"], "status": row["status"],
+              "priority": row["priority"],
+              "scheduled_date": row["scheduled_date"], "deadline_date": row["deadline_date"]}
+    _summary = ", ".join(f"{k}={v}" if k == "para" else k for k, v in changes.items())
+
+    def _render():
+        out(_c(f"✓ #{nid} updated: {_summary}", "meta"))
+        if conflicts:
+            out(_c(f"⚠ #{nid} still carries {', '.join(conflicts)} alongside type.para={para} — "
+                   f"clear the stale one with `wl prop rm {nid} <key>` if this should be a plain {para}", "later"))
+
+    return TextRenderable(result, _render)
 
 
 # --- prop entity group: set / ls / rm ---
@@ -1236,12 +1346,17 @@ def cmd_prop_ls(args, con):
     shown inline by `wl show`)."""
     _require_node(con, args.id)
     rows = _db.query(con, "prop", cols="key, value", node_id=args.id, order="key")
-    if not rows:
-        out(_c(f"(#{args.id} has no props)", "meta"))
-    else:
-        for r in rows:
-            out(_c(f"#{args.id} ", "id") + _c(f"{r['key']}={r['value']}"))
-    return [{"key": r["key"], "value": r["value"]} for r in rows]
+    result = [{"key": r["key"], "value": r["value"]} for r in rows]
+    _nid = args.id
+
+    def _render():
+        if not rows:
+            out(_c(f"(#{_nid} has no props)", "meta"))
+        else:
+            for r in rows:
+                out(_c(f"#{_nid} ", "id") + _c(f"{r['key']}={r['value']}"))
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -1257,9 +1372,10 @@ def cmd_prop_rm(args, con):
         # as reserved-tag logs, not props — clear it there (= wl goal rm).
         n = _db.delete(con, "log", node_id=args.id, tag=key)
         con.commit()
-        out(_c(f"✓ #{args.id} {key} cleared ({n} log(s))" if n
-               else f"(#{args.id} has no {key})", "meta"))
-        return {"key": key, "removed": n}
+        result = {"key": key, "removed": n}
+        _nid2, _key2 = args.id, key
+        _msg2 = f"✓ #{_nid2} {_key2} cleared ({n} log(s))" if n else f"(#{_nid2} has no {_key2})"
+        return TextRenderable(result, lambda: out(_c(_msg2, "meta")))
     n = _db.delete(con, "prop", node_id=args.id, key=key)
     if n and (key.startswith("type.") or key.startswith("date.")):
         # a structural classification key just changed what this node IS — surface it (non-blocking),
@@ -1269,8 +1385,10 @@ def cmd_prop_rm(args, con):
         print(f"⚠ #{args.id} is now '{new_type}' (removing '{key}' changed its classification)",
               file=sys.stderr)
     con.commit()
-    out(_c(f"✓ #{args.id} prop '{key}' removed" if n else f"(#{args.id} has no prop '{key}')", "meta"))
-    return {"key": key, "removed": n}
+    result = {"key": key, "removed": n}
+    _nid, _key = args.id, key
+    _msg = f"✓ #{_nid} prop '{_key}' removed" if n else f"(#{_nid} has no prop '{_key}')"
+    return TextRenderable(result, lambda: out(_c(_msg, "meta")))
 
 
 def cmd_prop(args, con):
@@ -1451,8 +1569,7 @@ def _agent_set(args, con):
 def _agent_ls(args, con):
     rows = _db.query(con, "prop", cols="node_id, key, value", key__like=_AGENT_PREFIX + "%")
     if not rows:
-        out(_c("(no session bindings)", "meta"))
-        return []
+        return TextRenderable([], lambda: out(_c("(no session bindings)", "meta")))
     # two time axes per binding: `act` = node's latest log/update time (most-recently-worked);
     # `bound` = when this session was bound to the node (latest agent_session bind-history log).
     items = []
@@ -1486,27 +1603,27 @@ def _agent_ls(args, con):
     if idw + 3 + (agw + 1) + 3 + sidlen + MIN_TITLE > W:
         sidlen = max(8, W - (idw + 3 + (agw + 1) + 3) - MIN_TITLE)
     group = getattr(args, "group", False)
-    if group:
-        today = _tu.today()
-        yday = (_tu.today_date() - timedelta(days=1)).isoformat()
-        cur = object()
-        for it in shown:
-            # bucket by LOCAL day (keyf returns a UTC timestamp) so the day header matches the
-            # local today/yesterday labels — otherwise a binding made "now" lands under the UTC
-            # date and mislabels as yesterday during the UTC-evening / local-next-day window.
-            key = keyf(it)
-            day = _tu.utc_to_local(key)[:10] if key else "(no date)"
-            if day != cur:
-                cur = day
-                lbl = day + (" (today)" if day == today else " (yesterday)" if day == yday else "")
-                out(_c(lbl, "planned"))
-            out(_agent_ls_row(it, idw, agw, sidlen, plain, indent="  "))
-    else:
-        for it in shown:
-            out(_agent_ls_row(it, idw, agw, sidlen, plain))
-    if hidden > 0:
-        out(_c(f"  … +{hidden} older — wl agent ls --all", "meta"))
-    return items
+
+    def _render():
+        if group:
+            today = _tu.today()
+            yday = (_tu.today_date() - timedelta(days=1)).isoformat()
+            cur = object()
+            for it in shown:
+                key = keyf(it)
+                day = _tu.utc_to_local(key)[:10] if key else "(no date)"
+                if day != cur:
+                    cur = day
+                    lbl = day + (" (today)" if day == today else " (yesterday)" if day == yday else "")
+                    out(_c(lbl, "planned"))
+                out(_agent_ls_row(it, idw, agw, sidlen, plain, indent="  "))
+        else:
+            for it in shown:
+                out(_agent_ls_row(it, idw, agw, sidlen, plain))
+        if hidden > 0:
+            out(_c(f"  … +{hidden} older — wl agent ls --all", "meta"))
+
+    return TextRenderable(items, _render)
 
 def _agent_rm(args, con):
     sid = _agent_need_sid()
@@ -1530,26 +1647,30 @@ def _agent_show(args, con):
     sid = _agent_need_sid()
     row = _db.query_one(con, "prop", cols="node_id, key", key__like=_AGENT_PREFIX + "%", value=sid)
     if not row:
-        out(_c(f"(session {sid[:8]}… 未绑定任何任务)", "meta"))
-        return {"node_id": None, "title": None, "agent": None, "session_id": sid}
+        result = {"node_id": None, "title": None, "agent": None, "session_id": sid}
+        return TextRenderable(result, lambda: out(_c(f"(session {sid[:8]}… 未绑定任何任务)", "meta")))
     agent = row["key"][len(_AGENT_PREFIX):]
     title = (_db.get(con, "node", row["node_id"]) or {})["title"]
     idstr = f"#{row['node_id']}"
-    if render.is_plain():
-        out(f"{idstr} ← {agent}:{sid} · {title}")    # plain: full sid + full title, no truncation
-    else:
-        # interactive: full sid when it fits leaving the title room; shrink uniformly when tight
-        base = len(idstr) + len(" ← ") + len(agent) + 1 + len(" · ")
-        MIN_TITLE = 16
-        sidlen = len(sid)
-        if base + sidlen + MIN_TITLE > _term_width():
-            sidlen = max(8, _term_width() - base - MIN_TITLE)
-        sid_show = sid if len(sid) <= sidlen else sid[:sidlen - 1] + "…"
-        seg = f"{agent}:{sid_show}"
-        prefix_plain = f"{idstr} ← {seg} · "
-        shown = _truncate_log_body(title, indent_cols=_display_width(prefix_plain), full=False)
-        out(_c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + shown)
-    return {"node_id": row["node_id"], "title": title, "agent": agent, "session_id": sid}
+    result = {"node_id": row["node_id"], "title": title, "agent": agent, "session_id": sid}
+
+    def _render():
+        if render.is_plain():
+            out(f"{idstr} ← {agent}:{sid} · {title}")    # plain: full sid + full title, no truncation
+        else:
+            # interactive: full sid when it fits leaving the title room; shrink uniformly when tight
+            base = len(idstr) + len(" ← ") + len(agent) + 1 + len(" · ")
+            MIN_TITLE = 16
+            sidlen = len(sid)
+            if base + sidlen + MIN_TITLE > _term_width():
+                sidlen = max(8, _term_width() - base - MIN_TITLE)
+            sid_show = sid if len(sid) <= sidlen else sid[:sidlen - 1] + "…"
+            seg = f"{agent}:{sid_show}"
+            prefix_plain = f"{idstr} ← {seg} · "
+            shown = _truncate_log_body(title, indent_cols=_display_width(prefix_plain), full=False)
+            out(_c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + shown)
+
+    return TextRenderable(result, _render)
 
 def cmd_agent(args, con):
     """`wl agent` — bind the current agent session to a node.
@@ -1565,16 +1686,21 @@ def cmd_clock_ls(args, con):
     """List a node's clock intervals (start → end, duration). Read primitive for clock."""
     _require_node(con, args.id)
     rows = _db.query(con, "clock", cols="id, start_at, end_at, elapsed_sec", node_id=args.id, order="id")
-    if not rows:
-        out(_c(f"(#{args.id} has no clock intervals)", "meta"))
-    else:
-        for r in rows:
-            st = _tu.utc_to_local(r["start_at"])
-            en = _tu.utc_to_local(r["end_at"]) if r["end_at"] else "(running)"
-            dur = _fmt_dur(int((r["elapsed_sec"] or 0) / 60)) if r["elapsed_sec"] else ""
-            out(_c(f"#C{r['id']}", "id") + " " + _c(f"{st} → {en}", "meta") + (" " + _c(dur, "clock") if dur else ""))
-    return [{"id": r["id"], "start_at": r["start_at"], "end_at": r["end_at"],
-             "elapsed_sec": r["elapsed_sec"]} for r in rows]
+    result = [{"id": r["id"], "start_at": r["start_at"], "end_at": r["end_at"],
+               "elapsed_sec": r["elapsed_sec"]} for r in rows]
+    _nid = args.id
+
+    def _render():
+        if not rows:
+            out(_c(f"(#{_nid} has no clock intervals)", "meta"))
+        else:
+            for r in rows:
+                st = _tu.utc_to_local(r["start_at"])
+                en = _tu.utc_to_local(r["end_at"]) if r["end_at"] else "(running)"
+                dur = _fmt_dur(int((r["elapsed_sec"] or 0) / 60)) if r["elapsed_sec"] else ""
+                out(_c(f"#C{r['id']}", "id") + " " + _c(f"{st} → {en}", "meta") + (" " + _c(dur, "clock") if dur else ""))
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -1617,9 +1743,11 @@ def cmd_clock_edit(args, con):
     _db.update(con, "clock", args.clock_id, changes)
     con.commit()
     r = _db.get(con, "clock", args.clock_id)
-    out(_c(f"✓ clock #C{args.clock_id} updated: " + ", ".join(changes), "meta"))
-    return {"id": r["id"], "node_id": r["node_id"],
-            "start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"]}
+    result = {"id": r["id"], "node_id": r["node_id"],
+              "start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"]}
+    _cid = args.clock_id
+    _summary = ", ".join(changes)
+    return TextRenderable(result, lambda: out(_c(f"✓ clock #C{_cid} updated: {_summary}", "meta")))
 
 
 @output_format
@@ -1631,8 +1759,9 @@ def cmd_clock_rm(args, con):
     for cid in args.clock_ids:
         _db.delete(con, "clock", id=cid)
     con.commit()
-    out(_c(f"✓ removed {len(args.clock_ids)} clock interval(s)", "meta"))
-    return {"deleted": list(args.clock_ids)}
+    result = {"deleted": list(args.clock_ids)}
+    _n = len(args.clock_ids)
+    return TextRenderable(result, lambda: out(_c(f"✓ removed {_n} clock interval(s)", "meta")))
 
 
 def cmd_clock(args, con):
@@ -1650,12 +1779,17 @@ def cmd_link_ls(args, con):
     """List a node's vault-doc links. Read primitive for link (also shown by `wl show`)."""
     _require_node(con, args.id)
     rows = _db.query(con, "link", cols="vault_doc", node_id=args.id, order="vault_doc")
-    if not rows:
-        out(_c(f"(#{args.id} has no links)", "meta"))
-    else:
-        for r in rows:
-            out(_c(f"#{args.id} ", "id") + _c(f"→ [[{r['vault_doc']}]]", "meta"))
-    return [r["vault_doc"] for r in rows]
+    result = [r["vault_doc"] for r in rows]
+    _nid = args.id
+
+    def _render():
+        if not rows:
+            out(_c(f"(#{_nid} has no links)", "meta"))
+        else:
+            for r in rows:
+                out(_c(f"#{_nid} ", "id") + _c(f"→ [[{r['vault_doc']}]]", "meta"))
+
+    return TextRenderable(result, _render)
 
 
 def cmd_link_group(args, con):

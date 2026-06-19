@@ -22,7 +22,7 @@ from ..helpers import _resolve_concrete_date, _truncate_log_body
 from ..render import _c, die, out
 from .timenodes import _ensure_day, _ensure_today_day
 from .views import _goal_progress, _emit_goal_targets
-from .output import output_format
+from .output import output_format, TextRenderable
 
 
 _GOAL_ID_MENTION = re.compile(r"(?:WL)?#(\d+)")
@@ -63,15 +63,14 @@ def _set_goal_targets(con, node_id, ids):
                log_id=row["id"], tag="goal") if r["value_num"] is not None]
     shown = " ".join("#" + str(i) for i in want)
     if current == want:
-        out(_c(f"= #{node_id} goal targets already {shown}", "meta"))
-        return
+        return _c(f"= #{node_id} goal targets already {shown}", "meta")
     for r in _db.query(con, "metric", cols="id", log_id=row["id"], tag="goal"):
         _db.delete(con, "metric", id=r["id"])   # replace: clear the old set first
     for i in want:
         _db.insert(con, "metric", {"log_id": row["id"], "node_id": node_id, "tag": "goal",
                    "value_num": i, "at": _tu.utc_now()})
     con.commit()
-    out(_c(f"✓ #{node_id} goal targets: {shown}", "meta"))
+    return _c(f"✓ #{node_id} goal targets: {shown}", "meta")
 
 
 def _goal_id_hint(con, body, already, set_stem, full_stem):
@@ -105,21 +104,28 @@ def cmd_goal(args, con):
     if not text:
         row = _latest_typed_log(con, nid, "goal")
         if not (row and row["body"]):
-            out(_c("(no goal set for today)", "meta"))
-            return None
-        # read view: goal text + [done/total] + the structured targets (same render as wl day)
-        out(row["body"] + _c(_goal_progress(con, nid, row["body"]), "meta"))
-        _emit_goal_targets(con, nid)
-        return {"body": row["body"], "logged_at": row["logged_at"]}
+            return TextRenderable(None, lambda: out(_c("(no goal set for today)", "meta")))
+        result = {"body": row["body"], "logged_at": row["logged_at"]}
+        _body = row["body"]
+        _progress = _goal_progress(con, nid, _body)
+        return TextRenderable(result, lambda: (
+            out(_body + _c(_progress, "meta")) or _emit_goal_targets(con, nid)
+        ))
     goals = getattr(args, "goals", None) or []
     if goals:
         _check_ids_exist(con, goals)
     _set_typed_log(con, nid, "goal", text, goals=goals)
     con.commit()
     extra = ("  [" + ", ".join(f"#{i}" for i in goals) + "]") if goals else ""
-    out(_c(f"✓ today's goal: {text}{extra}", "meta"))
-    _goal_id_hint(con, text, goals, f"wl goal set {nid} --ids", f'wl goal "{text}"')
-    return None
+    _msg = _c(f"✓ today's goal: {text}{extra}", "meta")
+    _set_stem = f"wl goal set {nid} --ids"
+    _full_stem = f'wl goal "{text}"'
+
+    def _render():
+        out(_msg)
+        _goal_id_hint(con, text, goals, _set_stem, _full_stem)
+
+    return TextRenderable(None, _render)
 
 
 @output_format
@@ -145,16 +151,17 @@ def cmd_summary_prop(args, con):
     if not args.text:
         row = _latest_typed_log(con, nid, "summary")
         if not row or not row["body"]:
-            out(_c(f"(no summary set for {label})", "meta"))
-            return None
+            return TextRenderable(None, lambda: out(_c(f"(no summary set for {label})", "meta")))
         at = row["logged_at"]
-        out(row["body"] + (_c(f"  (written at {at})", "meta") if at else ""))
-        return {"body": row["body"], "logged_at": row["logged_at"]}
+        result = {"body": row["body"], "logged_at": row["logged_at"]}
+        _body = row["body"]
+        _suffix = _c(f"  (written at {at})", "meta") if at else ""
+        return TextRenderable(result, lambda: out(_body + _suffix))
     log_id = _set_typed_log(con, nid, "summary", args.text)
     con.commit()
     at = _db.get(con, "log", log_id)["logged_at"]
-    out(_c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta"))
-    return None
+    _msg = _c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta")
+    return TextRenderable(None, lambda: out(_msg))
 
 
 def _recap_diff(con, nid, day_iso, label):
@@ -166,8 +173,8 @@ def _recap_diff(con, nid, day_iso, label):
     Returns structured data (for -o json callers)."""
     row = _latest_typed_log(con, nid, "summary")
     if not row or not row["body"]:
-        out(_c(f"(no recap for {label} — nothing to diff)", "meta"))
-        return {"recap_at": None, "changes": []}
+        return TextRenderable({"recap_at": None, "changes": []},
+                              lambda: out(_c(f"(no recap for {label} — nothing to diff)", "meta")))
     at = row["logged_at"]
     when = _tu.utc_to_local(at)[5:16] if at else "?"
     rows = con.execute(
@@ -179,20 +186,22 @@ def _recap_diff(con, nid, day_iso, label):
         (at, day_iso),
     ).fetchall()
     if not rows:
-        out(_c(f"(no changes after {label}'s recap, written {when})", "meta"))
-        return {"recap_at": at, "changes": []}
-    out(_c(f"{len(rows)} change(s) after {label}'s recap (written {when}) — judge: real content → rewrite via wl recap; only churn → skip", "doing"))
+        return TextRenderable({"recap_at": at, "changes": []},
+                              lambda: out(_c(f"(no changes after {label}'s recap, written {when})", "meta")))
+    render_lines = []
+    render_lines.append(_c(f"{len(rows)} change(s) after {label}'s recap (written {when}) — judge: real content → rewrite via wl recap; only churn → skip", "doing"))
     result_rows = []
     for r in rows:
         node = _db.get(con, "node", r["node_id"])
         title = node["title"] if node else "?"
         body = _truncate_log_body(r["body"], 0)
-        out("  " + _c(f"#L{r['id']}", "id") + " "
-            + _c(f"[{_tu.utc_to_local(r['logged_at'])[11:16]}]", "meta") + " "
-            + _c(f"#{r['node_id']} '{title}'", "meta") + ": " + body)
+        render_lines.append("  " + _c(f"#L{r['id']}", "id") + " "
+                            + _c(f"[{_tu.utc_to_local(r['logged_at'])[11:16]}]", "meta") + " "
+                            + _c(f"#{r['node_id']} '{title}'", "meta") + ": " + body)
         result_rows.append({"log_id": r["id"], "node_id": r["node_id"], "title": title,
                              "logged_at": r["logged_at"], "body": r["body"]})
-    return {"recap_at": at, "changes": result_rows}
+    return TextRenderable({"recap_at": at, "changes": result_rows},
+                          lambda: [out(line) for line in render_lines])
 
 
 # --- goal group: set / ls / rm for the reserved-tag logs (goal / summary) on ANY node.
@@ -208,8 +217,8 @@ def cmd_goal_set(args, con):
     if set_ids:                   # set the node's existing goal targets (no new log, no text)
         if args.value:
             die("give a goal text OR --ids <ids>, not both")
-        _set_goal_targets(con, args.id, set_ids)
-        return {"node_id": args.id, "targets": set_ids}
+        target_msg = _set_goal_targets(con, args.id, set_ids)
+        return TextRenderable({"node_id": args.id, "targets": set_ids}, lambda: out(target_msg))
     if not args.value:
         die('need a goal/summary text (or --ids <ids> to set targets on the current goal)')
     field = "summary" if getattr(args, "summary", False) else "goal"
@@ -222,11 +231,17 @@ def cmd_goal_set(args, con):
     con.commit()
     at = _db.get(con, "log", log_id)["logged_at"]
     extra = ("  [" + ", ".join(f"#{i}" for i in goals) + "]") if goals else ""
-    out(_c(f"✓ #{args.id} {field} (logged at {at}): {args.value}{extra}", "meta"))
-    if field == "goal":
-        _goal_id_hint(con, args.value, goals,
-                      f"wl goal set {args.id} --ids", f'wl goal set {args.id} "{args.value}"')
-    return {"node_id": args.id, "field": field, "log_id": log_id, "body": args.value, "logged_at": at}
+    result = {"node_id": args.id, "field": field, "log_id": log_id, "body": args.value, "logged_at": at}
+    _msg = _c(f"✓ #{args.id} {field} (logged at {at}): {args.value}{extra}", "meta")
+    _nid, _val, _gs = args.id, args.value, goals
+
+    def _render():
+        out(_msg)
+        if field == "goal":
+            _goal_id_hint(con, _val, _gs,
+                          f"wl goal set {_nid} --ids", f'wl goal set {_nid} "{_val}"')
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -239,14 +254,18 @@ def cmd_goal_ls(args, con):
         row = _latest_typed_log(con, args.id, field)
         if row and row["body"]:
             result[field] = {"body": row["body"], "logged_at": row["logged_at"]}
-    for field in _RESERVED_LOG_TAGS:
-        if field in result:
-            out(_c(f"  #{args.id} {field}", "id") + _c(": ", "meta") + result[field]["body"])
-            if field == "goal":
-                _emit_goal_targets(con, args.id, indent="       ")
-    if not result:
-        out(_c(f"#{args.id} has no goal / summary", "meta"))
-    return result
+    _nid = args.id
+
+    def _render():
+        for field in _RESERVED_LOG_TAGS:
+            if field in result:
+                out(_c(f"  #{_nid} {field}", "id") + _c(": ", "meta") + result[field]["body"])
+                if field == "goal":
+                    _emit_goal_targets(con, _nid, indent="       ")
+        if not result:
+            out(_c(f"#{_nid} has no goal / summary", "meta"))
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -257,9 +276,10 @@ def cmd_goal_rm(args, con):
     field = "summary" if getattr(args, "summary", False) else "goal"
     n = _db.delete(con, "log", node_id=args.id, tag=field)
     con.commit()
-    out(_c(f"✓ #{args.id} {field} cleared ({n} log(s))" if n
-           else f"(#{args.id} has no {field})", "meta"))
-    return {"node_id": args.id, "field": field, "cleared": n}
+    result = {"node_id": args.id, "field": field, "cleared": n}
+    _nid, _field = args.id, field
+    _msg = _c(f"✓ #{_nid} {_field} cleared ({n} log(s))" if n else f"(#{_nid} has no {_field})", "meta")
+    return TextRenderable(result, lambda: out(_msg))
 
 
 def cmd_goal_group(args, con):

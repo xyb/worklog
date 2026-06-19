@@ -14,7 +14,7 @@ from .. import db_table as _db
 from .. import node_types as _nt
 from ..node_schema import node_view as _node_view, type_facet as _type_facet, SUMMARY as _SUMMARY, FULL as _FULL
 from .metric import _fmt_value, metric_rows
-from .output import output_format
+from .output import output_format, TextRenderable
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
@@ -141,35 +141,43 @@ def _node_summary_dict(con, n):
 @output_format
 def cmd_show(args, con):
     ids = _ids_list(args)
-    if getattr(args, "output", "text") == "json":
-        nodes = []
-        for nid in ids:
-            n = _db.get(con, "node", nid)
-            if not n:
-                die(f"node #{nid} not found")
-            nodes.append(_node_to_dict(con, n))
-        return nodes[0] if len(nodes) == 1 else nodes
-    for i, nid in enumerate(ids):
-        if i > 0:
-            out("")
-        args.id = nid
-        _show_one(args, con)
+    nodes = []
+    for nid in ids:
+        n = _db.get(con, "node", nid)
+        if not n:
+            die(f"node #{nid} not found")
+        nodes.append(_node_to_dict(con, n))
+    json_data = nodes[0] if len(nodes) == 1 else nodes
+    captured_ids = list(ids)
+
+    def _render():
+        for i, nid in enumerate(captured_ids):
+            if i > 0:
+                out("")
+            args.id = nid
+            _show_one(args, con)
+
+    return TextRenderable(json_data, _render)
 
 def _ls_ids(con, args):
     """`wl ls --ids 1 2 3`: list specific nodes directly (like `ls file1 file2`), skipping filters.
-    Returns the matched rows (used by cmd_ls to return JSON data)."""
+    Returns (rows, render_fn) — rows for JSON data, render_fn for text output."""
     rows = []
     for nid in args.ids:
         r = _db.get(con, "node", nid)
         if r:
             rows.append(r)
-    if not rows:
-        out("(no nodes matched given ids)")
-    else:
-        brief = getattr(args, "brief", False)
-        for n in rows:
-            out(_node_line(con, n, tags=not brief, sched=not brief))
-    return rows
+    captured_rows = list(rows)
+    brief = getattr(args, "brief", False)
+
+    def _render():
+        if not captured_rows:
+            out("(no nodes matched given ids)")
+        else:
+            for n in captured_rows:
+                out(_node_line(con, n, tags=not brief, sched=not brief))
+
+    return rows, _render
 
 
 def _ls_build_query(con, args):
@@ -245,8 +253,9 @@ def cmd_ls(args, con):
     """
     # --ids mode: list specific ids directly (like ls file1 file2), skipping filters
     if getattr(args, "ids", None):
-        rows = _ls_ids(con, args)
-        return [_node_summary_dict(con, n) for n in rows]
+        rows, ids_render = _ls_ids(con, args)
+        json_data = [_node_summary_dict(con, n) for n in rows]
+        return TextRenderable(json_data, ids_render)
 
     # ls-specific dimensions (--parent / --unscheduled / --recent / --sort) build the SQL; the
     # shared --tag/--para/--status filter is applied below as a post-pass via make_node_filter.
@@ -259,9 +268,10 @@ def cmd_ls(args, con):
     json_rows = rows
     if getattr(args, "limit", None) or getattr(args, "top", None):
         json_rows, _ = _apply_top_limit(rows, args)
+    json_data = [_node_summary_dict(con, n) for n in json_rows]
+
     if not rows:
-        out("(no nodes)")
-        return [_node_summary_dict(con, n) for n in json_rows]
+        return TextRenderable(json_data, lambda: out("(no nodes)"))
 
     # default limit 20 (avoids flooding on bare ls); --all / --limit 0 removes it; --limit N / --top N is explicit
     explicit_limit = getattr(args, "limit", None)
@@ -269,14 +279,18 @@ def cmd_ls(args, con):
     _ls_args = args
     if explicit_limit is None and explicit_top is None and not args.all:
         _ls_args = argparse.Namespace(**{**vars(args), "limit": 20})  # don't mutate caller's args
-    rows, total = _apply_top_limit(rows, _ls_args)
-    if len(rows) < total:
-        out(_c(f"(showing {len(rows)}/{total}; --limit N to adjust / --all to see all)", "meta"))
-
+    display_rows, total = _apply_top_limit(rows, _ls_args)
     brief = getattr(args, "brief", False)
-    for n in rows:
-        out(_node_line(con, n, tags=not brief, sched=not brief))
-    return [_node_summary_dict(con, n) for n in json_rows]
+    captured_display_rows = display_rows
+    captured_total = total
+
+    def _render():
+        if len(captured_display_rows) < captured_total:
+            out(_c(f"(showing {len(captured_display_rows)}/{captured_total}; --limit N to adjust / --all to see all)", "meta"))
+        for n in captured_display_rows:
+            out(_node_line(con, n, tags=not brief, sched=not brief))
+
+    return TextRenderable(json_data, _render)
 
 @output_format
 def cmd_find(args, con):
@@ -332,8 +346,8 @@ def cmd_find(args, con):
             continue
         rows.append(n)
     if not rows:
-        out(f"(no matches for '{q}')")
-        return []
+        captured_q = q
+        return TextRenderable([], lambda: out(f"(no matches for '{captured_q}')"))
     rows.sort(key=lambda n: (n["priority"] or "Z", n["id"]))
     total = len(rows)
     # --limit: default 20 to avoid flooding; --limit 0 / --all shows all
@@ -342,35 +356,45 @@ def cmd_find(args, con):
     if limit is None and not show_all:
         limit = 20
     if limit and limit > 0 and total > limit:
-        rows = rows[:limit]
-        out(_c(f"'{q}' {total} hits (showing first {limit}; use --all or --limit 0 to see all):", "header"))
+        display_rows = rows[:limit]
+        header_msg = _c(f"'{q}' {total} hits (showing first {limit}; use --all or --limit 0 to see all):", "header")
     else:
-        out(_c(f"'{q}' {total} hits:", "header"))
+        display_rows = rows
+        header_msg = _c(f"'{q}' {total} hits:", "header")
     json_result = [{
         "id": n["id"], "title": n["title"], "type": node_type(con, n),
         "status": n["status"], "priority": n["priority"],
         "matched_fields": sorted(hits[n["id"]]),
-    } for n in rows]
-    for n in rows:
-        nid = n["id"]
-        where = hits[nid]
-        out(_node_line(con, n, hl=q) + "  " + _c(f"«{'/'.join(sorted(where))}»", "meta"))
-        # show hit contents not in the title line (title already highlighted, no expansion needed)
-        if "body" in where and n["body"]:
-            out(_detail_line("body:", _snippet(n["body"], q)))
-        if "log" in where:
-            for r in _db.query(con, "log", cols="body", node_id=nid, body__like=like, order="id"):
-                out(_detail_line("log:", _snippet(r["body"], q)))
-        if "tag" in where:
-            tg = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid, tag__like=like)]
-            out(_detail_line("tag:", _hl(", ".join(tg), q)))
-        if "prop" in where:
-            for r in con.execute(f"SELECT key,value FROM prop WHERE node_id=? AND (key LIKE ? OR value LIKE ?) AND {_db.ALIVE}", (nid, like, like)):
-                out(_detail_line("prop:", _hl(f"{r['key']}={r['value']}", q)))
-        if "link" in where:
-            for r in _db.query(con, "link", cols="vault_doc", node_id=nid, vault_doc__like=like):
-                out(_detail_line("link:", _hl(f"[[{r['vault_doc']}]]", q)))
-    return json_result
+    } for n in display_rows]
+    captured_display_rows = display_rows
+    captured_hits = hits
+    captured_like = like
+    captured_header = header_msg
+    captured_q2 = q
+
+    def _render():
+        out(captured_header)
+        for n in captured_display_rows:
+            nid = n["id"]
+            where = captured_hits[nid]
+            out(_node_line(con, n, hl=captured_q2) + "  " + _c(f"«{'/'.join(sorted(where))}»", "meta"))
+            # show hit contents not in the title line (title already highlighted, no expansion needed)
+            if "body" in where and n["body"]:
+                out(_detail_line("body:", _snippet(n["body"], captured_q2)))
+            if "log" in where:
+                for r in _db.query(con, "log", cols="body", node_id=nid, body__like=captured_like, order="id"):
+                    out(_detail_line("log:", _snippet(r["body"], captured_q2)))
+            if "tag" in where:
+                tg = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid, tag__like=captured_like)]
+                out(_detail_line("tag:", _hl(", ".join(tg), captured_q2)))
+            if "prop" in where:
+                for r in con.execute(f"SELECT key,value FROM prop WHERE node_id=? AND (key LIKE ? OR value LIKE ?) AND {_db.ALIVE}", (nid, captured_like, captured_like)):
+                    out(_detail_line("prop:", _hl(f"{r['key']}={r['value']}", captured_q2)))
+            if "link" in where:
+                for r in _db.query(con, "link", cols="vault_doc", node_id=nid, vault_doc__like=captured_like):
+                    out(_detail_line("link:", _hl(f"[[{r['vault_doc']}]]", captured_q2)))
+
+    return TextRenderable(json_result, _render)
 
 @output_format
 def cmd_focus(args, con):
@@ -382,60 +406,73 @@ def cmd_focus(args, con):
     chain = _ancestors_chain(con, args.id)
     upstream = chain[:-1]
 
-    # upstream path (excludes self)
-    if upstream:
-        out(_c("upstream:", "meta") + " " + " / ".join(_c(f"#{p['id']}", "id") + " " + _c(p['title']) for p in upstream))
-
-    # self
-    mk = _c(_status_marker(n["status"]), _STATUS_STYLE.get(n["status"], "todo"))
-    pri = _pri_marker(n["priority"]) + " "
-    out("▶ focus " + mk + " " + _c(f"#{n['id']}", "id") + " " + pri + _c(f"[{node_type(con, n)}]", "type") + " " + _c(n["title"], "header"))
-
-    # downstream subtree. A day node has no real parent_id children — its
-    # "contents" are that day's log activity, exactly like `wl tree` / `wl day`.
-    # Expand it the same way so focusing a day shows everything done that day,
-    # not just the few nodes whose parent_id happens to be the day.
-    if node_type(con, n) == "day":
-        out(_c("downstream (day activity):", "meta"))
-        _print_day_activity(con, n, depth=0, max_depth=args.depth)
-        children = []  # for the related-section exclude set below
+    # downstream data collection
+    is_day = node_type(con, n) == "day"
+    if is_day:
+        children = []
         pinned = []
     else:
         children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
-        # a time node's @-pinned tasks (scheduled_date == its title) hang under their
-        # project, not here — surface them too so focus on a month/week shows them
         inc_cancel = getattr(args, "show_canceled", False)
         pinned = [p for p in _pinned_at(con, n) if inc_cancel or p["status"] != "CANCELED"]
-        if children or pinned:
-            out(_c("downstream:", "meta"))
-            for p in pinned:
-                out(_node_line(con, p, indent="  ", sched=True))
-            for c in children:
-                _print_tree(con, c, depth=1, max_depth=args.depth)
-        else:
-            out(_c("downstream: (no children)", "meta"))
 
-    # related: other nodes sharing semantic tags (excluding upstream/downstream/self + generic tags to avoid flooding)
-    if args.related:
-        own_tags = _node_tags(con, args.id)
-        sem_tags = [t for t in own_tags if t not in GENERIC_TAGS]
-        if not sem_tags:
-            out(_c("related: (only generic-dimension tags; no project/topic tag to link by)", "meta"))
-        else:
-            exclude = set(c["id"] for c in children) | {p["id"] for p in pinned} | {p["id"] for p in chain}
-            rel = nodes_with_tag(con, sem_tags, order="id")
-            rel = [r for r in rel if r["id"] not in exclude]
-            if rel:
-                out(_c(f"related (shared tag {'/'.join(sem_tags)}):", "header"))
-                for r in rel:
-                    out(_node_line(con, r, indent="  "))
-            else:
-                out(_c(f"related (tag {'/'.join(sem_tags)}): (no other nodes)", "meta"))
-    return {
+    # related data collection (deferred to render if args.related; collect early for json)
+    json_result = {
         "node": _node_summary_dict(con, n),
         "upstream": [{"id": p["id"], "title": p["title"], "type": node_type(con, p)} for p in upstream],
         "downstream": [_node_summary_dict(con, c) for c in children] + [_node_summary_dict(con, p) for p in pinned],
     }
+
+    captured_n = n
+    captured_chain = chain
+    captured_upstream = upstream
+    captured_children = children
+    captured_pinned = pinned
+    captured_is_day = is_day
+    captured_args = args
+
+    def _render():
+        # upstream path (excludes self)
+        if captured_upstream:
+            out(_c("upstream:", "meta") + " " + " / ".join(_c(f"#{p['id']}", "id") + " " + _c(p['title']) for p in captured_upstream))
+
+        # self
+        mk = _c(_status_marker(captured_n["status"]), _STATUS_STYLE.get(captured_n["status"], "todo"))
+        pri = _pri_marker(captured_n["priority"]) + " "
+        out("▶ focus " + mk + " " + _c(f"#{captured_n['id']}", "id") + " " + pri + _c(f"[{node_type(con, captured_n)}]", "type") + " " + _c(captured_n["title"], "header"))
+
+        # downstream subtree
+        if captured_is_day:
+            out(_c("downstream (day activity):", "meta"))
+            _print_day_activity(con, captured_n, depth=0, max_depth=captured_args.depth)
+        else:
+            if captured_children or captured_pinned:
+                out(_c("downstream:", "meta"))
+                for p in captured_pinned:
+                    out(_node_line(con, p, indent="  ", sched=True))
+                for c in captured_children:
+                    _print_tree(con, c, depth=1, max_depth=captured_args.depth)
+            else:
+                out(_c("downstream: (no children)", "meta"))
+
+        # related: other nodes sharing semantic tags
+        if captured_args.related:
+            own_tags = _node_tags(con, captured_args.id)
+            sem_tags = [t for t in own_tags if t not in GENERIC_TAGS]
+            if not sem_tags:
+                out(_c("related: (only generic-dimension tags; no project/topic tag to link by)", "meta"))
+            else:
+                exclude = set(c["id"] for c in captured_children) | {p["id"] for p in captured_pinned} | {p["id"] for p in captured_chain}
+                rel = nodes_with_tag(con, sem_tags, order="id")
+                rel = [r for r in rel if r["id"] not in exclude]
+                if rel:
+                    out(_c(f"related (shared tag {'/'.join(sem_tags)}):", "header"))
+                    for r in rel:
+                        out(_node_line(con, r, indent="  "))
+                else:
+                    out(_c(f"related (tag {'/'.join(sem_tags)}): (no other nodes)", "meta"))
+
+    return TextRenderable(json_result, _render)
 
 @output_format
 def cmd_ancestors(args, con):
@@ -445,11 +482,16 @@ def cmd_ancestors(args, con):
         die(f"node #{args.id} not found")
     json_result = [{"id": p["id"], "title": p["title"], "type": node_type(con, p),
                     "status": p["status"], "priority": p["priority"]} for p in chain]
-    for depth, node in enumerate(chain):
-        indent = "  " * depth
-        arrow = "▶ " if node["id"] == args.id else ""
-        out(f"{indent}{arrow}" + _c(f"#{node['id']}", "id") + " " + _c(f"[{node_type(con, node)}]", "type") + " " + _c(node["title"], "header" if node["id"] == args.id else None))
-    return json_result
+    captured_chain = chain
+    captured_id = args.id
+
+    def _render():
+        for depth, node in enumerate(captured_chain):
+            indent = "  " * depth
+            arrow = "▶ " if node["id"] == captured_id else ""
+            out(f"{indent}{arrow}" + _c(f"#{node['id']}", "id") + " " + _c(f"[{node_type(con, node)}]", "type") + " " + _c(node["title"], "header" if node["id"] == captured_id else None))
+
+    return TextRenderable(json_result, _render)
 
 @output_format
 def cmd_descendants(args, con):
@@ -460,8 +502,14 @@ def cmd_descendants(args, con):
     desc_ids = sorted(_collect_descendants(con, args.id))
     nodes = [_db.get(con, "node", nid) for nid in desc_ids]
     live_nodes = [nd for nd in nodes if nd]
-    _print_tree(con, n, depth=0, max_depth=args.depth)
-    return [_node_summary_dict(con, nd) for nd in live_nodes]
+    json_data = [_node_summary_dict(con, nd) for nd in live_nodes]
+    captured_n = n
+    captured_depth = args.depth
+
+    def _render():
+        _print_tree(con, captured_n, depth=0, max_depth=captured_depth)
+
+    return TextRenderable(json_data, _render)
 
 @output_format
 def cmd_agenda(args, con):
@@ -524,17 +572,25 @@ def cmd_agenda(args, con):
         "items": [_node_summary_dict(con, nd) for _, nd, od in hits],
         "someday": sd,
     }
-    if not hits and not (args.someday and someday):
-        out(_c(f"(nothing scheduled between {start} and {end})", "meta"))
-        return json_result
-    out(_c(f"agenda {start} → {end}:", "header"))
-    for _, n, od in hits:
-        out(_node_line(con, n, sched=True))
-    if args.someday and someday:
-        out(_c(f"someday / fuzzy ({len(someday)}):", "meta"))
-        for n, od in sorted(someday, key=lambda x: x[0]["id"]):
+    captured_hits = hits
+    captured_someday = someday
+    captured_start = start
+    captured_end = end
+    show_someday = args.someday
+
+    def _render():
+        if not captured_hits and not (show_someday and captured_someday):
+            out(_c(f"(nothing scheduled between {captured_start} and {captured_end})", "meta"))
+            return
+        out(_c(f"agenda {captured_start} → {captured_end}:", "header"))
+        for _, n, od in captured_hits:
             out(_node_line(con, n, sched=True))
-    return json_result
+        if show_someday and captured_someday:
+            out(_c(f"someday / fuzzy ({len(captured_someday)}):", "meta"))
+            for n, od in sorted(captured_someday, key=lambda x: x[0]["id"]):
+                out(_node_line(con, n, sched=True))
+
+    return TextRenderable(json_result, _render)
 
 
 
@@ -564,8 +620,7 @@ def cmd_projects(args, con):
         proj_params,
     ).fetchall()
     if not projects:
-        out("(no active projects)")
-        return []
+        return TextRenderable([], lambda: out("(no active projects)"))
 
     # collect per-project stats -> apply --since/--top/--limit -> render (text or json)
     items = []   # (proj_row, done, doing, pending, total, recent)
@@ -613,19 +668,25 @@ def cmd_projects(args, con):
          "latest_activity": recent}   # UTC instant (latest log / closed / created)
         for proj, done, doing, pending, total, recent in items
     ]
-    _print_truncation_hint(len(items), total_items)
-    for proj, done, doing, pending, total, recent in items:
-        pri = _pri_marker(proj["priority"])
-        parts = [f"done {done}/{total}"]
-        if doing:
-            parts.append(f"doing {doing}")
-        if pending:
-            parts.append(f"todo {pending}")
-        stat = " · ".join(parts)
-        if recent and not brief:
-            stat += f" · latest {_tu.utc_to_local(recent)[:16]}"
-        out(_c(f"#{proj['id']:<3d}", "id") + " " + pri + " " + _c(proj["title"], "header") + " — " + _c(stat, "meta"))
-    return json_result
+    captured_items = items
+    captured_total_items = total_items
+    captured_brief = brief
+
+    def _render():
+        _print_truncation_hint(len(captured_items), captured_total_items)
+        for proj, done, doing, pending, total, recent in captured_items:
+            pri = _pri_marker(proj["priority"])
+            parts = [f"done {done}/{total}"]
+            if doing:
+                parts.append(f"doing {doing}")
+            if pending:
+                parts.append(f"todo {pending}")
+            stat = " · ".join(parts)
+            if recent and not captured_brief:
+                stat += f" · latest {_tu.utc_to_local(recent)[:16]}"
+            out(_c(f"#{proj['id']:<3d}", "id") + " " + pri + " " + _c(proj["title"], "header") + " — " + _c(stat, "meta"))
+
+    return TextRenderable(json_result, _render)
 
 
 @output_format
@@ -645,42 +706,53 @@ def cmd_types(args, con):
     # type.* facets first (the classification), then date.* time values; alphabetical within each
     keys = sorted(by_key, key=lambda k: (0 if k.startswith("type.") else 1, k))
     json_result = [{"key": k, "value": v, "count": c} for k in keys for v, c in by_key[k]]
-    if not keys:
-        out("(no type.*/date.* props yet)")
-        return json_result
-    lv = _nt.DATE_LEVELS
-    for k in keys:
-        vs = by_key[k]
-        # type.date: order by time level (finest first → lifetime last), not by count
-        if k == _nt.K_DATE:
-            vs = sorted(vs, key=lambda vc: lv.index(vc[0]) if vc[0] in lv else -1, reverse=True)
-        # date.period/start/end are high-cardinality time values — show the total, not every value
-        if k.startswith("date.") and len(vs) > 6:
-            body = f"{sum(c for _, c in vs)} ({len(vs)} distinct)"
-        else:
-            # an existence facet with no sub-value (custom type.<x> stored as "") shows just its count
-            body = " · ".join(f"{v} {c}" if v else str(c) for v, c in vs)
-        out(_c(f"{k:13}", "type") + " " + _c(body, "meta"))
-    return json_result
+    captured_keys = keys
+    captured_by_key = by_key
+
+    def _render():
+        if not captured_keys:
+            out("(no type.*/date.* props yet)")
+            return
+        lv = _nt.DATE_LEVELS
+        for k in captured_keys:
+            vs = captured_by_key[k]
+            # type.date: order by time level (finest first → lifetime last), not by count
+            if k == _nt.K_DATE:
+                vs = sorted(vs, key=lambda vc: lv.index(vc[0]) if vc[0] in lv else -1, reverse=True)
+            # date.period/start/end are high-cardinality time values — show the total, not every value
+            if k.startswith("date.") and len(vs) > 6:
+                body = f"{sum(c for _, c in vs)} ({len(vs)} distinct)"
+            else:
+                # an existence facet with no sub-value (custom type.<x> stored as "") shows just its count
+                body = " · ".join(f"{v} {c}" if v else str(c) for v, c in vs)
+            out(_c(f"{k:13}", "type") + " " + _c(body, "meta"))
+
+    return TextRenderable(json_result, _render)
 
 
 def _list_vocab(con, table, col, *, style, sort_by_count=True):
     """List the distinct `col` values in use (live rows) + a count of each — the shared engine for
     the `tags`/`props`/`metrics` "what vocabulary is in use" lists. `table`/`col` are
-    code-controlled (never user input). Returns (rows, json_data) for caller to render."""
+    code-controlled (never user input). Returns TextRenderable(json_data, render_fn)."""
     rows = con.execute(
         f"SELECT {col} AS v, COUNT(*) c FROM {table} WHERE {_db.ALIVE} GROUP BY {col}"
     ).fetchall()
     key = (lambda r: (-r["c"], str(r["v"]))) if sort_by_count else (lambda r: str(r["v"]))
     rows = sorted(rows, key=key)
     json_data = [{col: r["v"], "count": r["c"]} for r in rows]
-    if not rows:
-        out("(none)")
-    else:
-        w = max((len(str(r["v"])) for r in rows), default=0)
-        for r in rows:
-            out(_c(f"{str(r['v']):{w}}", style) + "  " + _c(str(r["c"]), "meta"))
-    return json_data
+    captured_rows = rows
+    captured_style = style
+    captured_col = col
+
+    def _render():
+        if not captured_rows:
+            out("(none)")
+        else:
+            w = max((len(str(r["v"])) for r in captured_rows), default=0)
+            for r in captured_rows:
+                out(_c(f"{str(r['v']):{w}}", captured_style) + "  " + _c(str(r["c"]), "meta"))
+
+    return TextRenderable(json_data, _render)
 
 
 @output_format
@@ -741,20 +813,26 @@ def cmd_changes(args, con):
         "added_open": [_node_summary_dict(con, n) for n in added_open],
         "logged": logged,
     } for proj, done, added_open, logged in buckets]
-    out(_c(f"📅 {since} ~ {until} change summary", "header"))
-    if not buckets:
-        out(_c("(no project changes in window)", "meta"))
-        return json_result
-    for proj, done, added_open, logged in buckets:
-        pri = _pri_marker(proj["priority"]) + " "
-        out("\n▸ " + pri + _c(proj["title"], "header"))
-        if done:
-            out("  " + _c("✓ done", "done") + f" {len(done)}: " + _c(", ".join(f"#{n['id']} {n['title']}" for n in done)))
-        if added_open:
-            out(f"  + added open {len(added_open)}: " + _c(", ".join(f"#{n['id']} {n['title']}" for n in added_open)))
-        if logged:
-            out("  " + _c(f"· {logged} node(s) with progress logs", "meta"))
-    return json_result
+    captured_buckets = buckets
+    captured_since = since
+    captured_until = until
+
+    def _render():
+        out(_c(f"📅 {captured_since} ~ {captured_until} change summary", "header"))
+        if not captured_buckets:
+            out(_c("(no project changes in window)", "meta"))
+            return
+        for proj, done, added_open, logged in captured_buckets:
+            pri = _pri_marker(proj["priority"]) + " "
+            out("\n▸ " + pri + _c(proj["title"], "header"))
+            if done:
+                out("  " + _c("✓ done", "done") + f" {len(done)}: " + _c(", ".join(f"#{n['id']} {n['title']}" for n in done)))
+            if added_open:
+                out(f"  + added open {len(added_open)}: " + _c(", ".join(f"#{n['id']} {n['title']}" for n in added_open)))
+            if logged:
+                out("  " + _c(f"· {logged} node(s) with progress logs", "meta"))
+
+    return TextRenderable(json_result, _render)
 
 
 
@@ -957,8 +1035,14 @@ def _render_summary(con, args, b):
 def cmd_summary(args, con):
     """Time-window summary: aggregate counts + sliced by direction/project + completion list (input for weekly / monthly reports)."""
     b = _summary_buckets(con, args)
-    _render_summary(con, args, b)
-    return _summary_json_data(con, b)
+    json_data = _summary_json_data(con, b)
+    captured_b = b
+    captured_args = args
+
+    def _render():
+        _render_summary(con, captured_args, captured_b)
+
+    return TextRenderable(json_data, _render)
 
 def _render_logs(con, args, rows):
     """Render fetched log rows in text mode: --group day (day-view grouping), --by-task
@@ -1115,25 +1199,39 @@ def cmd_logs(args, con):
     if nf:
         rows = [r for r in rows if nf(r["node_id"])]
 
+    json_data = _logs_json_data(rows)
+
     if not rows:
         # provide a useful hint explaining why empty
-        if args.id and not _node_exists(con, args.id):
-            out(_c(f"(node #{args.id} does not exist)", "meta"))
-        elif args.id:
-            out(_c(f"(node #{args.id} has no logs in this window)", "meta"))
-        else:
-            hint = []
-            if args.date:
-                hint.append(f"on {args.date}")
-            elif since:
-                hint.append(f"since {since}")
-                if args.until:
-                    hint.append(f"until {args.until}")
-            out(_c(f"(no logs {' '.join(hint)})", "meta"))
-        return _logs_json_data(rows)
+        captured_args_id = args.id
+        captured_date = args.date
+        captured_since = since
+        captured_until = getattr(args, "until", None)
 
-    rows = _render_logs(con, args, rows)
-    return _logs_json_data(rows)
+        def _render_empty():
+            if captured_args_id and not _node_exists(con, captured_args_id):
+                out(_c(f"(node #{captured_args_id} does not exist)", "meta"))
+            elif captured_args_id:
+                out(_c(f"(node #{captured_args_id} has no logs in this window)", "meta"))
+            else:
+                hint = []
+                if captured_date:
+                    hint.append(f"on {captured_date}")
+                elif captured_since:
+                    hint.append(f"since {captured_since}")
+                    if captured_until:
+                        hint.append(f"until {captured_until}")
+                out(_c(f"(no logs {' '.join(hint)})", "meta"))
+
+        return TextRenderable(json_data, _render_empty)
+
+    captured_rows = rows
+    captured_args2 = args
+
+    def _render():
+        _render_logs(con, captured_args2, captured_rows)
+
+    return TextRenderable(json_data, _render)
 # --- completion generator (argparse -> fish/bash/zsh) ---
 # loaded via ~/.config/<shell>/<config> | source pattern; does not write a persistent file
 

@@ -25,7 +25,7 @@ from .. import db_table as _db
 from ..helpers import _resolve_concrete_date, _resolve_window
 from ..queries import _require_node, _has_checkin
 from ..render import _c, die, out
-from .output import output_format
+from .output import output_format, TextRenderable
 
 _CARRIER_TYPE = "metric"  # log.tag marking an auto-created metric carrier log
 CHECKIN_TAG = "checkin"   # reserved metric tag: the structured "done today" signal
@@ -228,8 +228,9 @@ def cmd_metric_add(args, con):
         con.rollback()
         raise
     row = _db.get(con, "metric", mid)
-    out(_c("✓", "done") + " " + _line(row))
-    return _metric_dict(row)
+    result = _metric_dict(row)
+    _line_str = _line(row)
+    return TextRenderable(result, lambda: out(_c("✓", "done") + " " + _line_str))
 
 
 @output_format
@@ -256,20 +257,24 @@ def cmd_metric_ls(args, con):
     order = "node_id, at, id" if glob else "at, id"
     rows = list(con.execute(
         f"SELECT * FROM metric WHERE {' AND '.join(where)} ORDER BY {order}", params))
-    if not rows:
-        filt = f" tag={args.tag}" if args.tag else ""
-        scope = "" if args.all else " in window (use --all / --week / --month)"
-        subj = "no metrics" if glob else f"node #{node} has no metrics"
-        out(_c(f"({subj}{filt}{scope})", "meta"))
-    else:
-        for r in rows:
-            line = _line(r)
-            if glob:  # show which node each datapoint belongs to
-                line = _c(f"#{r['node_id']}", "id") + " " + line
-            out(line)
-    return [{"id": r["id"], "node_id": r["node_id"], "log_id": r["log_id"],
-             "tag": r["tag"], "value_num": r["value_num"], "value_text": r["value_text"],
-             "unit": r["unit"], "note": r["note"], "at": r["at"]} for r in rows]
+    result = [{"id": r["id"], "node_id": r["node_id"], "log_id": r["log_id"],
+               "tag": r["tag"], "value_num": r["value_num"], "value_text": r["value_text"],
+               "unit": r["unit"], "note": r["note"], "at": r["at"]} for r in rows]
+    filt = f" tag={args.tag}" if args.tag else ""
+    scope = "" if args.all else " in window (use --all / --week / --month)"
+    subj = "no metrics" if glob else f"node #{node} has no metrics"
+
+    def _render():
+        if not rows:
+            out(_c(f"({subj}{filt}{scope})", "meta"))
+        else:
+            for r in rows:
+                line = _line(r)
+                if glob:
+                    line = _c(f"#{r['node_id']}", "id") + " " + line
+                out(line)
+
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -328,8 +333,9 @@ def cmd_metric_edit(args, con):
     _db.update(con, "metric", mid, changes)
     con.commit()
     row = _db.get(con, "metric", mid)
-    out(_c("✓", "done") + " " + _line(row))
-    return _metric_dict(row)
+    result = _metric_dict(row)
+    _line_str = _line(row)
+    return TextRenderable(result, lambda: out(_c("✓", "done") + " " + _line_str))
 
 
 @output_format
@@ -355,9 +361,8 @@ def cmd_metric_rm(args, con):
             msg += f" + its empty carrier log #L{log_id}"
         msgs.append(msg)
     con.commit()
-    for m in msgs:
-        out(_c(m, "meta"))
-    return {"deleted": list(args.metric_ids)}
+    result = {"deleted": list(args.metric_ids)}
+    return TextRenderable(result, lambda: [out(_c(m, "meta")) for m in msgs])
 
 
 _SUBS = {
