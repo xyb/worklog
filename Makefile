@@ -5,7 +5,6 @@
 UV          := uv
 PYTHON      := $(UV) run python
 PYTEST      := $(UV) run pytest
-WL_BIN      := $(HOME)/bin/wl
 PROJ_DIR    := $(shell pwd)
 GIT         := /usr/bin/git
 
@@ -49,29 +48,36 @@ docker-test: docker-test-image  ## run the FULL suite inside the container (neve
 	docker run --rm -v "$(CURDIR)":/app -w /app $(DEVTEST_IMG)
 
 # ── install / uninstall ──
+# Safety rule: the daily `wl` must be a FROZEN snapshot from a CLEAN COMMITTED ref —
+# never from the live working tree (.venv shares in-progress code + migrations).
+# `make install` creates a temp git worktree at HEAD, runs `uv tool install` from it
+# (isolated ~/.local/share/uv/tools/pyworklog/), then removes the worktree.
 
-install: sync        ## install ~/bin/wl wrapper pointing into the project .venv
-	@# uv sync installs the `wl` console-script into .venv/bin via [project.scripts];
-	@# the wrapper just execs it so $PATH usage is identical to a `pip install` user.
-	@printf '#!/usr/bin/env bash\nexec %s/.venv/bin/wl "$$@"\n' "$(PROJ_DIR)" > $(WL_BIN)
-	@chmod +x $(WL_BIN)
-	@echo "✓ $(WL_BIN) installed"
+install:             ## install wl from a clean committed HEAD (isolated from dev .venv)
+	@if ! $(GIT) diff --quiet || ! $(GIT) diff --cached --quiet; then \
+	  echo "✗ working tree has uncommitted changes — commit first, then make install"; \
+	  exit 1; \
+	fi
+	@WORKTREE=$$(mktemp -d /tmp/wl-install-XXXXXX) && \
+	  $(GIT) worktree add --detach "$$WORKTREE" HEAD 2>/dev/null && \
+	  $(UV) tool install --reinstall "$$WORKTREE" && \
+	  $(GIT) worktree remove "$$WORKTREE"
+	@echo "✓ wl installed from clean HEAD (isolated snapshot, not dev .venv)"
 	@which wl
 	@echo ""
-	@echo "Shell completion (init-load mode; new shells auto-pick-up code changes):"
+	@echo "Shell completion:"
 	@echo "  fish: add to ~/.config/fish/config.fish →  wl print-completion fish | source"
 	@echo "  bash: add to ~/.bashrc                 →  eval \"\$$(wl print-completion bash)\""
 	@echo "  zsh:  add to ~/.zshrc                  →  eval \"\$$(wl print-completion zsh)\""
 	@echo "  aliases: ~/.config/worklog/aliases.ini  [aliases] d = day / c = checkin / ..."
 
-uninstall:           ## remove wrapper (keeps .venv + DB; manually clean the wl print-completion line in your shell rc)
-	@rm -f $(WL_BIN)
-	@echo "✓ wl wrapper removed (.venv + DB $(WORKLOG_DB_PATH) kept)"
-	@echo "  (if ~/.config/fish/config.fish has 'wl print-completion fish | source', remove it manually)"
+uninstall:           ## remove the installed wl tool (keeps dev .venv + DB)
+	@$(UV) tool uninstall pyworklog 2>/dev/null || true
+	@echo "✓ pyworklog tool removed (dev .venv + DB $(WORKLOG_DB_PATH) kept)"
 
-reinstall: uninstall install  ## clean reinstall
+reinstall: uninstall install  ## clean reinstall from current committed HEAD
 
-setup: sync install  ## first-time setup: uv sync + install wrapper
+setup: sync install  ## first-time setup: sync dev deps + install isolated wl
 
 # ── demo / sample data ──
 
