@@ -4,7 +4,6 @@ Aliases are loaded into the argparse subparser `aliases=` at startup, so edits t
 the NEXT wl invocation."""
 from __future__ import annotations
 
-import sys
 
 from ..render import _c, die, out
 from ..xdg import _resolve_aliases_path

@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import math
 import re
-import sys
 
 from .. import timeutil as _tu
 from .. import db_table as _db

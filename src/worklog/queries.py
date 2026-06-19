@@ -402,7 +402,7 @@ def _node_exists(con, node_id):
 
 
 def _require_node(con, node_id):
-    """The canonical single-id existence guard: ``sys.exit`` with ``✗ node #N not found`` if the
+    """The canonical single-id existence guard: calls die() with '✗ node #N not found' if the
     node is missing. The single-id twin of :func:`_check_ids_exist` — every command that takes one
     node id routes its not-found check here instead of re-inlining the message."""
     if not _node_exists(con, node_id):
@@ -415,7 +415,7 @@ def _node_tags(con, nid):
 
 
 def _check_ids_exist(con, ids):
-    """Batch existence check; sys.exit if any id is missing. Used by multi-id commands."""
+    """Batch existence check; calls die() if any id is missing. Used by multi-id commands."""
     for nid in ids:
         _require_node(con, nid)
 

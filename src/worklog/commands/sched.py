@@ -1,7 +1,6 @@
 """worklog command: `wl sched` group (add/ls/rm) + recurrence-rule validation."""
 from __future__ import annotations
 
-import sys
 
 from .. import timeutil as _tu
 from .. import db_table as _db

@@ -9,9 +9,11 @@ would not follow mutations).
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
+from typing import NoReturn
 
 try:
     from rich.console import Console as _RichConsole
@@ -185,15 +187,14 @@ def set_json_mode(flag: bool) -> None:
     _JSON_MODE = flag
 
 
-def die(msg: str, *, status: int = 400) -> None:
+def die(msg: str, *, status: int = 400) -> NoReturn:
     """Exit with a user-facing error.
 
     In JSON mode: writes RFC 9457 Problem Details to stderr.
-    In text mode: writes '✗ <msg>' to stderr (same convention as old sys.exit('✗ ...')).
+    In text mode: writes '✗ <msg>' to stderr.
     """
     if _JSON_MODE or _SUPPRESS_DEPTH > 0:
-        import json as _json
-        print(_json.dumps({
+        print(json.dumps({
             "type": "about:blank",
             "title": "Error",
             "status": status,
