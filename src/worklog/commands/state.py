@@ -565,7 +565,11 @@ def cmd_relation(args, con):
     rtype = getattr(args, "rtype", None)
     others_raw = list(args.others or [])
     if rtype is None:
-        _print_relations(con, args.id)
+        if _is_json(args):
+            from ..queries import relation_view, _backrels
+            _emit_json(relation_view(con, args.id))
+        else:
+            _print_relations(con, args.id)
         return
     if rtype not in _RELATION_TYPES:
         # the type word was omitted: the first token is actually a node id → default to `related`
@@ -916,6 +920,10 @@ def cmd_log_show(args, con):
     row = _db.get(con, "log", args.log_id)
     if row is None:
         sys.exit(f"✗ no log #L{args.log_id}")
+    if _is_json(args):
+        _emit_json({"id": row["id"], "node_id": row["node_id"], "tag": row["tag"],
+                    "body": row["body"], "logged_at": row["logged_at"]})
+        return
     node = _db.get(con, "node", row["node_id"])
     title = node["title"] if node else "?"
     label = row["tag"] or "note"
@@ -973,13 +981,26 @@ def cmd_active(args, con):
     """).fetchall()
 
     if not rows:
-        out(_c("(no active task right now; use wl start <id> to start timing, wl day for today's progress)", "meta"))
+        if _is_json(args):
+            _emit_json([])
+        else:
+            out(_c("(no active task right now; use wl start <id> to start timing, wl day for today's progress)", "meta"))
         return
 
     brief = getattr(args, "brief", False)
     now = _dt.fromisoformat(_tu.utc_now())  # UTC, to match the UTC-stored start_at
     today = _tu.today()
     full = _log_full(args)
+    if _is_json(args):
+        result = []
+        for r in rows:
+            started = _dt.fromisoformat(r["start_at"])
+            mins = int((now - started).total_seconds() / 60)
+            result.append({"node_id": r["node_id"], "title": r["title"],
+                           "status": r["status"], "priority": r["priority"],
+                           "start_at": r["start_at"], "elapsed_min": mins})
+        _emit_json(result)
+        return
     for r in rows:
         started = _dt.fromisoformat(r["start_at"])
         mins = int((now - started).total_seconds() / 60)
