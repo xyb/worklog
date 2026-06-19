@@ -857,7 +857,7 @@ More: `wl help link`.""")
     _args_link(_lnsub.add_parser("add", help="link a node to a vault doc (= the default wl link 42 doc)"))
     _lnls = _lnsub.add_parser("ls", parents=[output_parent], help="list a node's vault-doc links")
     _lnls.add_argument("id", type=int)
-    _args_link(_lnsub.add_parser("rm", help="remove a vault-doc link (= wl unlink)"))
+    _args_link(_lnsub.add_parser("rm", parents=[output_parent], help="remove a vault-doc link (= wl unlink)"))
 
     ul = sub.add_parser("unlink",
         parents=[output_parent],
@@ -928,11 +928,11 @@ single-value props under a shared prefix; each full key is still one value, but 
 
 More: `wl help prop`.""")
     _prsub = pr.add_subparsers(dest="prop_sub")
-    _args_prop_set(_prsub.add_parser("set", help="set/update a prop (= wl set)",
+    _args_prop_set(_prsub.add_parser("set", parents=[output_parent], help="set/update a prop (= wl set)",
         description="Set/update a UDA prop. Also: the top-level shortcut `wl set` (identical, same handler)."))
     _prls = _prsub.add_parser("ls", parents=[output_parent], help="list a node's props")
     _prls.add_argument("id", type=int)
-    _args_prop_rm(_prsub.add_parser("rm", help="remove a prop (= wl unset)",
+    _args_prop_rm(_prsub.add_parser("rm", parents=[output_parent], help="remove a prop (= wl unset)",
         description="Remove a UDA prop (soft-delete the row). Also: the top-level shortcut `wl unset`."))
 
     ag = sub.add_parser("agent",
@@ -1013,11 +1013,11 @@ Create intervals with the composite helpers:
     _cksub = ck.add_subparsers(dest="clock_sub")
     _ckls = _cksub.add_parser("ls", parents=[output_parent], help="list a node's clock intervals")
     _ckls.add_argument("id", type=int)
-    _cke = _cksub.add_parser("edit", help="edit an interval's start/end (recomputes duration)")
+    _cke = _cksub.add_parser("edit", parents=[output_parent], help="edit an interval's start/end (recomputes duration)")
     _cke.add_argument("clock_id", type=int, metavar="clock_id")
     _cke.add_argument("--start", help="new start (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
     _cke.add_argument("--end", help="new end (same formats); '' sets it back to running")
-    _ckr = _cksub.add_parser("rm", help="remove clock interval(s)")
+    _ckr = _cksub.add_parser("rm", parents=[output_parent], help="remove clock interval(s)")
     _ckr.add_argument("clock_ids", type=int, nargs="+", metavar="clock_id")
 
     # tag entity group: add / ls / rm. `add` is the default verb so the everyday
@@ -1038,7 +1038,7 @@ Edits the real tag field, unlike `wl set <id> tags ...` (which would make a shad
 
 More: `wl help tag`.""")
     _tgsub = tg.add_subparsers(dest="tag_sub")
-    _tga = _tgsub.add_parser("add",
+    _tga = _tgsub.add_parser("add", parents=[output_parent],
         help="add (and, with -tag, remove) tags (= the default wl tag 42 +work)",
         description="Add tags to a node. Power form: +tag adds, -tag removes, a bare word adds, no ops lists. Also reachable as the default `wl tag <id> …` (omit `add`; see `wl tag -h`).")
     _tga.add_argument("id", type=int)
@@ -1046,7 +1046,7 @@ More: `wl help tag`.""")
                       help="+tag adds, -tag removes, bare word adds; empty = list current tags")
     _tgls = _tgsub.add_parser("ls", parents=[output_parent], help="list a node's real tags (= bare wl tag <id>)")
     _tgls.add_argument("id", type=int)
-    _tgr = _tgsub.add_parser("rm", help="remove tag(s) from a node (= wl tag <id> -tag)")
+    _tgr = _tgsub.add_parser("rm", parents=[output_parent], help="remove tag(s) from a node (= wl tag <id> -tag)")
     _tgr.add_argument("id", type=int)
     _tgr.add_argument("tags", nargs="+", metavar="tag",
                       help="tag name(s) to remove (plain name; to use a - prefix use wl tag <id> -tag)")
@@ -1416,7 +1416,7 @@ Common examples:
 A metric must hang off a log; without --on-log a (possibly empty-body) carrier log is created.""")
     _msub = mt.add_subparsers(dest="metric_sub")
 
-    _ma = _msub.add_parser("add", help="add a datapoint to a node")
+    _ma = _msub.add_parser("add", parents=[output_parent], help="add a datapoint to a node")
     _ma.add_argument("node", type=int, help="node id the datapoint belongs to")
     _ma.add_argument("tag", help="what this datapoint is (glucose / pullups / checkin / …)")
     _ma.add_argument("value", nargs="?", help="value (numeric → value_num, else text); omit for a pure marker (=1)")
@@ -1434,7 +1434,7 @@ A metric must hang off a log; without --on-log a (possibly empty-body) carrier l
     _ml.add_argument("--tag", help="filter by tag")
     _ml.add_argument("--all", action="store_true", help="all datapoints (ignore the default this-week window)")
 
-    _me = _msub.add_parser("edit", help="edit a metric's fields")
+    _me = _msub.add_parser("edit", parents=[output_parent], help="edit a metric's fields")
     _me.add_argument("metric_id", type=_metric_id_arg, help="metric id (#M7 / M7 / 7; from wl metric ls)")
     _me.add_argument("--value", help="new value, autodetected numeric vs text (mutually exclusive with --num/--text)")
     _me.add_argument("--num", type=float, help="set numeric value (clears text value)")
@@ -1444,7 +1444,7 @@ A metric must hang off a log; without --on-log a (possibly empty-body) carrier l
     _me.add_argument("--tag", help="change tag")
     _me.add_argument("--at", help="change timestamp")
 
-    _mr = _msub.add_parser("rm", help="delete one or more metrics")
+    _mr = _msub.add_parser("rm", parents=[output_parent], help="delete one or more metrics")
     _mr.add_argument("metric_ids", type=_metric_id_arg, nargs="+", help="metric id(s) (#M7 / M7 / 7)")
 
     ci = sub.add_parser("checkin",
@@ -1482,7 +1482,7 @@ Distinct from `wl defer` (status LATER + rough hint). Create + schedule: wl add 
 
 More: `wl help sched` (the full recurring-rule grammar).""")
     _scsub = sc.add_subparsers(dest="sched_sub")
-    _sca = _scsub.add_parser("add",
+    _sca = _scsub.add_parser("add", parents=[output_parent],
         help="schedule to a day / recurring rule (= the default wl sched 42 <when>)",
         description="Schedule a task to a one-off day or a recurring rule (--recur); no when/--recur lists; --clear clears. Also reachable as the default `wl sched <id> <when>` (omit `add`; see `wl sched -h`).")
     _sca.add_argument("id", type=int)
@@ -1492,7 +1492,8 @@ More: `wl help sched` (the full recurring-rule grammar).""")
     _sca.add_argument("--clear", action="store_true", help="clear all schedule entries for this task")
     _scls = _scsub.add_parser("ls", parents=[output_parent], help="list a node's schedule entries (= bare wl sched <id>)")
     _scls.add_argument("id", type=int)
-    _scsub.add_parser("rm", help="clear a node's schedule entries (= wl sched <id> --clear)").add_argument("id", type=int)
+    _scr = _scsub.add_parser("rm", parents=[output_parent], help="clear a node's schedule entries (= wl sched <id> --clear)")
+    _scr.add_argument("id", type=int)
 
     di = sub.add_parser("dateinfo",
         help="date metadata (holiday/vacation/working-day swap; shown in wl day header)",

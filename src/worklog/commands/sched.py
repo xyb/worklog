@@ -19,10 +19,16 @@ def cmd_sched(args, con):
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     if args.clear:
+        total = 0
+        _json = _is_json(args)
         for nid in ids:
             n = _db.delete(con, "sched", node_id=nid)
-            out(_c(f"✓ #{nid} cleared {n} schedule entries", "meta"))
+            total += n
+            if not _json:
+                out(_c(f"✓ #{nid} cleared {n} schedule entries", "meta"))
         con.commit()
+        if _json:
+            _emit_json({"cleared": total})
         return
     if not args.when and not args.recur:
         # if multiple ids, show schedule for each (caters to single-id scenario)
@@ -33,6 +39,7 @@ def cmd_sched(args, con):
             for r in rows:
                 out("  " + _c(f"#{nid} @" + (r["on_date"] or r["rrule"]), "planned"))
         return
+    _json = _is_json(args)
     if args.recur:
         try:
             rule = _norm_rrule(args.recur)
@@ -41,11 +48,13 @@ def cmd_sched(args, con):
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, rrule) row
             exists = _db.exists(con, "sched", node_id=nid, rrule=rule)
-            if exists:
-                out(_c(f"= #{nid} already on recurring schedule: {rule}", "meta"))
-            else:
+            if not _json:
+                if exists:
+                    out(_c(f"= #{nid} already on recurring schedule: {rule}", "meta"))
+                else:
+                    out(_c(f"✓ #{nid} recurring schedule: {rule}", "meta"))
+            if not exists:
                 _db.insert(con, "sched", {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
-                out(_c(f"✓ #{nid} recurring schedule: {rule}", "meta"))
         con.commit()
     if args.when:
         try:
@@ -57,12 +66,20 @@ def cmd_sched(args, con):
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, on_date) row
             exists = _db.exists(con, "sched", node_id=nid, on_date=d)
-            if exists:
-                out(_c(f"= #{nid} already scheduled to {d}", "meta"))
-            else:
+            if not _json:
+                if exists:
+                    out(_c(f"= #{nid} already scheduled to {d}", "meta"))
+                else:
+                    out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
+            if not exists:
                 _db.insert(con, "sched", {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
-                out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
         con.commit()
+    if _json:
+        # return updated schedule list for the first (usually only) id
+        nid = ids[0]
+        rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid,
+                         order="on_date NULLS LAST, rrule")
+        _emit_json([{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows])
 
 
 def cmd_sched_ls(args, con):
@@ -87,6 +104,9 @@ def cmd_sched_rm(args, con):
     _check_ids_exist(con, [args.id])
     n = _db.delete(con, "sched", node_id=args.id)
     con.commit()
+    if _is_json(args):
+        _emit_json({"cleared": n})
+        return
     out(_c(f"✓ #{args.id} cleared {n} schedule entries", "meta"))
 
 

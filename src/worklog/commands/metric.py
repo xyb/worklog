@@ -120,6 +120,12 @@ def _line(row):
     return line
 
 
+def _metric_dict(row):
+    return {"id": row["id"], "node_id": row["node_id"], "log_id": row["log_id"],
+            "tag": row["tag"], "value_num": row["value_num"], "value_text": row["value_text"],
+            "unit": row["unit"], "note": row["note"], "at": row["at"]}
+
+
 def _insert_metric_on_log(con, log_id, node_id, tag, value, *,
                           force_text=False, unit=None, note=None, at=None):
     """Insert ONE metric onto an existing log (no commit; caller controls the txn).
@@ -221,7 +227,11 @@ def cmd_metric_add(args, con):
     except Exception:
         con.rollback()
         raise
-    out(_c("✓", "done") + " " + _line(_db.get(con, "metric", mid)))
+    row = _db.get(con, "metric", mid)
+    if _is_json(args):
+        _emit_json(_metric_dict(row))
+        return
+    out(_c("✓", "done") + " " + _line(row))
 
 
 def cmd_metric_ls(args, con):
@@ -324,7 +334,11 @@ def cmd_metric_edit(args, con):
 
     _db.update(con, "metric", mid, changes)
     con.commit()
-    out(_c("✓", "done") + " " + _line(_db.get(con, "metric", mid)))
+    row = _db.get(con, "metric", mid)
+    if _is_json(args):
+        _emit_json(_metric_dict(row))
+        return
+    out(_c("✓", "done") + " " + _line(row))
 
 
 def cmd_metric_rm(args, con):
@@ -349,6 +363,9 @@ def cmd_metric_rm(args, con):
             msg += f" + its empty carrier log #L{log_id}"
         msgs.append(msg)
     con.commit()
+    if _is_json(args):
+        _emit_json({"deleted": list(args.metric_ids)})
+        return
     for m in msgs:
         out(_c(m, "meta"))
 

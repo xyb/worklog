@@ -483,3 +483,160 @@ class TestDateLsJson:
     def test_empty_returns_empty_list(self, cli):
         rows = _j(cli, "date", "ls", "-o", "json")
         assert rows == []
+
+
+class TestSpentJson:
+    def test_returns_clock_row(self, cli):
+        cli("add", "task")
+        d = _j(cli, "spent", "1", "30", "-o", "json")
+        assert d["node_id"] == 1
+        assert d["elapsed_sec"] == 1800
+        assert "start_at" in d and "end_at" in d
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "task")
+        d = _j(cli, "-o", "json", "spent", "1", "15")
+        assert d["node_id"] == 1 and d["elapsed_sec"] == 900
+
+
+class TestUnlinkJson:
+    def test_returns_remaining_links(self, cli):
+        cli("add", "task")
+        cli("link", "1", "Doc A")
+        cli("link", "1", "Doc B")
+        links = _j(cli, "unlink", "1", "Doc A", "-o", "json")
+        assert "Doc A" not in links
+        assert "Doc B" in links
+
+    def test_all_removed_returns_empty_list(self, cli):
+        cli("add", "task")
+        cli("link", "1", "Only Doc")
+        links = _j(cli, "unlink", "1", "Only Doc", "-o", "json")
+        assert links == []
+
+
+class TestRelationWriteJson:
+    def test_write_returns_relation_dict(self, cli):
+        cli("add", "task A")
+        cli("add", "task B")
+        d = _j(cli, "relation", "1", "related", "2", "-o", "json")
+        assert isinstance(d, dict)
+        assert 2 in d["related"]
+
+    def test_rm_returns_updated_dict(self, cli):
+        cli("add", "task A")
+        cli("add", "task B")
+        cli("relation", "1", "related", "2")
+        d = _j(cli, "relation", "1", "related", "2", "--rm", "-o", "json")
+        assert 2 not in d["related"]
+
+
+class TestSetJson:
+    def test_prop_set_returns_key_value(self, cli):
+        cli("add", "task")
+        d = _j(cli, "set", "1", "owner", "alice", "-o", "json")
+        assert d["key"] == "owner" and d["value"] == "alice"
+
+    def test_goal_set_returns_body_and_logged_at(self, cli):
+        cli("add", "task")
+        d = _j(cli, "set", "1", "goal", "ship it", "-o", "json")
+        assert d["key"] == "goal" and d["body"] == "ship it"
+        assert "logged_at" in d
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "task")
+        d = _j(cli, "-o", "json", "set", "1", "prio", "high")
+        assert d["key"] == "prio" and d["value"] == "high"
+
+
+class TestUnsetJson:
+    def test_returns_key_and_removed_count(self, cli):
+        cli("add", "task")
+        cli("set", "1", "owner", "alice")
+        d = _j(cli, "unset", "1", "owner", "-o", "json")
+        assert d["key"] == "owner" and d["removed"] == 1
+
+    def test_missing_key_removed_zero(self, cli):
+        cli("add", "task")
+        d = _j(cli, "unset", "1", "nonexistent", "-o", "json")
+        assert d["key"] == "nonexistent" and d["removed"] == 0
+
+    def test_goal_unset_returns_removed_count(self, cli):
+        cli("add", "task")
+        cli("set", "1", "goal", "ship it")
+        d = _j(cli, "unset", "1", "goal", "-o", "json")
+        assert d["key"] == "goal" and d["removed"] == 1
+
+
+class TestTagWriteJson:
+    def test_add_returns_updated_tag_list(self, cli):
+        cli("add", "task")
+        tags = _j(cli, "-o", "json", "tag", "1", "+work", "+P0")
+        assert "work" in tags and "P0" in tags
+
+    def test_rm_returns_updated_tag_list(self, cli):
+        cli("add", "task")
+        cli("tag", "1", "+work", "+P0")
+        tags = _j(cli, "tag", "rm", "1", "work", "-o", "json")
+        assert "work" not in tags and "P0" in tags
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "task")
+        tags = _j(cli, "-o", "json", "tag", "1", "urgent")
+        assert "urgent" in tags
+
+
+class TestClockEditRmJson:
+    def test_edit_returns_updated_clock_row(self, cli):
+        cli("add", "task")
+        cli("start", "1")
+        cli("stop", "1")
+        rows = _j(cli, "clock", "ls", "1", "-o", "json")
+        cid = rows[0]["id"]
+        d = _j(cli, "clock", "edit", str(cid), "--end", "", "-o", "json")
+        assert d["id"] == cid and "end_at" in d and "elapsed_sec" in d
+
+    def test_rm_returns_deleted_ids(self, cli):
+        cli("add", "task")
+        cli("start", "1")
+        cli("stop", "1")
+        rows = _j(cli, "clock", "ls", "1", "-o", "json")
+        cid = rows[0]["id"]
+        d = _j(cli, "clock", "rm", str(cid), "-o", "json")
+        assert d["deleted"] == [cid]
+
+
+class TestMetricWriteJson:
+    def test_add_returns_metric_row(self, cli):
+        cli("add", "task")
+        d = _j(cli, "metric", "add", "1", "weight", "72.5", "-o", "json")
+        assert d["node_id"] == 1 and d["tag"] == "weight"
+        assert d["value_num"] == pytest.approx(72.5)
+        assert "id" in d and "at" in d
+
+    def test_edit_returns_updated_row(self, cli):
+        cli("add", "task")
+        m = _j(cli, "metric", "add", "1", "steps", "8000", "-o", "json")
+        mid = m["id"]
+        d = _j(cli, "metric", "edit", str(mid), "--value", "9000", "-o", "json")
+        assert d["id"] == mid and d["value_num"] == pytest.approx(9000)
+
+    def test_rm_returns_deleted_ids(self, cli):
+        cli("add", "task")
+        m = _j(cli, "metric", "add", "1", "score", "5", "-o", "json")
+        mid = m["id"]
+        d = _j(cli, "metric", "rm", str(mid), "-o", "json")
+        assert d["deleted"] == [mid]
+
+
+class TestSchedWriteJson:
+    def test_sched_add_returns_updated_list(self, cli):
+        cli("add", "task")
+        rows = _j(cli, "sched", "1", "2026-09-01", "-o", "json")
+        assert any(r["on_date"] == "2026-09-01" for r in rows)
+
+    def test_sched_rm_returns_cleared_count(self, cli):
+        cli("add", "task")
+        cli("sched", "1", "2026-09-01")
+        d = _j(cli, "sched", "rm", "1", "-o", "json")
+        assert d["cleared"] == 1

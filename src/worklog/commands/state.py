@@ -463,9 +463,15 @@ def cmd_spent(args, con):
     from datetime import timedelta as _td
     start_dt = end_dt - _td(minutes=mins)
     start_ts = start_dt.strftime("%Y-%m-%d %H:%M:%S")
-    _db.insert(con, "clock", {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
-                              "elapsed_sec": mins * 60})
+    cid = _db.insert(con, "clock", {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
+                                   "elapsed_sec": mins * 60})
     con.commit()
+    if _is_json(args):
+        r = _db.get(con, "clock", cid)
+        _emit_json({"id": r["id"], "node_id": r["node_id"],
+                    "start_at": r["start_at"], "end_at": r["end_at"],
+                    "elapsed_sec": r["elapsed_sec"]})
+        return
     print(f"✓ #{nid} spent {mins}min ({_tu.utc_to_local(start_ts)[11:16]} → {_tu.utc_to_local(end_ts)[11:16]})")
 
 def cmd_link(args, con):
@@ -490,11 +496,19 @@ def cmd_unlink(args, con):
     _check_ids_exist(con, ids)
     for nid in ids:
         _, n = _delete_link(con, nid, doc)
-        if n:
-            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"unlinked [[{doc}]]"))
-        else:
-            out(_c(f"#{nid} had no link to [[{doc}]]", "meta"))
+        if not _is_json(args):
+            if n:
+                out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"unlinked [[{doc}]]"))
+            else:
+                out(_c(f"#{nid} had no link to [[{doc}]]", "meta"))
     con.commit()
+    if _is_json(args):
+        all_links = []
+        for nid in ids:
+            all_links.extend(r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc",
+                                                                node_id=nid, order="vault_doc"))
+        _emit_json(all_links)
+        return
 
 def _print_relations(con, nid):
     """Render a node's resolved relations block (own + derived reverse). Shared by
@@ -591,6 +605,10 @@ def cmd_relation(args, con):
             out(_c(f"(skip #{o}: a node can't relate to itself)", "meta"))
     done = _apply_relation(con, args.id, rtype, others, rm=rm)
     con.commit()
+    if _is_json(args):
+        from ..queries import relation_view
+        _emit_json(relation_view(con, args.id))
+        return
     if done:
         verb = "removed" if rm else "set"
         out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + f" {rtype} {verb}: "
@@ -614,8 +632,11 @@ def cmd_set(args, con):
         # key-routed shortcut for `wl goal set` — keep the output identical (prose only, no ids).
         log_id = _set_typed_log(con, args.id, args.key, args.value)
         con.commit()
-        at = _db.get(con, "log", log_id)["logged_at"]
-        out(_c(f"✓ #{args.id} {args.key} (logged at {at}): {args.value}", "meta"))
+        log = _db.get(con, "log", log_id)
+        if _is_json(args):
+            _emit_json({"key": args.key, "body": log["body"], "logged_at": log["logged_at"]})
+            return
+        out(_c(f"✓ #{args.id} {args.key} (logged at {log['logged_at']}): {args.value}", "meta"))
         return
     try:
         _upsert_prop(con, args.id, args.key, args.value)
@@ -630,6 +651,9 @@ def cmd_set(args, con):
         # the reserved type.*/date.* validator (or a shadow-field backstop) rejected the value
         sys.exit(f"✗ {e}")
     con.commit()
+    if _is_json(args):
+        _emit_json({"key": args.key, "value": args.value})
+        return
     print(f"✓ #{args.id} {args.key}={args.value}")
     _h = _nt.existence_empty_hint(args.id, args.key, args.value)
     if _h:
@@ -660,6 +684,10 @@ def cmd_tag(args, con):
                 _db.upsert(con, "tag", {"node_id": args.id, "tag": t}, key=("node_id", "tag"))
                 added.append(t)
     con.commit()
+    if _is_json(args):
+        tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+        _emit_json(tags)
+        return
     parts = []
     if added:
         parts.append(_c("+" + ",".join(added), "planned"))
@@ -690,6 +718,10 @@ def cmd_tag_rm(args, con):
             _db.delete(con, "tag", node_id=args.id, tag=t)
             removed.append(t)
     con.commit()
+    if _is_json(args):
+        tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+        _emit_json(tags)
+        return
     if removed:
         out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + " tags "
             + _c("-" + ",".join(removed), "later"))
@@ -1224,6 +1256,9 @@ def cmd_prop_rm(args, con):
         # as reserved-tag logs, not props — clear it there (= wl goal rm).
         n = _db.delete(con, "log", node_id=args.id, tag=key)
         con.commit()
+        if _is_json(args):
+            _emit_json({"key": key, "removed": n})
+            return
         out(_c(f"✓ #{args.id} {key} cleared ({n} log(s))" if n
                else f"(#{args.id} has no {key})", "meta"))
         return
@@ -1236,6 +1271,9 @@ def cmd_prop_rm(args, con):
         print(f"⚠ #{args.id} is now '{new_type}' (removing '{key}' changed its classification)",
               file=sys.stderr)
     con.commit()
+    if _is_json(args):
+        _emit_json({"key": key, "removed": n})
+        return
     out(_c(f"✓ #{args.id} prop '{key}' removed" if n else f"(#{args.id} has no prop '{key}')", "meta"))
 
 
@@ -1591,6 +1629,12 @@ def cmd_clock_edit(args, con):
         changes["elapsed_sec"] = None  # --end '' cleared the end → back to running
     _db.update(con, "clock", args.clock_id, changes)
     con.commit()
+    if _is_json(args):
+        r = _db.get(con, "clock", args.clock_id)
+        _emit_json({"id": r["id"], "node_id": r["node_id"],
+                    "start_at": r["start_at"], "end_at": r["end_at"],
+                    "elapsed_sec": r["elapsed_sec"]})
+        return
     out(_c(f"✓ clock #C{args.clock_id} updated: " + ", ".join(changes), "meta"))
 
 
@@ -1602,6 +1646,9 @@ def cmd_clock_rm(args, con):
     for cid in args.clock_ids:
         _db.delete(con, "clock", id=cid)
     con.commit()
+    if _is_json(args):
+        _emit_json({"deleted": list(args.clock_ids)})
+        return
     out(_c(f"✓ removed {len(args.clock_ids)} clock interval(s)", "meta"))
 
 
