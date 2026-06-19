@@ -1,16 +1,15 @@
 """Shared output helpers for all command handlers.
 
-The @output_format decorator is the standard way to add -o json support,
-following the AWS CLI pattern: handlers return data, the output layer decides
-how to render it.
+The @output_format decorator applies the active Formatter to a command handler,
+following the AWS CLI pattern: the handler returns structured data; the Formatter
+decides how to render it.
 
     @output_format
     def cmd_foo(args, con):
-        # ... do work ...
-        out("✓ human-readable line")   # auto-suppressed in JSON mode
-        return {"id": ..., "key": ...} # auto-emitted as JSON in JSON mode
+        out("✓ human-readable line")   # TextFormatter lets this through; JSONFormatter suppresses
+        return {"id": ..., "key": ...} # JSONFormatter emits this; TextFormatter ignores it
 
-Text output via out() is the default formatter. JSON mode is selected with -o json.
+Add a new output format: subclass Formatter and register it in _FORMATTERS.
 """
 from __future__ import annotations
 
@@ -20,28 +19,81 @@ from functools import wraps
 from ..render import set_suppress_output, set_json_mode
 
 
-def _emit_json(data) -> None:
-    print(json.dumps(data, ensure_ascii=False, indent=2))
+class Formatter:
+    """Output formatter protocol.
+
+    Three-phase lifecycle, matching the AWS CLI formatter contract:
+      setup()    — called before the handler; configure render state
+      teardown() — called in finally; always runs, even on exception
+      emit(data) — called with the handler's return value after teardown
+    """
+
+    def setup(self) -> None:
+        pass
+
+    def teardown(self) -> None:
+        pass
+
+    def emit(self, data) -> None:
+        pass
+
+
+class TextFormatter(Formatter):
+    """Rich text mode: out() calls flow to the terminal; return value is unused.
+
+    All three lifecycle methods are no-ops — the handler does its own rendering
+    inline via out(). TextFormatter is the extension point for future text-side
+    post-processing (pagination, colour themes, default fallback rendering).
+    """
+
+
+class JSONFormatter(Formatter):
+    """JSON mode: suppress out() calls; emit the handler's return value as JSON.
+
+    Mirrors the AWS CLI --output json formatter: structured data only,
+    no human-readable decoration.
+    """
+
+    def setup(self) -> None:
+        set_json_mode(True)
+        set_suppress_output(True)
+
+    def teardown(self) -> None:
+        set_suppress_output(False)
+        set_json_mode(False)
+
+    def emit(self, data) -> None:
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+
+
+_FORMATTERS: dict[str, type[Formatter]] = {
+    "text": TextFormatter,
+    "json": JSONFormatter,
+}
+
+
+def get_formatter(name: str) -> Formatter:
+    """Return a Formatter instance for the given output format name.
+
+    Falls back to TextFormatter for unknown names so new CLI flags never crash.
+    """
+    return _FORMATTERS.get(name, TextFormatter)()
 
 
 def output_format(fn):
-    """Decorator: output formatting layer for command handlers.
+    """Decorator: apply the active output Formatter to a command handler.
 
-    In JSON mode (-o json): suppresses out() calls, emits the handler's return
-    value as JSON (including null). In text mode: passthrough.
+    Text mode: out() calls flow normally; return value is ignored.
+    JSON mode:  out() calls are suppressed; return value is emitted as JSON.
     """
     @wraps(fn)
     def wrapper(args, con):
-        if getattr(args, "output", "text") == "json":
-            set_json_mode(True)
-            set_suppress_output(True)
-            try:
-                result = fn(args, con)
-            finally:
-                set_suppress_output(False)
-                set_json_mode(False)
-            _emit_json(result)
-        else:
-            fn(args, con)
+        fmt = get_formatter(getattr(args, "output", "text"))
+        fmt.setup()
+        try:
+            result = fn(args, con)
+        finally:
+            fmt.teardown()
+        fmt.emit(result)
 
     return wrapper
