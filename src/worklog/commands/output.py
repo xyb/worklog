@@ -127,16 +127,6 @@ def output_format(fn):
     return wrapper
 
 
-def set_json_error_mode(flag: bool) -> None:
-    """For cli.py main(): activate JSON error formatting for group dispatchers.
-
-    @output_format handlers manage this automatically via Formatter.setup/teardown.
-    This covers the gap where die() is called before a decorated handler runs
-    (e.g. group dispatchers like cmd_node that dispatch based on a sub-command arg).
-    """
-    set_active_error_formatter(JSONFormatter.format_error if flag else None)
-
-
 # Register built-in formatters via the same public API used by external plugins.
 register_formatter("text", TextFormatter)
 register_formatter("json", JSONFormatter)

@@ -1977,40 +1977,44 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
     if args.cmd == "print-completion":
         HANDLERS[args.cmd](args, None)
         return
-    from .commands.output import set_json_error_mode
-    set_json_error_mode(getattr(args, "output", "text") == "json")
-    _init_console(args.color, args.theme)
-    _set_width_cap(_resolve_width_cap(getattr(args, "width", None)))
-    _set_title_mode(_resolve_title_mode(getattr(args, "title", None)))
-    # config / help are read-only and side-effect free — don't create the DB just to
-    # print paths or render a help topic (a newcomer may run `wl help` before `wl init`).
-    if args.cmd in ("config", "help"):
-        HANDLERS[args.cmd](args, None)
-        return
-    # --- per-invocation DB override (--db flag) ---
-    # Re-evaluate DB_PATH with args so ensure_db / db_connect see the override.
-    global DB_PATH
-    DB_PATH = _resolve_db_path(args)
-    # `wl migrate` is the explicit form of the auto-migration that ensure_db()
-    # otherwise runs first. Calling ensure_db() here would apply the pending
-    # migrations before the handler runs, leaving nothing to do — so for
-    # `migrate` we just open the DB (creating the file if missing) and let
-    # cmd_migrate decide what to apply.
-    if args.cmd == "migrate":
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    from .commands.output import get_formatter
+    _fmt = get_formatter(getattr(args, "output", "text"))
+    _fmt.setup()
+    try:
+        _init_console(args.color, args.theme)
+        _set_width_cap(_resolve_width_cap(getattr(args, "width", None)))
+        _set_title_mode(_resolve_title_mode(getattr(args, "title", None)))
+        # config / help are read-only and side-effect free — don't create the DB just to
+        # print paths or render a help topic (a newcomer may run `wl help` before `wl init`).
+        if args.cmd in ("config", "help"):
+            HANDLERS[args.cmd](args, None)
+            return
+        # --- per-invocation DB override (--db flag) ---
+        # Re-evaluate DB_PATH with args so ensure_db / db_connect see the override.
+        global DB_PATH
+        DB_PATH = _resolve_db_path(args)
+        # `wl migrate` is the explicit form of the auto-migration that ensure_db()
+        # otherwise runs first. Calling ensure_db() here would apply the pending
+        # migrations before the handler runs, leaving nothing to do — so for
+        # `migrate` we just open the DB (creating the file if missing) and let
+        # cmd_migrate decide what to apply.
+        if args.cmd == "migrate":
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+            con = db_connect()
+            try:
+                HANDLERS[args.cmd](args, con)
+            finally:
+                con.close()
+            return
+        ensure_db()
         con = db_connect()
         try:
             HANDLERS[args.cmd](args, con)
+            _maybe_kick_reindex(args, con)
         finally:
             con.close()
-        return
-    ensure_db()
-    con = db_connect()
-    try:
-        HANDLERS[args.cmd](args, con)
-        _maybe_kick_reindex(args, con)
     finally:
-        con.close()
+        _fmt.teardown()
 
 
 def _maybe_kick_reindex(args, con):  # pragma: no cover -- spawns a detached process; not unit-tested
