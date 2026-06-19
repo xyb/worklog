@@ -673,7 +673,7 @@ Common examples:
 
 More: `wl help log` (vs `wl tick` habit check-in / `wl logs` filterable stream).""")
     _lgsub = g.add_subparsers(dest="log_sub")
-    _args_log_add(_lgsub.add_parser("add",
+    _args_log_add(_lgsub.add_parser("add", parents=[output_parent],
         help="add a log entry (= the default wl log 42 \"body\")",
         description="Add a log entry to a node (auto TODO->DOING unless --keep-status; --date/--time backfill history). Also reachable as the default `wl log <id> \"body\"` (omit `add`; see `wl log -h`)."))
     _lgls = _lgsub.add_parser("ls", parents=[output_parent], help="list a node's logs (full view: wl logs --id <id>)")
@@ -683,7 +683,7 @@ More: `wl help log` (vs `wl tick` habit check-in / `wl logs` filterable stream).
         help="show one log entry's full (untruncated) content by log id (#L282)",
         description="Print one log entry's complete, untruncated body by its log id (the list views truncate each log to one line). Accepts #L282 / L282 / 282.")
     _lgshow.add_argument("log_id", type=_log_id_arg, metavar="log_id", help="log id (#L282 / L282 / 282)")
-    _args_relog(_lgsub.add_parser("edit",
+    _args_relog(_lgsub.add_parser("edit", parents=[output_parent],
         help="rewrite a log's body / time (= wl relog)",
         description="Rewrite an existing log's body or timestamp. Also: the top-level shortcut `wl relog`.",
         formatter_class=_WlHelpFormatter,
@@ -691,7 +691,7 @@ More: `wl help log` (vs `wl tick` habit check-in / `wl logs` filterable stream).
   wl log edit #L282 "fixed content"   # change body
   wl log edit #L282 --at 14:30        # only change time
   wl log edit #L282                   # no body/--at -> open $EDITOR"""))
-    _args_unlog(_lgsub.add_parser("rm",
+    _args_unlog(_lgsub.add_parser("rm", parents=[output_parent],
         help="delete a log entry (= wl unlog)",
         description="Delete a log entry (soft-delete). Also: the top-level shortcut `wl unlog`.",
         formatter_class=_WlHelpFormatter,
@@ -854,7 +854,7 @@ Common examples:
 
 More: `wl help link`.""")
     _lnsub = ln.add_subparsers(dest="link_sub")
-    _args_link(_lnsub.add_parser("add", help="link a node to a vault doc (= the default wl link 42 doc)"))
+    _args_link(_lnsub.add_parser("add", parents=[output_parent], help="link a node to a vault doc (= the default wl link 42 doc)"))
     _lnls = _lnsub.add_parser("ls", parents=[output_parent], help="list a node's vault-doc links")
     _lnls.add_argument("id", type=int)
     _args_link(_lnsub.add_parser("rm", parents=[output_parent], help="remove a vault-doc link (= wl unlink)"))
@@ -1089,7 +1089,7 @@ More: `wl help node`.""")
         description="List nodes. Also: the top-level shortcut `wl ls` (identical, same handler)."))
     _args_node_show(_ndsub.add_parser("show", parents=[output_parent], help="show a node + timeline (= wl show)",
         description="Show a node's detail + timeline. Also: the top-level shortcut `wl show` (identical, same handler)."))
-    _nde = _ndsub.add_parser("edit", help="edit a node's own fields (title/priority/--para role/body/scheduled/deadline)")
+    _nde = _ndsub.add_parser("edit", parents=[output_parent], help="edit a node's own fields (title/priority/--para role/body/scheduled/deadline)")
     _nde.add_argument("id", type=int)
     _nde.add_argument("--title")
     _nde.add_argument("-p", "--priority", choices=["A", "B", "C"])
@@ -1099,7 +1099,7 @@ More: `wl help node`.""")
     _nde.add_argument("--body")
     _nde.add_argument("--scheduled", help="scheduled_date pin (YYYY-MM-DD / YYYY-MM / someday / …); pass '' to clear")
     _nde.add_argument("--deadline", help="deadline date YYYY-MM-DD; pass '' to clear")
-    _ndr = _ndsub.add_parser("rm", help="soft-delete node(s) + their spoke rows (reversible tombstone)")
+    _ndr = _ndsub.add_parser("rm", parents=[output_parent], help="soft-delete node(s) + their spoke rows (reversible tombstone)")
     _ndr.add_argument("ids", type=int, nargs="+", metavar="id")
     _ndrp = _ndsub.add_parser("reparent", help="move a node under a new parent (changes the real parent_id, not a prop)")
     _ndrp.add_argument("id", type=int)

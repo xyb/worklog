@@ -640,3 +640,86 @@ class TestSchedWriteJson:
         cli("sched", "1", "2026-09-01")
         d = _j(cli, "sched", "rm", "1", "-o", "json")
         assert d["cleared"] == 1
+
+
+class TestUnlogJson:
+    def test_rm_by_log_id_returns_deleted(self, cli):
+        cli("add", "task")
+        cli("log", "1", "entry")
+        d = _j(cli, "log", "rm", "1", "-o", "json")
+        assert d["deleted"] == [1]
+        assert d["node_id"] == 1
+
+    def test_rm_by_node_returns_deleted_list(self, cli):
+        cli("add", "task")
+        cli("log", "1", "entry a")
+        cli("log", "1", "entry b")
+        d = _j(cli, "log", "rm", "--node", "1", "-o", "json")
+        assert len(d["deleted"]) == 1  # default without --all: latest only
+
+    def test_rm_by_node_all_returns_all(self, cli):
+        cli("add", "task")
+        cli("log", "1", "entry a")
+        cli("log", "1", "entry b")
+        d = _j(cli, "log", "rm", "--node", "1", "--all", "-o", "json")
+        assert len(d["deleted"]) == 2
+
+    def test_no_logs_returns_empty_deleted(self, cli):
+        cli("add", "task")
+        d = _j(cli, "log", "rm", "--node", "1", "-o", "json")
+        assert d == {"deleted": []}
+
+
+class TestRelogJson:
+    def test_edit_returns_updated_log_row(self, cli):
+        cli("add", "task")
+        _j(cli, "log", "1", "original body", "-o", "json")
+        d = _j(cli, "log", "edit", "1", "fixed body", "-o", "json")
+        assert d["id"] == 1
+        assert d["body"] == "fixed body"
+        assert "logged_at" in d
+        assert d["node_id"] == 1
+
+
+class TestNodeRmJson:
+    def test_rm_returns_deleted_ids(self, cli):
+        cli("add", "task")
+        d = _j(cli, "node", "rm", "1", "-o", "json")
+        assert d["deleted"] == [1]
+
+    def test_rm_multiple_returns_all_ids(self, cli):
+        cli("add", "task a")
+        cli("add", "task b")
+        d = _j(cli, "node", "rm", "1", "2", "-o", "json")
+        assert set(d["deleted"]) == {1, 2}
+
+
+class TestNodeEditJson:
+    def test_edit_returns_updated_node(self, cli):
+        cli("add", "original title")
+        d = _j(cli, "node", "edit", "1", "--title", "new title", "-o", "json")
+        assert d["id"] == 1
+        assert d["title"] == "new title"
+        assert "status" in d
+        assert "priority" in d
+        assert "scheduled_date" in d
+
+    def test_edit_priority_reflected(self, cli):
+        cli("add", "task")
+        d = _j(cli, "node", "edit", "1", "--priority", "A", "-o", "json")
+        assert d["priority"] == "A"
+
+
+class TestLinkAddJson:
+    def test_add_returns_updated_links(self, cli):
+        cli("add", "task")
+        d = _j(cli, "link", "add", "1", "My Doc", "-o", "json")
+        assert d["node_id"] == 1
+        assert "My Doc" in d["links"]
+
+    def test_add_multiple_nodes_returns_list(self, cli):
+        cli("add", "task a")
+        cli("add", "task b")
+        result = _j(cli, "-o", "json", "link", "add", "1", "2", "Shared Doc")
+        assert isinstance(result, list)
+        assert all("links" in r for r in result)

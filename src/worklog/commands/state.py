@@ -483,8 +483,15 @@ def cmd_link(args, con):
     for nid in ids:
         _upsert_link(con, nid, doc)
     con.commit()
-    for nid in ids:
-        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{doc}]]"))
+    if _is_json(args):
+        result = []
+        for nid in ids:
+            links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid, order="vault_doc")]
+            result.append({"node_id": nid, "links": links})
+        _emit_json(result if len(result) > 1 else result[0])
+    else:
+        for nid in ids:
+            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{doc}]]"))
 
 def cmd_unlink(args, con):
     """Remove a single vault-doc link from a node. Symmetric with wl link;
@@ -806,6 +813,7 @@ def cmd_unlog(args, con):
     if (log_id is None) == (nid is None):
         sys.exit("✗ provide either positional <log_id> or --node <id>; pick one")
 
+    _json = _is_json(args)
     if log_id is not None:
         row = _db.get(con, "log", log_id)
         if not row:
@@ -813,9 +821,12 @@ def cmd_unlog(args, con):
         nmetric = _db.count(con, "metric", log_id=log_id)
         soft_delete_log(con, log_id)
         con.commit()
-        body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
-        extra = f" + {nmetric} metric(s)" if nmetric else ""
-        out(_c(f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {_tu.utc_to_local(row['logged_at'])}): {body_preview}", "meta"))
+        if _json:
+            _emit_json({"deleted": [log_id], "node_id": row["node_id"], "metrics_deleted": nmetric})
+        else:
+            body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
+            extra = f" + {nmetric} metric(s)" if nmetric else ""
+            out(_c(f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {_tu.utc_to_local(row['logged_at'])}): {body_preview}", "meta"))
         return
 
     # --node <id>: delete latest log for that day
@@ -835,15 +846,23 @@ def cmd_unlog(args, con):
         sql += " LIMIT 1"
     rows = list(con.execute(sql, (nid, date)))
     if not rows:
-        out(_c(f"(node #{nid} has no non-CLOCK logs on {date})", "meta"))
+        if not _json:
+            out(_c(f"(node #{nid} has no non-CLOCK logs on {date})", "meta"))
+        else:
+            _emit_json({"deleted": []})
         return
+    deleted_ids = []
     for r in rows:
         nmetric = _db.count(con, "metric", log_id=r["id"])
         soft_delete_log(con, r["id"])
-        body_preview = r["body"][:60] + ("…" if len(r["body"]) > 60 else "")
-        extra = f" + {nmetric} metric(s)" if nmetric else ""
-        out(_c(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}", "meta"))
+        deleted_ids.append(r["id"])
+        if not _json:
+            body_preview = r["body"][:60] + ("…" if len(r["body"]) > 60 else "")
+            extra = f" + {nmetric} metric(s)" if nmetric else ""
+            out(_c(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}", "meta"))
     con.commit()
+    if _json:
+        _emit_json({"deleted": deleted_ids})
 
 def cmd_relog(args, con):
     """Rewrite an existing log: body or timestamp.
@@ -921,8 +940,12 @@ def cmd_relog(args, con):
     con.commit()
 
     new_row = _db.get(con, "log", log_id)
-    body_preview = new_row["body"][:60] + ("…" if len(new_row["body"]) > 60 else "")
-    out(_c(f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}", "meta"))
+    if _is_json(args):
+        _emit_json({"id": new_row["id"], "node_id": new_row["node_id"], "tag": new_row["tag"],
+                    "body": new_row["body"], "logged_at": new_row["logged_at"]})
+    else:
+        body_preview = new_row["body"][:60] + ("…" if len(new_row["body"]) > 60 else "")
+        out(_c(f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}", "meta"))
 
 
 def cmd_log_ls(args, con):
@@ -1177,7 +1200,10 @@ def cmd_node_rm(args, con):
             soft_delete_node(con, did)
         total += 1
     con.commit()
-    out(_c(f"✓ soft-deleted {len(args.ids)} node(s) + subtree (reversible; clear deleted_at to restore)", "meta"))
+    if _is_json(args):
+        _emit_json({"deleted": list(args.ids)})
+    else:
+        out(_c(f"✓ soft-deleted {len(args.ids)} node(s) + subtree (reversible; clear deleted_at to restore)", "meta"))
 
 
 def cmd_node_edit(args, con):
@@ -1222,10 +1248,16 @@ def cmd_node_edit(args, con):
         have = {r["key"] for r in _db.query(con, "prop", cols="key", node_id=nid)}
         conflicts = [_LABELS[k] for k in (_nt.K_DATE, _nt.K_HABIT, _nt.K_MEETLOG) if k in have]
     con.commit()
-    out(_c(f"✓ #{nid} updated: " + ", ".join(f"{k}={v}" if k == "para" else k for k, v in changes.items()), "meta"))
-    if conflicts:
-        out(_c(f"⚠ #{nid} still carries {', '.join(conflicts)} alongside type.para={para} — "
-               f"clear the stale one with `wl prop rm {nid} <key>` if this should be a plain {para}", "later"))
+    if _is_json(args):
+        row = _db.get(con, "node", nid)
+        _emit_json({"id": row["id"], "title": row["title"], "status": row["status"],
+                    "priority": row["priority"],
+                    "scheduled_date": row["scheduled_date"], "deadline_date": row["deadline_date"]})
+    else:
+        out(_c(f"✓ #{nid} updated: " + ", ".join(f"{k}={v}" if k == "para" else k for k, v in changes.items()), "meta"))
+        if conflicts:
+            out(_c(f"⚠ #{nid} still carries {', '.join(conflicts)} alongside type.para={para} — "
+                   f"clear the stale one with `wl prop rm {nid} <key>` if this should be a plain {para}", "later"))
 
 
 # --- prop entity group: set / ls / rm ---
