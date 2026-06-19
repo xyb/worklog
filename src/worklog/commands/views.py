@@ -64,7 +64,7 @@ from ..queries import (
     _upsert_prop,
 )
 from .metric import _fmt_value, metric_rows
-from .output import _is_json, _emit_json
+from .output import output_format
 from ..render import (
     _PRI_STYLE,
     _STATUS_STYLE,
@@ -90,7 +90,7 @@ from .. import cli as _cli  # noqa: E402
 
 
 
-def _emit_tree_json(con, args):
+def _tree_json_data(con, args):
     """`wl tree -o json`: the structural node subtree as nested `{...node, children:[...]}`.
     `--root` → that subtree (default depth 3); else the top-level forest (default depth 2).
     Honors `--depth` and `--show-canceled`; ignores the text-view `--by` / tag/status filters
@@ -116,13 +116,11 @@ def _emit_tree_json(con, args):
             d["children"] = [node_json(c, depth + 1) for c in kids]
         return d
 
-    _emit_json([node_json(r, 0) for r in roots])
+    return [node_json(r, 0) for r in roots]
 
 
+@output_format
 def cmd_tree(args, con):
-    if _is_json(args):
-        _emit_tree_json(con, args)
-        return
     # explicit --status overrides the default CANCELED hide so the filtered tree can
     # recurse into the matching terminal-status nodes (no-filter path: status is unset).
     inc_cancel = getattr(args, "show_canceled", False) or bool(getattr(args, "status", None))
@@ -130,7 +128,7 @@ def cmd_tree(args, con):
     nf = make_node_filter(con, args)  # shared --tag/--para/--status filter
     if args.by:
         _tree_by(con, args.by, nf=nf)
-        return
+        return _tree_json_data(con, args)
     full = _log_full(args)
     # a filter prunes the structural tree to matching nodes + their ancestor paths
     # (separate code path; the bare/unfiltered tree below stays byte-identical).
@@ -142,11 +140,11 @@ def cmd_tree(args, con):
                 sys.exit(f"✗ node #{args.root} not found")
         _print_filtered_tree(con, nf, root_node=root_node,
                              include_canceled=inc_cancel, log_tail=log_tail, full=full)
-        return
+        return _tree_json_data(con, args)
     if args.root is None and args.depth is None:
         # bare wl tree: areas one level + timeline up to today
         _print_default_tree(con, include_canceled=inc_cancel, log_tail=log_tail, full=full)
-        return
+        return _tree_json_data(con, args)
     if args.root is not None:
         # expand subtree from a specified node as root (no longer requires parent_id IS NULL)
         root = _db.get(con, "node", args.root)
@@ -165,13 +163,14 @@ def cmd_tree(args, con):
 
     if not roots:
         out(_c('(empty — add a task with `wl add "..."`)', "meta"))
-        return
+        return _tree_json_data(con, args)
 
     # default depth limit to avoid flooding: full tree default 2 (area->project / year->quarter overview), --root default 3 (one extra level for drill-down)
     max_depth = args.depth if args.depth is not None else (3 if args.root is not None else 2)
     for root in roots:
         _print_tree(con, root, depth=0, max_depth=max_depth,
                     include_canceled=inc_cancel, log_tail=log_tail, full=full)
+    return _tree_json_data(con, args)
 
 # wl day header reserved-tag logs, each with a distinct marker: one glance tells today's goal
 # from recap from the week's goal from the month's goal. Week/month goals are the same `goal`
@@ -294,7 +293,7 @@ def _day_goals_dict(con, day):
     return d
 
 
-def _emit_day_json(con, target, day, items, sched_ids):
+def _day_json_data(con, target, day, items, sched_ids):
     """`wl day -o json`: the day's meta + the tasks active that day (each with its logs that day,
     planned flag, clock minutes) + the day's total clock. Machine view of `wl day`."""
     tasks = []
@@ -312,7 +311,7 @@ def _emit_day_json(con, target, day, items, sched_ids):
     clock_sec = con.execute(
         f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock "
         f"WHERE {_tu.local_day_sql('end_at')} = ? AND {_db.ALIVE}", (target,)).fetchone()["s"]
-    _emit_json({
+    return {
         "date": target,
         "weekday": _cn_weekday(target),
         "nature": _day_nature(con, target),
@@ -322,7 +321,7 @@ def _emit_day_json(con, target, day, items, sched_ids):
         **_day_goals_dict(con, day),
         "tasks": tasks,
         "clock_min_total": int(clock_sec / 60),
-    })
+    }
 
 
 def _emit_day_header(con, day, target):
@@ -407,6 +406,7 @@ def _collect_day_items(con, target, inc_cancel):
     return items, sched_ids
 
 
+@output_format
 def cmd_day(args, con):
     """Reproduce a single day's progress (default today): bucket by work/personal -> project -> task -> that day's logs.
     Driven by log dates (not the day node), so it works for historical days too."""
@@ -418,10 +418,8 @@ def cmd_day(args, con):
     else:
         target = _tu.today()
     day = time_node_by_period(con, "day", target)
-    is_json = _is_json(args)
-    # header (date context + the day/week/month goal + recap cascade); json gathers these separately
-    if not is_json:
-        _emit_day_header(con, day, target)
+    # header (date context + the day/week/month goal + recap cascade)
+    _emit_day_header(con, day, target)
 
     # an explicit --status filter (applied below via make_node_filter) must override the
     # default CANCELED hide, else `day --status CANCELED` would drop its own matches.
@@ -434,16 +432,10 @@ def cmd_day(args, con):
     if nf:
         items = {nid: it for nid, it in items.items() if nf(nid)}
         if not items:
-            if is_json:
-                _emit_day_json(con, target, day, {}, sched_ids)
-            else:
-                out(_c(f"  (nothing matches the filter on {target})", "meta"))
-            return
+            out(_c(f"  (nothing matches the filter on {target})", "meta"))
+            return _day_json_data(con, target, day, {}, sched_ids)
 
     if not items:
-        if is_json:
-            _emit_day_json(con, target, day, {}, sched_ids)
-            return
         # clock-only day: time was tracked (wl spent / start-stop) but nothing logged/planned
         clock_sec = con.execute(
             f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE {_tu.local_day_sql('end_at')} = ? AND {_db.ALIVE}",
@@ -454,11 +446,7 @@ def cmd_day(args, con):
             out(_c(f"  (no logged task progress for {target}) · CLOCK {cm}min ({cm // 60}h{cm % 60}m)", "meta"))
         else:
             out(_c(f"  (no log progress for {target}, and nothing planned)", "meta"))
-        return
-
-    if is_json:
-        _emit_day_json(con, target, day, items, sched_ids)
-        return
+        return _day_json_data(con, target, day, {}, sched_ids)
 
     # log_tail priority: --no-logs/--brief -> 0 / --all-logs -> None (full) /
     # --log-tail N -> N / default 3 (elide middle, only the end visible to keep wl day from blowing up on long logs)
@@ -469,24 +457,18 @@ def cmd_day(args, con):
                       full=_log_full(args), day=target)
 
     # bottom stats: per-status distribution + planned-not-done count + CLOCK time
-    import re
-
-    # tasks "with progress" = items that have logs today; derive from the (possibly
-    # filtered) items so the summary line matches what was actually rendered.
     logged = {nid: (it["node"]["status"] or "TODO") for nid, it in items.items() if it["logs"]}
     stats = {}
     for s in logged.values():
         stats[s] = stats.get(s, 0) + 1
-    done = stats.get("DONE", 0)
+    done_count = stats.get("DONE", 0)
     total = len(logged)
-    # mirror the per-row hint: a terminal-status (DONE/CANCELED) task is not "not-done"
     planned_undone = sum(
         1 for nid in items
         if not items[nid]["logs"] and items[nid]["node"]["status"] not in ("DONE", "CANCELED")
     )
     parts = [f"{s} {stats[s]}" for s in ("DONE", "DOING", "TODO", "LATER", "WAIT", "DEFERRED", "CANCELED") if stats.get(s)]
     # CLOCK total: unfiltered = all clock for the day; filtered = only the shown items'
-    # clock, so `day -t work` doesn't report personal tasks' time on a work-only view.
     if nf:
         ids = list(items)
         if ids:
@@ -504,8 +486,8 @@ def cmd_day(args, con):
             (target,),
         ).fetchone()["s"]
     total_min = int((total_sec or 0) / 60)
-    print()
-    line = f"  ── {target}: {done}/{total} tasks with progress"
+    out("")
+    line = f"  ── {target}: {done_count}/{total} tasks with progress"
     if parts:
         line += " · " + " · ".join(parts)
     if planned_undone:
@@ -513,6 +495,8 @@ def cmd_day(args, con):
     if total_min:
         line += f" · CLOCK {total_min}min ({total_min // 60}h{total_min % 60}m)"
     out(_c(line, "meta"))
+
+    return _day_json_data(con, target, day, items, sched_ids)
 
 def _tree_by(con, by, nf=None):
     """Flat 2-level view, regrouped by dimension (avoids deep time-layered nesting).
@@ -522,7 +506,7 @@ def _tree_by(con, by, nf=None):
         tags = [r["tag"] for r in _db.query(con, "tag", cols="DISTINCT tag", order="tag")]
         sem = [t for t in tags if t not in GENERIC_TAGS]
         if not sem:
-            print("(no semantic tags)")
+            out("(no semantic tags)")
             return
         for tag in sem:
             rows = nodes_with_tag(con, tag, order="priority NULLS LAST, id")
@@ -537,7 +521,7 @@ def _tree_by(con, by, nf=None):
     elif by == "project":
         projects = nodes_with_type(con, "type.para", "project", order="priority NULLS LAST, id")
         if not projects:
-            print("(no project nodes)")
+            out("(no project nodes)")
             return
         claimed = set()
         for proj in projects:
@@ -682,7 +666,7 @@ def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log
                         keep.add(a["id"])
     if not keep:
         where = "" if root_node is None else f" under #{root_node['id']}"
-        print(f"(nothing{where} matches the filter)")
+        out(f"(nothing{where} matches the filter)")
         return
     if root_node is not None:
         roots = [root_node]

@@ -10,9 +10,10 @@ from ..helpers import _resolve_concrete_date
 from ..render import _c, out
 from .state import _ids_list
 from .views import _WEEKDAY_ABBR
-from .output import _is_json, _emit_json
+from .output import output_format
 
 
+@output_format
 def cmd_sched(args, con):
     """Forward planning: schedule a task to a specific day / recurrence. A scheduled task appears as 'planned' in wl day even with no log.
     Accepts multiple ids: wl sched 18 19 20 today (first N are ids; the trailing positional is the date)."""
@@ -20,16 +21,12 @@ def cmd_sched(args, con):
     _check_ids_exist(con, ids)
     if args.clear:
         total = 0
-        _json = _is_json(args)
         for nid in ids:
             n = _db.delete(con, "sched", node_id=nid)
             total += n
-            if not _json:
-                out(_c(f"✓ #{nid} cleared {n} schedule entries", "meta"))
+            out(_c(f"✓ #{nid} cleared {n} schedule entries", "meta"))
         con.commit()
-        if _json:
-            _emit_json({"cleared": total})
-        return
+        return {"cleared": total}
     if not args.when and not args.recur:
         # if multiple ids, show schedule for each (caters to single-id scenario)
         for nid in ids:
@@ -38,8 +35,7 @@ def cmd_sched(args, con):
                 out(_c(f"#{nid} has no schedule", "meta"))
             for r in rows:
                 out("  " + _c(f"#{nid} @" + (r["on_date"] or r["rrule"]), "planned"))
-        return
-    _json = _is_json(args)
+        return None
     if args.recur:
         try:
             rule = _norm_rrule(args.recur)
@@ -48,11 +44,10 @@ def cmd_sched(args, con):
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, rrule) row
             exists = _db.exists(con, "sched", node_id=nid, rrule=rule)
-            if not _json:
-                if exists:
-                    out(_c(f"= #{nid} already on recurring schedule: {rule}", "meta"))
-                else:
-                    out(_c(f"✓ #{nid} recurring schedule: {rule}", "meta"))
+            if exists:
+                out(_c(f"= #{nid} already on recurring schedule: {rule}", "meta"))
+            else:
+                out(_c(f"✓ #{nid} recurring schedule: {rule}", "meta"))
             if not exists:
                 _db.insert(con, "sched", {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
         con.commit()
@@ -66,48 +61,44 @@ def cmd_sched(args, con):
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, on_date) row
             exists = _db.exists(con, "sched", node_id=nid, on_date=d)
-            if not _json:
-                if exists:
-                    out(_c(f"= #{nid} already scheduled to {d}", "meta"))
-                else:
-                    out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
+            if exists:
+                out(_c(f"= #{nid} already scheduled to {d}", "meta"))
+            else:
+                out(_c(f"✓ #{nid} scheduled to {d}", "meta"))
             if not exists:
                 _db.insert(con, "sched", {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
         con.commit()
-    if _json:
-        # return updated schedule list for the first (usually only) id
-        nid = ids[0]
-        rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid,
-                         order="on_date NULLS LAST, rrule")
-        _emit_json([{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows])
+    # return updated schedule list for the first (usually only) id
+    nid = ids[0]
+    rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid,
+                     order="on_date NULLS LAST, rrule")
+    return [{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]
 
 
+@output_format
 def cmd_sched_ls(args, con):
     """List a node's schedule entries — the read verb of the sched group (= bare `wl sched
     <id>`). Each row is a one-off `on_date` or a recurring `rrule`."""
     _check_ids_exist(con, [args.id])
     rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id,
                      order="on_date NULLS LAST, rrule")
-    if _is_json(args):
-        _emit_json([{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows])
-        return
     if not rows:
         out(_c(f"#{args.id} has no schedule", "meta"))
-        return
-    for r in rows:
-        out("  " + _c(f"#{args.id} @" + (r["on_date"] or r["rrule"]), "planned"))
+    else:
+        for r in rows:
+            out("  " + _c(f"#{args.id} @" + (r["on_date"] or r["rrule"]), "planned"))
+    return [{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]
 
 
+@output_format
 def cmd_sched_rm(args, con):
     """Clear a node's schedule entries — the delete verb of the sched group (= `wl sched
     <id> --clear`). Removes every one-off and recurring entry for the node."""
     _check_ids_exist(con, [args.id])
     n = _db.delete(con, "sched", node_id=args.id)
     con.commit()
-    if _is_json(args):
-        _emit_json({"cleared": n})
-        return
     out(_c(f"✓ #{args.id} cleared {n} schedule entries", "meta"))
+    return {"cleared": n}
 
 
 def cmd_sched_group(args, con):

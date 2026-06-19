@@ -12,7 +12,7 @@ from pathlib import Path
 
 from .. import render
 from .. import timeutil as _tu
-from .output import _is_json, _emit_json
+from .output import output_format
 from .. import db_table as _db
 from .. import node_types as _nt
 from ..helpers import (
@@ -199,6 +199,7 @@ def _add_log_and_metrics(con, node_id, args, at_ts):
     return log_hint, metric_hint
 
 
+@output_format
 def cmd_add(args, con):
     if not args.title or not args.title.strip():
         sys.exit("✗ title cannot be empty")
@@ -288,10 +289,8 @@ def cmd_add(args, con):
     log_hint, metric_hint = _add_log_and_metrics(con, node_id, args, at_ts)
 
     con.commit()
-    if _is_json(args):
-        from .query import _node_summary_dict
-        _emit_json(_node_summary_dict(con, _db.get(con, "node", node_id)))
-        return
+    from .query import _node_summary_dict
+    result = _node_summary_dict(con, _db.get(con, "node", node_id))
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
     # echo the node's DERIVED type (post --prop) so a `--prop type.habit` add reports "habit", not "task"
     echo_type = node_type(con, node_id)
@@ -309,7 +308,10 @@ def cmd_add(args, con):
         if _h:
             print(f"  tip: {_h[0]}", file=sys.stderr)
             print(f"  {_h[1]}", file=sys.stderr)
+    return result
 
+
+@output_format
 def cmd_log(args, con):
     _require_node(con, args.id)
     if not args.body or not args.body.strip():
@@ -341,15 +343,15 @@ def cmd_log(args, con):
         nm = attach_metric_specs(con, log_id, args.id, specs, at=log_at)
         metric_hint = f" + {nm} metric(s)"
     con.commit()
-    if _is_json(args):
-        row = _db.get(con, "log", log_id)
-        _emit_json({"id": log_id, "node_id": args.id, "body": row["body"], "logged_at": row["logged_at"]})
-        return
-    print(f"✓ log added to #{args.id}{auto_progress_hint}{metric_hint}  @{_tu.local_now()[:16]}")
+    row = _db.get(con, "log", log_id)
+    out(f"✓ log added to #{args.id}{auto_progress_hint}{metric_hint}  @{_tu.local_now()[:16]}")
+    return {"id": log_id, "node_id": args.id, "body": row["body"], "logged_at": row["logged_at"]}
 
+
+@output_format
 def cmd_done(args, con):
     _warn_recurring_done(con, _ids_list(args))
-    _bulk_status_change(con, args, "DONE", close=True)
+    return _bulk_status_change(con, args, "DONE", close=True)
 
 
 def _warn_recurring_done(con, ids):
@@ -365,6 +367,7 @@ def _warn_recurring_done(con, ids):
                 f"(shows done on all scheduled days). For just today's occurrence use `wl tick {nid}`.",
                 "planned"))
 
+@output_format
 def cmd_defer(args, con):
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
@@ -375,13 +378,12 @@ def cmd_defer(args, con):
     for nid in ids:
         _db.update(con, "node", nid, {"status": "LATER", "scheduled_date": when})
     con.commit()
-    if _is_json(args):
-        from .query import _node_summary_dict
-        _emit_json([_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids])
-    else:
-        for nid in ids:
-            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " → LATER, scheduled " + _c(_sched_display(when), "planned"))
+    for nid in ids:
+        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " → LATER, scheduled " + _c(_sched_display(when), "planned"))
+    from .query import _node_summary_dict
+    return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
 
+@output_format
 def cmd_start(args, con):
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
@@ -402,13 +404,14 @@ def cmd_start(args, con):
         _db.insert(con, "clock", {"node_id": nid, "start_at": ts})
         started.append(nid)
     con.commit()
-    if _is_json(args) and started:
-        from .query import _node_summary_dict
-        _emit_json([_node_summary_dict(con, _db.get(con, "node", nid)) for nid in started])
-    else:
-        for nid in started:
-            print(f"✓ #{nid} → DOING, clocked in{note}")
+    for nid in started:
+        out(f"✓ #{nid} → DOING, clocked in{note}")
+    if not started:
+        return None
+    from .query import _node_summary_dict
+    return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in started]
 
+@output_format
 def cmd_stop(args, con):
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
@@ -427,13 +430,12 @@ def cmd_stop(args, con):
             sys.exit(f"✗ --at {stop_ts} is earlier than the clock start {row['start_at']} (#{nid})")
         secs = max(60, int((stopped - started).total_seconds()))  # floor at 1 min
         _db.update(con, "clock", row["id"], {"end_at": stop_ts, "elapsed_sec": secs})
-        if not _is_json(args):
-            print(f"✓ #{nid} stopped, elapsed {secs // 60} min")
+        out(f"✓ #{nid} stopped, elapsed {secs // 60} min")
     con.commit()
-    if _is_json(args):
-        from .query import _node_summary_dict
-        _emit_json([_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids])
+    from .query import _node_summary_dict
+    return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
 
+@output_format
 def cmd_spent(args, con):
     """Record a past time spent without opening a live CLOCK pair (retrospective entries).
     wl spent <id> 45            45 minutes (default: start = NOW - 45m, end = NOW)
@@ -466,14 +468,13 @@ def cmd_spent(args, con):
     cid = _db.insert(con, "clock", {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
                                    "elapsed_sec": mins * 60})
     con.commit()
-    if _is_json(args):
-        r = _db.get(con, "clock", cid)
-        _emit_json({"id": r["id"], "node_id": r["node_id"],
-                    "start_at": r["start_at"], "end_at": r["end_at"],
-                    "elapsed_sec": r["elapsed_sec"]})
-        return
-    print(f"✓ #{nid} spent {mins}min ({_tu.utc_to_local(start_ts)[11:16]} → {_tu.utc_to_local(end_ts)[11:16]})")
+    r = _db.get(con, "clock", cid)
+    out(f"✓ #{nid} spent {mins}min ({_tu.utc_to_local(start_ts)[11:16]} → {_tu.utc_to_local(end_ts)[11:16]})")
+    return {"id": r["id"], "node_id": r["node_id"],
+            "start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"]}
 
+
+@output_format
 def cmd_link(args, con):
     doc = _strip_wikilink(args.vault_doc)
     if not doc:
@@ -483,16 +484,15 @@ def cmd_link(args, con):
     for nid in ids:
         _upsert_link(con, nid, doc)
     con.commit()
-    if _is_json(args):
-        result = []
-        for nid in ids:
-            links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid, order="vault_doc")]
-            result.append({"node_id": nid, "links": links})
-        _emit_json(result if len(result) > 1 else result[0])
-    else:
-        for nid in ids:
-            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{doc}]]"))
+    for nid in ids:
+        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"linked → [[{doc}]]"))
+    result = []
+    for nid in ids:
+        links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid, order="vault_doc")]
+        result.append({"node_id": nid, "links": links})
+    return result if len(result) > 1 else result[0]
 
+@output_format
 def cmd_unlink(args, con):
     """Remove a single vault-doc link from a node. Symmetric with wl link;
     previously a mistaken link could only be cleared wholesale via `wl set links ''`."""
@@ -503,19 +503,16 @@ def cmd_unlink(args, con):
     _check_ids_exist(con, ids)
     for nid in ids:
         _, n = _delete_link(con, nid, doc)
-        if not _is_json(args):
-            if n:
-                out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"unlinked [[{doc}]]"))
-            else:
-                out(_c(f"#{nid} had no link to [[{doc}]]", "meta"))
+        if n:
+            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + " " + _c(f"unlinked [[{doc}]]"))
+        else:
+            out(_c(f"#{nid} had no link to [[{doc}]]", "meta"))
     con.commit()
-    if _is_json(args):
-        all_links = []
-        for nid in ids:
-            all_links.extend(r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc",
-                                                                node_id=nid, order="vault_doc"))
-        _emit_json(all_links)
-        return
+    all_links = []
+    for nid in ids:
+        all_links.extend(r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc",
+                                                            node_id=nid, order="vault_doc"))
+    return all_links
 
 def _print_relations(con, nid):
     """Render a node's resolved relations block (own + derived reverse). Shared by
@@ -575,6 +572,7 @@ def _parse_relation_spec(spec):
     return rtype, ids
 
 
+@output_format
 def cmd_relation(args, con):
     """Record / list task↔task relations (relation.* props). `wl relation <id>` lists a
     node's relations; `wl relation <id> <type> <other…>` adds them — writing BOTH sides
@@ -585,13 +583,10 @@ def cmd_relation(args, con):
     _require_node(con, args.id)
     rtype = getattr(args, "rtype", None)
     others_raw = list(args.others or [])
+    from ..queries import relation_view
     if rtype is None:
-        if _is_json(args):
-            from ..queries import relation_view, _backrels
-            _emit_json(relation_view(con, args.id))
-        else:
-            _print_relations(con, args.id)
-        return
+        _print_relations(con, args.id)
+        return relation_view(con, args.id)
     if rtype not in _RELATION_TYPES:
         # the type word was omitted: the first token is actually a node id → default to `related`
         others_raw.insert(0, rtype)
@@ -612,17 +607,15 @@ def cmd_relation(args, con):
             out(_c(f"(skip #{o}: a node can't relate to itself)", "meta"))
     done = _apply_relation(con, args.id, rtype, others, rm=rm)
     con.commit()
-    if _is_json(args):
-        from ..queries import relation_view
-        _emit_json(relation_view(con, args.id))
-        return
     if done:
         verb = "removed" if rm else "set"
         out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + f" {rtype} {verb}: "
             + _c(", ".join(f"#{o}" for o in done)))
     _print_relations(con, args.id)
+    return relation_view(con, args.id)
 
 
+@output_format
 def cmd_set(args, con):
     _require_node(con, args.id)
     if not args.key or not args.key.strip():
@@ -640,11 +633,8 @@ def cmd_set(args, con):
         log_id = _set_typed_log(con, args.id, args.key, args.value)
         con.commit()
         log = _db.get(con, "log", log_id)
-        if _is_json(args):
-            _emit_json({"key": args.key, "body": log["body"], "logged_at": log["logged_at"]})
-            return
         out(_c(f"✓ #{args.id} {args.key} (logged at {log['logged_at']}): {args.value}", "meta"))
-        return
+        return {"key": args.key, "body": log["body"], "logged_at": log["logged_at"]}
     try:
         _upsert_prop(con, args.id, args.key, args.value)
         # Setting type.date / date.period must keep the time node COHERENT: re-derive its full
@@ -658,15 +648,14 @@ def cmd_set(args, con):
         # the reserved type.*/date.* validator (or a shadow-field backstop) rejected the value
         sys.exit(f"✗ {e}")
     con.commit()
-    if _is_json(args):
-        _emit_json({"key": args.key, "value": args.value})
-        return
-    print(f"✓ #{args.id} {args.key}={args.value}")
+    out(f"✓ #{args.id} {args.key}={args.value}")
     _h = _nt.existence_empty_hint(args.id, args.key, args.value)
     if _h:
         print(f"  tip: {_h[0]}", file=sys.stderr)
         print(f"  {_h[1]}", file=sys.stderr)
+    return {"key": args.key, "value": args.value}
 
+@output_format
 def cmd_tag(args, con):
     """Add/remove real tags on a node (the tag table): `wl tag <id> +work -planned`.
     A bare word adds (same as +word); no ops lists current tags. This is the direct
@@ -674,10 +663,10 @@ def cmd_tag(args, con):
     it can't quietly create a shadow prop."""
     _require_node(con, args.id)
     ops = [o.strip() for o in (args.ops or []) if o.strip()]
+    tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
     if not ops:
-        tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
         out(_c(f"#{args.id} tags: " + (":".join(tags) if tags else "(none)"), "meta"))
-        return
+        return tags
     added, removed = [], []
     for op in ops:
         if op.startswith("-"):
@@ -691,28 +680,25 @@ def cmd_tag(args, con):
                 _db.upsert(con, "tag", {"node_id": args.id, "tag": t}, key=("node_id", "tag"))
                 added.append(t)
     con.commit()
-    if _is_json(args):
-        tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
-        _emit_json(tags)
-        return
     parts = []
     if added:
         parts.append(_c("+" + ",".join(added), "planned"))
     if removed:
         parts.append(_c("-" + ",".join(removed), "later"))
     out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + " tags " + " ".join(parts))
+    return [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
 
 
+@output_format
 def cmd_tag_ls(args, con):
     """List a node's real tags — the read verb of the tag group (= bare `wl tag <id>`)."""
     _require_node(con, args.id)
     tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
-    if _is_json(args):
-        _emit_json(tags)
-        return
     out(_c(f"#{args.id} tags: " + (":".join(tags) if tags else "(none)"), "meta"))
+    return tags
 
 
+@output_format
 def cmd_tag_rm(args, con):
     """Remove tag(s) from a node — the delete verb of the tag group (= `wl tag <id> -tag`).
     Each argument is a plain tag name (a leading + is stripped; to pass a `-tag` use the
@@ -725,15 +711,12 @@ def cmd_tag_rm(args, con):
             _db.delete(con, "tag", node_id=args.id, tag=t)
             removed.append(t)
     con.commit()
-    if _is_json(args):
-        tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
-        _emit_json(tags)
-        return
     if removed:
         out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + " tags "
             + _c("-" + ",".join(removed), "later"))
     else:
         out(_c(f"#{args.id} no tags removed", "meta"))
+    return [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
 
 
 def cmd_tag_group(args, con):
@@ -764,6 +747,7 @@ def cmd_tick(args, con):
     for nid in ids:
         out(_c(f"✓ #{nid} checked in", "meta") + (_c(" + DONE", "done") if args.done else ""))
 
+@output_format
 def cmd_wait(args, con):
     """Mark WAIT status (blocked on others / external input). Optional --note adds a log explaining what we're waiting on.
     If the task has an open clock, closes it (WAIT = suspended, no longer timing)."""
@@ -780,25 +764,26 @@ def cmd_wait(args, con):
         if args.note:
             _insert_log(con, nid, f"WAIT: {args.note}")
     con.commit()
-    if _is_json(args):
-        from .query import _node_summary_dict
-        _emit_json([_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids])
-    else:
-        for nid in ids:
-            msg = f"✓ #{nid} → WAIT"
-            if args.note:
-                msg += f" ({args.note})"
-            print(msg)
+    for nid in ids:
+        msg = f"✓ #{nid} → WAIT"
+        if args.note:
+            msg += f" ({args.note})"
+        out(msg)
+    from .query import _node_summary_dict
+    return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
 
+@output_format
 def cmd_reopen(args, con):
     """Undo DONE/CANCELED: back to TODO, clear closed_at. Common when a task was mistakenly closed."""
-    _bulk_status_change(con, args, "TODO", reopen=True)
+    return _bulk_status_change(con, args, "TODO", reopen=True)
 
+@output_format
 def cmd_cancel(args, con):
     """Mark CANCELED + write closed_at. Parallel to done semantically but different status (dropped / not doing).
     Different from `wl set <id> status CANCELED`: set writes the prop table, cancel changes node.status."""
-    _bulk_status_change(con, args, "CANCELED", close=True)
+    return _bulk_status_change(con, args, "CANCELED", close=True)
 
+@output_format
 def cmd_unlog(args, con):
     """Delete log entries. Two usages:
        wl unlog 282                       delete by exact log.id (find id from wl show timeline)
@@ -813,7 +798,6 @@ def cmd_unlog(args, con):
     if (log_id is None) == (nid is None):
         sys.exit("✗ provide either positional <log_id> or --node <id>; pick one")
 
-    _json = _is_json(args)
     if log_id is not None:
         row = _db.get(con, "log", log_id)
         if not row:
@@ -821,13 +805,10 @@ def cmd_unlog(args, con):
         nmetric = _db.count(con, "metric", log_id=log_id)
         soft_delete_log(con, log_id)
         con.commit()
-        if _json:
-            _emit_json({"deleted": [log_id], "node_id": row["node_id"], "metrics_deleted": nmetric})
-        else:
-            body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
-            extra = f" + {nmetric} metric(s)" if nmetric else ""
-            out(_c(f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {_tu.utc_to_local(row['logged_at'])}): {body_preview}", "meta"))
-        return
+        body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
+        extra = f" + {nmetric} metric(s)" if nmetric else ""
+        out(_c(f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {_tu.utc_to_local(row['logged_at'])}): {body_preview}", "meta"))
+        return {"deleted": [log_id], "node_id": row["node_id"], "metrics_deleted": nmetric}
 
     # --node <id>: delete latest log for that day
     _require_node(con, nid)
@@ -846,24 +827,20 @@ def cmd_unlog(args, con):
         sql += " LIMIT 1"
     rows = list(con.execute(sql, (nid, date)))
     if not rows:
-        if not _json:
-            out(_c(f"(node #{nid} has no non-CLOCK logs on {date})", "meta"))
-        else:
-            _emit_json({"deleted": []})
-        return
+        out(_c(f"(node #{nid} has no non-CLOCK logs on {date})", "meta"))
+        return {"deleted": []}
     deleted_ids = []
     for r in rows:
         nmetric = _db.count(con, "metric", log_id=r["id"])
         soft_delete_log(con, r["id"])
         deleted_ids.append(r["id"])
-        if not _json:
-            body_preview = r["body"][:60] + ("…" if len(r["body"]) > 60 else "")
-            extra = f" + {nmetric} metric(s)" if nmetric else ""
-            out(_c(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}", "meta"))
+        body_preview = r["body"][:60] + ("…" if len(r["body"]) > 60 else "")
+        extra = f" + {nmetric} metric(s)" if nmetric else ""
+        out(_c(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}", "meta"))
     con.commit()
-    if _json:
-        _emit_json({"deleted": deleted_ids})
+    return {"deleted": deleted_ids}
 
+@output_format
 def cmd_relog(args, con):
     """Rewrite an existing log: body or timestamp.
 
@@ -940,34 +917,32 @@ def cmd_relog(args, con):
     con.commit()
 
     new_row = _db.get(con, "log", log_id)
-    if _is_json(args):
-        _emit_json({"id": new_row["id"], "node_id": new_row["node_id"], "tag": new_row["tag"],
-                    "body": new_row["body"], "logged_at": new_row["logged_at"]})
-    else:
-        body_preview = new_row["body"][:60] + ("…" if len(new_row["body"]) > 60 else "")
-        out(_c(f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}", "meta"))
+    body_preview = new_row["body"][:60] + ("…" if len(new_row["body"]) > 60 else "")
+    out(_c(f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}", "meta"))
+    return {"id": new_row["id"], "node_id": new_row["node_id"], "tag": new_row["tag"],
+            "body": new_row["body"], "logged_at": new_row["logged_at"]}
 
 
+@output_format
 def cmd_log_ls(args, con):
     """List a node's log entries — the read verb of the log group. A simple node-scoped
     stream (`#L<id> [time] body`); for the full filterable / windowed view use `wl logs
     --id <id>` (presets, --since/--until, --by-task, --group, …)."""
     _require_node(con, args.id)
     rows = _db.query(con, "log", cols="id, logged_at, body, tag", node_id=args.id, order="logged_at")
-    if _is_json(args):
-        _emit_json([{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]} for r in rows])
-        return
     if not rows:
         out(_c(f"#{args.id} has no logs", "meta"))
-        return
-    full = _log_full(args)
-    for r in rows:
-        prefix = f"#L{r['id']} [{_tu.utc_to_local(r['logged_at'])}] "
-        body = _truncate_log_body(r["body"], len(prefix), full=full)
-        out(_c(f"#L{r['id']}", "id") + " "
-            + _c(f"[{_tu.utc_to_local(r['logged_at'])}]", "meta") + " " + body)
+    else:
+        full = _log_full(args)
+        for r in rows:
+            prefix = f"#L{r['id']} [{_tu.utc_to_local(r['logged_at'])}] "
+            body = _truncate_log_body(r["body"], len(prefix), full=full)
+            out(_c(f"#L{r['id']}", "id") + " "
+                + _c(f"[{_tu.utc_to_local(r['logged_at'])}]", "meta") + " " + body)
+    return [{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]} for r in rows]
 
 
+@output_format
 def cmd_log_show(args, con):
     """Show one log entry's full (untruncated) content by its log id (`wl log show #L282`).
     The list views (`wl logs`, `wl log ls`, `wl show` timeline) truncate each log to one
@@ -975,10 +950,6 @@ def cmd_log_show(args, con):
     row = _db.get(con, "log", args.log_id)
     if row is None:
         sys.exit(f"✗ no log #L{args.log_id}")
-    if _is_json(args):
-        _emit_json({"id": row["id"], "node_id": row["node_id"], "tag": row["tag"],
-                    "body": row["body"], "logged_at": row["logged_at"]})
-        return
     node = _db.get(con, "node", row["node_id"])
     title = node["title"] if node else "?"
     label = row["tag"] or "note"
@@ -987,6 +958,8 @@ def cmd_log_show(args, con):
         + _c(label, "meta") + " "
         + _c(f"#{row['node_id']}", "id") + " " + _c(f"'{title}'", "meta"))
     out(row["body"])
+    return {"id": row["id"], "node_id": row["node_id"], "tag": row["tag"],
+            "body": row["body"], "logged_at": row["logged_at"]}
 
 
 def cmd_retag(args, con):
@@ -1014,6 +987,7 @@ def cmd_log_group(args, con):
     {"add": cmd_log, "ls": cmd_log_ls, "edit": cmd_relog, "rm": cmd_unlog, "show": cmd_log_show}[sub](args, con)
 
 
+@output_format
 def cmd_active(args, con):
     """List tasks running right now: tasks with an open clock interval (actually timing).
     Each task shows: id / title / current-session elapsed + today's total + latest log (context).
@@ -1036,29 +1010,20 @@ def cmd_active(args, con):
     """).fetchall()
 
     if not rows:
-        if _is_json(args):
-            _emit_json([])
-        else:
-            out(_c("(no active task right now; use wl start <id> to start timing, wl day for today's progress)", "meta"))
-        return
+        out(_c("(no active task right now; use wl start <id> to start timing, wl day for today's progress)", "meta"))
+        return []
 
     brief = getattr(args, "brief", False)
     now = _dt.fromisoformat(_tu.utc_now())  # UTC, to match the UTC-stored start_at
     today = _tu.today()
     full = _log_full(args)
-    if _is_json(args):
-        result = []
-        for r in rows:
-            started = _dt.fromisoformat(r["start_at"])
-            mins = int((now - started).total_seconds() / 60)
-            result.append({"node_id": r["node_id"], "title": r["title"],
-                           "status": r["status"], "priority": r["priority"],
-                           "start_at": r["start_at"], "elapsed_min": mins})
-        _emit_json(result)
-        return
+    result = []
     for r in rows:
         started = _dt.fromisoformat(r["start_at"])
         mins = int((now - started).total_seconds() / 60)
+        result.append({"node_id": r["node_id"], "title": r["title"],
+                       "status": r["status"], "priority": r["priority"],
+                       "start_at": r["start_at"], "elapsed_min": mins})
         pri = _pri_marker(r["priority"]) + " "
         # head: id + priority + title + current session
         head_tail = "" if brief else " " + _c(f"({mins}min, since {_tu.utc_to_local(r['start_at'])[11:16]})", "meta")
@@ -1077,6 +1042,7 @@ def cmd_active(args, con):
         if last:
             body_one = _truncate_log_body(last["body"], indent_cols=_display_width("    latest log: "), full=full)
             out("    " + _c(f"latest log: {body_one}", "meta"))
+    return result
 
 def _ids_list(args):
     """argparse compat: if args.ids (list, nargs='+') is set use it, else fall back to [args.id] (older type=int)."""
@@ -1126,12 +1092,10 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
     label = msg or ("reopened → " + new_status if reopen else "→ " + new_status)
     note = f" @{_tu.utc_to_local(at_ts)[11:16]}" if at_ts else ""
     log_hint = " + log" if log_body else ""
-    if _is_json(args):
-        from .query import _node_summary_dict
-        _emit_json([_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids])
-    else:
-        for nid in ids:
-            print(f"✓ #{nid} {label}{note}{log_hint}")
+    for nid in ids:
+        out(f"✓ #{nid} {label}{note}{log_hint}")
+    from .query import _node_summary_dict
+    return [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
 
 
 # --- scheduled time: precise dates + fuzzy granularity (month/week/quarter/year/someday) ---
@@ -1187,25 +1151,23 @@ def cmd_node_reparent(args, con):
     out(_c(f"✓ #{nid} moved under {where}", "meta"))
 
 
+@output_format
 def cmd_node_rm(args, con):
     """Soft-delete node(s) and their subtree (reversible tombstone) — the
     primitive single-node form of `wl apply - #id`. Clearing `deleted_at` restores."""
     for nid in args.ids:
         _require_node(con, nid)
-    total = 0
     for nid in args.ids:
         # include_deleted: tombstone the FULL structural subtree, so a live node hanging
         # under an already-tombstoned intermediate doesn't get orphaned.
         for did in [nid] + _collect_descendants(con, nid, include_deleted=True):
             soft_delete_node(con, did)
-        total += 1
     con.commit()
-    if _is_json(args):
-        _emit_json({"deleted": list(args.ids)})
-    else:
-        out(_c(f"✓ soft-deleted {len(args.ids)} node(s) + subtree (reversible; clear deleted_at to restore)", "meta"))
+    out(_c(f"✓ soft-deleted {len(args.ids)} node(s) + subtree (reversible; clear deleted_at to restore)", "meta"))
+    return {"deleted": list(args.ids)}
 
 
+@output_format
 def cmd_node_edit(args, con):
     """Edit a node's own fields: title / priority / body / scheduled / deadline, plus --para to
     set the PARA role (writes type.para). (Status has its own verbs done/cancel/…; parent →
@@ -1248,34 +1210,32 @@ def cmd_node_edit(args, con):
         have = {r["key"] for r in _db.query(con, "prop", cols="key", node_id=nid)}
         conflicts = [_LABELS[k] for k in (_nt.K_DATE, _nt.K_HABIT, _nt.K_MEETLOG) if k in have]
     con.commit()
-    if _is_json(args):
-        row = _db.get(con, "node", nid)
-        _emit_json({"id": row["id"], "title": row["title"], "status": row["status"],
-                    "priority": row["priority"],
-                    "scheduled_date": row["scheduled_date"], "deadline_date": row["deadline_date"]})
-    else:
-        out(_c(f"✓ #{nid} updated: " + ", ".join(f"{k}={v}" if k == "para" else k for k, v in changes.items()), "meta"))
-        if conflicts:
-            out(_c(f"⚠ #{nid} still carries {', '.join(conflicts)} alongside type.para={para} — "
-                   f"clear the stale one with `wl prop rm {nid} <key>` if this should be a plain {para}", "later"))
+    out(_c(f"✓ #{nid} updated: " + ", ".join(f"{k}={v}" if k == "para" else k for k, v in changes.items()), "meta"))
+    if conflicts:
+        out(_c(f"⚠ #{nid} still carries {', '.join(conflicts)} alongside type.para={para} — "
+               f"clear the stale one with `wl prop rm {nid} <key>` if this should be a plain {para}", "later"))
+    row = _db.get(con, "node", nid)
+    return {"id": row["id"], "title": row["title"], "status": row["status"],
+            "priority": row["priority"],
+            "scheduled_date": row["scheduled_date"], "deadline_date": row["deadline_date"]}
 
 
 # --- prop entity group: set / ls / rm ---
+@output_format
 def cmd_prop_ls(args, con):
     """List a node's UDA props (key=value). The read primitive for prop (props are also
     shown inline by `wl show`)."""
     _require_node(con, args.id)
     rows = _db.query(con, "prop", cols="key, value", node_id=args.id, order="key")
-    if _is_json(args):
-        _emit_json([{"key": r["key"], "value": r["value"]} for r in rows])
-        return
     if not rows:
         out(_c(f"(#{args.id} has no props)", "meta"))
-        return
-    for r in rows:
-        out(_c(f"#{args.id} ", "id") + _c(f"{r['key']}={r['value']}"))
+    else:
+        for r in rows:
+            out(_c(f"#{args.id} ", "id") + _c(f"{r['key']}={r['value']}"))
+    return [{"key": r["key"], "value": r["value"]} for r in rows]
 
 
+@output_format
 def cmd_prop_rm(args, con):
     """Remove a UDA prop from a node (soft-delete the row). Also the `wl unset`
     shortcut. The delete counterpart of `wl set`."""
@@ -1288,12 +1248,9 @@ def cmd_prop_rm(args, con):
         # as reserved-tag logs, not props — clear it there (= wl goal rm).
         n = _db.delete(con, "log", node_id=args.id, tag=key)
         con.commit()
-        if _is_json(args):
-            _emit_json({"key": key, "removed": n})
-            return
         out(_c(f"✓ #{args.id} {key} cleared ({n} log(s))" if n
                else f"(#{args.id} has no {key})", "meta"))
-        return
+        return {"key": key, "removed": n}
     n = _db.delete(con, "prop", node_id=args.id, key=key)
     if n and (key.startswith("type.") or key.startswith("date.")):
         # a structural classification key just changed what this node IS — surface it (non-blocking),
@@ -1303,10 +1260,8 @@ def cmd_prop_rm(args, con):
         print(f"⚠ #{args.id} is now '{new_type}' (removing '{key}' changed its classification)",
               file=sys.stderr)
     con.commit()
-    if _is_json(args):
-        _emit_json({"key": key, "removed": n})
-        return
     out(_c(f"✓ #{args.id} prop '{key}' removed" if n else f"(#{args.id} has no prop '{key}')", "meta"))
+    return {"key": key, "removed": n}
 
 
 def cmd_prop(args, con):
@@ -1483,14 +1438,12 @@ def _agent_set(args, con):
     out(line)
     return
 
+@output_format
 def _agent_ls(args, con):
     rows = _db.query(con, "prop", cols="node_id, key, value", key__like=_AGENT_PREFIX + "%")
     if not rows:
-        if _is_json(args):
-            _emit_json([])
-        else:
-            out(_c("(no session bindings)", "meta"))
-        return
+        out(_c("(no session bindings)", "meta"))
+        return []
     # two time axes per binding: `act` = node's latest log/update time (most-recently-worked);
     # `bound` = when this session was bound to the node (latest agent_session bind-history log).
     items = []
@@ -1510,9 +1463,6 @@ def _agent_ls(args, con):
     by = getattr(args, "by", "active")
     keyf = (lambda it: it["bound"] or it["act"]) if by == "bound" else (lambda it: it["act"])
     items.sort(key=keyf, reverse=True)                 # most-recent (by chosen axis) first
-    if _is_json(args):
-        _emit_json(items)
-        return
     plain = render.is_plain()
     # plain/piped or --all → show all (a script needs the lot); else elide older to avoid flood
     show_all = plain or getattr(args, "all", False)
@@ -1547,7 +1497,7 @@ def _agent_ls(args, con):
             out(_agent_ls_row(it, idw, agw, sidlen, plain))
     if hidden > 0:
         out(_c(f"  … +{hidden} older — wl agent ls --all", "meta"))
-    return
+    return items
 
 def _agent_rm(args, con):
     sid = _agent_need_sid()
@@ -1565,25 +1515,20 @@ def _agent_context(args, con):
     print(_agent_hook_json(con, sid) if getattr(args, "hook", False) else _agent_context_line(con, sid))
     return
 
+@output_format
 def _agent_show(args, con):
     # bare `wl agent` → show the current session's binding (under whichever agent key it lives)
     sid = _agent_need_sid()
     row = _db.query_one(con, "prop", cols="node_id, key", key__like=_AGENT_PREFIX + "%", value=sid)
     if not row:
-        if _is_json(args):
-            _emit_json(None)
-        else:
-            out(_c(f"(session {sid[:8]}… 未绑定任何任务)", "meta"))
-        return
+        out(_c(f"(session {sid[:8]}… 未绑定任何任务)", "meta"))
+        return None
     agent = row["key"][len(_AGENT_PREFIX):]
     title = (_db.get(con, "node", row["node_id"]) or {})["title"]
-    if _is_json(args):
-        _emit_json({"node_id": row["node_id"], "title": title, "agent": agent, "session_id": sid})
-        return
     idstr = f"#{row['node_id']}"
     if render.is_plain():
         out(f"{idstr} ← {agent}:{sid} · {title}")    # plain: full sid + full title, no truncation
-        return
+        return {"node_id": row["node_id"], "title": title, "agent": agent, "session_id": sid}
     # interactive: full sid when it fits leaving the title room; shrink uniformly when tight
     base = len(idstr) + len(" ← ") + len(agent) + 1 + len(" · ")
     MIN_TITLE = 16
@@ -1595,6 +1540,7 @@ def _agent_show(args, con):
     prefix_plain = f"{idstr} ← {seg} · "
     shown = _truncate_log_body(title, indent_cols=_display_width(prefix_plain), full=False)
     out(_c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + shown)
+    return {"node_id": row["node_id"], "title": title, "agent": agent, "session_id": sid}
 
 def cmd_agent(args, con):
     """`wl agent` — bind the current agent session to a node.
@@ -1605,24 +1551,24 @@ def cmd_agent(args, con):
      "context": _agent_context}.get(sub, _agent_show)(args, con)
 
 # --- clock entity group: ls / edit / rm (create = start/stop/spent) ---
+@output_format
 def cmd_clock_ls(args, con):
     """List a node's clock intervals (start → end, duration). Read primitive for clock."""
     _require_node(con, args.id)
     rows = _db.query(con, "clock", cols="id, start_at, end_at, elapsed_sec", node_id=args.id, order="id")
-    if _is_json(args):
-        _emit_json([{"id": r["id"], "start_at": r["start_at"], "end_at": r["end_at"],
-                     "elapsed_sec": r["elapsed_sec"]} for r in rows])
-        return
     if not rows:
         out(_c(f"(#{args.id} has no clock intervals)", "meta"))
-        return
-    for r in rows:
-        st = _tu.utc_to_local(r["start_at"])
-        en = _tu.utc_to_local(r["end_at"]) if r["end_at"] else "(running)"
-        dur = _fmt_dur(int((r["elapsed_sec"] or 0) / 60)) if r["elapsed_sec"] else ""
-        out(_c(f"#C{r['id']}", "id") + " " + _c(f"{st} → {en}", "meta") + (" " + _c(dur, "clock") if dur else ""))
+    else:
+        for r in rows:
+            st = _tu.utc_to_local(r["start_at"])
+            en = _tu.utc_to_local(r["end_at"]) if r["end_at"] else "(running)"
+            dur = _fmt_dur(int((r["elapsed_sec"] or 0) / 60)) if r["elapsed_sec"] else ""
+            out(_c(f"#C{r['id']}", "id") + " " + _c(f"{st} → {en}", "meta") + (" " + _c(dur, "clock") if dur else ""))
+    return [{"id": r["id"], "start_at": r["start_at"], "end_at": r["end_at"],
+             "elapsed_sec": r["elapsed_sec"]} for r in rows]
 
 
+@output_format
 def cmd_clock_edit(args, con):
     """Edit a clock interval's start / end (recomputes elapsed_sec). Fix a mistimed
     `wl start/stop/spent` entry."""
@@ -1661,15 +1607,13 @@ def cmd_clock_edit(args, con):
         changes["elapsed_sec"] = None  # --end '' cleared the end → back to running
     _db.update(con, "clock", args.clock_id, changes)
     con.commit()
-    if _is_json(args):
-        r = _db.get(con, "clock", args.clock_id)
-        _emit_json({"id": r["id"], "node_id": r["node_id"],
-                    "start_at": r["start_at"], "end_at": r["end_at"],
-                    "elapsed_sec": r["elapsed_sec"]})
-        return
+    r = _db.get(con, "clock", args.clock_id)
     out(_c(f"✓ clock #C{args.clock_id} updated: " + ", ".join(changes), "meta"))
+    return {"id": r["id"], "node_id": r["node_id"],
+            "start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"]}
 
 
+@output_format
 def cmd_clock_rm(args, con):
     """Soft-delete a clock interval — remove a wrong `wl spent`/start-stop entry."""
     for cid in args.clock_ids:
@@ -1678,10 +1622,8 @@ def cmd_clock_rm(args, con):
     for cid in args.clock_ids:
         _db.delete(con, "clock", id=cid)
     con.commit()
-    if _is_json(args):
-        _emit_json({"deleted": list(args.clock_ids)})
-        return
     out(_c(f"✓ removed {len(args.clock_ids)} clock interval(s)", "meta"))
+    return {"deleted": list(args.clock_ids)}
 
 
 def cmd_clock(args, con):
@@ -1694,18 +1636,17 @@ def cmd_clock(args, con):
 
 
 # --- link entity group: add / ls / rm, default verb `add` ---
+@output_format
 def cmd_link_ls(args, con):
     """List a node's vault-doc links. Read primitive for link (also shown by `wl show`)."""
     _require_node(con, args.id)
     rows = _db.query(con, "link", cols="vault_doc", node_id=args.id, order="vault_doc")
-    if _is_json(args):
-        _emit_json([r["vault_doc"] for r in rows])
-        return
     if not rows:
         out(_c(f"(#{args.id} has no links)", "meta"))
-        return
-    for r in rows:
-        out(_c(f"#{args.id} ", "id") + _c(f"→ [[{r['vault_doc']}]]", "meta"))
+    else:
+        for r in rows:
+            out(_c(f"#{args.id} ", "id") + _c(f"→ [[{r['vault_doc']}]]", "meta"))
+    return [r["vault_doc"] for r in rows]
 
 
 def cmd_link_group(args, con):

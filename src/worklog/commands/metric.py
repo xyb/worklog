@@ -26,7 +26,7 @@ from .. import db_table as _db
 from ..helpers import _resolve_concrete_date, _resolve_window
 from ..queries import _require_node, _has_checkin
 from ..render import _c, out
-from .output import _is_json, _emit_json
+from .output import output_format
 
 _CARRIER_TYPE = "metric"  # log.tag marking an auto-created metric carrier log
 CHECKIN_TAG = "checkin"   # reserved metric tag: the structured "done today" signal
@@ -194,6 +194,7 @@ def attach_metric_specs(con, log_id, node_id, specs, *, at=None):
     return n
 
 
+@output_format
 def cmd_metric_add(args, con):
     """Attach a structured datapoint to a node (via a carrier log)."""
     node = args.node
@@ -228,12 +229,11 @@ def cmd_metric_add(args, con):
         con.rollback()
         raise
     row = _db.get(con, "metric", mid)
-    if _is_json(args):
-        _emit_json(_metric_dict(row))
-        return
     out(_c("✓", "done") + " " + _line(row))
+    return _metric_dict(row)
 
 
+@output_format
 def cmd_metric_ls(args, con):
     """List metrics: a node's (default = this week; --all = everything; --tag filter), OR —
     when the node is omitted — the same query across EVERY node, to locate all uses of a tag
@@ -258,28 +258,22 @@ def cmd_metric_ls(args, con):
     rows = list(con.execute(
         f"SELECT * FROM metric WHERE {' AND '.join(where)} ORDER BY {order}", params))
     if not rows:
-        if _is_json(args):
-            _emit_json([])
-            return
         filt = f" tag={args.tag}" if args.tag else ""
         scope = "" if args.all else " in window (use --all / --week / --month)"
         subj = "no metrics" if glob else f"node #{node} has no metrics"
         out(_c(f"({subj}{filt}{scope})", "meta"))
-        return
-    if _is_json(args):
-        _emit_json([{
-            "id": r["id"], "node_id": r["node_id"], "log_id": r["log_id"],
-            "tag": r["tag"], "value_num": r["value_num"], "value_text": r["value_text"],
-            "unit": r["unit"], "note": r["note"], "at": r["at"],
-        } for r in rows])
-        return
-    for r in rows:
-        line = _line(r)
-        if glob:  # show which node each datapoint belongs to
-            line = _c(f"#{r['node_id']}", "id") + " " + line
-        out(line)
+    else:
+        for r in rows:
+            line = _line(r)
+            if glob:  # show which node each datapoint belongs to
+                line = _c(f"#{r['node_id']}", "id") + " " + line
+            out(line)
+    return [{"id": r["id"], "node_id": r["node_id"], "log_id": r["log_id"],
+             "tag": r["tag"], "value_num": r["value_num"], "value_text": r["value_text"],
+             "unit": r["unit"], "note": r["note"], "at": r["at"]} for r in rows]
 
 
+@output_format
 def cmd_metric_edit(args, con):
     """Edit fields of a single metric."""
     mid = args.metric_id
@@ -335,12 +329,11 @@ def cmd_metric_edit(args, con):
     _db.update(con, "metric", mid, changes)
     con.commit()
     row = _db.get(con, "metric", mid)
-    if _is_json(args):
-        _emit_json(_metric_dict(row))
-        return
     out(_c("✓", "done") + " " + _line(row))
+    return _metric_dict(row)
 
 
+@output_format
 def cmd_metric_rm(args, con):
     """Delete one or more metrics. If a metric's carrier was an auto-created
     (type='metric') empty-body log with no other metrics left, remove it too —
@@ -363,11 +356,9 @@ def cmd_metric_rm(args, con):
             msg += f" + its empty carrier log #L{log_id}"
         msgs.append(msg)
     con.commit()
-    if _is_json(args):
-        _emit_json({"deleted": list(args.metric_ids)})
-        return
     for m in msgs:
         out(_c(m, "meta"))
+    return {"deleted": list(args.metric_ids)}
 
 
 _SUBS = {

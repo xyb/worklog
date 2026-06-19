@@ -19,7 +19,7 @@ from .. import render
 from ..render import _c, _node_line, _hl_terms, _detail_line, out
 from ..helpers import _truncate_log_body, _display_width
 from ..xdg import _resolve_vec_db_path
-from .output import _is_json, _emit_json
+from .output import output_format
 
 # Batch bounds for embedding: a CHARACTER budget (≈ equal work / batch, the basis for an
 # even progress bar) plus a node cap (keeps a single request's payload reasonable).
@@ -335,6 +335,7 @@ def _reindex_auto(args, con):
         lf.close()
 
 
+@output_format
 def cmd_query(args, con):
     """Hybrid search: fuse semantic (best-chunk cosine) and keyword (term match) rankings via
     RRF — so paraphrases (vector) and exact names/jargon (keyword) both surface, and a literal
@@ -380,22 +381,20 @@ def cmd_query(args, con):
         print(f"⚠ {n_unindexed} node(s) not indexed — run `wl reindex` (they match by keyword only, not meaning)",
               file=sys.stderr)
 
-    if _is_json(args):
-        rows = []
-        for nid in fused:
-            n = _db.get(con, "node", nid)
-            if not n:
-                continue
-            h = vec_map.get(nid, {})
-            rows.append({"id": nid, "title": n["title"], "status": n["status"], "priority": n["priority"],
+    # build JSON result list (used in JSON mode; computed before text output for DRY)
+    json_rows = []
+    for nid in fused:
+        n = _db.get(con, "node", nid)
+        if not n:
+            continue
+        h = vec_map.get(nid, {})
+        json_rows.append({"id": nid, "title": n["title"], "status": n["status"], "priority": n["priority"],
                          "score": round(h.get("score", 0.0), 4),
                          "matched_field": h.get("chunk_field", ""), "matched_text": h.get("chunk_text", "")})
-        _emit_json(rows)
-        return
 
     if not fused:
         out(_c(f"(no matches for '{q}')", "meta"))
-        return
+        return json_rows
     out(_c(f"'{q}' — {len(fused)} hit(s) (semantic + keyword):", "header"))
     for nid in fused:
         n = _db.get(con, "node", nid)
@@ -416,6 +415,7 @@ def cmd_query(args, con):
             # accounting for the indent+label width, then render via the shared detail-line format.
             body = _truncate_log_body(flat, indent_cols=_display_width("    " + label + " "))
             out(_detail_line(label, _hl_terms(body, terms)))
+    return json_rows
 
 
 def _segment(text):

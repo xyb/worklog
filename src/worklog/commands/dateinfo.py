@@ -10,7 +10,7 @@ from pathlib import Path
 from .. import db_table as _db
 from ..render import _c, out
 from .views import _cn_weekday, _date_label
-from .output import _is_json, _emit_json
+from .output import output_format
 
 
 def cmd_dateinfo(args, con):
@@ -45,49 +45,43 @@ def cmd_dateinfo(args, con):
             out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
 
 
+@output_format
 def cmd_date_set(args, con):
     """Set/update a date's metadata label — the create/update verb of the date group
     (= `wl dateinfo <date> <label>`)."""
     _db.upsert(con, "date_meta", {"date": args.date, "label": args.label}, key=("date",))
     con.commit()
-    if _is_json(args):
-        _emit_json({"date": args.date, "label": args.label})
-    else:
-        out(_c(f"✓ {args.date} {_cn_weekday(args.date)} · {args.label}", "meta"))
+    out(_c(f"✓ {args.date} {_cn_weekday(args.date)} · {args.label}", "meta"))
+    return {"date": args.date, "label": args.label}
 
 
+@output_format
 def cmd_date_ls(args, con):
     """List date metadata, or show one date — the read verb of the date group
     (= bare `wl dateinfo` / `wl dateinfo <date>`)."""
     d = getattr(args, "date", None)
     if d:
         lbl = _date_label(con, d)
-        if _is_json(args):
-            _emit_json({"date": d, "label": lbl})
-            return
         out(_c(f"{d} {_cn_weekday(d)}" + (f" · {lbl}" if lbl else " (no label)"), "meta"))
-        return
+        return {"date": d, "label": lbl}
     rows = _db.query(con, "date_meta", cols="date, label", order="date")
-    if _is_json(args):
-        _emit_json([{"date": r["date"], "label": r["label"]} for r in rows])
-        return
     if not rows:
         out(_c("(no date metadata)", "meta"))
-        return
-    for r in rows:
-        out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
+    else:
+        for r in rows:
+            out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
+    return [{"date": r["date"], "label": r["label"]} for r in rows]
 
 
+@output_format
 def cmd_date_rm(args, con):
     """Clear a date's metadata label — the delete verb of the date group
     (= `wl dateinfo <date> --clear`)."""
     n = _db.delete(con, "date_meta", date=args.date)
     con.commit()
-    if _is_json(args):
-        _emit_json({"date": args.date, "cleared": n})
-    else:
-        out(_c(f"✓ cleared metadata for {args.date}", "meta") if n
-            else _c(f"({args.date} had no metadata)", "meta"))
+    out(_c(f"✓ cleared metadata for {args.date}", "meta") if n
+        else _c(f"({args.date} had no metadata)", "meta"))
+    return {"date": args.date, "cleared": n}
 
 
 def cmd_date_import(args, con):

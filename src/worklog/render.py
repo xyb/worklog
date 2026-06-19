@@ -169,8 +169,19 @@ def style_ansi(text, style_str):
     return _RichStyle.parse(style_str).render(text)
 
 
+_SUPPRESS_OUTPUT = False
+
+
+def set_suppress_output(flag: bool) -> None:
+    """Enable/disable output suppression (used by @output_format in JSON mode)."""
+    global _SUPPRESS_OUTPUT
+    _SUPPRESS_OUTPUT = flag
+
+
 def out(s):
     """Unified output: when highlighting is enabled, use rich (markup rendering); otherwise plain print."""
+    if _SUPPRESS_OUTPUT:
+        return
     if _CONSOLE is not None:
         _CONSOLE.print(s)
     else:

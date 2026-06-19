@@ -130,4 +130,3 @@ from .sched import cmd_sched, cmd_sched_ls, cmd_sched_rm, cmd_sched_group, _norm
 from .timenodes import _ensure_today_day
 from .help import cmd_help, colorize_help, topic_exists, topic_names
 from .semantic import cmd_query, cmd_reindex
-from .output import _is_json, _emit_json

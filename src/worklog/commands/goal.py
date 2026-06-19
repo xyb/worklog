@@ -23,7 +23,7 @@ from ..helpers import _resolve_concrete_date, _truncate_log_body
 from ..render import _c, out
 from .timenodes import _ensure_day, _ensure_today_day
 from .views import _goal_progress, _emit_goal_targets
-from .output import _is_json, _emit_json
+from .output import output_format
 
 
 _GOAL_ID_MENTION = re.compile(r"(?:WL)?#(\d+)")
@@ -95,6 +95,7 @@ def _goal_id_hint(con, body, already, set_stem, full_stem):
         out(f"  {set_stem} <id…>")
 
 
+@output_format
 def cmd_goal(args, con):
     """The default (bare) form of `wl goal`: read/write TODAY's goal. `wl goal` reads; `wl goal
     'text' [ids]` writes (today's day-node auto-created). Stored as a tag=goal log (history-
@@ -104,16 +105,13 @@ def cmd_goal(args, con):
     text = getattr(args, "text", None)
     if not text:
         row = _latest_typed_log(con, nid, "goal")
-        if _is_json(args):
-            _emit_json({"body": row["body"], "logged_at": row["logged_at"]} if (row and row["body"]) else None)
-            return
         if not (row and row["body"]):
             out(_c("(no goal set for today)", "meta"))
-            return
+            return None
         # read view: goal text + [done/total] + the structured targets (same render as wl day)
         out(row["body"] + _c(_goal_progress(con, nid, row["body"]), "meta"))
         _emit_goal_targets(con, nid)
-        return
+        return {"body": row["body"], "logged_at": row["logged_at"]}
     goals = getattr(args, "goals", None) or []
     if goals:
         _check_ids_exist(con, goals)
@@ -122,8 +120,10 @@ def cmd_goal(args, con):
     extra = ("  [" + ", ".join(f"#{i}" for i in goals) + "]") if goals else ""
     out(_c(f"✓ today's goal: {text}{extra}", "meta"))
     _goal_id_hint(con, text, goals, f"wl goal set {nid} --ids", f'wl goal "{text}"')
+    return None
 
 
+@output_format
 def cmd_summary_prop(args, con):
     """`wl recap` — read/write a day's end-of-day summary (default today; --date for a past day).
     Stored as a tag=summary log; each write appends a new log (history kept), and the log's
@@ -143,22 +143,20 @@ def cmd_summary_prop(args, con):
     nid = _ensure_day(con, d)
     if getattr(args, "diff", False):
         _recap_diff(con, nid, d.isoformat(), label)
-        return
+        return None
     if not args.text:
         row = _latest_typed_log(con, nid, "summary")
-        if _is_json(args):
-            _emit_json({"body": row["body"], "logged_at": row["logged_at"]} if (row and row["body"]) else None)
-            return
         if not row or not row["body"]:
             out(_c(f"(no summary set for {label})", "meta"))
-            return
+            return None
         at = row["logged_at"]
         out(row["body"] + (_c(f"  (written at {at})", "meta") if at else ""))
-        return
+        return {"body": row["body"], "logged_at": row["logged_at"]}
     log_id = _set_typed_log(con, nid, "summary", args.text)
     con.commit()
     at = _db.get(con, "log", log_id)["logged_at"]
     out(_c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta"))
+    return None
 
 
 def _recap_diff(con, nid, day_iso, label):
@@ -226,18 +224,16 @@ def cmd_goal_set(args, con):
                       f"wl goal set {args.id} --ids", f'wl goal set {args.id} "{args.value}"')
 
 
+@output_format
 def cmd_goal_ls(args, con):
     """List a node's reserved-tag logs (current goal / summary) — the read verb of the goal group.
     Each shows its latest typed log (the current value)."""
     _require_node(con, args.id)
-    if _is_json(args):
-        result = {}
-        for field in _RESERVED_LOG_TAGS:
-            row = _latest_typed_log(con, args.id, field)
-            if row and row["body"]:
-                result[field] = {"body": row["body"], "logged_at": row["logged_at"]}
-        _emit_json(result)
-        return
+    result = {}
+    for field in _RESERVED_LOG_TAGS:
+        row = _latest_typed_log(con, args.id, field)
+        if row and row["body"]:
+            result[field] = {"body": row["body"], "logged_at": row["logged_at"]}
     shown = False
     for field in _RESERVED_LOG_TAGS:
         row = _latest_typed_log(con, args.id, field)
@@ -248,6 +244,7 @@ def cmd_goal_ls(args, con):
                 _emit_goal_targets(con, args.id, indent="       ")
     if not shown:
         out(_c(f"#{args.id} has no goal / summary", "meta"))
+    return result
 
 
 def cmd_goal_rm(args, con):
