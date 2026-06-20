@@ -8,35 +8,45 @@ from .metric import checkin_metric
 from ..queries import _has_checkin, _insert_log, node_type
 from ..render import _c, out
 from .views import _scheduled_node_ids
+from .output import output_format, TextRenderable
 
 
+@output_format
 def cmd_checkin(args, con):
     """Interactive check-in for today's habits.
     Default: multi-select (up/down + space + Enter), pick all at once and check in.
     --per-item: per-item prompt mode (allows per-item note; also the fallback for non-TTY / piped input)."""
     rows, today, types = _checkin_collect(con, args)
     if not rows:
-        out(_c(f"(no {'/'.join(types)} scheduled to check in for {today})", "meta"))
-        return
+        _today, _types = today, types
+        return TextRenderable(
+            {"today": _today, "checked_in": 0, "total": 0},
+            lambda: out(_c(f"(no {'/'.join(_types)} scheduled to check in for {_today})", "meta")),
+        )
 
     pending = [r for r in rows if not r["already"]]
     pre_done = len(rows) - len(pending)
 
     if not pending:
-        out(_c(f"all {len(rows)}/{len(rows)} already checked in for {today} ✓", "done"))
-        return
+        _n, _today = len(rows), today
+        return TextRenderable(
+            {"today": _today, "checked_in": _n, "total": _n},
+            lambda: out(_c(f"all {_n}/{_n} already checked in for {_today} ✓", "done")),
+        )
 
     if getattr(args, "per_item", False) or not _is_interactive_tty():
-        _checkin_per_item(con, rows)
-        return
+        return _checkin_per_item(con, rows, today, pre_done)
 
     header = _c(f"{today} · pick habits done today (already checked in {pre_done}/{len(rows)})", "header")
     # default unselected for all (use space to toggle on what you did); intuitive: 'mark what I did' not 'unmark what I missed'
     options = [(f"#{r['id']} {r['title']}", False) for r in pending]
     chosen = _multi_select_tty(options, header)
     if chosen is None:
-        out(_c("(canceled, no changes made)", "meta"))
-        return
+        _today = today
+        return TextRenderable(
+            {"today": _today, "checked_in": pre_done, "total": len(rows), "canceled": True},
+            lambda: out(_c("(canceled, no changes made)", "meta")),
+        )
 
     for i in chosen:
         nid = pending[i]["id"]
@@ -45,11 +55,19 @@ def cmd_checkin(args, con):
     con.commit()
     done_now = len(chosen)
     skipped = len(pending) - done_now
-    out(_c(
-        f"done {pre_done + done_now}/{len(rows)} · new this run {done_now}" +
-        (f" · skipped {skipped}" if skipped else "") +
-        " · for detailed notes use `wl tick <id> --note ...` or `wl checkin --per-item`",
-        "header"))
+    _today, _total = today, len(rows)
+    _pre_done, _done_now, _skipped = pre_done, done_now, skipped
+    result = {"today": _today, "checked_in": _pre_done + _done_now, "total": _total,
+              "new": _done_now, "skipped": _skipped}
+
+    def _render():
+        out(_c(
+            f"done {_pre_done + _done_now}/{_total} · new this run {_done_now}" +
+            (f" · skipped {_skipped}" if _skipped else "") +
+            " · for detailed notes use `wl tick <id> --note ...` or `wl checkin --per-item`",
+            "header"))
+
+    return TextRenderable(result, _render)
 
 
 def _checkin_collect(con, args):
@@ -168,9 +186,9 @@ def _multi_select_tty(options, header):  # pragma: no cover -- TTY interactive, 
     return [i for i, s in enumerate(selected) if s]
 
 
-def _checkin_per_item(con, rows):
-    """Per-item prompt fallback mode: y/n/note/q (works on non-TTY / piped input; also supports per-item note)."""
-    pre_done = sum(1 for r in rows if r["already"])
+def _checkin_per_item(con, rows, today, pre_done):
+    """Per-item prompt fallback mode: y/n/note/q (works on non-TTY / piped input; also supports per-item note).
+    Returns TextRenderable — intermediate prompts print inline; final summary is deferred."""
     out(_c(f"{len(rows)} items to check in, {pre_done} already done:", "header"))
     out(_c("Input: [Enter]/y = check in · n = skip · q = quit · any other text = check in with that as note", "meta"))
     print()
@@ -207,7 +225,14 @@ def _checkin_per_item(con, rows):
         else:
             out(f"{marker} #{nid} checked in: {_c(body, 'meta')}")
     print()
-    out(_c(
-        f"done {pre_done + done_now}/{len(rows)} · new this run {done_now}" +
-        (f" · skipped {skipped}" if skipped else ""),
-        "header"))
+    _total = len(rows)
+    _pre_done, _done_now, _skipped = pre_done, done_now, skipped
+    result = {"today": today, "checked_in": _pre_done + _done_now, "total": _total,
+              "new": _done_now, "skipped": _skipped}
+    return TextRenderable(
+        result,
+        lambda: out(_c(
+            f"done {_pre_done + _done_now}/{_total} · new this run {_done_now}" +
+            (f" · skipped {_skipped}" if _skipped else ""),
+            "header")),
+    )

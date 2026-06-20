@@ -57,6 +57,7 @@ from ..queries import (
     _delete_link,
 )
 from .metric import import_metric, _CARRIER_TYPE
+from .output import output_format, TextRenderable
 from ..render import (
     _PRI_STYLE,
     _STATUS_STYLE,
@@ -79,6 +80,7 @@ from ..xdg import _resolve_db_path, _resolve_aliases_path, _xdg_data_home, _xdg_
 from .. import cli as _cli  # noqa: E402
 
 
+@output_format
 def cmd_import(args, con):
     """Batch add/update: JSON {add:[...], update:[...]}; single transaction; supports nested children + ref/parent_ref."""
     import json
@@ -104,14 +106,26 @@ def cmd_import(args, con):
         die(f"import failed (rolled back): {e}")
 
     if dry:
-        out(_c("[dry-run]", "meta") + _c(f" would add {counters['add']} · update {counters['update']} (not written)"))
-        if ref_map:
-            out("  " + _c("ref: " + ", ".join(ref_map.keys()), "meta"))
-    else:
-        con.commit()
-        out(_c("✓", "done") + _c(f" added {counters['add']} · updated {counters['update']}"))
-        if ref_map:
-            print("  ref->id: " + ", ".join(f"{k}=#{v}" for k, v in ref_map.items()))
+        _add, _upd, _refs = counters["add"], counters["update"], list(ref_map.keys())
+        result = {"dry_run": True, "add": _add, "update": _upd, "refs": _refs}
+
+        def _render():
+            out(_c("[dry-run]", "meta") + _c(f" would add {_add} · update {_upd} (not written)"))
+            if _refs:
+                out("  " + _c("ref: " + ", ".join(_refs), "meta"))
+
+        return TextRenderable(result, _render)
+    con.commit()
+    _add, _upd = counters["add"], counters["update"]
+    _ref_map = dict(ref_map)
+    result = {"add": _add, "update": _upd, "refs": {k: v for k, v in _ref_map.items()}}
+
+    def _render():
+        out(_c("✓", "done") + _c(f" added {_add} · updated {_upd}"))
+        if _ref_map:
+            print("  ref->id: " + ", ".join(f"{k}=#{v}" for k, v in _ref_map.items()))
+
+    return TextRenderable(result, _render)
 
 
 # --- wl-diff format (apply) ---
@@ -227,6 +241,7 @@ def _apply_execute(con, ops):
     return counts
 
 
+@output_format
 def cmd_apply(args, con):
     """Apply wl-diff: + add (node line) / ~ update (lock-line + field-ops, only declared fields) / - delete / anchor. Single transaction + dry-run validation."""
     raw = sys.stdin.read() if args.file == "-" else Path(args.file).read_text(encoding="utf-8")
@@ -239,13 +254,24 @@ def cmd_apply(args, con):
         die("validation failed (not written):\n  " + "\n  ".join(errors))
     plan = _apply_plan(ops)
     if args.dry_run:
-        out(_c("[dry-run]", "meta") + _c(f" {len(plan)} operations (not written):", "header"))
-        for desc in plan:
-            out("  " + _c(desc))
-        return
+        _plan = plan
+        result = {"dry_run": True, "operations": _plan}
+
+        def _render():
+            out(_c("[dry-run]", "meta") + _c(f" {len(_plan)} operations (not written):", "header"))
+            for desc in _plan:
+                out("  " + _c(desc))
+
+        return TextRenderable(result, _render)
     counts = _apply_execute(con, ops)
     con.commit()
-    out(_c("✓", "done") + _c(f" added {counts['add']} · updated {counts['update']} · deleted {counts['delete']}"))
+    _counts = counts
+    return TextRenderable(
+        {"add": _counts["add"], "update": _counts["update"], "delete": _counts["delete"]},
+        lambda: out(_c("✓", "done") + _c(
+            f" added {_counts['add']} · updated {_counts['update']} · deleted {_counts['delete']}"
+        )),
+    )
 
 def _import_node(con, spec, parent_id, ref_map, dry, counters):
     """Recursively insert a node (with tags/props/links/logs/children). Returns new id (placeholder None in dry mode)."""
