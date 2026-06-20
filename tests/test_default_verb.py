@@ -386,3 +386,40 @@ class TestGroupLeafCompletions:
     def test_zsh_generates(self, cli):
         _, out, _ = cli("print-completion", "zsh")
         assert "compdef _wl wl" in out
+
+
+class TestBriefFlagHoisting:
+    """-q/--brief and other global flags accepted after positional args."""
+
+    def test_brief_after_positional_day(self, cli):
+        _, out_normal, _ = cli("day", "-q")
+        _, out_after, _ = cli("day", "today", "-q")
+        assert out_normal == out_after
+
+    def test_brief_after_positional_show(self, cli):
+        _, out, _ = cli("add", "test node", "-t", "personal")
+        node_id = int(out.strip().split("#")[1].split()[0])
+        _, out_normal, _ = cli("-q", "show", str(node_id))
+        _, out_after, _ = cli("show", str(node_id), "-q")
+        assert out_normal == out_after
+
+    def test_long_form_also_hoisted(self, cli):
+        _, out, _ = cli("add", "test node 2", "-t", "personal")
+        node_id = int(out.strip().split("#")[1].split()[0])
+        _, out_normal, _ = cli("-q", "show", str(node_id))
+        _, out_after, _ = cli("show", str(node_id), "--brief")
+        assert out_normal == out_after
+
+    def test_output_json_after_positional(self, cli):
+        _, out, _ = cli("add", "test node 3", "-t", "personal")
+        node_id = int(out.strip().split("#")[1].split()[0])
+        rc1, out_normal, _ = cli("-o", "json", "show", str(node_id))
+        rc2, out_after, _ = cli("show", str(node_id), "-o", "json")
+        assert rc1 == rc2 == 0
+        assert out_normal == out_after
+
+    def test_show_canceled_after_positional(self, cli):
+        rc1, out_normal, _ = cli("--show-canceled", "day")
+        rc2, out_after, _ = cli("day", "--show-canceled")
+        assert rc1 == rc2 == 0
+        assert out_normal == out_after

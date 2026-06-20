@@ -358,6 +358,8 @@ _DEFAULT_VERB_ENTITIES = {
 }
 # global flags that consume the next token as their value (skip it when locating the subcommand)
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format", "--width", "--title", "-o", "--output"))
+# global store_true flags (no value token)
+_GLOBAL_BOOL_FLAGS = frozenset(("-q", "--brief", "--show-canceled"))
 
 # commands without a same-named help topic → the topic that covers them (a family guide or
 # a sibling command's topic), so every command's --help can auto-link into `wl help` (§25).
@@ -371,6 +373,36 @@ _HELP_FAMILY = {
     "print-completion": "admin",
     "tags": "tag", "props": "prop", "metrics": "metric",   # the cross-node "list all" lists
 }
+
+
+def _hoist_global_flags(argv):
+    """Move global flags to the front of argv so they reach the global parser even when
+    placed after positional arguments (e.g. `wl day 2026-06-19 -q` or `wl goal ls 408 -o json`).
+    Collects boolean global flags and value-taking global flags (with their value token) and
+    prepends them, leaving the rest in order.
+    --title is excluded: `wl node edit 42 --title "..."` uses it as a subcommand flag."""
+    # --title is both a global display flag and a node-edit field flag; hoisting would
+    # misparse `wl node edit 42 --title "new title"` as a global wrap/clip choice.
+    _HOIST_VALUE_FLAGS = _GLOBAL_VALUE_FLAGS - frozenset(("--title",))
+    prefix = []
+    rest = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok in _GLOBAL_BOOL_FLAGS:
+            prefix.append(tok)
+        elif tok in _HOIST_VALUE_FLAGS:
+            prefix.append(tok)
+            if i + 1 < len(argv):
+                i += 1
+                prefix.append(argv[i])
+        elif "=" in tok and tok.split("=", 1)[0] in _HOIST_VALUE_FLAGS:
+            # --flag=value form
+            prefix.append(tok)
+        else:
+            rest.append(tok)
+        i += 1
+    return prefix + rest if prefix else argv
 
 
 def _expand_default_verb(argv):
@@ -446,6 +478,10 @@ class _WlParser(argparse.ArgumentParser):
         # as an argument (`wl find w`) must not be expanded. Default-verb runs at every level.
         if self.prog == "wl":
             args = _expand_user_alias(args)
+            # Hoist global flags from anywhere in argv to the front so they reach the
+            # global parser regardless of position. Allows `wl day 2026-06-19 -q`,
+            # `wl goal ls 408 -o json`, etc. to work like their flag-first equivalents.
+            args = _hoist_global_flags(args)
         return super().parse_known_args(_expand_default_verb(args), namespace)
 
     def format_help(self):
