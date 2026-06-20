@@ -195,23 +195,47 @@ def _chunk_rows(chunks, vecs, cfg, dim):
             for (nid, title, st, pr, field, text), v in zip(chunks, vecs)]
 
 
+def _make_reindex_render(result, backend):
+    """Return a _render() closure for cmd_reindex TextRenderable."""
+    def _render():
+        if not result:
+            out(_c("✓ index already up to date", "done"))
+            return
+        mode = result.get("mode", "")
+        if mode == "full":
+            out(_c(f"✓ indexed {result['nodes']} node(s) ({result['chunks']} chunks) "
+                   f"— model {result['model']}, dim {result['dim']}", "done"))
+        elif mode == "incremental":
+            out(_c(f"✓ incremental: +{result['new']} new, ~{result['changed']} changed, "
+                   f"-{result['removed']} removed ({result['chunks_embedded']} chunks embedded)", "done"))
+        elif mode == "incremental-full":
+            out(_c(f"✓ indexed {result['nodes']} node(s) ({result['chunks']} chunks)", "done"))
+        if backend == "sqlite":
+            out(_c("  (sqlite fallback backend — install the 'semantic' extra "
+                   "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
+    return _render
+
+
+@output_format
 def cmd_reindex(args, con):
     """(Re)build the semantic index. Default = incremental (embed only new/changed nodes, drop
     deleted; falls back to a full pass when no index exists yet). `--full` = always full
     rebuild (use after a model change or to repair a corrupt index)."""
     if getattr(args, "auto", False):     # background single-flight worker (spawned after a write)
         _reindex_auto(args, con)
-        return
+        return TextRenderable({"mode": "auto"}, lambda: None)
     cfg = _config.resolve_embedding_config(args)
     chunks = _node_chunks(con)
     if not chunks:
-        out(_c("(nothing to index — no nodes yet)", "meta"))
-        return
+        return TextRenderable(
+            {"indexed": 0, "chunks": 0},
+            lambda: out(_c("(nothing to index — no nodes yet)", "meta")),
+        )
     db = _open_store(args)
     if not getattr(args, "full", False):
         # Default: incremental; _reindex_incremental falls back to full when store is empty/new
-        _reindex_incremental(con, db, cfg, chunks)
-        return
+        result = _reindex_incremental(con, db, cfg, chunks)
+        return TextRenderable(result or {}, _make_reindex_render(result, _vs.backend_name(db)))
     try:
         vecs = _embed_with_progress([c[5] for c in chunks], cfg)
     except _embedding.EmbeddingError as e:
@@ -221,11 +245,9 @@ def cmd_reindex(args, con):
     _vs.clear(db)
     _vs.upsert(db, rows)
     n_nodes = len({c[0] for c in chunks})
-    out(_c(f"✓ indexed {n_nodes} node(s) ({len(rows)} chunks) — model {cfg['model']}, dim {dim}", "done"))
-    if _vs.backend_name(db) == "sqlite":
-        # No lancedb wheel here → the pure-Python fallback. Works, but nudge toward the fast store.
-        out(_c("  (sqlite fallback backend — install the 'semantic' extra "
-               "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
+    result = {"mode": "full", "nodes": n_nodes, "chunks": len(rows), "model": cfg["model"], "dim": dim}
+    _backend = _vs.backend_name(db)
+    return TextRenderable(result, _make_reindex_render(result, _backend))
 
 
 def _reindex_incremental(con, db, cfg, chunks, *, quiet=False):
@@ -234,9 +256,8 @@ def _reindex_incremental(con, db, cfg, chunks, *, quiet=False):
     chunk texts differs from what's indexed; deleted = indexed node no longer live. Embeds just
     the dirty nodes' chunks. Falls back to a full pass when the store is empty.
 
-    Returns True if it changed the index (work done), False if it was already up to date. `quiet`
-    (the background --auto worker) suppresses output and swallows embedding errors instead of
-    exiting, so a transient backend outage can't kill a detached loop."""
+    Returns a result dict (mode/counts) if work was done, None if up-to-date, False on error.
+    `quiet` (the background --auto worker) suppresses output and swallows embedding errors."""
     def _embed(texts):
         try:
             return _embed_with_progress(texts, cfg)
@@ -250,13 +271,10 @@ def _reindex_incremental(con, db, cfg, chunks, *, quiet=False):
         vecs = _embed([c[5] for c in chunks])
         if vecs is None:
             return False
+        n_chunks = len(chunks)
         _vs.upsert(db, _chunk_rows(chunks, vecs, cfg, len(vecs[0]) if vecs else 0))
-        if not quiet:
-            out(_c(f"✓ indexed {len({c[0] for c in chunks})} node(s) ({len(chunks)} chunks)", "done"))
-            if _vs.backend_name(db) == "sqlite":
-                out(_c("  (sqlite fallback backend — install the 'semantic' extra "
-                       "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
-        return True
+        n_nodes = len({c[0] for c in chunks})
+        return {"mode": "incremental-full", "nodes": n_nodes, "chunks": n_chunks}
     if im[0] != cfg["model"]:
         if quiet:
             return False                 # model changed → needs a full rebuild; don't churn here
@@ -275,9 +293,7 @@ def _reindex_incremental(con, db, cfg, chunks, *, quiet=False):
     changed = {nid for nid in (live & indexed) if cur_text[nid] != idx_text[nid]}
     dirty = new | changed
     if not dirty and not removed:
-        if not quiet:
-            out(_c("✓ index already up to date", "done"))
-        return False
+        return None  # up to date; caller renders
     dirty_chunks = [c for nid in dirty for c in by_node[nid]]
     rows = []
     if dirty_chunks:
@@ -288,10 +304,8 @@ def _reindex_incremental(con, db, cfg, chunks, *, quiet=False):
     _vs.delete_nodes(db, changed | removed)   # drop changed nodes' stale chunks + deleted nodes
     if rows:
         _vs.upsert(db, rows)
-    if not quiet:
-        out(_c(f"✓ incremental: +{len(new)} new, ~{len(changed)} changed, -{len(removed)} removed "
-               f"({len(dirty_chunks)} chunks embedded)", "done"))
-    return True
+    return {"mode": "incremental", "new": len(new), "changed": len(changed),
+            "removed": len(removed), "chunks_embedded": len(dirty_chunks)}
 
 
 def _reindex_lock_path(args):
