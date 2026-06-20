@@ -129,8 +129,9 @@ def cmd_tree(args, con):
     full = _log_full(args)
 
     if args.by:
+        _by = args.by
         return TextRenderable(_tree_json_data(con, args),
-                              lambda: _tree_by(con, args.by, nf=nf))
+                              lambda: _tree_by(con, _by, nf=nf))
 
     # a filter prunes the structural tree to matching nodes + their ancestor paths
     if nf is not None:

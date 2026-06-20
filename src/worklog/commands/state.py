@@ -631,8 +631,9 @@ def cmd_relation(args, con):
     others_raw = list(args.others or [])
     from ..queries import relation_view
     if rtype is None:
-        result = relation_view(con, args.id)
-        return TextRenderable(result, lambda: _print_relations(con, args.id))
+        _nid = args.id
+        result = relation_view(con, _nid)
+        return TextRenderable(result, lambda: _print_relations(con, _nid))
     if rtype not in _RELATION_TYPES:
         # the type word was omitted: the first token is actually a node id → default to `related`
         others_raw.insert(0, rtype)

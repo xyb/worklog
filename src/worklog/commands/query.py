@@ -150,12 +150,13 @@ def cmd_show(args, con):
     json_data = nodes[0] if len(nodes) == 1 else nodes
     captured_ids = list(ids)
 
+    import argparse as _ap
+
     def _render():
         for i, nid in enumerate(captured_ids):
             if i > 0:
                 out("")
-            args.id = nid
-            _show_one(args, con)
+            _show_one(_ap.Namespace(**{**vars(args), "id": nid}), con)
 
     return TextRenderable(json_data, _render)
 

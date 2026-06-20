@@ -114,18 +114,20 @@ def cmd_goal(args, con):
     goals = getattr(args, "goals", None) or []
     if goals:
         _check_ids_exist(con, goals)
-    _set_typed_log(con, nid, "goal", text, goals=goals)
+    log_id = _set_typed_log(con, nid, "goal", text, goals=goals)
     con.commit()
+    at = _db.get(con, "log", log_id)["logged_at"]
     extra = ("  [" + ", ".join(f"#{i}" for i in goals) + "]") if goals else ""
     _msg = _c(f"✓ today's goal: {text}{extra}", "meta")
     _set_stem = f"wl goal set {nid} --ids"
     _full_stem = f'wl goal "{text}"'
+    result = {"node_id": nid, "body": text, "logged_at": at, "goals": goals}
 
     def _render():
         out(_msg)
         _goal_id_hint(con, text, goals, _set_stem, _full_stem)
 
-    return TextRenderable(None, _render)
+    return TextRenderable(result, _render)
 
 
 @output_format
@@ -161,7 +163,8 @@ def cmd_summary_prop(args, con):
     con.commit()
     at = _db.get(con, "log", log_id)["logged_at"]
     _msg = _c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta")
-    return TextRenderable(None, lambda: out(_msg))
+    result = {"node_id": nid, "body": args.text, "logged_at": at}
+    return TextRenderable(result, lambda: out(_msg))
 
 
 def _recap_diff(con, nid, day_iso, label):
