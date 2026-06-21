@@ -221,6 +221,20 @@ class TestTagLsJson:
         assert rows == []
 
 
+class TestAliasLsJson:
+    def test_returns_aliases_and_config_path(self, cli):
+        cli("alias", "add", "td", "day today")
+        d = _j(cli, "alias", "ls", "-o", "json")
+        assert "aliases" in d
+        assert "config_path" in d
+        assert any(a["name"] == "td" and a["target"] == "day today" for a in d["aliases"])
+
+    def test_empty_returns_empty_aliases_list(self, cli):
+        d = _j(cli, "alias", "ls", "-o", "json")
+        assert d["aliases"] == []
+        assert "config_path" in d
+
+
 class TestSchedLsJson:
     def test_one_off_date(self, cli):
         cli("add", "task")

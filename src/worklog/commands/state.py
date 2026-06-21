@@ -925,10 +925,10 @@ def cmd_unlog(args, con):
         sql += " LIMIT 1"
     rows = list(con.execute(sql, (nid, date)))
     if not rows:
-        _nid, _date = nid, date
         return TextRenderable(
-            {"deleted": [], "node_id": nid, "metrics_deleted": 0, "messages": []},
-            lambda: out(_c(f"(node #{_nid} has no non-CLOCK logs on {_date})", "meta")),
+            {"deleted": [], "node_id": nid, "metrics_deleted": 0,
+             "messages": [f"(node #{nid} has no non-CLOCK logs on {date})"]},
+            cmd_name="unlog",
         )
     deleted_lines = []
     deleted_ids = []

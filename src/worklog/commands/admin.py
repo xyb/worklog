@@ -54,8 +54,8 @@ def _render_config(result):
     _row("aliases", aliases_path, "(exists)" if aliases_exists else "(not configured)")
     out("")
     out(_c("XDG directories:", "header"))
-    _row("XDG_DATA_HOME", xdg["data_home"], "(env set)" if os.environ.get("XDG_DATA_HOME") else "(default)")
-    _row("XDG_CONFIG_HOME", xdg["config_home"], "(env set)" if os.environ.get("XDG_CONFIG_HOME") else "(default)")
+    _row("XDG_DATA_HOME", xdg["data_home"], "(env set)" if xdg["data_home_set"] else "(default)")
+    _row("XDG_CONFIG_HOME", xdg["config_home"], "(env set)" if xdg["config_home_set"] else "(default)")
     out("")
     out(_c("environment:", "header"))
     for var in ("WORKLOG_DB", "WORKLOG_COLOR", "WORKLOG_THEME", "NO_COLOR"):
@@ -94,7 +94,7 @@ def _render_migrate(result):
 
 def cmd_init(args, con):
     _cli.db_init(con)
-    print(f"✓ DB initialized: {_resolve_db_path(args)}")
+    out(_c(f"✓ DB initialized: {_resolve_db_path(args)}", "done"))
 
 
 @output_format
@@ -135,7 +135,9 @@ def cmd_config(args, con):
         "version": _cli.__version__,
         "database": {"path": str(db), "source": db_src, "size": db_size, "exists": db_exists},
         "aliases": {"path": str(aliases), "exists": aliases.exists()},
-        "xdg": {"data_home": str(_xdg_data_home()), "config_home": str(_xdg_config_home())},
+        "xdg": {"data_home": str(_xdg_data_home()), "config_home": str(_xdg_config_home()),
+                "data_home_set": bool(os.environ.get("XDG_DATA_HOME")),
+                "config_home_set": bool(os.environ.get("XDG_CONFIG_HOME"))},
         "env": {v: os.environ.get(v) for v in ("WORKLOG_DB", "WORKLOG_COLOR", "WORKLOG_THEME", "NO_COLOR")},
         "embedding": {k: v for k, v in ec.items() if k != "api_key"},
         "embedding_api_key_set": bool(ec.get("api_key")),
