@@ -183,10 +183,10 @@ def cmd_themes(args, con):
         # no rich or color explicitly off: plain text listing
         for name in THEMES:
             mark = "  <- current" if name == cur else ""
-            print(f"■ {name}{mark}")
-        print(f"current: {req}{auto_note}")
+            print(f"■ {name}{mark}")  # noqa: cmd_themes has no @output_format, no suppression in effect
+        print(f"current: {req}{auto_note}")  # noqa
         if not render._RICH_AVAIL:
-            print("(rich not installed; no color preview; pip install rich)")
+            print("(rich not installed; no color preview; pip install rich)")  # noqa
         return
     # render the sample with each theme's own palette (force_terminal: keeps colors when piped to less -R)
     for name in THEMES:

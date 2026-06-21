@@ -1439,7 +1439,7 @@ def cmd_prop_rm(args, con):
         # since removing e.g. type.para demotes a project to a bare task, or type.date un-places a
         # time node. Hint to stderr so stdout/JSON stays clean.
         new_type = node_type(con, args.id)
-        print(f"⚠ #{args.id} is now '{new_type}' (removing '{key}' changed its classification)",
+        print(f"⚠ #{args.id} is now '{new_type}' (removing '{key}' changed its classification)",  # noqa
               file=sys.stderr)
     con.commit()
     return TextRenderable({"key": key, "node_id": args.id, "removed": n, "from_log": False},
@@ -1694,7 +1694,7 @@ def _agent_context(args, con):
     # when unbound. Plain print (not out()) — consumed by scripts; title can contain Rich
     # markup chars like [tag] that out() would mangle.
     sid = _current_session_id()
-    print(_agent_hook_json(con, sid) if getattr(args, "hook", False) else _agent_context_line(con, sid))
+    print(_agent_hook_json(con, sid) if getattr(args, "hook", False) else _agent_context_line(con, sid))  # noqa: hook/context output is intentionally machine-readable, not suppressed by out()
 
 @output_format
 def _agent_show(args, con):

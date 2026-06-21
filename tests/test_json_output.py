@@ -5,8 +5,14 @@ find, focus, ancestors, descendants, agenda, changes, goal (read+ls),
 prop ls, log ls, log show, link ls, tag ls, sched ls, metric ls,
 add (write), log (write), done, cancel, reopen, wait, defer, start, stop.
 """
+import dataclasses
 import json
+import pathlib
 import pytest
+
+from worklog.commands.alias import AliasLsResult
+from worklog.commands.sched import SchedLsResult
+from worklog.commands.metric import MetricLsResult
 
 
 def _j(cli, *args):
@@ -775,3 +781,58 @@ class TestDieJsonMode:
         cli("show", "999", "-o", "json")
         code, out, err = cli("show", "999")
         assert "✗" in err
+
+
+# ---------------------------------------------------------------------------
+# Schema contract tests: JSON top-level keys are derived from the dataclass
+# definition, not hardcoded — shape changes in the class break these tests.
+# ---------------------------------------------------------------------------
+
+class TestJsonSchemas:
+    """Shape contracts pinned to the authoritative dataclass, not to magic strings."""
+
+    def test_alias_ls_top_level_keys(self, cli):
+        d = _j(cli, "alias", "ls", "-o", "json")
+        assert set(d) == {f.name for f in dataclasses.fields(AliasLsResult)}
+
+    def test_alias_entry_keys(self, cli):
+        cli("alias", "add", "td", "day today")
+        d = _j(cli, "alias", "ls", "-o", "json")
+        from worklog.commands.alias import AliasEntry
+        assert set(d["aliases"][0]) == {f.name for f in dataclasses.fields(AliasEntry)}
+
+    def test_sched_ls_top_level_keys(self, cli):
+        cli("add", "task")
+        d = _j(cli, "sched", "ls", "1", "-o", "json")
+        assert set(d) == {f.name for f in dataclasses.fields(SchedLsResult)}
+
+    def test_sched_entry_keys(self, cli):
+        cli("add", "task")
+        cli("sched", "1", "2026-09-01")
+        d = _j(cli, "sched", "ls", "1", "-o", "json")
+        from worklog.commands.sched import SchedEntry
+        assert set(d["rows"][0]) == {f.name for f in dataclasses.fields(SchedEntry)}
+
+    def test_metric_ls_top_level_keys(self, cli):
+        cli("add", "task")
+        d = _j(cli, "metric", "ls", "1", "-o", "json")
+        assert set(d) == {f.name for f in dataclasses.fields(MetricLsResult)}
+
+
+# ---------------------------------------------------------------------------
+# Convention: no bare print() in command handlers/renderers.
+# out() must be used so JSON mode suppression and color control work correctly.
+# output.py itself is exempt (JSONFormatter uses print() legitimately).
+# ---------------------------------------------------------------------------
+
+def test_no_bare_print_in_commands():
+    src = pathlib.Path(__file__).parent.parent / "src" / "worklog" / "commands"
+    violations = []
+    for path in sorted(src.glob("*.py")):
+        if path.name == "output.py":
+            continue  # JSONFormatter.emit() legitimately uses print()
+        for lineno, line in enumerate(path.read_text().splitlines(), 1):
+            stripped = line.lstrip()
+            if stripped.startswith("print(") and "# noqa" not in line and "file=sys.stderr" not in line:
+                violations.append(f"{path.name}:{lineno}: {line.rstrip()}")
+    assert not violations, "Bare print() bypasses out() suppression:\n" + "\n".join(violations)

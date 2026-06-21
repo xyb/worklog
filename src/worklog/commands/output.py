@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import sys
+from dataclasses import is_dataclass, asdict
 from functools import wraps
 
 from ..render import set_suppress_output, set_active_error_formatter, get_active_error_formatter
@@ -147,6 +148,8 @@ class JSONFormatter(Formatter):
 
     def emit(self, data) -> None:
         payload = data.data if isinstance(data, TextRenderable) else data
+        if is_dataclass(payload) and not isinstance(payload, type):
+            payload = asdict(payload)
         print(json.dumps(payload, ensure_ascii=False, indent=2))
 
 

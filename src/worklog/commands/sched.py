@@ -1,6 +1,7 @@
 """worklog command: `wl sched` group (add/ls/rm) + recurrence-rule validation."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 
 from .. import timeutil as _tu
 from .. import db_table as _db
@@ -10,6 +11,18 @@ from ..render import _c, die, out
 from .state import _ids_list
 from .views import _WEEKDAY_ABBR
 from .output import output_format, TextRenderable, text_renderer
+
+
+@dataclass
+class SchedEntry:
+    on_date: str | None
+    rrule: str | None
+
+
+@dataclass
+class SchedLsResult:
+    node_id: int
+    rows: list  # list[SchedEntry]
 
 
 @text_renderer("sched_clear")
@@ -103,14 +116,12 @@ def cmd_sched(args, con):
 
 
 @text_renderer("sched_ls")
-def _render_sched_ls(result):
-    nid = result["node_id"]
-    rows = result["rows"]
-    if not rows:
-        out(_c(f"#{nid} has no schedule", "meta"))
+def _render_sched_ls(result: SchedLsResult):
+    if not result.rows:
+        out(_c(f"#{result.node_id} has no schedule", "meta"))
     else:
-        for item in rows:
-            out("  " + _c(f"#{nid} @" + (item["on_date"] or item["rrule"]), "planned"))
+        for item in result.rows:
+            out("  " + _c(f"#{result.node_id} @" + (item.on_date or item.rrule), "planned"))
 
 
 @output_format
@@ -121,7 +132,10 @@ def cmd_sched_ls(args, con):
     rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id,
                      order="on_date NULLS LAST, rrule")
     nid = args.id
-    result = {"node_id": nid, "rows": [{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]}
+    result = SchedLsResult(
+        node_id=nid,
+        rows=[SchedEntry(on_date=r["on_date"], rrule=r["rrule"]) for r in rows],
+    )
     return TextRenderable(result, cmd_name="sched_ls")
 
 

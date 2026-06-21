@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import math
 import re
+from dataclasses import dataclass
 
 from .. import timeutil as _tu
 from .. import db_table as _db
@@ -29,6 +30,13 @@ from .output import output_format, TextRenderable, text_renderer
 
 _CARRIER_TYPE = "metric"  # log.tag marking an auto-created metric carrier log
 CHECKIN_TAG = "checkin"   # reserved metric tag: the structured "done today" signal
+
+
+@dataclass
+class MetricLsResult:
+    rows: list  # list of metric dicts; kept as dicts since _line() is shared with other callers
+    glob: bool
+    empty_msg: str
 
 
 def _metric_id_arg(s):
@@ -238,13 +246,13 @@ def cmd_metric_add(args, con):
 
 
 @text_renderer("metric_ls")
-def _render_metric_ls(result):
-    if not result["rows"]:
-        out(_c(f"({result['empty_msg']})", "meta"))
+def _render_metric_ls(result: MetricLsResult):
+    if not result.rows:
+        out(_c(f"({result.empty_msg})", "meta"))
     else:
-        for r in result["rows"]:
+        for r in result.rows:
             line = _line(r)
-            if result["glob"]:
+            if result.glob:
                 line = _c(f"#{r['node_id']}", "id") + " " + line
             out(line)
 
@@ -281,7 +289,7 @@ def cmd_metric_ls(args, con):
     subj = "no metrics" if glob else f"node #{node} has no metrics"
     empty_msg = f"{subj}{filt}{scope}"
     return TextRenderable(
-        {"rows": data_rows, "glob": glob, "empty_msg": empty_msg},
+        MetricLsResult(rows=data_rows, glob=glob, empty_msg=empty_msg),
         cmd_name="metric_ls",
     )
 

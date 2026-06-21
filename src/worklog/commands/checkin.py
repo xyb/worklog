@@ -203,7 +203,7 @@ def _checkin_per_item(con, rows, today, pre_done):
     Returns TextRenderable — intermediate prompts print inline; final summary is deferred."""
     out(_c(f"{len(rows)} items to check in, {pre_done} already done:", "header"))
     out(_c("Input: [Enter]/y = check in · n = skip · q = quit · any other text = check in with that as note", "meta"))
-    print()
+    out("")
 
     done_now = skipped = 0
     for r in rows:
@@ -216,7 +216,7 @@ def _checkin_per_item(con, rows, today, pre_done):
         try:
             ans = input(_c(f"  ▸ {head}\n    [y/n/note/q] > ", "header")).strip()
         except (EOFError, KeyboardInterrupt):
-            print()
+            out("")
             out(_c("(interrupted; remaining tasks skipped)", "meta"))
             break
         if ans in ("q", "Q", "exit", "quit"):
@@ -236,7 +236,7 @@ def _checkin_per_item(con, rows, today, pre_done):
             out(f"{marker} #{nid} checked in")
         else:
             out(f"{marker} #{nid} checked in: {_c(body, 'meta')}")
-    print()
+    out("")
     result = {"today": today, "checked_in": pre_done + done_now, "total": len(rows),
               "new": done_now, "skipped": skipped}
     return TextRenderable(result, cmd_name="checkin")

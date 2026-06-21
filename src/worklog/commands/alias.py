@@ -4,10 +4,23 @@ Aliases are loaded into the argparse subparser `aliases=` at startup, so edits t
 the NEXT wl invocation."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 
 from ..render import _c, die, out
 from ..xdg import _resolve_aliases_path
 from .output import output_format, text_renderer, TextRenderable
+
+
+@dataclass
+class AliasEntry:
+    name: str
+    target: str
+
+
+@dataclass
+class AliasLsResult:
+    aliases: list  # list[AliasEntry]
+    config_path: str
 
 # Lazy access to the cli module (for HANDLERS) — at call time, to avoid the cli ↔ commands cycle.
 from .. import cli as _cli  # noqa: E402
@@ -34,13 +47,12 @@ def _write_aliases_cfg(cfg, p):
 
 
 @text_renderer("alias_ls")
-def _render_alias_ls(result):
-    aliases = result["aliases"]
-    if not aliases:
-        out(_c(f"(no aliases configured — file: {result['config_path']})", "meta"))
+def _render_alias_ls(result: AliasLsResult):
+    if not result.aliases:
+        out(_c(f"(no aliases configured — file: {result.config_path})", "meta"))
         return
-    for item in aliases:
-        out("  " + _c(item["name"], "id") + _c(" → ", "meta") + _c(item["target"]))
+    for item in result.aliases:
+        out("  " + _c(item.name, "id") + _c(" → ", "meta") + _c(item.target))
 
 
 @text_renderer("alias_add")
@@ -61,10 +73,10 @@ def cmd_alias_ls(args, con):
     """List configured command aliases (name → target)."""
     cfg, p = _read_aliases_cfg()
     items = sorted(cfg["aliases"].items())
-    result = {
-        "aliases": [{"name": n, "target": t} for n, t in items],
-        "config_path": str(p),
-    }
+    result = AliasLsResult(
+        aliases=[AliasEntry(name=n, target=t) for n, t in items],
+        config_path=str(p),
+    )
     return TextRenderable(result, cmd_name="alias_ls")
 
 

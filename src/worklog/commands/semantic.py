@@ -400,7 +400,7 @@ def cmd_query(args, con):
     # (scores 0.000, only the keyword leg carries it), which is otherwise silent and confusing.
     n_unindexed = con.execute(f"SELECT count(*) FROM node WHERE {_db.ALIVE}").fetchone()[0] - len(vec_map)
     if n_unindexed > 0:
-        print(f"⚠ {n_unindexed} node(s) not indexed — run `wl reindex` (they match by keyword only, not meaning)",
+        print(f"⚠ {n_unindexed} node(s) not indexed — run `wl reindex` (they match by keyword only, not meaning)",  # noqa
               file=sys.stderr)
 
     # build JSON result list (used in JSON mode; computed before text output for DRY)
