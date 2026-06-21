@@ -1,26 +1,24 @@
-"""Domain model layer: dataclasses that mirror the worklog DB schema.
+"""Domain model layer: dataclasses that mirror the worklog DB schema, plus
+thin class-level read helpers.
 
 One class per table. Design rules:
 - Field names match DB column names exactly.
 - ``from_row(row)`` constructs from a sqlite3.Row or any mapping.
-- No business logic, no rendering, no DB access.
+- ``get()`` and ``query()`` are thin wrappers around db_table helpers that
+  apply ``from_row()``; they own the table-name string so callers don't
+  repeat it.
+- No business logic, no rendering.
 - ``deleted_at`` is omitted — it is a storage implementation detail of the
   soft-delete system; models represent *live* domain objects.
 
-View DTOs (what ``@text_renderer`` and ``JSONFormatter`` receive) live in the
-command modules alongside the handlers that produce them. The split is:
-
-    DB row (sqlite3.Row)
-        ↓  Model.from_row()
-    Model layer  ← this file
-        ↓  handler assembles view DTO
-    View DTO (XxxResult dataclass in commands/)
-        ↓  @text_renderer / JSONFormatter
-    terminal / JSON output
+View DTOs (what ``@text_renderer`` and ``JSONFormatter`` receive) live in
+``commands/dtos.py``, centralised and importable from any command module.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+
+from . import db_table as _db
 
 
 @dataclass
@@ -40,17 +38,21 @@ class Node:
     @classmethod
     def from_row(cls, row) -> Node:
         return cls(
-            id=row["id"],
-            parent_id=row["parent_id"],
-            title=row["title"],
-            status=row["status"],
-            priority=row["priority"],
-            created_at=row["created_at"],
-            scheduled_date=row["scheduled_date"],
-            deadline_date=row["deadline_date"],
-            closed_at=row["closed_at"],
-            body=row["body"],
+            id=row["id"], parent_id=row["parent_id"], title=row["title"],
+            status=row["status"], priority=row["priority"], created_at=row["created_at"],
+            scheduled_date=row["scheduled_date"], deadline_date=row["deadline_date"],
+            closed_at=row["closed_at"], body=row["body"],
         )
+
+    @classmethod
+    def get(cls, con, id: int, *, include_deleted: bool = False) -> Node | None:
+        row = _db.get(con, "node", id, include_deleted=include_deleted)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Node]:
+        rows = _db.query(con, "node", order=order, limit=limit, include_deleted=include_deleted, **conds)
+        return [cls.from_row(r) for r in rows]
 
 
 @dataclass
@@ -65,12 +67,19 @@ class Log:
     @classmethod
     def from_row(cls, row) -> Log:
         return cls(
-            id=row["id"],
-            node_id=row["node_id"],
-            logged_at=row["logged_at"],
-            body=row["body"],
-            tag=row["tag"],
+            id=row["id"], node_id=row["node_id"], logged_at=row["logged_at"],
+            body=row["body"], tag=row["tag"],
         )
+
+    @classmethod
+    def get(cls, con, id: int, *, include_deleted: bool = False) -> Log | None:
+        row = _db.get(con, "log", id, include_deleted=include_deleted)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Log]:
+        rows = _db.query(con, "log", order=order, limit=limit, include_deleted=include_deleted, **conds)
+        return [cls.from_row(r) for r in rows]
 
 
 @dataclass
@@ -89,16 +98,20 @@ class Metric:
     @classmethod
     def from_row(cls, row) -> Metric:
         return cls(
-            id=row["id"],
-            log_id=row["log_id"],
-            node_id=row["node_id"],
-            tag=row["tag"],
-            value_num=row["value_num"],
-            value_text=row["value_text"],
-            unit=row["unit"],
-            note=row["note"],
-            at=row["at"],
+            id=row["id"], log_id=row["log_id"], node_id=row["node_id"],
+            tag=row["tag"], value_num=row["value_num"], value_text=row["value_text"],
+            unit=row["unit"], note=row["note"], at=row["at"],
         )
+
+    @classmethod
+    def get(cls, con, id: int, *, include_deleted: bool = False) -> Metric | None:
+        row = _db.get(con, "metric", id, include_deleted=include_deleted)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Metric]:
+        rows = _db.query(con, "metric", order=order, limit=limit, include_deleted=include_deleted, **conds)
+        return [cls.from_row(r) for r in rows]
 
 
 @dataclass
@@ -113,12 +126,19 @@ class Clock:
     @classmethod
     def from_row(cls, row) -> Clock:
         return cls(
-            id=row["id"],
-            node_id=row["node_id"],
-            start_at=row["start_at"],
-            end_at=row["end_at"],
-            elapsed_sec=row["elapsed_sec"],
+            id=row["id"], node_id=row["node_id"], start_at=row["start_at"],
+            end_at=row["end_at"], elapsed_sec=row["elapsed_sec"],
         )
+
+    @classmethod
+    def get(cls, con, id: int, *, include_deleted: bool = False) -> Clock | None:
+        row = _db.get(con, "clock", id, include_deleted=include_deleted)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Clock]:
+        rows = _db.query(con, "clock", order=order, limit=limit, include_deleted=include_deleted, **conds)
+        return [cls.from_row(r) for r in rows]
 
 
 @dataclass
@@ -133,12 +153,19 @@ class Sched:
     @classmethod
     def from_row(cls, row) -> Sched:
         return cls(
-            id=row["id"],
-            node_id=row["node_id"],
-            on_date=row["on_date"],
-            rrule=row["rrule"],
-            created_at=row["created_at"],
+            id=row["id"], node_id=row["node_id"], on_date=row["on_date"],
+            rrule=row["rrule"], created_at=row["created_at"],
         )
+
+    @classmethod
+    def get(cls, con, id: int, *, include_deleted: bool = False) -> Sched | None:
+        row = _db.get(con, "sched", id, include_deleted=include_deleted)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Sched]:
+        rows = _db.query(con, "sched", order=order, limit=limit, include_deleted=include_deleted, **conds)
+        return [cls.from_row(r) for r in rows]
 
 
 @dataclass
@@ -152,6 +179,11 @@ class Prop:
     def from_row(cls, row) -> Prop:
         return cls(node_id=row["node_id"], key=row["key"], value=row["value"])
 
+    @classmethod
+    def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Prop]:
+        rows = _db.query(con, "prop", order=order, limit=limit, include_deleted=include_deleted, **conds)
+        return [cls.from_row(r) for r in rows]
+
 
 @dataclass
 class Tag:
@@ -162,6 +194,11 @@ class Tag:
     @classmethod
     def from_row(cls, row) -> Tag:
         return cls(node_id=row["node_id"], tag=row["tag"])
+
+    @classmethod
+    def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Tag]:
+        rows = _db.query(con, "tag", order=order, limit=limit, include_deleted=include_deleted, **conds)
+        return [cls.from_row(r) for r in rows]
 
 
 @dataclass
@@ -174,6 +211,11 @@ class Link:
     def from_row(cls, row) -> Link:
         return cls(node_id=row["node_id"], vault_doc=row["vault_doc"])
 
+    @classmethod
+    def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Link]:
+        rows = _db.query(con, "link", order=order, limit=limit, include_deleted=include_deleted, **conds)
+        return [cls.from_row(r) for r in rows]
+
 
 @dataclass
 class DateMeta:
@@ -184,3 +226,13 @@ class DateMeta:
     @classmethod
     def from_row(cls, row) -> DateMeta:
         return cls(date=row["date"], label=row["label"])
+
+    @classmethod
+    def get(cls, con, date: str) -> DateMeta | None:
+        row = _db.query_one(con, "date_meta", date=date)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def query(cls, con, *, order=None, limit=None, **conds) -> list[DateMeta]:
+        rows = _db.query(con, "date_meta", order=order, limit=limit, **conds)
+        return [cls.from_row(r) for r in rows]

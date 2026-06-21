@@ -7,7 +7,6 @@ A goal can carry structured target node ids (priority order), stored as `goal` m
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 
 from .. import timeutil as _tu
 from .. import db_table as _db
@@ -24,30 +23,10 @@ from ..render import _c, die, out
 from .timenodes import _ensure_day, _ensure_today_day
 from .views import _goal_progress, _emit_goal_targets
 from .output import output_format, TextRenderable, text_renderer
+from .dtos import GoalSetTargetsResult, RecapDiffEntry, RecapDiffResult
 
 
 _GOAL_ID_MENTION = re.compile(r"(?:WL)?#(\d+)")
-
-
-@dataclass
-class RecapDiffEntry:
-    log_id: int
-    node_id: int
-    title: str
-    logged_at: str
-    body: str
-
-
-@dataclass
-class RecapDiffResult:
-    recap_at: str | None
-    changes: list  # list[RecapDiffEntry]
-
-
-@dataclass
-class GoalSetTargetsResult:
-    node_id: int
-    targets: list  # list[int]
 
 
 def _mentioned_goal_ids(con, body, already):

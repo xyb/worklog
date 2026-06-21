@@ -19,6 +19,7 @@ from ..node_schema import (
 )
 from .metric import _fmt_value, metric_rows
 from .output import output_format, text_renderer, TextRenderable
+from .dtos import ProjectCounts, ProjectResult
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
@@ -668,9 +669,11 @@ def cmd_projects(args, con):
     items, total_items = _apply_top_limit(items, args)
 
     json_result = [
-        {**_node_summary_dict(con, proj),
-         "counts": {"done": done, "doing": doing, "pending": pending, "total": total},
-         "latest_activity": recent}   # UTC instant (latest log / closed / created)
+        ProjectResult(
+            project=_node_summary_view(con, proj),
+            counts=ProjectCounts(done=done, doing=doing, pending=pending, total=total),
+            latest_activity=recent,
+        )
         for proj, done, doing, pending, total, recent in items
     ]
     captured_items = items

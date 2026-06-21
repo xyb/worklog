@@ -17,6 +17,11 @@ from .output import output_format, TextRenderable, text_renderer
 from .. import db_table as _db
 from .. import node_types as _nt
 from ..models import Log, Clock, Prop
+from .dtos import (
+    ClockEditResult, ClockRmResult, LogShowResult, LogWriteResult, NodeEditResult,
+    NodeReparentResult, NodeRmResult, PropRmResult, RelogResult, RetagResult,
+    SetLogResult, SetResult, SpentResult, TickResult, UnlogResult,
+)
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -321,16 +326,6 @@ def cmd_add(args, con):
     return TextRenderable(result, _render)
 
 
-@dataclass
-class LogWriteResult:
-    id: int
-    node_id: int
-    body: str
-    logged_at: str
-    status_changed: bool
-    metrics_added: int
-
-
 @text_renderer("log")
 def _render_log(result):
     progress = " (status: TODO → DOING)" if result.status_changed else ""
@@ -483,16 +478,6 @@ def cmd_stop(args, con):
             out(f"✓ #{nid} stopped, elapsed {secs // 60} min")
 
     return TextRenderable(result, _render)
-
-
-@dataclass
-class SpentResult:
-    id: int
-    node_id: int
-    start_at: str
-    end_at: str
-    elapsed_sec: int
-    mins: int
 
 
 @text_renderer("spent")
@@ -718,7 +703,8 @@ def cmd_set(args, con):
         log_id = _set_typed_log(con, args.id, args.key, args.value)
         con.commit()
         log = _db.get(con, "log", log_id)
-        result = {"node_id": args.id, "key": args.key, "body": log["body"], "logged_at": log["logged_at"], "value": args.value}
+        result = SetLogResult(node_id=args.id, key=args.key, body=log["body"],
+                              logged_at=log["logged_at"], value=args.value)
         return TextRenderable(result, cmd_name="set_log")
     try:
         _upsert_prop(con, args.id, args.key, args.value)
@@ -737,18 +723,18 @@ def cmd_set(args, con):
     if _h:
         print(f"  tip: {_h[0]}", file=sys.stderr)
         print(f"  {_h[1]}", file=sys.stderr)
-    result = {"node_id": args.id, "key": args.key, "value": args.value}
+    result = SetResult(node_id=args.id, key=args.key, value=args.value)
     return TextRenderable(result, cmd_name="set")
 
 
 @text_renderer("set_log")
 def _render_set_log(result):
-    out(_c(f"✓ #{result['node_id']} {result['key']} (logged at {result['logged_at']}): {result['value']}", "meta"))
+    out(_c(f"✓ #{result.node_id} {result.key} (logged at {result.logged_at}): {result.value}", "meta"))
 
 
 @text_renderer("set")
 def _render_set(result):
-    out(f"✓ #{result['node_id']} {result['key']}={result['value']}")
+    out(f"✓ #{result.node_id} {result.key}={result.value}")
 
 
 @output_format
@@ -835,13 +821,6 @@ def cmd_tag_group(args, con):
     if sub is None:
         die("usage: wl tag <id> +x -y  |  wl tag <add|ls|rm> … (see `wl tag --help`)")
     {"add": cmd_tag, "ls": cmd_tag_ls, "rm": cmd_tag_rm}[sub](args, con)
-
-@dataclass
-class TickResult:
-    node_id: int
-    log_id: int
-    done: bool
-
 
 @output_format
 def cmd_tick(args, con):
@@ -938,7 +917,7 @@ def cmd_unlog(args, con):
         body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
         msg = f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {_tu.utc_to_local(row['logged_at'])}): {body_preview}"
-        result = {"deleted": [log_id], "node_id": row["node_id"], "metrics_deleted": nmetric, "messages": [msg]}
+        result = UnlogResult(deleted=[log_id], node_id=row["node_id"], metrics_deleted=nmetric, messages=[msg])
         return TextRenderable(result, cmd_name="unlog")
 
     # --node <id>: delete latest log for that day
@@ -959,8 +938,8 @@ def cmd_unlog(args, con):
     rows = list(con.execute(sql, (nid, date)))
     if not rows:
         return TextRenderable(
-            {"deleted": [], "node_id": nid, "metrics_deleted": 0,
-             "messages": [f"(node #{nid} has no non-CLOCK logs on {date})"]},
+            UnlogResult(deleted=[], node_id=nid, metrics_deleted=0,
+                        messages=[f"(node #{nid} has no non-CLOCK logs on {date})"]),
             cmd_name="unlog",
         )
     deleted_lines = []
@@ -976,25 +955,15 @@ def cmd_unlog(args, con):
         deleted_lines.append(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}")
     con.commit()
     return TextRenderable(
-        {"deleted": deleted_ids, "node_id": nid, "metrics_deleted": total_metrics, "messages": deleted_lines},
+        UnlogResult(deleted=deleted_ids, node_id=nid, metrics_deleted=total_metrics, messages=deleted_lines),
         cmd_name="unlog",
     )
 
 
 @text_renderer("unlog")
 def _render_unlog(result):
-    for msg in result["messages"]:
+    for msg in result.messages:
         out(_c(msg, "meta"))
-
-
-@dataclass
-class RelogResult:
-    id: int
-    node_id: int
-    tag: str | None
-    body: str
-    logged_at: str
-    canceled: bool = False
 
 
 @text_renderer("relog")
@@ -1117,17 +1086,6 @@ def cmd_log_ls(args, con):
     return TextRenderable(result, _render)
 
 
-@dataclass
-class LogShowResult:
-    id: int
-    node_id: int
-    tag: str | None
-    body: str
-    logged_at: str
-    title: str
-    label: str
-
-
 @text_renderer("log_show")
 def _render_log_show(result):
     out(_c(f"#L{result.id}", "id") + " "
@@ -1156,7 +1114,7 @@ def cmd_log_show(args, con):
 
 @text_renderer("retag")
 def _render_retag(result):
-    out(_c("✓", "done") + " " + _c(f"#L{result['log_id']}", "id") + f" tag → {result['tag'] or 'note'}")
+    out(_c("✓", "done") + " " + _c(f"#L{result.log_id}", "id") + f" tag → {result.tag or 'note'}")
 
 
 @output_format
@@ -1171,7 +1129,7 @@ def cmd_retag(args, con):
     new = None if raw.lower() in ("", "-", "note", "none") else raw
     _db.update(con, "log", args.log_id, {"tag": new})
     con.commit()
-    result = {"log_id": args.log_id, "tag": new}
+    result = RetagResult(log_id=args.log_id, tag=new)
     return TextRenderable(result, cmd_name="retag")
 
 
@@ -1337,7 +1295,7 @@ def _edit_in_editor(initial_text, suffix=".txt"):
 
 @text_renderer("node_reparent")
 def _render_node_reparent(result):
-    out(_c(f"✓ #{result['node_id']} moved under {result['where']}", "meta"))
+    out(_c(f"✓ #{result.node_id} moved under {result.where}", "meta"))
 
 
 @output_format
@@ -1365,13 +1323,13 @@ def cmd_node_reparent(args, con):
     _db.update(con, "node", nid, {"parent_id": new_parent})
     con.commit()
     where = "the top level" if new_parent is None else f"#{new_parent}"
-    result = {"node_id": nid, "parent_id": new_parent, "where": where}
+    result = NodeReparentResult(node_id=nid, parent_id=new_parent, where=where)
     return TextRenderable(result, cmd_name="node_reparent")
 
 
 @text_renderer("node_rm")
 def _render_node_rm(result):
-    out(_c(f"✓ soft-deleted {result['count']} node(s) + subtree (reversible; clear deleted_at to restore)", "meta"))
+    out(_c(f"✓ soft-deleted {result.count} node(s) + subtree (reversible; clear deleted_at to restore)", "meta"))
 
 
 @output_format
@@ -1386,16 +1344,16 @@ def cmd_node_rm(args, con):
         for did in [nid] + _collect_descendants(con, nid, include_deleted=True):
             soft_delete_node(con, did)
     con.commit()
-    result = {"deleted": list(args.ids), "count": len(args.ids)}
+    result = NodeRmResult(deleted=list(args.ids), count=len(args.ids))
     return TextRenderable(result, cmd_name="node_rm")
 
 
 @text_renderer("node_edit")
 def _render_node_edit(result):
-    out(_c(f"✓ #{result['node_id']} updated: {result['summary']}", "meta"))
-    if result["conflicts"]:
-        nid, para = result["node_id"], result["para"]
-        out(_c(f"⚠ #{nid} still carries {', '.join(result['conflicts'])} alongside type.para={para} — "
+    out(_c(f"✓ #{result.id} updated: {result.summary}", "meta"))
+    if result.conflicts:
+        nid, para = result.id, result.para
+        out(_c(f"⚠ #{nid} still carries {', '.join(result.conflicts)} alongside type.para={para} — "
                f"clear the stale one with `wl prop rm {nid} <key>` if this should be a plain {para}", "later"))
 
 
@@ -1444,10 +1402,11 @@ def cmd_node_edit(args, con):
     con.commit()
     row = _db.get(con, "node", nid)
     summary = ", ".join(f"{k}={v}" if k == "para" else k for k, v in changes.items())
-    result = {"id": row["id"], "title": row["title"], "status": row["status"],
-              "priority": row["priority"],
-              "scheduled_date": row["scheduled_date"], "deadline_date": row["deadline_date"],
-              "node_id": nid, "summary": summary, "conflicts": conflicts, "para": para}
+    result = NodeEditResult(
+        id=nid, title=row["title"], status=row["status"], priority=row["priority"],
+        scheduled_date=row["scheduled_date"], deadline_date=row["deadline_date"],
+        summary=summary, conflicts=conflicts, para=para,
+    )
     return TextRenderable(result, cmd_name="node_edit")
 
 
@@ -1469,14 +1428,6 @@ def cmd_prop_ls(args, con):
                 out(_c(f"#{_nid} ", "id") + _c(f"{r.key}={r.value}"))
 
     return TextRenderable(result, _render)
-
-
-@dataclass
-class PropRmResult:
-    key: str
-    node_id: int
-    removed: int
-    from_log: bool
 
 
 @text_renderer("prop_rm")
@@ -1829,7 +1780,7 @@ def cmd_clock_ls(args, con):
 
 @text_renderer("clock_edit")
 def _render_clock_edit(result):
-    out(_c(f"✓ clock #C{result['clock_id']} updated: {result['summary']}", "meta"))
+    out(_c(f"✓ clock #C{result.clock_id} updated: {result.summary}", "meta"))
 
 
 @output_format
@@ -1872,15 +1823,17 @@ def cmd_clock_edit(args, con):
     _db.update(con, "clock", args.clock_id, changes)
     con.commit()
     r = _db.get(con, "clock", args.clock_id)
-    result = {"id": r["id"], "node_id": r["node_id"],
-              "start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"],
-              "clock_id": args.clock_id, "summary": ", ".join(changes)}
+    result = ClockEditResult(
+        id=r["id"], node_id=r["node_id"], start_at=r["start_at"],
+        end_at=r["end_at"], elapsed_sec=r["elapsed_sec"],
+        clock_id=args.clock_id, summary=", ".join(changes),
+    )
     return TextRenderable(result, cmd_name="clock_edit")
 
 
 @text_renderer("clock_rm")
 def _render_clock_rm(result):
-    out(_c(f"✓ removed {result['count']} clock interval(s)", "meta"))
+    out(_c(f"✓ removed {result.count} clock interval(s)", "meta"))
 
 
 @output_format
@@ -1892,7 +1845,7 @@ def cmd_clock_rm(args, con):
     for cid in args.clock_ids:
         _db.delete(con, "clock", id=cid)
     con.commit()
-    result = {"deleted": list(args.clock_ids), "count": len(args.clock_ids)}
+    result = ClockRmResult(deleted=list(args.clock_ids), count=len(args.clock_ids))
     return TextRenderable(result, cmd_name="clock_rm")
 
 

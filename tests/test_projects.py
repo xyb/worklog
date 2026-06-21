@@ -60,7 +60,7 @@ class TestProjectsJson:
         d = json.loads(out)
         assert code == 0 and isinstance(d, list) and len(d) == 1
         p = d[0]
-        assert p["id"] == 1 and p["title"] == "proj"
+        assert p["project"]["id"] == 1 and p["project"]["title"] == "proj"
         assert p["counts"]["done"] == 1 and p["counts"]["total"] == 2
         assert "latest_activity" in p
 
