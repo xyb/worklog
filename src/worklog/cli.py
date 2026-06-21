@@ -360,6 +360,7 @@ _DEFAULT_VERB_ENTITIES = {
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format", "--width", "--title", "-o", "--output"))
 # global store_true flags (no value token)
 _GLOBAL_BOOL_FLAGS = frozenset(("-q", "--brief", "--show-canceled"))
+_HOIST_VALUE_FLAGS = _GLOBAL_VALUE_FLAGS - frozenset(("--title",))
 
 # commands without a same-named help topic → the topic that covers them (a family guide or
 # a sibling command's topic), so every command's --help can auto-link into `wl help` (§25).
@@ -381,9 +382,6 @@ def _hoist_global_flags(argv):
     Collects boolean global flags and value-taking global flags (with their value token) and
     prepends them, leaving the rest in order.
     --title is excluded: `wl node edit 42 --title "..."` uses it as a subcommand flag."""
-    # --title is both a global display flag and a node-edit field flag; hoisting would
-    # misparse `wl node edit 42 --title "new title"` as a global wrap/clip choice.
-    _HOIST_VALUE_FLAGS = _GLOBAL_VALUE_FLAGS - frozenset(("--title",))
     prefix = []
     rest = []
     i = 0

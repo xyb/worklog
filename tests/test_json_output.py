@@ -225,20 +225,22 @@ class TestSchedLsJson:
     def test_one_off_date(self, cli):
         cli("add", "task")
         cli("sched", "1", "2026-09-01")
-        rows = _j(cli, "sched", "ls", "1", "-o", "json")
-        assert rows[0]["on_date"] == "2026-09-01"
-        assert rows[0]["rrule"] is None
+        d = _j(cli, "sched", "ls", "1", "-o", "json")
+        assert d["node_id"] == 1
+        assert d["rows"][0]["on_date"] == "2026-09-01"
+        assert d["rows"][0]["rrule"] is None
 
     def test_recurring_rule(self, cli):
         cli("add", "task")
         cli("sched", "1", "--recur", "weekly:Mon")
-        rows = _j(cli, "sched", "ls", "1", "-o", "json")
-        assert any(r["rrule"] == "weekly:Mon" for r in rows)
+        d = _j(cli, "sched", "ls", "1", "-o", "json")
+        assert any(r["rrule"] == "weekly:Mon" for r in d["rows"])
 
     def test_empty_returns_empty_list(self, cli):
         cli("add", "bare")
-        rows = _j(cli, "sched", "ls", "1", "-o", "json")
-        assert rows == []
+        d = _j(cli, "sched", "ls", "1", "-o", "json")
+        assert d["node_id"] == 1
+        assert d["rows"] == []
 
 
 class TestMetricLsJson:

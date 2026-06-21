@@ -92,7 +92,7 @@ def _render_import(result):
         ref_map = result.get("refs", {})
         out(_c("✓", "done") + _c(f" added {add} · updated {upd}"))
         if ref_map:
-            print("  ref->id: " + ", ".join(f"{k}=#{v}" for k, v in ref_map.items()))
+            out("  ref->id: " + ", ".join(f"{k}=#{v}" for k, v in ref_map.items()))
 
 
 @text_renderer("apply")

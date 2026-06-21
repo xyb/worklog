@@ -104,11 +104,12 @@ def cmd_sched(args, con):
 
 @text_renderer("sched_ls")
 def _render_sched_ls(result):
-    if not result:
-        out(_c("has no schedule", "meta"))
+    nid = result["node_id"]
+    rows = result["rows"]
+    if not rows:
+        out(_c(f"#{nid} has no schedule", "meta"))
     else:
-        nid = result[0]["node_id"]
-        for item in result:
+        for item in rows:
             out("  " + _c(f"#{nid} @" + (item["on_date"] or item["rrule"]), "planned"))
 
 
@@ -120,7 +121,7 @@ def cmd_sched_ls(args, con):
     rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id,
                      order="on_date NULLS LAST, rrule")
     nid = args.id
-    result = [{"node_id": nid, "on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]
+    result = {"node_id": nid, "rows": [{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]}
     return TextRenderable(result, cmd_name="sched_ls")
 
 

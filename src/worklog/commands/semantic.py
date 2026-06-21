@@ -212,9 +212,9 @@ def _render_reindex(result):
                    f"-{result['removed']} removed ({result['chunks_embedded']} chunks embedded)", "done"))
         elif mode == "incremental-full":
             out(_c(f"✓ indexed {result['nodes']} node(s) ({result['chunks']} chunks)", "done"))
-    if backend == "sqlite":
-        out(_c("  (sqlite fallback backend — install the 'semantic' extra "
-               "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
+        if backend == "sqlite":
+            out(_c("  (sqlite fallback backend — install the 'semantic' extra "
+                   "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
 
 
 @output_format

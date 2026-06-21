@@ -323,7 +323,7 @@ def cmd_add(args, con):
 def _render_log(result):
     progress = " (status: TODO → DOING)" if result["status_changed"] else ""
     metrics = f" + {result['metrics_added']} metric(s)" if result["metrics_added"] else ""
-    out(f"✓ log added to #{result['node_id']}{progress}{metrics}  @{_tu.local_now()[:16]}")
+    out(f"✓ log added to #{result['node_id']}{progress}{metrics}  @{_tu.utc_to_local(result['logged_at'])[11:16]}")
 
 
 @output_format
