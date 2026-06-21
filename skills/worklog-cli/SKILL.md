@@ -73,7 +73,7 @@ keep verbose output — `--color auto` gives AI plain text automatically.
 
 ## ⭐ Machine-readable JSON output (`-o json`)
 
-`-o json` is a **global flag** — place before the command (`wl -o json ls`) or after (`wl ls -o json`); both work for every command.
+`-o json` is a **global flag** — works anywhere in argv: `wl -o json ls`, `wl ls -o json`, `wl ls 42 -o json` — all equivalent. Same for `-q` / `--brief` / `--show-canceled` / `--db` / `--color` etc.
 
 **Read commands** — pipe to `jq` for filtering:
 
@@ -92,8 +92,9 @@ wl prop ls 42 -o json               # [{key, value}]
 wl log ls 42 -o json                # [{id, logged_at, tag, body}]
 wl link ls 42 -o json               # ["vault doc name", ...]
 wl tag ls 42 -o json                # ["tag1", "tag2", ...]
-wl sched ls 42 -o json              # [{on_date, rrule}]
-wl metric ls 42 -o json             # [{id, node_id, log_id, tag, value_num, value_text, unit, note, at}]
+wl alias ls -o json                 # {aliases: [{name, target}], config_path}
+wl sched ls 42 -o json              # {node_id, rows: [{on_date, rrule}]}
+wl metric ls 42 -o json             # {rows: [{id, node_id, log_id, tag, value_num, value_text, unit, note, at}], glob, empty_msg}
 wl projects -o json                 # project cards
 wl tags -o json                     # [{tag, count}]
 wl props -o json                    # [{key, count}]
