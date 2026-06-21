@@ -50,6 +50,13 @@ class Node:
         return cls.from_row(row) if row else None
 
     @classmethod
+    def gets(cls, con, ids: list[int], *, include_deleted: bool = False) -> list[Node | None]:
+        if not ids:
+            return []
+        by_id = {r["id"]: cls.from_row(r) for r in _db.query(con, "node", include_deleted=include_deleted, id__in=ids)}
+        return [by_id.get(i) for i in ids]
+
+    @classmethod
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Node]:
         rows = _db.query(con, "node", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
@@ -75,6 +82,13 @@ class Log:
     def get(cls, con, id: int, *, include_deleted: bool = False) -> Log | None:
         row = _db.get(con, "log", id, include_deleted=include_deleted)
         return cls.from_row(row) if row else None
+
+    @classmethod
+    def gets(cls, con, ids: list[int], *, include_deleted: bool = False) -> list[Log | None]:
+        if not ids:
+            return []
+        by_id = {r["id"]: cls.from_row(r) for r in _db.query(con, "log", include_deleted=include_deleted, id__in=ids)}
+        return [by_id.get(i) for i in ids]
 
     @classmethod
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Log]:
@@ -109,6 +123,13 @@ class Metric:
         return cls.from_row(row) if row else None
 
     @classmethod
+    def gets(cls, con, ids: list[int], *, include_deleted: bool = False) -> list[Metric | None]:
+        if not ids:
+            return []
+        by_id = {r["id"]: cls.from_row(r) for r in _db.query(con, "metric", include_deleted=include_deleted, id__in=ids)}
+        return [by_id.get(i) for i in ids]
+
+    @classmethod
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Metric]:
         rows = _db.query(con, "metric", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
@@ -136,6 +157,13 @@ class Clock:
         return cls.from_row(row) if row else None
 
     @classmethod
+    def gets(cls, con, ids: list[int], *, include_deleted: bool = False) -> list[Clock | None]:
+        if not ids:
+            return []
+        by_id = {r["id"]: cls.from_row(r) for r in _db.query(con, "clock", include_deleted=include_deleted, id__in=ids)}
+        return [by_id.get(i) for i in ids]
+
+    @classmethod
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Clock]:
         rows = _db.query(con, "clock", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
@@ -161,6 +189,13 @@ class Sched:
     def get(cls, con, id: int, *, include_deleted: bool = False) -> Sched | None:
         row = _db.get(con, "sched", id, include_deleted=include_deleted)
         return cls.from_row(row) if row else None
+
+    @classmethod
+    def gets(cls, con, ids: list[int], *, include_deleted: bool = False) -> list[Sched | None]:
+        if not ids:
+            return []
+        by_id = {r["id"]: cls.from_row(r) for r in _db.query(con, "sched", include_deleted=include_deleted, id__in=ids)}
+        return [by_id.get(i) for i in ids]
 
     @classmethod
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Sched]:
