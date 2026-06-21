@@ -14,20 +14,33 @@ from .output import output_format, TextRenderable, text_renderer
 
 @text_renderer("sched_clear")
 def _render_sched_clear(result):
-    for m in result["messages"]:
-        out(m)
+    for item in result["nodes"]:
+        out(_c(f"✓ #{item['node_id']} cleared {item['count']} schedule entries", "meta"))
 
 
 @text_renderer("sched_query")
 def _render_sched_query(result):
     for item in result:
-        out(item["_msg"])
+        nid = item["node_id"]
+        if item["on_date"] is None and item["rrule"] is None:
+            out(_c(f"#{nid} has no schedule", "meta"))
+        else:
+            out("  " + _c(f"#{nid} @" + (item["on_date"] or item["rrule"]), "planned"))
 
 
 @text_renderer("sched_write")
 def _render_sched_write(result):
-    for m in result["messages"]:
-        out(m)
+    for op in result["ops"]:
+        if op["type"] == "rrule":
+            if op["exists"]:
+                out(_c(f"= #{op['node_id']} already on recurring schedule: {op['rule']}", "meta"))
+            else:
+                out(_c(f"✓ #{op['node_id']} recurring schedule: {op['rule']}", "meta"))
+        else:
+            if op["exists"]:
+                out(_c(f"= #{op['node_id']} already scheduled to {op['date']}", "meta"))
+            else:
+                out(_c(f"✓ #{op['node_id']} scheduled to {op['date']}", "meta"))
 
 
 @output_format
@@ -37,27 +50,24 @@ def cmd_sched(args, con):
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
     if args.clear:
-        clear_msgs = []
+        nodes = []
         total = 0
         for nid in ids:
             n = _db.delete(con, "sched", node_id=nid)
             total += n
-            clear_msgs.append(_c(f"✓ #{nid} cleared {n} schedule entries", "meta"))
+            nodes.append({"node_id": nid, "count": n})
         con.commit()
-        return TextRenderable({"action": "clear", "cleared": total, "messages": clear_msgs},
-                              cmd_name="sched_clear")
+        return TextRenderable({"cleared": total, "nodes": nodes}, cmd_name="sched_clear")
     if not args.when and not args.recur:
         result = []
         for nid in ids:
             rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
             if not rows:
-                result.append({"node_id": nid, "on_date": None, "rrule": None,
-                                "_msg": _c(f"#{nid} has no schedule", "meta")})
+                result.append({"node_id": nid, "on_date": None, "rrule": None})
             for r in rows:
-                result.append({"node_id": nid, "on_date": r["on_date"], "rrule": r["rrule"],
-                                "_msg": "  " + _c(f"#{nid} @" + (r["on_date"] or r["rrule"]), "planned")})
+                result.append({"node_id": nid, "on_date": r["on_date"], "rrule": r["rrule"]})
         return TextRenderable(result, cmd_name="sched_query")
-    render_msgs = []
+    ops = []
     if args.recur:
         try:
             rule = _norm_rrule(args.recur)
@@ -66,10 +76,7 @@ def cmd_sched(args, con):
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, rrule) row
             exists = _db.exists(con, "sched", node_id=nid, rrule=rule)
-            if exists:
-                render_msgs.append(_c(f"= #{nid} already on recurring schedule: {rule}", "meta"))
-            else:
-                render_msgs.append(_c(f"✓ #{nid} recurring schedule: {rule}", "meta"))
+            ops.append({"type": "rrule", "node_id": nid, "rule": rule, "exists": exists})
             if not exists:
                 _db.insert(con, "sched", {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
         con.commit()
@@ -83,10 +90,7 @@ def cmd_sched(args, con):
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, on_date) row
             exists = _db.exists(con, "sched", node_id=nid, on_date=d)
-            if exists:
-                render_msgs.append(_c(f"= #{nid} already scheduled to {d}", "meta"))
-            else:
-                render_msgs.append(_c(f"✓ #{nid} scheduled to {d}", "meta"))
+            ops.append({"type": "on_date", "node_id": nid, "date": d, "exists": exists})
             if not exists:
                 _db.insert(con, "sched", {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
         con.commit()
@@ -95,8 +99,7 @@ def cmd_sched(args, con):
     rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid,
                      order="on_date NULLS LAST, rrule")
     schedule = [{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]
-    msgs = render_msgs
-    return TextRenderable(schedule, lambda: _render_sched_write({"messages": msgs, "schedule": schedule}))
+    return TextRenderable({"ops": ops, "schedule": schedule}, cmd_name="sched_write")
 
 
 @text_renderer("sched_ls")

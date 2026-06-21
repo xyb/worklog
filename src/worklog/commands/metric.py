@@ -195,7 +195,7 @@ def attach_metric_specs(con, log_id, node_id, specs, *, at=None):
 
 @text_renderer("metric_add")
 def _render_metric_add(result):
-    out(_c("✓", "done") + " " + result["_line"])
+    out(_c("✓", "done") + " " + _line(result))
 
 
 @output_format
@@ -234,7 +234,6 @@ def cmd_metric_add(args, con):
         raise
     row = _db.get(con, "metric", mid)
     result = _metric_dict(row)
-    result["_line"] = _line(row)
     return TextRenderable(result, cmd_name="metric_add")
 
 
@@ -282,14 +281,14 @@ def cmd_metric_ls(args, con):
     subj = "no metrics" if glob else f"node #{node} has no metrics"
     empty_msg = f"{subj}{filt}{scope}"
     return TextRenderable(
-        data_rows,
-        lambda: _render_metric_ls({"rows": data_rows, "glob": glob, "empty_msg": empty_msg}),
+        {"rows": data_rows, "glob": glob, "empty_msg": empty_msg},
+        cmd_name="metric_ls",
     )
 
 
 @text_renderer("metric_edit")
 def _render_metric_edit(result):
-    out(_c("✓", "done") + " " + result["_line"])
+    out(_c("✓", "done") + " " + _line(result))
 
 
 @output_format
@@ -349,7 +348,6 @@ def cmd_metric_edit(args, con):
     con.commit()
     row = _db.get(con, "metric", mid)
     result = _metric_dict(row)
-    result["_line"] = _line(row)
     return TextRenderable(result, cmd_name="metric_edit")
 
 

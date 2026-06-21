@@ -246,7 +246,8 @@ class TestMetricLsJson:
         cli("add", "task")
         cli("metric", "add", "1", "weight", "70", "--unit", "kg")
         cli("metric", "add", "1", "weight", "71")
-        rows = _j(cli, "metric", "ls", "1", "-o", "json")
+        d = _j(cli, "metric", "ls", "1", "-o", "json")
+        rows = d["rows"]
         assert len(rows) == 2
         assert rows[0]["tag"] == "weight"
         assert rows[0]["value_num"] == 70.0
@@ -256,14 +257,14 @@ class TestMetricLsJson:
 
     def test_empty_returns_empty_list(self, cli):
         cli("add", "bare")
-        rows = _j(cli, "metric", "ls", "1", "-o", "json")
-        assert rows == []
+        d = _j(cli, "metric", "ls", "1", "-o", "json")
+        assert d["rows"] == []
 
     def test_prefix_syntax(self, cli):
         cli("add", "task")
         cli("metric", "add", "1", "hr", "60")
-        rows = _j(cli, "-o", "json", "metric", "ls", "1")
-        assert rows[0]["tag"] == "hr"
+        d = _j(cli, "-o", "json", "metric", "ls", "1")
+        assert d["rows"][0]["tag"] == "hr"
 
 
 class TestWriteCommandsJson:
@@ -634,8 +635,8 @@ class TestMetricWriteJson:
 class TestSchedWriteJson:
     def test_sched_add_returns_updated_list(self, cli):
         cli("add", "task")
-        rows = _j(cli, "sched", "1", "2026-09-01", "-o", "json")
-        assert any(r["on_date"] == "2026-09-01" for r in rows)
+        d = _j(cli, "sched", "1", "2026-09-01", "-o", "json")
+        assert any(r["on_date"] == "2026-09-01" for r in d["schedule"])
 
     def test_sched_rm_returns_cleared_count(self, cli):
         cli("add", "task")
