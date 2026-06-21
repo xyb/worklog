@@ -24,6 +24,7 @@ from dataclasses import dataclass
 from .. import timeutil as _tu
 from .. import db_table as _db
 from ..helpers import _resolve_concrete_date, _resolve_window
+from ..models import Metric
 from ..queries import _require_node, _has_checkin
 from ..render import _c, die, out
 from .output import output_format, TextRenderable, text_renderer
@@ -34,7 +35,7 @@ CHECKIN_TAG = "checkin"   # reserved metric tag: the structured "done today" sig
 
 @dataclass
 class MetricLsResult:
-    rows: list  # list of metric dicts; kept as dicts since _line() is shared with other callers
+    rows: list  # list[Metric]
     glob: bool
     empty_msg: str
 
@@ -96,13 +97,13 @@ def _fmt_num(n):
     return str(int(n)) if float(n) == int(n) else f"{n:g}"
 
 
-def _fmt_value(row):
+def _fmt_value(value_num, value_text, unit=None):
     """Human display of a metric's value + unit."""
-    if row["value_num"] is not None:
-        v = _fmt_num(row["value_num"])
-        return f"{v} {row['unit']}".rstrip() if row["unit"] else v
-    if row["value_text"] is not None:
-        return row["value_text"]
+    if value_num is not None:
+        v = _fmt_num(value_num)
+        return f"{v} {unit}".rstrip() if unit else v
+    if value_text is not None:
+        return value_text
     return ""
 
 
@@ -112,25 +113,20 @@ def metric_rows(metrics, indent, *, cap=5):
     ``↳ … N more datapoints`` overflow line. ``metrics`` are pre-fetched rows (tag +
     value fields); ``indent`` is the leading whitespace. Returns the rendered lines so
     every caller folds datapoints identically instead of re-inlining the format."""
-    lines = [indent + _c(f"↳ [{m['tag']}] {_fmt_value(m)}".rstrip(), "meta") for m in metrics[:cap]]
+    lines = [indent + _c(f"↳ [{m['tag']}] {_fmt_value(m['value_num'], m['value_text'], m['unit'])}".rstrip(), "meta") for m in metrics[:cap]]
     if len(metrics) > cap:
         lines.append(indent + _c(f"↳ … {len(metrics) - cap} more datapoints", "meta"))
     return lines
 
 
-def _line(row):
-    line = (_c(f"#M{row['id']}", "id") + " " + _c(f"[{row['tag']}]", "planned")
-            + f" {_fmt_value(row)}".rstrip() + _c(f"  @{_tu.utc_to_local(row['at'])}", "meta"))
-    if row["note"]:
-        line += _c(f"  — {row['note']}", "meta")
-    line += _c(f"  ⟶ #L{row['log_id']}", "meta")
+def _line(m: Metric):
+    line = (_c(f"#M{m.id}", "id") + " " + _c(f"[{m.tag}]", "planned")
+            + f" {_fmt_value(m.value_num, m.value_text, m.unit)}".rstrip()
+            + _c(f"  @{_tu.utc_to_local(m.at)}", "meta"))
+    if m.note:
+        line += _c(f"  — {m.note}", "meta")
+    line += _c(f"  ⟶ #L{m.log_id}", "meta")
     return line
-
-
-def _metric_dict(row):
-    return {"id": row["id"], "node_id": row["node_id"], "log_id": row["log_id"],
-            "tag": row["tag"], "value_num": row["value_num"], "value_text": row["value_text"],
-            "unit": row["unit"], "note": row["note"], "at": row["at"]}
 
 
 def _insert_metric_on_log(con, log_id, node_id, tag, value, *,
@@ -241,8 +237,7 @@ def cmd_metric_add(args, con):
         con.rollback()
         raise
     row = _db.get(con, "metric", mid)
-    result = _metric_dict(row)
-    return TextRenderable(result, cmd_name="metric_add")
+    return TextRenderable(Metric.from_row(row), cmd_name="metric_add")
 
 
 @text_renderer("metric_ls")
@@ -253,7 +248,7 @@ def _render_metric_ls(result: MetricLsResult):
         for r in result.rows:
             line = _line(r)
             if result.glob:
-                line = _c(f"#{r['node_id']}", "id") + " " + line
+                line = _c(f"#{r.node_id}", "id") + " " + line
             out(line)
 
 
@@ -281,9 +276,7 @@ def cmd_metric_ls(args, con):
     order = "node_id, at, id" if glob else "at, id"
     rows = list(con.execute(
         f"SELECT * FROM metric WHERE {' AND '.join(where)} ORDER BY {order}", params))
-    data_rows = [{"id": r["id"], "node_id": r["node_id"], "log_id": r["log_id"],
-                  "tag": r["tag"], "value_num": r["value_num"], "value_text": r["value_text"],
-                  "unit": r["unit"], "note": r["note"], "at": r["at"]} for r in rows]
+    data_rows = [Metric.from_row(r) for r in rows]
     filt = f" tag={args.tag}" if args.tag else ""
     scope = "" if args.all else " in window (use --all / --week / --month)"
     subj = "no metrics" if glob else f"node #{node} has no metrics"
@@ -355,8 +348,7 @@ def cmd_metric_edit(args, con):
     _db.update(con, "metric", mid, changes)
     con.commit()
     row = _db.get(con, "metric", mid)
-    result = _metric_dict(row)
-    return TextRenderable(result, cmd_name="metric_edit")
+    return TextRenderable(Metric.from_row(row), cmd_name="metric_edit")
 
 
 @text_renderer("metric_rm")

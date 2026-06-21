@@ -62,7 +62,7 @@ from ..queries import (
     _status_filter_sql,
     _upsert_prop,
 )
-from .metric import _fmt_value, metric_rows
+from .metric import metric_rows
 from .output import output_format, TextRenderable, text_renderer
 from ..render import (
     _PRI_STYLE,

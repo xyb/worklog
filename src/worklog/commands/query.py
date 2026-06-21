@@ -1352,7 +1352,7 @@ def _show_timeline(con, args, n):
     # event tuple: (ts, label, extra, log_id, metrics) — log_id only for log events, meta events None;
     # metrics folded under their log line
     def _mline(m):
-        return f"[{m['tag']}] {_fmt_value(m)}".rstrip()
+        return f"[{m['tag']}] {_fmt_value(m['value_num'], m['value_text'], m['unit'])}".rstrip()
 
     events = []
     if n["created_at"]:
