@@ -1,12 +1,12 @@
-"""Domain model layer: dataclasses that mirror the worklog DB schema, plus
-thin class-level read helpers.
+"""Domain model layer: dataclasses that mirror the worklog DB schema.
 
 One class per table. Design rules:
 - Field names match DB column names exactly.
 - ``from_row(row)`` constructs from a sqlite3.Row or any mapping.
-- ``get()`` and ``query()`` are thin wrappers around db_table helpers that
-  apply ``from_row()``; they own the table-name string so callers don't
-  repeat it.
+- CRUD class methods wrap db_table helpers with the table name baked in.
+  Reads: ``get`` / ``gets`` / ``query``.
+  Writes: ``insert`` / ``update`` / ``upsert`` / ``delete`` / ``purge``.
+  None of these commit; the caller owns the transaction.
 - No business logic, no rendering.
 - ``deleted_at`` is omitted — it is a storage implementation detail of the
   soft-delete system; models represent *live* domain objects.
@@ -44,6 +44,8 @@ class Node:
             closed_at=row["closed_at"], body=row["body"],
         )
 
+    # ── reads ────────────────────────────────────────────────────────────────
+
     @classmethod
     def get(cls, con, id: int, *, include_deleted: bool = False) -> Node | None:
         row = _db.get(con, "node", id, include_deleted=include_deleted)
@@ -60,6 +62,24 @@ class Node:
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Node]:
         rows = _db.query(con, "node", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
+
+    # ── writes ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    def insert(cls, con, row: dict, *, or_=None) -> int:
+        return _db.insert(con, "node", row, or_=or_)
+
+    @classmethod
+    def update(cls, con, row_id: int, changes: dict) -> int:
+        return _db.update(con, "node", row_id, changes)
+
+    @classmethod
+    def delete(cls, con, **conds) -> int:
+        return _db.delete(con, "node", **conds)
+
+    @classmethod
+    def purge(cls, con, **conds) -> int:
+        return _db.purge(con, "node", **conds)
 
 
 @dataclass
@@ -78,6 +98,8 @@ class Log:
             body=row["body"], tag=row["tag"],
         )
 
+    # ── reads ────────────────────────────────────────────────────────────────
+
     @classmethod
     def get(cls, con, id: int, *, include_deleted: bool = False) -> Log | None:
         row = _db.get(con, "log", id, include_deleted=include_deleted)
@@ -94,6 +116,24 @@ class Log:
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Log]:
         rows = _db.query(con, "log", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
+
+    # ── writes ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    def insert(cls, con, row: dict, *, or_=None) -> int:
+        return _db.insert(con, "log", row, or_=or_)
+
+    @classmethod
+    def update(cls, con, row_id: int, changes: dict) -> int:
+        return _db.update(con, "log", row_id, changes)
+
+    @classmethod
+    def delete(cls, con, **conds) -> int:
+        return _db.delete(con, "log", **conds)
+
+    @classmethod
+    def purge(cls, con, **conds) -> int:
+        return _db.purge(con, "log", **conds)
 
 
 @dataclass
@@ -117,6 +157,8 @@ class Metric:
             unit=row["unit"], note=row["note"], at=row["at"],
         )
 
+    # ── reads ────────────────────────────────────────────────────────────────
+
     @classmethod
     def get(cls, con, id: int, *, include_deleted: bool = False) -> Metric | None:
         row = _db.get(con, "metric", id, include_deleted=include_deleted)
@@ -133,6 +175,24 @@ class Metric:
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Metric]:
         rows = _db.query(con, "metric", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
+
+    # ── writes ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    def insert(cls, con, row: dict, *, or_=None) -> int:
+        return _db.insert(con, "metric", row, or_=or_)
+
+    @classmethod
+    def update(cls, con, row_id: int, changes: dict) -> int:
+        return _db.update(con, "metric", row_id, changes)
+
+    @classmethod
+    def delete(cls, con, **conds) -> int:
+        return _db.delete(con, "metric", **conds)
+
+    @classmethod
+    def purge(cls, con, **conds) -> int:
+        return _db.purge(con, "metric", **conds)
 
 
 @dataclass
@@ -151,6 +211,8 @@ class Clock:
             end_at=row["end_at"], elapsed_sec=row["elapsed_sec"],
         )
 
+    # ── reads ────────────────────────────────────────────────────────────────
+
     @classmethod
     def get(cls, con, id: int, *, include_deleted: bool = False) -> Clock | None:
         row = _db.get(con, "clock", id, include_deleted=include_deleted)
@@ -167,6 +229,24 @@ class Clock:
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Clock]:
         rows = _db.query(con, "clock", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
+
+    # ── writes ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    def insert(cls, con, row: dict, *, or_=None) -> int:
+        return _db.insert(con, "clock", row, or_=or_)
+
+    @classmethod
+    def update(cls, con, row_id: int, changes: dict) -> int:
+        return _db.update(con, "clock", row_id, changes)
+
+    @classmethod
+    def delete(cls, con, **conds) -> int:
+        return _db.delete(con, "clock", **conds)
+
+    @classmethod
+    def purge(cls, con, **conds) -> int:
+        return _db.purge(con, "clock", **conds)
 
 
 @dataclass
@@ -185,6 +265,8 @@ class Sched:
             rrule=row["rrule"], created_at=row["created_at"],
         )
 
+    # ── reads ────────────────────────────────────────────────────────────────
+
     @classmethod
     def get(cls, con, id: int, *, include_deleted: bool = False) -> Sched | None:
         row = _db.get(con, "sched", id, include_deleted=include_deleted)
@@ -202,6 +284,24 @@ class Sched:
         rows = _db.query(con, "sched", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
 
+    # ── writes ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    def insert(cls, con, row: dict, *, or_=None) -> int:
+        return _db.insert(con, "sched", row, or_=or_)
+
+    @classmethod
+    def update(cls, con, row_id: int, changes: dict) -> int:
+        return _db.update(con, "sched", row_id, changes)
+
+    @classmethod
+    def delete(cls, con, **conds) -> int:
+        return _db.delete(con, "sched", **conds)
+
+    @classmethod
+    def purge(cls, con, **conds) -> int:
+        return _db.purge(con, "sched", **conds)
+
 
 @dataclass
 class Prop:
@@ -214,10 +314,30 @@ class Prop:
     def from_row(cls, row) -> Prop:
         return cls(node_id=row["node_id"], key=row["key"], value=row["value"])
 
+    # ── reads ────────────────────────────────────────────────────────────────
+
     @classmethod
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Prop]:
         rows = _db.query(con, "prop", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
+
+    # ── writes ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    def insert(cls, con, row: dict, *, or_=None) -> int:
+        return _db.insert(con, "prop", row, or_=or_)
+
+    @classmethod
+    def upsert(cls, con, row: dict) -> bool:
+        return _db.upsert(con, "prop", row, key=("node_id", "key"))
+
+    @classmethod
+    def delete(cls, con, **conds) -> int:
+        return _db.delete(con, "prop", **conds)
+
+    @classmethod
+    def purge(cls, con, **conds) -> int:
+        return _db.purge(con, "prop", **conds)
 
 
 @dataclass
@@ -230,10 +350,30 @@ class Tag:
     def from_row(cls, row) -> Tag:
         return cls(node_id=row["node_id"], tag=row["tag"])
 
+    # ── reads ────────────────────────────────────────────────────────────────
+
     @classmethod
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Tag]:
         rows = _db.query(con, "tag", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
+
+    # ── writes ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    def insert(cls, con, row: dict, *, or_=None) -> int:
+        return _db.insert(con, "tag", row, or_=or_)
+
+    @classmethod
+    def upsert(cls, con, row: dict) -> bool:
+        return _db.upsert(con, "tag", row, key=("node_id", "tag"))
+
+    @classmethod
+    def delete(cls, con, **conds) -> int:
+        return _db.delete(con, "tag", **conds)
+
+    @classmethod
+    def purge(cls, con, **conds) -> int:
+        return _db.purge(con, "tag", **conds)
 
 
 @dataclass
@@ -246,10 +386,30 @@ class Link:
     def from_row(cls, row) -> Link:
         return cls(node_id=row["node_id"], vault_doc=row["vault_doc"])
 
+    # ── reads ────────────────────────────────────────────────────────────────
+
     @classmethod
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Link]:
         rows = _db.query(con, "link", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
+
+    # ── writes ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    def insert(cls, con, row: dict, *, or_=None) -> int:
+        return _db.insert(con, "link", row, or_=or_)
+
+    @classmethod
+    def upsert(cls, con, row: dict) -> bool:
+        return _db.upsert(con, "link", row, key=("node_id", "vault_doc"))
+
+    @classmethod
+    def delete(cls, con, **conds) -> int:
+        return _db.delete(con, "link", **conds)
+
+    @classmethod
+    def purge(cls, con, **conds) -> int:
+        return _db.purge(con, "link", **conds)
 
 
 @dataclass
@@ -262,6 +422,8 @@ class DateMeta:
     def from_row(cls, row) -> DateMeta:
         return cls(date=row["date"], label=row["label"])
 
+    # ── reads ────────────────────────────────────────────────────────────────
+
     @classmethod
     def get(cls, con, date: str) -> DateMeta | None:
         row = _db.query_one(con, "date_meta", date=date)
@@ -271,3 +433,17 @@ class DateMeta:
     def query(cls, con, *, order=None, limit=None, **conds) -> list[DateMeta]:
         rows = _db.query(con, "date_meta", order=order, limit=limit, **conds)
         return [cls.from_row(r) for r in rows]
+
+    # ── writes ───────────────────────────────────────────────────────────────
+
+    @classmethod
+    def upsert(cls, con, row: dict) -> bool:
+        return _db.upsert(con, "date_meta", row, key=("date",))
+
+    @classmethod
+    def delete(cls, con, **conds) -> int:
+        return _db.delete(con, "date_meta", **conds)
+
+    @classmethod
+    def purge(cls, con, **conds) -> int:
+        return _db.purge(con, "date_meta", **conds)
