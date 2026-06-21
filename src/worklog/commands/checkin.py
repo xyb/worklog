@@ -23,8 +23,7 @@ def _render_checkin(result):
         type_str = "/".join(result.get("types", ["habit"]))
         out(_c(f"(no {type_str} scheduled to check in for {today})", "meta"))
         return
-    if "new" not in result:
-        # all-already-done path: checked_in == total
+    if result.get("new") == 0 and result.get("skipped") == 0 and checked_in == total:
         out(_c(f"all {checked_in}/{total} already checked in for {result['today']} ✓", "done"))
         return
     new = result["new"]
@@ -54,7 +53,7 @@ def cmd_checkin(args, con):
     if not pending:
         _n = len(rows)
         return TextRenderable(
-            {"today": today, "checked_in": _n, "total": _n},
+            {"today": today, "checked_in": _n, "total": _n, "new": 0, "skipped": 0},
             cmd_name="checkin",
         )
 

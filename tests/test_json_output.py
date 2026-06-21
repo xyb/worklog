@@ -670,7 +670,9 @@ class TestUnlogJson:
     def test_no_logs_returns_empty_deleted(self, cli):
         cli("add", "task")
         d = _j(cli, "log", "rm", "--node", "1", "-o", "json")
-        assert d == {"deleted": []}
+        assert d["deleted"] == []
+        assert d["node_id"] == 1
+        assert d["metrics_deleted"] == 0
 
 
 class TestRelogJson:

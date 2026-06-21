@@ -82,15 +82,15 @@ def text_renderer(name: str):
 
     Example::
 
-        @text_renderer("alias_ls")
-        def _render_alias_ls(result):
-            for item in result:
-                out(_c(item["name"], "id") + " → " + item["target"])
+        @text_renderer("foo_ls")
+        def _render_foo_ls(result):
+            for item in result["items"]:
+                out(_c(item["name"], "id") + " = " + item["value"])
 
     Override a built-in renderer at runtime::
 
         from worklog.commands.output import _TEXT_RENDERERS
-        _TEXT_RENDERERS["alias_ls"] = my_custom_renderer
+        _TEXT_RENDERERS["foo_ls"] = my_custom_renderer
     """
     def decorator(fn):
         _TEXT_RENDERERS[name] = fn

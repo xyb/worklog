@@ -321,7 +321,9 @@ def cmd_add(args, con):
 
 @text_renderer("log")
 def _render_log(result):
-    out(f"✓ log added to #{result['node_id']}{result['auto_progress_hint']}{result['metric_hint']}  @{_tu.local_now()[:16]}")
+    progress = " (status: TODO → DOING)" if result["status_changed"] else ""
+    metrics = f" + {result['metrics_added']} metric(s)" if result["metrics_added"] else ""
+    out(f"✓ log added to #{result['node_id']}{progress}{metrics}  @{_tu.local_now()[:16]}")
 
 
 @output_format
@@ -342,23 +344,22 @@ def cmd_log(args, con):
         die(f"invalid date: {e}")
     # auto TODO -> DOING (when no --date, "I logged something" implies "I'm working on it")
     # backfilling history (--date) does not change status; --keep-status explicitly disables
-    auto_progress_hint = ""
+    status_changed = False
     if not getattr(args, "keep_status", False) and not date:
         row = _db.query_one(con, "node", cols="status", id=args.id)
         if row and row["status"] == "TODO":
             _db.update(con, "node", args.id, {"status": "DOING"})
-            auto_progress_hint = " (status: TODO → DOING)"
+            status_changed = True
     # --metric: attach structured datapoint(s) to this log (inherit its timestamp)
-    metric_hint = ""
+    metrics_added = 0
     specs = getattr(args, "metric", None)
     if specs:
         log_at = _db.get(con, "log", log_id)["logged_at"]
-        nm = attach_metric_specs(con, log_id, args.id, specs, at=log_at)
-        metric_hint = f" + {nm} metric(s)"
+        metrics_added = attach_metric_specs(con, log_id, args.id, specs, at=log_at)
     con.commit()
     row = _db.get(con, "log", log_id)
     result = {"id": log_id, "node_id": args.id, "body": row["body"], "logged_at": row["logged_at"],
-              "auto_progress_hint": auto_progress_hint, "metric_hint": metric_hint}
+              "status_changed": status_changed, "metrics_added": metrics_added}
     return TextRenderable(result, cmd_name="log")
 
 
@@ -925,18 +926,26 @@ def cmd_unlog(args, con):
     rows = list(con.execute(sql, (nid, date)))
     if not rows:
         _nid, _date = nid, date
-        return TextRenderable({"deleted": []}, lambda: out(_c(f"(node #{_nid} has no non-CLOCK logs on {_date})", "meta")))
+        return TextRenderable(
+            {"deleted": [], "node_id": nid, "metrics_deleted": 0, "messages": []},
+            lambda: out(_c(f"(node #{_nid} has no non-CLOCK logs on {_date})", "meta")),
+        )
     deleted_lines = []
     deleted_ids = []
+    total_metrics = 0
     for r in rows:
         nmetric = _db.count(con, "metric", log_id=r["id"])
         soft_delete_log(con, r["id"])
         deleted_ids.append(r["id"])
+        total_metrics += nmetric
         body_preview = r["body"][:60] + ("…" if len(r["body"]) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
         deleted_lines.append(f"✓ deleted log #{r['id']}{extra} (node #{nid}, {_tu.utc_to_local(r['logged_at'])}): {body_preview}")
     con.commit()
-    return TextRenderable({"deleted": deleted_ids, "messages": deleted_lines}, cmd_name="unlog")
+    return TextRenderable(
+        {"deleted": deleted_ids, "node_id": nid, "metrics_deleted": total_metrics, "messages": deleted_lines},
+        cmd_name="unlog",
+    )
 
 
 @text_renderer("unlog")
