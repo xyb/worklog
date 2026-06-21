@@ -507,8 +507,7 @@ def cmd_descendants(args, con):
     if not n:
         die(f"node #{args.id} not found")
     desc_ids = sorted(_collect_descendants(con, args.id))
-    nodes = [_db.get(con, "node", nid) for nid in desc_ids]
-    live_nodes = [nd for nd in nodes if nd]
+    live_nodes = [n for n in Node.gets(con, desc_ids) if n]
     json_data = [_node_summary_view(con, nd) for nd in live_nodes]
     captured_n = n
     captured_depth = args.depth

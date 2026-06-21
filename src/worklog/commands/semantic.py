@@ -16,6 +16,7 @@ from .. import embedding as _embedding
 from .. import vectorstore as _vs
 from .. import db_table as _db
 from .. import render
+from ..models import Node
 from ..render import _c, _node_line, _hl_terms, _detail_line, die, out
 from ..helpers import _truncate_log_body, _display_width
 from ..xdg import _resolve_vec_db_path
@@ -415,8 +416,8 @@ def cmd_query(args, con):
                          "matched_field": h.get("chunk_field", ""), "matched_text": h.get("chunk_text", "")})
 
     # build node objects for rendering (avoid re-querying in _render)
-    fused_nodes = [(nid, _db.get(con, "node", nid), vec_map.get(nid, {})) for nid in fused]
-    fused_nodes = [(nid, n, h) for nid, n, h in fused_nodes if n]
+    fused_nodes = [(nid, n, vec_map.get(nid, {}))
+                   for nid, n in zip(fused, Node.gets(con, list(fused))) if n]
 
     def _render():
         if not fused_nodes:

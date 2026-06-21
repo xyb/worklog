@@ -402,7 +402,7 @@ def cmd_defer(args, con):
         Node.update(con, nid, {"status": "LATER", "scheduled_date": when})
     con.commit()
     from .query import _node_summary_view
-    result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in ids]
+    result = [_node_summary_view(con, n) for n in Node.gets(con, ids) if n]
     _ids, _when = ids, when
 
     def _render():
@@ -435,7 +435,7 @@ def cmd_start(args, con):
         started.append(nid)
     con.commit()
     from .query import _node_summary_view
-    result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in started]
+    result = [_node_summary_view(con, n) for n in Node.gets(con, started) if n]
     _skipped, _started, _note = skipped, started, note
 
     def _render():
@@ -470,7 +470,7 @@ def cmd_stop(args, con):
         stop_lines.append((nid, secs))
     con.commit()
     from .query import _node_summary_view
-    result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in ids]
+    result = [_node_summary_view(con, n) for n in Node.gets(con, ids) if n]
     _stop_lines = stop_lines
 
     def _render():
@@ -867,7 +867,7 @@ def cmd_wait(args, con):
             _insert_log(con, nid, f"WAIT: {args.note}")
     con.commit()
     from .query import _node_summary_view
-    result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in ids]
+    result = [_node_summary_view(con, n) for n in Node.gets(con, ids) if n]
     _ids, _note = ids, args.note
 
     def _render():
@@ -1256,7 +1256,7 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
     note = f" @{_tu.utc_to_local(at_ts)[11:16]}" if at_ts else ""
     log_hint = " + log" if log_body else ""
     from .query import _node_summary_view
-    result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in ids]
+    result = [_node_summary_view(con, n) for n in Node.gets(con, ids) if n]
 
     def _render():
         for nid in ids:

@@ -22,7 +22,14 @@ from . import db_table as _db
 
 
 @dataclass
-class Node:
+class _Model:
+    """Base mixin: dict-style read access so model objects are drop-in for sqlite3.Row."""
+    def __getitem__(self, key: str):
+        return getattr(self, key)
+
+
+@dataclass
+class Node(_Model):
     """Mirrors the ``node`` table (task/project/time-node hierarchy)."""
     id: int
     parent_id: int | None
@@ -96,7 +103,7 @@ class Node:
 
 
 @dataclass
-class Log:
+class Log(_Model):
     """Mirrors the ``log`` table (append-only record on a node)."""
     id: int
     node_id: int
@@ -163,7 +170,7 @@ class Log:
 
 
 @dataclass
-class Metric:
+class Metric(_Model):
     """Mirrors the ``metric`` table (structured datapoint hanging off a log)."""
     id: int
     log_id: int
@@ -235,7 +242,7 @@ class Metric:
 
 
 @dataclass
-class Clock:
+class Clock(_Model):
     """Mirrors the ``clock`` table (time-tracking interval on a node)."""
     id: int
     node_id: int
@@ -302,7 +309,7 @@ class Clock:
 
 
 @dataclass
-class Sched:
+class Sched(_Model):
     """Mirrors the ``sched`` table (forward-planning entry: one-off date or rrule)."""
     id: int
     node_id: int
@@ -369,7 +376,7 @@ class Sched:
 
 
 @dataclass
-class Prop:
+class Prop(_Model):
     """Mirrors the ``prop`` table (user-defined attribute on a node)."""
     node_id: int
     key: str
@@ -419,7 +426,7 @@ class Prop:
 
 
 @dataclass
-class Tag:
+class Tag(_Model):
     """Mirrors the ``tag`` table (work/personal/… classification on a node)."""
     node_id: int
     tag: str
@@ -468,7 +475,7 @@ class Tag:
 
 
 @dataclass
-class Link:
+class Link(_Model):
     """Mirrors the ``link`` table (vault wikilink attached to a node)."""
     node_id: int
     vault_doc: str  # vault document name without .md suffix
@@ -517,7 +524,7 @@ class Link:
 
 
 @dataclass
-class DateMeta:
+class DateMeta(_Model):
     """Mirrors the ``date_meta`` table (calendar annotation: holiday, makeup day, …)."""
     date: str    # YYYY-MM-DD
     label: str   # e.g. "Labor Day holiday" / "makeup workday"

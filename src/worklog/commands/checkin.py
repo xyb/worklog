@@ -4,6 +4,7 @@ from __future__ import annotations
 from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
+from ..models import Node
 from .metric import checkin_metric
 from ..queries import _has_checkin, _insert_log, node_type
 from ..render import _c, out
@@ -91,8 +92,7 @@ def _checkin_collect(con, args):
         types = {"habit", "task", "meetlog"}
 
     rows = []
-    for nid in sorted(sched_ids):
-        n = _db.get(con, "node", nid)
+    for n in Node.gets(con, sorted(sched_ids)):
         if not n:
             continue
         ntype = node_type(con, n)
@@ -101,7 +101,7 @@ def _checkin_collect(con, args):
         if n["status"] == "CANCELED" and not getattr(args, "show_canceled", False):
             continue
         # "already done today" = structured check-in metric (not "any log that day")
-        already = _has_checkin(con, nid, today)
+        already = _has_checkin(con, n.id, today)
         rows.append({
             "id": n["id"], "title": n["title"], "priority": n["priority"],
             "type": ntype, "already": bool(already),

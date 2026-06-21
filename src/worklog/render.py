@@ -400,15 +400,17 @@ def _relations_lines(con, rel, backrels=None, indent=2):
     this one (inbound). Those are MACHINE-DERIVED (computed by scanning text, not a stored prop),
     so the row is marked with a leading `=` + italic/dim. `indent` = column of the `relation:`
     header (rows sit at indent+2). Returns [] when there are neither. Shared by `wl relation` / `wl show`."""
-    from . import db_table as _db
+    from .models import Node
     backrels = backrels or []
     if not any(rel.values()) and not backrels:
         return []
     pad, rowpad = " " * indent, " " * (indent + 2)
+    all_rel_ids = [i for t in ("split-from", "split-into", "related") for i in (rel.get(t) or [])]
+    node_cache = {n.id: n for n in Node.gets(con, all_rel_ids) if n}
     lines = [pad + _c("relation:", "meta")]
     for t in ("split-from", "split-into", "related"):
         for k, i in enumerate(rel.get(t) or []):
-            n = _db.get(con, "node", i)
+            n = node_cache.get(i)
             title = n["title"] if n else "?"
             label = f"{t + ':':{_RELATION_LABEL_W}}" if k == 0 else " " * _RELATION_LABEL_W
             nid = f"#{i}"
