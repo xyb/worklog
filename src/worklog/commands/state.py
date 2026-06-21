@@ -956,7 +956,11 @@ def _render_unlog(result):
 
 @text_renderer("relog")
 def _render_relog(result):
-    out(_c(result["message"], "meta"))
+    if result.get("canceled"):
+        out(_c("(no change; relog canceled)", "meta"))
+        return
+    preview = result["body"][:60] + ("…" if len(result["body"]) > 60 else "")
+    out(_c(f"✓ relog #{result['id']} (node #{result['node_id']}, {_tu.utc_to_local(result['logged_at'])}): {preview}", "meta"))
 
 
 @output_format
@@ -1023,8 +1027,7 @@ def cmd_relog(args, con):
         # nothing given -> open EDITOR to edit body
         new_body = _edit_in_editor(row["body"], suffix=".log.txt")
         if new_body is None or new_body.strip() == row["body"]:
-            return TextRenderable({"id": log_id, "canceled": True, "message": "(no change; relog canceled)"},
-                                  cmd_name="relog")
+            return TextRenderable({"id": log_id, "canceled": True}, cmd_name="relog")
         new_body = new_body.strip()
 
     changes = {}
@@ -1036,10 +1039,8 @@ def cmd_relog(args, con):
     con.commit()
 
     new_row = _db.get(con, "log", log_id)
-    body_preview = new_row["body"][:60] + ("…" if len(new_row["body"]) > 60 else "")
-    msg = f"✓ relog #{log_id} (node #{row['node_id']}, {_tu.utc_to_local(new_row['logged_at'])}): {body_preview}"
     result = {"id": new_row["id"], "node_id": new_row["node_id"], "tag": new_row["tag"],
-              "body": new_row["body"], "logged_at": new_row["logged_at"], "message": msg}
+              "body": new_row["body"], "logged_at": new_row["logged_at"]}
     return TextRenderable(result, cmd_name="relog")
 
 
@@ -1410,7 +1411,11 @@ def cmd_prop_ls(args, con):
 
 @text_renderer("prop_rm")
 def _render_prop_rm(result):
-    out(_c(result["message"], "meta"))
+    key, nid, n = result["key"], result["node_id"], result["removed"]
+    if result.get("from_log"):
+        out(_c(f"✓ #{nid} {key} cleared ({n} log(s))" if n else f"(#{nid} has no {key})", "meta"))
+    else:
+        out(_c(f"✓ #{nid} prop '{key}' removed" if n else f"(#{nid} has no prop '{key}')", "meta"))
 
 
 @output_format
@@ -1426,9 +1431,8 @@ def cmd_prop_rm(args, con):
         # as reserved-tag logs, not props — clear it there (= wl goal rm).
         n = _db.delete(con, "log", node_id=args.id, tag=key)
         con.commit()
-        msg = f"✓ #{args.id} {key} cleared ({n} log(s))" if n else f"(#{args.id} has no {key})"
-        result = {"key": key, "removed": n, "message": msg}
-        return TextRenderable(result, cmd_name="prop_rm")
+        return TextRenderable({"key": key, "node_id": args.id, "removed": n, "from_log": True},
+                              cmd_name="prop_rm")
     n = _db.delete(con, "prop", node_id=args.id, key=key)
     if n and (key.startswith("type.") or key.startswith("date.")):
         # a structural classification key just changed what this node IS — surface it (non-blocking),
@@ -1438,9 +1442,8 @@ def cmd_prop_rm(args, con):
         print(f"⚠ #{args.id} is now '{new_type}' (removing '{key}' changed its classification)",
               file=sys.stderr)
     con.commit()
-    msg = f"✓ #{args.id} prop '{key}' removed" if n else f"(#{args.id} has no prop '{key}')"
-    result = {"key": key, "removed": n, "message": msg}
-    return TextRenderable(result, cmd_name="prop_rm")
+    return TextRenderable({"key": key, "node_id": args.id, "removed": n, "from_log": False},
+                          cmd_name="prop_rm")
 
 
 def cmd_prop(args, con):
