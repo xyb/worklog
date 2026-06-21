@@ -80,6 +80,40 @@ class NodeView:
         return {f.name: getattr(self, f.name) for f in fields(self) if f.metadata["view"] in keep}
 
 
+@dataclass
+class NodeSummaryView:
+    """CORE + SUMMARY node output DTO — the JSON contract for node list / write commands.
+
+    Contains every field a list view needs: identity, status, plan dates, tags, and the
+    orthogonal type facet. Produced by :func:`node_summary_view` which is the control-layer
+    factory; handlers return this so ``JSONFormatter`` can ``asdict()`` it reliably.
+    """
+    id: int
+    title: str
+    status: str | None
+    priority: str | None
+    type: dict
+    parent_id: int | None
+    scheduled_date: str | None
+    deadline_date: str | None
+    created_at: str
+    closed_at: str | None
+    tags: list
+
+
+def node_summary_view(con, n) -> NodeSummaryView:
+    """Build a :class:`NodeSummaryView` from a node row (full row from ``_db.get``)."""
+    props = node_props(con, n["id"])
+    return NodeSummaryView(
+        id=n["id"], title=n["title"], status=n["status"], priority=n["priority"],
+        type=type_facet(props),
+        parent_id=n["parent_id"], scheduled_date=n["scheduled_date"],
+        deadline_date=n["deadline_date"], created_at=n["created_at"],
+        closed_at=n["closed_at"],
+        tags=_node_tags(con, n["id"]),
+    )
+
+
 def node_view(con, n, view=SUMMARY) -> NodeView:
     """Build a :class:`NodeView` from a node row, populating the fields a ``view`` needs."""
     nv = NodeView(

@@ -12,7 +12,11 @@ from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
 from .. import node_types as _nt
-from ..node_schema import node_view as _node_view, type_facet as _type_facet, SUMMARY as _SUMMARY, FULL as _FULL
+from ..node_schema import (
+    node_view as _node_view, node_summary_view as _node_summary_view,
+    type_facet as _type_facet, SUMMARY as _SUMMARY, FULL as _FULL,
+    NodeSummaryView as _NodeSummaryView,
+)
 from .metric import _fmt_value, metric_rows
 from .output import output_format, text_renderer, TextRenderable
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
@@ -129,11 +133,9 @@ def _node_to_dict(con, n):
     return nv.to_dict(_FULL)
 
 
-def _node_summary_dict(con, n):
-    """Compact node form for list output (`wl ls -o json`): identity + the fields you filter /
-    sort by + tags. Full detail (props/links/logs/metrics/timeline) is `wl show -o json`. The
-    single declarative contract is `node_schema.NodeView`: classification is the
-    orthogonal `type` facet object (the independent `type.*` facets)."""
+def _node_summary_dict(con, n) -> dict:
+    """Compact node dict — use only where dict unpacking (**) is needed.
+    For TextRenderable payloads use :func:`_node_summary_view` instead."""
     return _node_view(con, n, _SUMMARY).to_dict(_SUMMARY)
 
 
@@ -255,7 +257,7 @@ def cmd_ls(args, con):
     # --ids mode: list specific ids directly (like ls file1 file2), skipping filters
     if getattr(args, "ids", None):
         rows, ids_render = _ls_ids(con, args)
-        json_data = [_node_summary_dict(con, n) for n in rows]
+        json_data = [_node_summary_view(con, n) for n in rows]
         return TextRenderable(json_data, ids_render)
 
     # ls-specific dimensions (--parent / --unscheduled / --recent / --sort) build the SQL; the
@@ -269,7 +271,7 @@ def cmd_ls(args, con):
     json_rows = rows
     if getattr(args, "limit", None) or getattr(args, "top", None):
         json_rows, _ = _apply_top_limit(rows, args)
-    json_data = [_node_summary_dict(con, n) for n in json_rows]
+    json_data = [_node_summary_view(con, n) for n in json_rows]
 
     if not rows:
         return TextRenderable(json_data, lambda: out("(no nodes)"))
@@ -419,9 +421,9 @@ def cmd_focus(args, con):
 
     # related data collection (deferred to render if args.related; collect early for json)
     json_result = {
-        "node": _node_summary_dict(con, n),
+        "node": _node_summary_view(con, n),
         "upstream": [{"id": p["id"], "title": p["title"], "type": node_type(con, p)} for p in upstream],
-        "downstream": [_node_summary_dict(con, c) for c in children] + [_node_summary_dict(con, p) for p in pinned],
+        "downstream": [_node_summary_view(con, c) for c in children] + [_node_summary_view(con, p) for p in pinned],
     }
 
     captured_n = n
@@ -505,7 +507,7 @@ def cmd_descendants(args, con):
     desc_ids = sorted(_collect_descendants(con, args.id))
     nodes = [_db.get(con, "node", nid) for nid in desc_ids]
     live_nodes = [nd for nd in nodes if nd]
-    json_data = [_node_summary_dict(con, nd) for nd in live_nodes]
+    json_data = [_node_summary_view(con, nd) for nd in live_nodes]
     captured_n = n
     captured_depth = args.depth
 
@@ -569,10 +571,10 @@ def cmd_agenda(args, con):
             hits.append((_sched_sort_key(val), n, val))
 
     hits.sort(key=lambda x: (x[0], x[1]["id"]))
-    sd = [_node_summary_dict(con, nd) for nd, od in sorted(someday, key=lambda x: x[0]["id"])] if args.someday else []
+    sd = [_node_summary_view(con, nd) for nd, od in sorted(someday, key=lambda x: x[0]["id"])] if args.someday else []
     json_result = {
         "range": {"start": start, "end": end},
-        "items": [_node_summary_dict(con, nd) for _, nd, od in hits],
+        "items": [_node_summary_view(con, nd) for _, nd, od in hits],
         "someday": sd,
     }
     captured_hits = hits
@@ -816,9 +818,9 @@ def cmd_changes(args, con):
         buckets.append((proj, done, added_open, logged))
 
     json_result = [{
-        "project": _node_summary_dict(con, proj),
-        "done": [_node_summary_dict(con, n) for n in done],
-        "added_open": [_node_summary_dict(con, n) for n in added_open],
+        "project": _node_summary_view(con, proj),
+        "done": [_node_summary_view(con, n) for n in done],
+        "added_open": [_node_summary_view(con, n) for n in added_open],
         "logged": logged,
     } for proj, done, added_open, logged in buckets]
     captured_buckets = buckets
@@ -902,8 +904,8 @@ def _summary_json_data(con, b):
                    "added_open": len(added_open), "clock_min": clock_min},
         "by_direction": {d: len([n for n in done if _has_tag(con, n["id"], d)])
                          for d in ("work", "personal")},
-        "done": [_node_summary_dict(con, n) for n in done],
-        "pending": [_node_summary_dict(con, n) for n in pending],
+        "done": [_node_summary_view(con, n) for n in done],
+        "pending": [_node_summary_view(con, n) for n in pending],
     }
 
 

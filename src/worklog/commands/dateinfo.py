@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from .. import db_table as _db
+from ..models import DateMeta
 from ..render import _c, die, out
 from .views import _cn_weekday, _date_label
 from .output import output_format, text_renderer, TextRenderable
@@ -20,7 +21,7 @@ def _render_dateinfo(result):
             out(_c("(no date metadata)", "meta"))
         else:
             for r in result:
-                out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
+                out(_c(f"{r.date} {_cn_weekday(r.date)} · {r.label}", "meta"))
     elif "imported" in result:
         out(_c(f"✓ imported {result['imported']} date metadata entries", "meta"))
     elif result.get("cleared") is not None:
@@ -51,7 +52,7 @@ def _render_date_ls(result):
             out(_c("(no date metadata)", "meta"))
         else:
             for r in rows:
-                out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
+                out(_c(f"{r.date} {_cn_weekday(r.date)} · {r.label}", "meta"))
 
 
 @text_renderer("date_rm")
@@ -99,8 +100,7 @@ def cmd_dateinfo(args, con):
             cmd_name="dateinfo",
         )
     rows = _db.query(con, "date_meta", cols="date, label", order="date")
-    result = [{"date": r["date"], "label": r["label"]} for r in rows]
-    return TextRenderable(result, cmd_name="dateinfo")
+    return TextRenderable([DateMeta.from_row(r) for r in rows], cmd_name="dateinfo")
 
 
 @output_format
@@ -127,8 +127,7 @@ def cmd_date_ls(args, con):
             cmd_name="date_ls",
         )
     rows = _db.query(con, "date_meta", cols="date, label", order="date")
-    result = [{"date": r["date"], "label": r["label"]} for r in rows]
-    return TextRenderable(result, cmd_name="date_ls")
+    return TextRenderable([DateMeta.from_row(r) for r in rows], cmd_name="date_ls")
 
 
 @output_format

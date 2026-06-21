@@ -7,6 +7,7 @@ import os
 import re
 import sqlite3
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -15,6 +16,7 @@ from .. import timeutil as _tu
 from .output import output_format, TextRenderable, text_renderer
 from .. import db_table as _db
 from .. import node_types as _nt
+from ..models import Log, Clock, Prop
 from ..helpers import (
     _apply_top_limit,
     _fmt_dur,
@@ -291,8 +293,8 @@ def cmd_add(args, con):
     log_hint, metric_hint = _add_log_and_metrics(con, node_id, args, at_ts)
 
     con.commit()
-    from .query import _node_summary_dict
-    result = _node_summary_dict(con, _db.get(con, "node", node_id))
+    from .query import _node_summary_view
+    result = _node_summary_view(con, _db.get(con, "node", node_id))
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
     # echo the node's DERIVED type (post --prop) so a `--prop type.habit` add reports "habit", not "task"
     echo_type = node_type(con, node_id)
@@ -392,8 +394,8 @@ def cmd_defer(args, con):
     for nid in ids:
         _db.update(con, "node", nid, {"status": "LATER", "scheduled_date": when})
     con.commit()
-    from .query import _node_summary_dict
-    result = [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+    from .query import _node_summary_view
+    result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in ids]
     _ids, _when = ids, when
 
     def _render():
@@ -425,8 +427,8 @@ def cmd_start(args, con):
         _db.insert(con, "clock", {"node_id": nid, "start_at": ts})
         started.append(nid)
     con.commit()
-    from .query import _node_summary_dict
-    result = [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in started]
+    from .query import _node_summary_view
+    result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in started]
     _skipped, _started, _note = skipped, started, note
 
     def _render():
@@ -460,8 +462,8 @@ def cmd_stop(args, con):
         _db.update(con, "clock", row["id"], {"end_at": stop_ts, "elapsed_sec": secs})
         stop_lines.append((nid, secs))
     con.commit()
-    from .query import _node_summary_dict
-    result = [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+    from .query import _node_summary_view
+    result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in ids]
     _stop_lines = stop_lines
 
     def _render():
@@ -855,8 +857,8 @@ def cmd_wait(args, con):
         if args.note:
             _insert_log(con, nid, f"WAIT: {args.note}")
     con.commit()
-    from .query import _node_summary_dict
-    result = [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+    from .query import _node_summary_view
+    result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in ids]
     _ids, _note = ids, args.note
 
     def _render():
@@ -954,13 +956,23 @@ def _render_unlog(result):
         out(_c(msg, "meta"))
 
 
+@dataclass
+class RelogResult:
+    id: int
+    node_id: int
+    tag: str | None
+    body: str
+    logged_at: str
+    canceled: bool = False
+
+
 @text_renderer("relog")
 def _render_relog(result):
-    if result.get("canceled"):
+    if result.canceled:
         out(_c("(no change; relog canceled)", "meta"))
         return
-    preview = result["body"][:60] + ("…" if len(result["body"]) > 60 else "")
-    out(_c(f"✓ relog #{result['id']} (node #{result['node_id']}, {_tu.utc_to_local(result['logged_at'])}): {preview}", "meta"))
+    preview = result.body[:60] + ("…" if len(result.body) > 60 else "")
+    out(_c(f"✓ relog #{result.id} (node #{result.node_id}, {_tu.utc_to_local(result.logged_at)}): {preview}", "meta"))
 
 
 @output_format
@@ -1027,7 +1039,11 @@ def cmd_relog(args, con):
         # nothing given -> open EDITOR to edit body
         new_body = _edit_in_editor(row["body"], suffix=".log.txt")
         if new_body is None or new_body.strip() == row["body"]:
-            return TextRenderable({"id": log_id, "canceled": True}, cmd_name="relog")
+            return TextRenderable(
+                RelogResult(id=row["id"], node_id=row["node_id"], tag=row["tag"],
+                            body=row["body"], logged_at=row["logged_at"], canceled=True),
+                cmd_name="relog",
+            )
         new_body = new_body.strip()
 
     changes = {}
@@ -1039,9 +1055,11 @@ def cmd_relog(args, con):
     con.commit()
 
     new_row = _db.get(con, "log", log_id)
-    result = {"id": new_row["id"], "node_id": new_row["node_id"], "tag": new_row["tag"],
-              "body": new_row["body"], "logged_at": new_row["logged_at"]}
-    return TextRenderable(result, cmd_name="relog")
+    return TextRenderable(
+        RelogResult(id=new_row["id"], node_id=new_row["node_id"], tag=new_row["tag"],
+                    body=new_row["body"], logged_at=new_row["logged_at"]),
+        cmd_name="relog",
+    )
 
 
 @output_format
@@ -1050,8 +1068,8 @@ def cmd_log_ls(args, con):
     stream (`#L<id> [time] body`); for the full filterable / windowed view use `wl logs
     --id <id>` (presets, --since/--until, --by-task, --group, …)."""
     _require_node(con, args.id)
-    rows = _db.query(con, "log", cols="id, logged_at, body, tag", node_id=args.id, order="logged_at")
-    result = [{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]} for r in rows]
+    rows = _db.query(con, "log", cols="id, node_id, logged_at, body, tag", node_id=args.id, order="logged_at")
+    result = [Log.from_row(r) for r in rows]
     _nid = args.id
     full = _log_full(args)
 
@@ -1060,10 +1078,10 @@ def cmd_log_ls(args, con):
             out(_c(f"#{_nid} has no logs", "meta"))
         else:
             for r in result:
-                prefix = f"#L{r['id']} [{_tu.utc_to_local(r['logged_at'])}] "
-                body = _truncate_log_body(r["body"], len(prefix), full=full)
-                out(_c(f"#L{r['id']}", "id") + " "
-                    + _c(f"[{_tu.utc_to_local(r['logged_at'])}]", "meta") + " " + body)
+                prefix = f"#L{r.id} [{_tu.utc_to_local(r.logged_at)}] "
+                body = _truncate_log_body(r.body, len(prefix), full=full)
+                out(_c(f"#L{r.id}", "id") + " "
+                    + _c(f"[{_tu.utc_to_local(r.logged_at)}]", "meta") + " " + body)
 
     return TextRenderable(result, _render)
 
@@ -1237,8 +1255,8 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
     label = msg or ("reopened → " + new_status if reopen else "→ " + new_status)
     note = f" @{_tu.utc_to_local(at_ts)[11:16]}" if at_ts else ""
     log_hint = " + log" if log_body else ""
-    from .query import _node_summary_dict
-    result = [_node_summary_dict(con, _db.get(con, "node", nid)) for nid in ids]
+    from .query import _node_summary_view
+    result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in ids]
 
     def _render():
         for nid in ids:
@@ -1395,8 +1413,8 @@ def cmd_prop_ls(args, con):
     """List a node's UDA props (key=value). The read primitive for prop (props are also
     shown inline by `wl show`)."""
     _require_node(con, args.id)
-    rows = _db.query(con, "prop", cols="key, value", node_id=args.id, order="key")
-    result = [{"key": r["key"], "value": r["value"]} for r in rows]
+    rows = _db.query(con, "prop", cols="node_id, key, value", node_id=args.id, order="key")
+    result = [Prop.from_row(r) for r in rows]
     _nid = args.id
 
     def _render():
@@ -1404,7 +1422,7 @@ def cmd_prop_ls(args, con):
             out(_c(f"(#{_nid} has no props)", "meta"))
         else:
             for r in result:
-                out(_c(f"#{_nid} ", "id") + _c(f"{r['key']}={r['value']}"))
+                out(_c(f"#{_nid} ", "id") + _c(f"{r.key}={r.value}"))
 
     return TextRenderable(result, _render)
 
@@ -1740,9 +1758,8 @@ def cmd_agent(args, con):
 def cmd_clock_ls(args, con):
     """List a node's clock intervals (start → end, duration). Read primitive for clock."""
     _require_node(con, args.id)
-    rows = _db.query(con, "clock", cols="id, start_at, end_at, elapsed_sec", node_id=args.id, order="id")
-    result = [{"id": r["id"], "start_at": r["start_at"], "end_at": r["end_at"],
-               "elapsed_sec": r["elapsed_sec"]} for r in rows]
+    rows = _db.query(con, "clock", cols="id, node_id, start_at, end_at, elapsed_sec", node_id=args.id, order="id")
+    result = [Clock.from_row(r) for r in rows]
     _nid = args.id
 
     def _render():
@@ -1750,10 +1767,10 @@ def cmd_clock_ls(args, con):
             out(_c(f"(#{_nid} has no clock intervals)", "meta"))
         else:
             for r in result:
-                st = _tu.utc_to_local(r["start_at"])
-                en = _tu.utc_to_local(r["end_at"]) if r["end_at"] else "(running)"
-                dur = _fmt_dur(int((r["elapsed_sec"] or 0) / 60)) if r["elapsed_sec"] else ""
-                out(_c(f"#C{r['id']}", "id") + " " + _c(f"{st} → {en}", "meta") + (" " + _c(dur, "clock") if dur else ""))
+                st = _tu.utc_to_local(r.start_at)
+                en = _tu.utc_to_local(r.end_at) if r.end_at else "(running)"
+                dur = _fmt_dur(int((r.elapsed_sec or 0) / 60)) if r.elapsed_sec else ""
+                out(_c(f"#C{r.id}", "id") + " " + _c(f"{st} → {en}", "meta") + (" " + _c(dur, "clock") if dur else ""))
 
     return TextRenderable(result, _render)
 

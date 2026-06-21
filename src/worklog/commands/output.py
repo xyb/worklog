@@ -23,6 +23,13 @@ import sys
 from dataclasses import is_dataclass, asdict
 from functools import wraps
 
+
+def _dc_default(obj):
+    """json.dumps default: serialize dataclasses; raise TypeError for everything else."""
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return asdict(obj)
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
 from ..render import set_suppress_output, set_active_error_formatter, get_active_error_formatter
 
 
@@ -150,7 +157,7 @@ class JSONFormatter(Formatter):
         payload = data.data if isinstance(data, TextRenderable) else data
         if is_dataclass(payload) and not isinstance(payload, type):
             payload = asdict(payload)
-        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=_dc_default))
 
 
 _FORMATTERS: dict[str, type[Formatter]] = {}
