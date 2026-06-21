@@ -1471,10 +1471,18 @@ def cmd_prop_ls(args, con):
     return TextRenderable(result, _render)
 
 
+@dataclass
+class PropRmResult:
+    key: str
+    node_id: int
+    removed: int
+    from_log: bool
+
+
 @text_renderer("prop_rm")
 def _render_prop_rm(result):
-    key, nid, n = result["key"], result["node_id"], result["removed"]
-    if result.get("from_log"):
+    key, nid, n = result.key, result.node_id, result.removed
+    if result.from_log:
         out(_c(f"✓ #{nid} {key} cleared ({n} log(s))" if n else f"(#{nid} has no {key})", "meta"))
     else:
         out(_c(f"✓ #{nid} prop '{key}' removed" if n else f"(#{nid} has no prop '{key}')", "meta"))
@@ -1493,7 +1501,7 @@ def cmd_prop_rm(args, con):
         # as reserved-tag logs, not props — clear it there (= wl goal rm).
         n = _db.delete(con, "log", node_id=args.id, tag=key)
         con.commit()
-        return TextRenderable({"key": key, "node_id": args.id, "removed": n, "from_log": True},
+        return TextRenderable(PropRmResult(key=key, node_id=args.id, removed=n, from_log=True),
                               cmd_name="prop_rm")
     n = _db.delete(con, "prop", node_id=args.id, key=key)
     if n and (key.startswith("type.") or key.startswith("date.")):
@@ -1504,7 +1512,7 @@ def cmd_prop_rm(args, con):
         print(f"⚠ #{args.id} is now '{new_type}' (removing '{key}' changed its classification)",  # noqa
               file=sys.stderr)
     con.commit()
-    return TextRenderable({"key": key, "node_id": args.id, "removed": n, "from_log": False},
+    return TextRenderable(PropRmResult(key=key, node_id=args.id, removed=n, from_log=False),
                           cmd_name="prop_rm")
 
 

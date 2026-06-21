@@ -7,6 +7,7 @@ A goal can carry structured target node ids (priority order), stored as `goal` m
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 
 from .. import timeutil as _tu
 from .. import db_table as _db
@@ -26,6 +27,27 @@ from .output import output_format, TextRenderable, text_renderer
 
 
 _GOAL_ID_MENTION = re.compile(r"(?:WL)?#(\d+)")
+
+
+@dataclass
+class RecapDiffEntry:
+    log_id: int
+    node_id: int
+    title: str
+    logged_at: str
+    body: str
+
+
+@dataclass
+class RecapDiffResult:
+    recap_at: str | None
+    changes: list  # list[RecapDiffEntry]
+
+
+@dataclass
+class GoalSetTargetsResult:
+    node_id: int
+    targets: list  # list[int]
 
 
 def _mentioned_goal_ids(con, body, already):
@@ -185,7 +207,7 @@ def _recap_diff(con, nid, day_iso, label):
     Returns structured data (for -o json callers)."""
     row = _latest_typed_log(con, nid, "summary")
     if not row or not row["body"]:
-        return TextRenderable({"recap_at": None, "changes": []},
+        return TextRenderable(RecapDiffResult(recap_at=None, changes=[]),
                               lambda: out(_c(f"(no recap for {label} — nothing to diff)", "meta")))
     at = row["logged_at"]
     when = _tu.utc_to_local(at)[5:16] if at else "?"
@@ -198,7 +220,7 @@ def _recap_diff(con, nid, day_iso, label):
         (at, day_iso),
     ).fetchall()
     if not rows:
-        return TextRenderable({"recap_at": at, "changes": []},
+        return TextRenderable(RecapDiffResult(recap_at=at, changes=[]),
                               lambda: out(_c(f"(no changes after {label}'s recap, written {when})", "meta")))
     render_lines = []
     render_lines.append(_c(f"{len(rows)} change(s) after {label}'s recap (written {when}) — judge: real content → rewrite via wl recap; only churn → skip", "doing"))
@@ -210,9 +232,9 @@ def _recap_diff(con, nid, day_iso, label):
         render_lines.append("  " + _c(f"#L{r['id']}", "id") + " "
                             + _c(f"[{_tu.utc_to_local(r['logged_at'])[11:16]}]", "meta") + " "
                             + _c(f"#{r['node_id']} '{title}'", "meta") + ": " + body)
-        result_rows.append({"log_id": r["id"], "node_id": r["node_id"], "title": title,
-                             "logged_at": r["logged_at"], "body": r["body"]})
-    return TextRenderable({"recap_at": at, "changes": result_rows},
+        result_rows.append(RecapDiffEntry(log_id=r["id"], node_id=r["node_id"], title=title,
+                                          logged_at=r["logged_at"], body=r["body"]))
+    return TextRenderable(RecapDiffResult(recap_at=at, changes=result_rows),
                           lambda: [out(line) for line in render_lines])
 
 
@@ -230,7 +252,8 @@ def cmd_goal_set(args, con):
         if args.value:
             die("give a goal text OR --ids <ids>, not both")
         target_msg = _set_goal_targets(con, args.id, set_ids)
-        return TextRenderable({"node_id": args.id, "targets": set_ids}, lambda: out(target_msg))
+        return TextRenderable(GoalSetTargetsResult(node_id=args.id, targets=set_ids),
+                              lambda: out(target_msg))
     if not args.value:
         die('need a goal/summary text (or --ids <ids> to set targets on the current goal)')
     field = "summary" if getattr(args, "summary", False) else "goal"
