@@ -75,11 +75,11 @@ def cmd_sched(args, con):
     if not args.when and not args.recur:
         result = []
         for nid in ids:
-            rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
+            rows = Sched.query(con, node_id=nid, order="on_date NULLS LAST, rrule")
             if not rows:
                 result.append({"node_id": nid, "on_date": None, "rrule": None})
             for r in rows:
-                result.append({"node_id": nid, "on_date": r["on_date"], "rrule": r["rrule"]})
+                result.append({"node_id": nid, "on_date": r.on_date, "rrule": r.rrule})
         return TextRenderable(result, cmd_name="sched_query")
     ops = []
     if args.recur:
@@ -89,7 +89,7 @@ def cmd_sched(args, con):
             die(f"{e}")
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, rrule) row
-            exists = _db.exists(con, "sched", node_id=nid, rrule=rule)
+            exists = Sched.exists(con, node_id=nid, rrule=rule)
             ops.append({"type": "rrule", "node_id": nid, "rule": rule, "exists": exists})
             if not exists:
                 Sched.insert(con, {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
@@ -103,7 +103,7 @@ def cmd_sched(args, con):
                      f"next-quarter (resolved to the period's first day). For 'someday' use `wl defer`.")
         for nid in ids:
             # idempotent: don't insert a duplicate (node_id, on_date) row
-            exists = _db.exists(con, "sched", node_id=nid, on_date=d)
+            exists = Sched.exists(con, node_id=nid, on_date=d)
             ops.append({"type": "on_date", "node_id": nid, "date": d, "exists": exists})
             if not exists:
                 Sched.insert(con, {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})

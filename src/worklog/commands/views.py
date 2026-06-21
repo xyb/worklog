@@ -11,6 +11,7 @@ from pathlib import Path
 from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
+from ..models import DateMeta
 from ..node_schema import node_view as _node_view, type_facet as _type_facet, CORE as _CORE
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
 from ..helpers import (
@@ -282,28 +283,28 @@ def _day_goals_dict(con, day):
         return {}
     d = {}
     g = _latest_typed_log(con, day["id"], "goal")
-    if g and g["body"]:
-        d["goal"] = g["body"]
+    if g and g.body:
+        d["goal"] = g.body
         targets = _goal_target_rows(con, day["id"])
         if targets:
             d["goal_targets"] = targets          # [{id,title,status}], priority order
-        dn, tt = _goal_counts(con, day["id"], g["body"])
+        dn, tt = _goal_counts(con, day["id"], g.body)
         if tt:
             d["goal_progress"] = {"done": dn, "total": tt}
     s = _latest_typed_log(con, day["id"], "summary")
-    if s and s["body"]:
-        d["summary"] = s["body"]
-        d["summary_at"] = s["logged_at"]   # UTC instant
+    if s and s.body:
+        d["summary"] = s.body
+        d["summary_at"] = s.logged_at   # UTC instant
     wk = _db.get(con, "node", day["parent_id"]) if day["parent_id"] else None
     if wk and node_type(con, wk) == "week":
         wg = _latest_typed_log(con, wk["id"], "goal")
-        if wg and wg["body"]:
-            d["week_goal"] = wg["body"]
+        if wg and wg.body:
+            d["week_goal"] = wg.body
         mo = _db.get(con, "node", wk["parent_id"]) if wk["parent_id"] else None
         if mo and node_type(con, mo) == "month":
             mg = _latest_typed_log(con, mo["id"], "goal")
-            if mg and mg["body"]:
-                d["month_goal"] = mg["body"]
+            if mg and mg.body:
+                d["month_goal"] = mg.body
     return d
 
 
@@ -352,16 +353,16 @@ def _emit_day_header(con, day, target):
     if not day:
         return
     g = _latest_typed_log(con, day["id"], "goal")
-    if g and g["body"]:
+    if g and g.body:
         # goal line carries its [done/total] achievement, then its structured target nodes
-        out(_c(_header_blockquote(g["body"], _DAY_MARKERS["goal"]), "meta")
-            + _c(_goal_progress(con, day["id"], g["body"]), "meta"))
+        out(_c(_header_blockquote(g.body, _DAY_MARKERS["goal"]), "meta")
+            + _c(_goal_progress(con, day["id"], g.body), "meta"))
         _emit_goal_targets(con, day["id"])
     s = _latest_typed_log(con, day["id"], "summary")
-    if s and s["body"]:
-        at = s["logged_at"]
+    if s and s.body:
+        at = s.logged_at
         when = _c(f" (written at {_tu.utc_to_local(at)[5:16]})", "meta") if at else ""
-        out(_c(_header_blockquote(s["body"], _DAY_MARKERS["summary"]), "meta") + when)
+        out(_c(_header_blockquote(s.body, _DAY_MARKERS["summary"]), "meta") + when)
         # stale check: count plain-note logs (tag IS NULL) added after the recap
         if at:
             newer = con.execute(
@@ -375,16 +376,16 @@ def _emit_day_header(con, day, target):
     wk = _db.get(con, "node", day["parent_id"]) if day["parent_id"] else None
     if wk and node_type(con, wk) == "week":
         wg = _latest_typed_log(con, wk["id"], "goal")
-        if wg and wg["body"]:
-            out(_c(_header_blockquote(wg["body"], _DAY_MARKERS["week"]), "meta")
-                + _c(_goal_progress(con, wk["id"], wg["body"]), "meta"))
+        if wg and wg.body:
+            out(_c(_header_blockquote(wg.body, _DAY_MARKERS["week"]), "meta")
+                + _c(_goal_progress(con, wk["id"], wg.body), "meta"))
             _emit_goal_targets(con, wk["id"])
         mo = _db.get(con, "node", wk["parent_id"]) if wk["parent_id"] else None
         if mo and node_type(con, mo) == "month":
             mg = _latest_typed_log(con, mo["id"], "goal")
-            if mg and mg["body"]:
-                out(_c(_header_blockquote(mg["body"], _DAY_MARKERS["month"]), "meta")
-                    + _c(_goal_progress(con, mo["id"], mg["body"]), "meta"))
+            if mg and mg.body:
+                out(_c(_header_blockquote(mg.body, _DAY_MARKERS["month"]), "meta")
+                    + _c(_goal_progress(con, mo["id"], mg.body), "meta"))
                 _emit_goal_targets(con, mo["id"])
 
 
@@ -988,8 +989,8 @@ def _scheduled_node_ids(con, target):
 
 def _date_label(con, target):
     """Label (holiday/vacation/working-day-swap) for the date from date_meta, or None."""
-    r = _db.query_one(con, "date_meta", cols="label", date=target)
-    return r["label"] if r else None
+    r = DateMeta.get(con, target)
+    return r.label if r else None
 
 
 # date_meta labels are free text; these hints classify one into a work/rest word so the

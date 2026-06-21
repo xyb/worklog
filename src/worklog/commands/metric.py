@@ -213,14 +213,14 @@ def cmd_metric_add(args, con):
 
     # carrier log: an existing one (--on-log, must belong to the node, not CLOCK) or a new one.
     if args.on_log is not None:
-        log = _db.get(con, "log", args.on_log)
+        log = Log.get(con, args.on_log)
         if not log:
             die(f"log #L{args.on_log} not found")
-        if log["node_id"] != node:
-            die(f"log #L{args.on_log} belongs to node #{log['node_id']}, not #{node}")
+        if log.node_id != node:
+            die(f"log #L{args.on_log} belongs to node #{log.node_id}, not #{node}")
         log_id = args.on_log
         if at is None:
-            at = log["logged_at"]  # inherit the existing log's time, not "now"
+            at = log.logged_at  # inherit the existing log's time, not "now"
     else:
         log_id = Log.insert(con, {
             "node_id": node, "logged_at": at or _tu.utc_now(),
@@ -236,8 +236,8 @@ def cmd_metric_add(args, con):
     except Exception:
         con.rollback()
         raise
-    row = _db.get(con, "metric", mid)
-    return TextRenderable(Metric.from_row(row), cmd_name="metric_add")
+    row = Metric.get(con, mid)
+    return TextRenderable(row, cmd_name="metric_add")
 
 
 @text_renderer("metric_ls")
@@ -296,7 +296,7 @@ def _render_metric_edit(result):
 def cmd_metric_edit(args, con):
     """Edit fields of a single metric."""
     mid = args.metric_id
-    row = _db.get(con, "metric", mid)
+    row = Metric.get(con, mid)
     if not row:
         die(f"metric #M{mid} not found")
 
@@ -319,7 +319,7 @@ def cmd_metric_edit(args, con):
             new_text, becomes_num = _clean_text(vtext), False
         else:
             new_num, becomes_num = vnum, True
-    is_num = becomes_num if becomes_num is not None else (row["value_num"] is not None)
+    is_num = becomes_num if becomes_num is not None else (row.value_num is not None)
 
     if args.unit is not None and args.unit and not is_num:
         die("unit only applies to a numeric value (this metric's value is text)")
@@ -347,8 +347,8 @@ def cmd_metric_edit(args, con):
 
     Metric.update(con, mid, changes)
     con.commit()
-    row = _db.get(con, "metric", mid)
-    return TextRenderable(Metric.from_row(row), cmd_name="metric_edit")
+    row = Metric.get(con, mid)
+    return TextRenderable(row, cmd_name="metric_edit")
 
 
 @text_renderer("metric_rm")
@@ -366,16 +366,16 @@ def cmd_metric_rm(args, con):
     # print "✓ deleted" for work that a later failure rolls back.
     msgs = []
     for mid in args.metric_ids:
-        row = _db.query_one(con, "metric", cols="log_id", id=mid)
-        if not row:
+        m = Metric.get(con, mid)
+        if not m:
             msgs.append(f"(metric #M{mid} not found)")
             continue
-        log_id = row["log_id"]
+        log_id = m.log_id
         Metric.delete(con, id=mid)
         msg = f"✓ deleted metric #M{mid}"
-        log = _db.query_one(con, "log", cols="body, tag", id=log_id)
-        remaining = _db.count(con, "metric", log_id=log_id)
-        if log and log["tag"] == _CARRIER_TYPE and not (log["body"] or "").strip() and remaining == 0:
+        log = Log.get(con, log_id)
+        remaining = Metric.count(con, log_id=log_id)
+        if log and log.tag == _CARRIER_TYPE and not (log.body or "").strip() and remaining == 0:
             Log.delete(con, id=log_id)
             msg += f" + its empty carrier log #L{log_id}"
         msgs.append(msg)

@@ -63,6 +63,19 @@ class Node:
         rows = _db.query(con, "node", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
 
+    @classmethod
+    def query_one(cls, con, *, order=None, include_deleted=False, **conds) -> Node | None:
+        row = _db.query_one(con, "node", order=order, include_deleted=include_deleted, **conds)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def count(cls, con, *, include_deleted=False, **conds) -> int:
+        return _db.count(con, "node", include_deleted=include_deleted, **conds)
+
+    @classmethod
+    def exists(cls, con, *, include_deleted=False, **conds) -> bool:
+        return _db.exists(con, "node", include_deleted=include_deleted, **conds)
+
     # ── writes ───────────────────────────────────────────────────────────────
 
     @classmethod
@@ -116,6 +129,19 @@ class Log:
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Log]:
         rows = _db.query(con, "log", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
+
+    @classmethod
+    def query_one(cls, con, *, order=None, include_deleted=False, **conds) -> Log | None:
+        row = _db.query_one(con, "log", order=order, include_deleted=include_deleted, **conds)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def count(cls, con, *, include_deleted=False, **conds) -> int:
+        return _db.count(con, "log", include_deleted=include_deleted, **conds)
+
+    @classmethod
+    def exists(cls, con, *, include_deleted=False, **conds) -> bool:
+        return _db.exists(con, "log", include_deleted=include_deleted, **conds)
 
     # ── writes ───────────────────────────────────────────────────────────────
 
@@ -176,6 +202,19 @@ class Metric:
         rows = _db.query(con, "metric", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
 
+    @classmethod
+    def query_one(cls, con, *, order=None, include_deleted=False, **conds) -> Metric | None:
+        row = _db.query_one(con, "metric", order=order, include_deleted=include_deleted, **conds)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def count(cls, con, *, include_deleted=False, **conds) -> int:
+        return _db.count(con, "metric", include_deleted=include_deleted, **conds)
+
+    @classmethod
+    def exists(cls, con, *, include_deleted=False, **conds) -> bool:
+        return _db.exists(con, "metric", include_deleted=include_deleted, **conds)
+
     # ── writes ───────────────────────────────────────────────────────────────
 
     @classmethod
@@ -229,6 +268,19 @@ class Clock:
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Clock]:
         rows = _db.query(con, "clock", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
+
+    @classmethod
+    def query_one(cls, con, *, order=None, include_deleted=False, **conds) -> Clock | None:
+        row = _db.query_one(con, "clock", order=order, include_deleted=include_deleted, **conds)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def count(cls, con, *, include_deleted=False, **conds) -> int:
+        return _db.count(con, "clock", include_deleted=include_deleted, **conds)
+
+    @classmethod
+    def exists(cls, con, *, include_deleted=False, **conds) -> bool:
+        return _db.exists(con, "clock", include_deleted=include_deleted, **conds)
 
     # ── writes ───────────────────────────────────────────────────────────────
 
@@ -284,6 +336,19 @@ class Sched:
         rows = _db.query(con, "sched", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
 
+    @classmethod
+    def query_one(cls, con, *, order=None, include_deleted=False, **conds) -> Sched | None:
+        row = _db.query_one(con, "sched", order=order, include_deleted=include_deleted, **conds)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def count(cls, con, *, include_deleted=False, **conds) -> int:
+        return _db.count(con, "sched", include_deleted=include_deleted, **conds)
+
+    @classmethod
+    def exists(cls, con, *, include_deleted=False, **conds) -> bool:
+        return _db.exists(con, "sched", include_deleted=include_deleted, **conds)
+
     # ── writes ───────────────────────────────────────────────────────────────
 
     @classmethod
@@ -321,6 +386,19 @@ class Prop:
         rows = _db.query(con, "prop", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
 
+    @classmethod
+    def query_one(cls, con, *, order=None, include_deleted=False, **conds) -> Prop | None:
+        row = _db.query_one(con, "prop", order=order, include_deleted=include_deleted, **conds)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def count(cls, con, *, include_deleted=False, **conds) -> int:
+        return _db.count(con, "prop", include_deleted=include_deleted, **conds)
+
+    @classmethod
+    def exists(cls, con, *, include_deleted=False, **conds) -> bool:
+        return _db.exists(con, "prop", include_deleted=include_deleted, **conds)
+
     # ── writes ───────────────────────────────────────────────────────────────
 
     @classmethod
@@ -357,6 +435,19 @@ class Tag:
         rows = _db.query(con, "tag", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
 
+    @classmethod
+    def query_one(cls, con, *, order=None, include_deleted=False, **conds) -> Tag | None:
+        row = _db.query_one(con, "tag", order=order, include_deleted=include_deleted, **conds)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def count(cls, con, *, include_deleted=False, **conds) -> int:
+        return _db.count(con, "tag", include_deleted=include_deleted, **conds)
+
+    @classmethod
+    def exists(cls, con, *, include_deleted=False, **conds) -> bool:
+        return _db.exists(con, "tag", include_deleted=include_deleted, **conds)
+
     # ── writes ───────────────────────────────────────────────────────────────
 
     @classmethod
@@ -392,6 +483,19 @@ class Link:
     def query(cls, con, *, order=None, limit=None, include_deleted=False, **conds) -> list[Link]:
         rows = _db.query(con, "link", order=order, limit=limit, include_deleted=include_deleted, **conds)
         return [cls.from_row(r) for r in rows]
+
+    @classmethod
+    def query_one(cls, con, *, order=None, include_deleted=False, **conds) -> Link | None:
+        row = _db.query_one(con, "link", order=order, include_deleted=include_deleted, **conds)
+        return cls.from_row(row) if row else None
+
+    @classmethod
+    def count(cls, con, *, include_deleted=False, **conds) -> int:
+        return _db.count(con, "link", include_deleted=include_deleted, **conds)
+
+    @classmethod
+    def exists(cls, con, *, include_deleted=False, **conds) -> bool:
+        return _db.exists(con, "link", include_deleted=include_deleted, **conds)
 
     # ── writes ───────────────────────────────────────────────────────────────
 
@@ -433,6 +537,14 @@ class DateMeta:
     def query(cls, con, *, order=None, limit=None, **conds) -> list[DateMeta]:
         rows = _db.query(con, "date_meta", order=order, limit=limit, **conds)
         return [cls.from_row(r) for r in rows]
+
+    @classmethod
+    def count(cls, con, **conds) -> int:
+        return _db.count(con, "date_meta", **conds)
+
+    @classmethod
+    def exists(cls, con, **conds) -> bool:
+        return _db.exists(con, "date_meta", **conds)
 
     # ── writes ───────────────────────────────────────────────────────────────
 

@@ -63,7 +63,7 @@ def _insert_log(con, nid, entry):
 def _project_members(con, proj_id):
     """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""
     ids = set()
-    proj_tags = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=proj_id)} - GENERIC_TAGS
+    proj_tags = {r.tag for r in Tag.query(con, node_id=proj_id)} - GENERIC_TAGS
     for r in con.execute(
             f"SELECT id FROM node n WHERE n.parent_id=? AND n.{_db.ALIVE} AND ({workitem_sql('n')})",
             (proj_id,)):
@@ -94,7 +94,7 @@ def _ancestors_chain(con, node_id):
 
 def _node_bucket(con, nid):
     """Bucket a node into work / personal / other by work/personal tag."""
-    tags = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)}
+    tags = {r.tag for r in Tag.query(con, node_id=nid)}
     if "work" in tags:
         return "work"
     if "personal" in tags:
@@ -115,7 +115,7 @@ def _node_plan(con, nid, sched_ids):
     planned/unplanned is derived from sched, anything not scheduled is just unplanned."""
     if nid in sched_ids:
         return "planned"
-    tags = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)}
+    tags = {r.tag for r in Tag.query(con, node_id=nid)}
     if "planned" in tags:
         return "planned"
     return "unplanned"
@@ -151,7 +151,7 @@ def _collect_descendants(con, root_id, *, include_deleted=False):
     return acc
 
 def _has_tag(con, nid, tag):
-    return _db.exists(con, "tag", node_id=nid, tag=tag)
+    return Tag.exists(con, node_id=nid, tag=tag)
 
 
 def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
@@ -162,7 +162,7 @@ def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
     tag_list = [tags] if isinstance(tags, str) else list(tags)
     if not tag_list:
         return []
-    ids = sorted({r["node_id"] for r in _db.query(con, "tag", cols="node_id", tag__in=tag_list)})
+    ids = sorted({r.node_id for r in Tag.query(con, tag__in=tag_list)})
     if not ids:
         return []
     if types is not None:
@@ -279,10 +279,10 @@ def make_node_filter(con, args):
         if res and pris and n["priority"] not in pris:
             res = False
         if res and wanted:
-            have = {r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)}
+            have = {r.tag for r in Tag.query(con, node_id=nid)}
             res = wanted <= have
         if res and prop_conds:
-            props = {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)}
+            props = {r.key: r.value for r in Prop.query(con, node_id=nid)}
             for mode, k, v in prop_conds:
                 if mode == "exists":
                     if k not in props:
@@ -308,8 +308,7 @@ def _latest_typed_log(con, node_id, log_type):
     history-preserving reserved-tag log (goal / summary). Returns the Row
     (body, logged_at) or None. Each edit appends a new log, so history is kept and the
     latest one is the current value."""
-    return _db.query_one(con, "log", cols="body, logged_at", node_id=node_id, tag=log_type,
-                        order="logged_at DESC, id DESC")
+    return Log.query_one(con, node_id=node_id, tag=log_type, order="logged_at DESC, id DESC")
 
 
 # A `goal` log can carry a STRUCTURED, priority-ordered list of the node(s) it aims to deliver —
@@ -343,11 +342,10 @@ def _log_goals(con, node_id):
     in priority order (metric insertion order). [] if there's no goal log or it carries none. The
     display numbers these to show priority; reverse queries hit the metric table directly
     (tag=goal), narrowing by node type for the level."""
-    row = _db.query_one(con, "log", cols="id", node_id=node_id, tag="goal", order="id DESC")
+    row = Log.query_one(con, node_id=node_id, tag="goal", order="id DESC")
     if not row:
         return []
-    return [int(r["value_num"]) for r in _db.query(con, "metric", cols="value_num",
-            log_id=row["id"], tag=_GOAL_METRIC, order="id") if r["value_num"] is not None]
+    return [int(r.value_num) for r in Metric.query(con, log_id=row.id, tag=_GOAL_METRIC, order="id") if r.value_num is not None]
 
 
 def _has_checkin(con, node_id, day):
@@ -404,7 +402,7 @@ def _node_clock_min(con, nid, day=None):
     return max(clock, span)
 
 def _node_exists(con, node_id):
-    return _db.exists(con, "node", id=node_id)
+    return Node.exists(con, id=node_id)
 
 
 def _require_node(con, node_id):
@@ -417,7 +415,7 @@ def _require_node(con, node_id):
 
 def _node_tags(con, nid):
     """Return the tag list for a node (insertion order)."""
-    return [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=nid)]
+    return [r.tag for r in Tag.query(con, node_id=nid)]
 
 
 def _check_ids_exist(con, ids):
@@ -525,8 +523,8 @@ def _parse_id_list(value):
 
 def _prop_value(con, nid, key):
     """The live value of prop (nid, key), or None."""
-    r = _db.query_one(con, "prop", cols="value", node_id=nid, key=key)
-    return r["value"] if r else None
+    r = Prop.query_one(con, node_id=nid, key=key)
+    return r.value if r else None
 
 
 def node_props(con, nid, *, include_deleted=False):
@@ -534,8 +532,7 @@ def node_props(con, nid, *, include_deleted=False):
     accessors (node_type / role / time-level derivation). Live props only by default;
     ``include_deleted=True`` also returns tombstoned prop rows (used when classifying a
     tombstoned node, whose props are tombstoned to match it)."""
-    return {r["key"]: r["value"] for r in
-            _db.query(con, "prop", cols="key, value", node_id=nid, include_deleted=include_deleted)}
+    return {r.key: r.value for r in Prop.query(con, node_id=nid, include_deleted=include_deleted)}
 
 
 
@@ -561,7 +558,7 @@ def sync_time_node_dates(con, nid):
         return
     period = props.get(_nt.K_PERIOD)
     if not (period and _nt.valid_period(level, period)):
-        period = _db.get(con, "node", nid)["title"]
+        period = Node.get(con, nid).title
     want = _nt.date_props_for(level, period)
     for key in (_nt.K_PERIOD, _nt.K_START, _nt.K_END):
         if key in want:
@@ -626,8 +623,8 @@ def time_node_by_period(con, level, period, *, cols="*"):
 def node_has_type(con, nid, key, value=None):
     """Whether node ``nid`` has the (live) prop ``key`` (optionally ``=value``)."""
     if value is None:
-        return _db.exists(con, "prop", node_id=nid, key=key)
-    return _db.exists(con, "prop", node_id=nid, key=key, value=value)
+        return Prop.exists(con, node_id=nid, key=key)
+    return Prop.exists(con, node_id=nid, key=key, value=value)
 
 
 def workitem_sql(alias="n"):
@@ -700,16 +697,16 @@ def relation_view(con, nid):
         merged[label].append(i)
 
     # own props
-    for r in _db.query(con, "prop", cols="key, value", node_id=nid):
-        lbl = _RELATION_KEY_LABEL.get(r["key"])
+    for r in Prop.query(con, node_id=nid):
+        lbl = _RELATION_KEY_LABEL.get(r.key)
         if lbl:
-            for i in _parse_id_list(r["value"]):
+            for i in _parse_id_list(r.value):
                 _add(lbl, i)
     # reverse: any other node whose relation.* list points at nid
-    for r in _db.query(con, "prop", cols="node_id, key, value", key__like="relation.%"):
-        lbl = _RELATION_REVERSE_LABEL.get(r["key"])
-        if lbl and nid in _parse_id_list(r["value"]):
-            _add(lbl, r["node_id"])
+    for r in Prop.query(con, key__like="relation.%"):
+        lbl = _RELATION_REVERSE_LABEL.get(r.key)
+        if lbl and nid in _parse_id_list(r.value):
+            _add(lbl, r.node_id)
     return merged
 
 

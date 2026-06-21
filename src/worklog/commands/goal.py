@@ -10,7 +10,7 @@ import re
 
 from .. import timeutil as _tu
 from .. import db_table as _db
-from ..models import Log, Metric
+from ..models import Log, Metric, Node
 from ..queries import (
     _check_ids_exist,
     _node_exists,
@@ -53,7 +53,7 @@ def _set_goal_targets(con, node_id, ids):
     the 'I wrote the whole goal as text, now attach its ids' shortcut: no new log, no re-typing.
     REPLACES any existing targets on that goal log (the text is the complete goal, so the ids are
     the complete set, not an append). Errors if the node has no goal yet."""
-    row = _db.query_one(con, "log", cols="id", node_id=node_id, tag="goal", order="id DESC")
+    row = Log.query_one(con, node_id=node_id, tag="goal", order="id DESC")
     if not row:
         die(f'#{node_id} has no goal yet — write one first (wl goal "...")')
     _check_ids_exist(con, ids)
@@ -61,15 +61,14 @@ def _set_goal_targets(con, node_id, ids):
     for i in ids:        # dedupe, preserve priority order
         if i not in want:
             want.append(i)
-    current = [int(r["value_num"]) for r in _db.query(con, "metric", cols="value_num",
-               log_id=row["id"], tag="goal") if r["value_num"] is not None]
+    current = [int(r.value_num) for r in Metric.query(con, log_id=row.id, tag="goal") if r.value_num is not None]
     shown = " ".join("#" + str(i) for i in want)
     if current == want:
         return _c(f"= #{node_id} goal targets already {shown}", "meta")
-    for r in _db.query(con, "metric", cols="id", log_id=row["id"], tag="goal"):
-        Metric.delete(con, id=r["id"])   # replace: clear the old set first
+    for r in Metric.query(con, log_id=row.id, tag="goal"):
+        Metric.delete(con, id=r.id)   # replace: clear the old set first
     for i in want:
-        Metric.insert(con, {"log_id": row["id"], "node_id": node_id, "tag": "goal",
+        Metric.insert(con, {"log_id": row.id, "node_id": node_id, "tag": "goal",
                             "value_num": i, "at": _tu.utc_now()})
     con.commit()
     return _c(f"✓ #{node_id} goal targets: {shown}", "meta")
@@ -114,11 +113,11 @@ def cmd_goal(args, con):
     text = getattr(args, "text", None)
     if not text:
         row = _latest_typed_log(con, nid, "goal")
-        if not (row and row["body"]):
+        if not (row and row.body):
             return TextRenderable(None, lambda: out(_c("(no goal set for today)", "meta")))
-        _body = row["body"]
+        _body = row.body
         _progress = _goal_progress(con, nid, _body)
-        result = {"body": _body, "logged_at": row["logged_at"]}
+        result = {"body": _body, "logged_at": row.logged_at}
         return TextRenderable(result, lambda: (
             out(_body + _c(_progress, "meta")) or _emit_goal_targets(con, nid)
         ))
@@ -127,7 +126,7 @@ def cmd_goal(args, con):
         _check_ids_exist(con, goals)
     log_id = _set_typed_log(con, nid, "goal", text, goals=goals)
     con.commit()
-    at = _db.get(con, "log", log_id)["logged_at"]
+    at = Log.get(con, log_id).logged_at
     extra = ("  [" + ", ".join(f"#{i}" for i in goals) + "]") if goals else ""
     _msg = _c(f"✓ today's goal: {text}{extra}", "meta")
     _set_stem = f"wl goal set {nid} --ids"
@@ -163,16 +162,16 @@ def cmd_summary_prop(args, con):
         return _recap_diff(con, nid, d.isoformat(), label)
     if not args.text:
         row = _latest_typed_log(con, nid, "summary")
-        if not row or not row["body"]:
+        if not row or not row.body:
             return TextRenderable(None, lambda: out(_c(f"(no summary set for {label})", "meta")))
-        at = row["logged_at"]
-        result = {"body": row["body"], "logged_at": at}
-        _body = row["body"]
+        at = row.logged_at
+        result = {"body": row.body, "logged_at": at}
+        _body = row.body
         _suffix = _c(f"  (written at {at})", "meta") if at else ""
         return TextRenderable(result, lambda: out(_body + _suffix))
     log_id = _set_typed_log(con, nid, "summary", args.text)
     con.commit()
-    at = _db.get(con, "log", log_id)["logged_at"]
+    at = Log.get(con, log_id).logged_at
     _msg = _c(f"✓ {label}'s summary (written at {at}): {args.text}", "meta")
     result = {"node_id": nid, "body": args.text, "logged_at": at}
     return TextRenderable(result, lambda: out(_msg))
@@ -186,10 +185,10 @@ def _recap_diff(con, nid, day_iso, label):
     content was logged after recapping (rewrite) vs only cross-day status/clock churn (skip).
     Returns structured data (for -o json callers)."""
     row = _latest_typed_log(con, nid, "summary")
-    if not row or not row["body"]:
+    if not row or not row.body:
         return TextRenderable(RecapDiffResult(recap_at=None, changes=[]),
                               lambda: out(_c(f"(no recap for {label} — nothing to diff)", "meta")))
-    at = row["logged_at"]
+    at = row.logged_at
     when = _tu.utc_to_local(at)[5:16] if at else "?"
     rows = con.execute(
         f"SELECT id, node_id, logged_at, body FROM log l "
@@ -206,8 +205,8 @@ def _recap_diff(con, nid, day_iso, label):
     render_lines.append(_c(f"{len(rows)} change(s) after {label}'s recap (written {when}) — judge: real content → rewrite via wl recap; only churn → skip", "doing"))
     result_rows = []
     for r in rows:
-        node = _db.get(con, "node", r["node_id"])
-        title = node["title"] if node else "?"
+        node = Node.get(con, r["node_id"])
+        title = node.title if node else "?"
         body = _truncate_log_body(r["body"], 0)
         render_lines.append("  " + _c(f"#L{r['id']}", "id") + " "
                             + _c(f"[{_tu.utc_to_local(r['logged_at'])[11:16]}]", "meta") + " "
@@ -244,7 +243,7 @@ def cmd_goal_set(args, con):
         _check_ids_exist(con, goals)
     log_id = _set_typed_log(con, args.id, field, args.value, goals=goals)
     con.commit()
-    at = _db.get(con, "log", log_id)["logged_at"]
+    at = Log.get(con, log_id).logged_at
     extra = ("  [" + ", ".join(f"#{i}" for i in goals) + "]") if goals else ""
     result = {"node_id": args.id, "field": field, "log_id": log_id, "body": args.value, "logged_at": at}
     _msg = _c(f"✓ #{args.id} {field} (logged at {at}): {args.value}{extra}", "meta")
@@ -267,8 +266,8 @@ def cmd_goal_ls(args, con):
     result = {}
     for field in _RESERVED_LOG_TAGS:
         row = _latest_typed_log(con, args.id, field)
-        if row and row["body"]:
-            result[field] = {"body": row["body"], "logged_at": row["logged_at"]}
+        if row and row.body:
+            result[field] = {"body": row.body, "logged_at": row.logged_at}
     _nid = args.id
 
     def _render():

@@ -16,7 +16,7 @@ from .. import timeutil as _tu
 from .output import output_format, TextRenderable, text_renderer
 from .. import db_table as _db
 from .. import node_types as _nt
-from ..models import Clock, Log, Metric, Node, Prop, Sched, Tag
+from ..models import Clock, Link, Log, Metric, Node, Prop, Sched, Tag
 from .dtos import (
     ClockEditResult, ClockRmResult, LogShowResult, LogWriteResult, NodeEditResult,
     NodeReparentResult, NodeRmResult, PropRmResult, RelogResult, RetagResult,
@@ -353,20 +353,20 @@ def cmd_log(args, con):
     # backfilling history (--date) does not change status; --keep-status explicitly disables
     status_changed = False
     if not getattr(args, "keep_status", False) and not date:
-        row = _db.query_one(con, "node", cols="status", id=args.id)
-        if row and row["status"] == "TODO":
+        row = Node.get(con, args.id)
+        if row and row.status == "TODO":
             Node.update(con, args.id, {"status": "DOING"})
             status_changed = True
     # --metric: attach structured datapoint(s) to this log (inherit its timestamp)
     metrics_added = 0
     specs = getattr(args, "metric", None)
     if specs:
-        log_at = _db.get(con, "log", log_id)["logged_at"]
+        log_at = Log.get(con, log_id).logged_at
         metrics_added = attach_metric_specs(con, log_id, args.id, specs, at=log_at)
     con.commit()
-    row = _db.get(con, "log", log_id)
+    row = Log.get(con, log_id)
     return TextRenderable(
-        LogWriteResult(id=log_id, node_id=args.id, body=row["body"], logged_at=row["logged_at"],
+        LogWriteResult(id=log_id, node_id=args.id, body=row.body, logged_at=row.logged_at,
                        status_changed=status_changed, metrics_added=metrics_added),
         cmd_name="log",
     )
@@ -375,8 +375,8 @@ def cmd_log(args, con):
 @output_format
 def cmd_done(args, con):
     ids = _ids_list(args)
-    recurring = [(nid, r["rrule"]) for nid in ids
-                 for r in [_db.query_one(con, "sched", cols="rrule", node_id=nid, rrule__ne=None)]
+    recurring = [(nid, r.rrule) for nid in ids
+                 for r in [Sched.query_one(con, node_id=nid, rrule__ne=None)]
                  if r]
     inner = _bulk_status_change(con, args, "DONE", close=True)
 
@@ -427,7 +427,7 @@ def cmd_start(args, con):
     for nid in ids:
         # don't open a second interval on a node that's already running (would leave
         # a stale open clock + duplicate wl active rows); stop the current one first.
-        if _db.exists(con, "clock", node_id=nid, end_at=None):
+        if Clock.exists(con, node_id=nid, end_at=None):
             skipped.append(nid)
             continue
         Node.update(con, nid, {"status": "DOING"})
@@ -458,15 +458,15 @@ def cmd_stop(args, con):
         die(f"{e}")
     stop_lines = []
     for nid in ids:
-        row = _db.query_one(con, "clock", cols="id, start_at", node_id=nid, end_at=None, order="id DESC")
+        row = Clock.query_one(con, node_id=nid, end_at=None, order="id DESC")
         if not row:
             die(f"no open clock for #{nid}")
-        started = datetime.fromisoformat(row["start_at"])
+        started = datetime.fromisoformat(row.start_at)
         stopped = datetime.fromisoformat(stop_ts)
         if stopped < started:
-            die(f"--at {stop_ts} is earlier than the clock start {row['start_at']} (#{nid})")
+            die(f"--at {stop_ts} is earlier than the clock start {row.start_at} (#{nid})")
         secs = max(60, int((stopped - started).total_seconds()))  # floor at 1 min
-        Clock.update(con, row["id"], {"end_at": stop_ts, "elapsed_sec": secs})
+        Clock.update(con, row.id, {"end_at": stop_ts, "elapsed_sec": secs})
         stop_lines.append((nid, secs))
     con.commit()
     from .query import _node_summary_view
@@ -518,10 +518,10 @@ def cmd_spent(args, con):
     cid = Clock.insert(con, {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
                             "elapsed_sec": mins * 60})
     con.commit()
-    r = _db.get(con, "clock", cid)
+    r = Clock.get(con, cid)
     return TextRenderable(
-        SpentResult(id=r["id"], node_id=r["node_id"],
-                    start_at=r["start_at"], end_at=r["end_at"], elapsed_sec=r["elapsed_sec"],
+        SpentResult(id=r.id, node_id=r.node_id,
+                    start_at=r.start_at, end_at=r.end_at, elapsed_sec=r.elapsed_sec,
                     mins=mins),
         cmd_name="spent",
     )
@@ -539,7 +539,7 @@ def cmd_link(args, con):
     con.commit()
     result = []
     for nid in ids:
-        links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid, order="vault_doc")]
+        links = [r.vault_doc for r in Link.query(con, node_id=nid, order="vault_doc")]
         result.append({"node_id": nid, "links": links})
     payload = result if len(result) > 1 else result[0]
     _ids, _doc = ids, doc
@@ -566,8 +566,7 @@ def cmd_unlink(args, con):
     con.commit()
     all_links = []
     for nid in ids:
-        all_links.extend(r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc",
-                                                            node_id=nid, order="vault_doc"))
+        all_links.extend(r.vault_doc for r in Link.query(con, node_id=nid, order="vault_doc"))
     _unlink_results, _doc = unlink_results, doc
 
     def _render():
@@ -702,9 +701,9 @@ def cmd_set(args, con):
         # key-routed shortcut for `wl goal set` — keep the output identical (prose only, no ids).
         log_id = _set_typed_log(con, args.id, args.key, args.value)
         con.commit()
-        log = _db.get(con, "log", log_id)
-        result = SetLogResult(node_id=args.id, key=args.key, body=log["body"],
-                              logged_at=log["logged_at"], value=args.value)
+        log = Log.get(con, log_id)
+        result = SetLogResult(node_id=args.id, key=args.key, body=log.body,
+                              logged_at=log.logged_at, value=args.value)
         return TextRenderable(result, cmd_name="set_log")
     try:
         _upsert_prop(con, args.id, args.key, args.value)
@@ -745,7 +744,7 @@ def cmd_tag(args, con):
     it can't quietly create a shadow prop."""
     _require_node(con, args.id)
     ops = [o.strip() for o in (args.ops or []) if o.strip()]
-    tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+    tags = [r.tag for r in Tag.query(con, node_id=args.id, order="tag")]
     if not ops:
         _nid = args.id
         return TextRenderable(tags, lambda: out(_c(f"#{_nid} tags: " + (":".join(tags) if tags else "(none)"), "meta")))
@@ -762,7 +761,7 @@ def cmd_tag(args, con):
                 Tag.upsert(con, {"node_id": args.id, "tag": t})
                 added.append(t)
     con.commit()
-    result = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+    result = [r.tag for r in Tag.query(con, node_id=args.id, order="tag")]
     _nid = args.id
     _added, _removed = added, removed
 
@@ -781,7 +780,7 @@ def cmd_tag(args, con):
 def cmd_tag_ls(args, con):
     """List a node's real tags — the read verb of the tag group (= bare `wl tag <id>`)."""
     _require_node(con, args.id)
-    tags = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+    tags = [r.tag for r in Tag.query(con, node_id=args.id, order="tag")]
     _nid = args.id
     return TextRenderable(tags, lambda: out(_c(f"#{_nid} tags: " + (":".join(tags) if tags else "(none)"), "meta")))
 
@@ -799,7 +798,7 @@ def cmd_tag_rm(args, con):
             Tag.delete(con, node_id=args.id, tag=t)
             removed.append(t)
     con.commit()
-    result = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
+    result = [r.tag for r in Tag.query(con, node_id=args.id, order="tag")]
     _nid = args.id
     _removed = removed
 
@@ -858,11 +857,11 @@ def cmd_wait(args, con):
     _check_ids_exist(con, ids)
     for nid in ids:
         # if there's an open clock, close it (WAIT = suspended, no longer timing)
-        row = _db.query_one(con, "clock", cols="id, start_at", node_id=nid, end_at=None, order="id DESC")
+        row = Clock.query_one(con, node_id=nid, end_at=None, order="id DESC")
         if row:
             now_s = _tu.utc_now()
-            secs = max(60, int((datetime.fromisoformat(now_s) - datetime.fromisoformat(row["start_at"])).total_seconds()))
-            Clock.update(con, row["id"], {"end_at": now_s, "elapsed_sec": secs})
+            secs = max(60, int((datetime.fromisoformat(now_s) - datetime.fromisoformat(row.start_at)).total_seconds()))
+            Clock.update(con, row.id, {"end_at": now_s, "elapsed_sec": secs})
         Node.update(con, nid, {"status": "WAIT"})
         if args.note:
             _insert_log(con, nid, f"WAIT: {args.note}")
@@ -908,16 +907,16 @@ def cmd_unlog(args, con):
         die("provide either positional <log_id> or --node <id>; pick one")
 
     if log_id is not None:
-        row = _db.get(con, "log", log_id)
+        row = Log.get(con, log_id)
         if not row:
             die(f"log #{log_id} not found")
-        nmetric = _db.count(con, "metric", log_id=log_id)
+        nmetric = Metric.count(con, log_id=log_id)
         soft_delete_log(con, log_id)
         con.commit()
-        body_preview = row["body"][:60] + ("…" if len(row["body"]) > 60 else "")
+        body_preview = row.body[:60] + ("…" if len(row.body) > 60 else "")
         extra = f" + {nmetric} metric(s)" if nmetric else ""
-        msg = f"✓ deleted log #{log_id}{extra} (node #{row['node_id']}, {_tu.utc_to_local(row['logged_at'])}): {body_preview}"
-        result = UnlogResult(deleted=[log_id], node_id=row["node_id"], metrics_deleted=nmetric, messages=[msg])
+        msg = f"✓ deleted log #{log_id}{extra} (node #{row.node_id}, {_tu.utc_to_local(row.logged_at)}): {body_preview}"
+        result = UnlogResult(deleted=[log_id], node_id=row.node_id, metrics_deleted=nmetric, messages=[msg])
         return TextRenderable(result, cmd_name="unlog")
 
     # --node <id>: delete latest log for that day
@@ -946,7 +945,7 @@ def cmd_unlog(args, con):
     deleted_ids = []
     total_metrics = 0
     for r in rows:
-        nmetric = _db.count(con, "metric", log_id=r["id"])
+        nmetric = Metric.count(con, log_id=r["id"])
         soft_delete_log(con, r["id"])
         deleted_ids.append(r["id"])
         total_metrics += nmetric
@@ -992,7 +991,7 @@ def cmd_relog(args, con):
     import re as _re
 
     log_id = args.log_id
-    row = _db.get(con, "log", log_id)
+    row = Log.get(con, log_id)
     if not row:
         die(f"log #{log_id} not found")
 
@@ -1013,7 +1012,7 @@ def cmd_relog(args, con):
         at = at.strip()
         # the user enters --at in LOCAL time; derive the original's local wall-clock so
         # an HH:MM-only edit keeps the same local day, then convert the result back to UTC
-        orig_local = _tu.utc_to_local(row["logged_at"])
+        orig_local = _tu.utc_to_local(row.logged_at)
         orig_date = orig_local[:10]
         try:
             if _re.fullmatch(r"\d{2}:\d{2}", at):
@@ -1037,11 +1036,11 @@ def cmd_relog(args, con):
 
     if new_body is None and new_ts is None:
         # nothing given -> open EDITOR to edit body
-        new_body = _edit_in_editor(row["body"], suffix=".log.txt")
-        if new_body is None or new_body.strip() == row["body"]:
+        new_body = _edit_in_editor(row.body, suffix=".log.txt")
+        if new_body is None or new_body.strip() == row.body:
             return TextRenderable(
-                RelogResult(id=row["id"], node_id=row["node_id"], tag=row["tag"],
-                            body=row["body"], logged_at=row["logged_at"], canceled=True),
+                RelogResult(id=row.id, node_id=row.node_id, tag=row.tag,
+                            body=row.body, logged_at=row.logged_at, canceled=True),
                 cmd_name="relog",
             )
         new_body = new_body.strip()
@@ -1054,10 +1053,10 @@ def cmd_relog(args, con):
     Log.update(con, log_id, changes)
     con.commit()
 
-    new_row = _db.get(con, "log", log_id)
+    new_row = Log.get(con, log_id)
     return TextRenderable(
-        RelogResult(id=new_row["id"], node_id=new_row["node_id"], tag=new_row["tag"],
-                    body=new_row["body"], logged_at=new_row["logged_at"]),
+        RelogResult(id=new_row.id, node_id=new_row.node_id, tag=new_row.tag,
+                    body=new_row.body, logged_at=new_row.logged_at),
         cmd_name="relog",
     )
 
@@ -1068,8 +1067,7 @@ def cmd_log_ls(args, con):
     stream (`#L<id> [time] body`); for the full filterable / windowed view use `wl logs
     --id <id>` (presets, --since/--until, --by-task, --group, …)."""
     _require_node(con, args.id)
-    rows = _db.query(con, "log", cols="id, node_id, logged_at, body, tag", node_id=args.id, order="logged_at")
-    result = [Log.from_row(r) for r in rows]
+    result = Log.query(con, node_id=args.id, order="logged_at")
     _nid = args.id
     full = _log_full(args)
 
@@ -1100,14 +1098,14 @@ def cmd_log_show(args, con):
     """Show one log entry's full (untruncated) content by its log id (`wl log show #L282`).
     The list views (`wl logs`, `wl log ls`, `wl show` timeline) truncate each log to one
     line; this prints the whole body. Accepts #L282 / L282 / 282."""
-    row = _db.get(con, "log", args.log_id)
+    row = Log.get(con, args.log_id)
     if row is None:
         die(f"no log #L{args.log_id}")
-    node = _db.get(con, "node", row["node_id"])
+    node = Node.get(con, row.node_id)
     return TextRenderable(
-        LogShowResult(id=row["id"], node_id=row["node_id"], tag=row["tag"],
-                      body=row["body"], logged_at=row["logged_at"],
-                      title=node["title"] if node else "?", label=row["tag"] or "note"),
+        LogShowResult(id=row.id, node_id=row.node_id, tag=row.tag,
+                      body=row.body, logged_at=row.logged_at,
+                      title=node.title if node else "?", label=row.tag or "note"),
         cmd_name="log_show",
     )
 
@@ -1122,7 +1120,7 @@ def cmd_retag(args, con):
     """Change one log's `tag` directly (`wl retag #L282 goal`). The tag classifies a log's
     role (goal / summary / a custom marker); a plain note has no tag. Passing `note` / `none`
     / `-` / empty clears it back to a plain note (NULL). Accepts #L282 / L282 / 282."""
-    row = _db.get(con, "log", args.log_id)
+    row = Log.get(con, args.log_id)
     if row is None:
         die(f"no log #L{args.log_id}")
     raw = (args.tag or "").strip()
@@ -1187,8 +1185,8 @@ def cmd_active(args, con):
                 (r["node_id"], today),
             ).fetchone()["s"]
             total_min = mins + int((done_sec or 0) / 60)
-            last = _db.query_one(con, "log", cols="body", node_id=r["node_id"], tag=None, order="id DESC")
-            last_body = last["body"] if last else None
+            last = Log.query_one(con, node_id=r["node_id"], tag=None, order="id DESC")
+            last_body = last.body if last else None
         else:
             total_min = None
             last_body = None
@@ -1400,11 +1398,11 @@ def cmd_node_edit(args, con):
         have = {r["key"] for r in _db.query(con, "prop", cols="key", node_id=nid)}
         conflicts = [_LABELS[k] for k in (_nt.K_DATE, _nt.K_HABIT, _nt.K_MEETLOG) if k in have]
     con.commit()
-    row = _db.get(con, "node", nid)
+    row = Node.get(con, nid)
     summary = ", ".join(f"{k}={v}" if k == "para" else k for k, v in changes.items())
     result = NodeEditResult(
-        id=nid, title=row["title"], status=row["status"], priority=row["priority"],
-        scheduled_date=row["scheduled_date"], deadline_date=row["deadline_date"],
+        id=nid, title=row.title, status=row.status, priority=row.priority,
+        scheduled_date=row.scheduled_date, deadline_date=row.deadline_date,
         summary=summary, conflicts=conflicts, para=para,
     )
     return TextRenderable(result, cmd_name="node_edit")
@@ -1519,13 +1517,13 @@ def _agent_context_line(con, sid):
     if not sid:
         return ""
     # by sid alone (unique) across any agent's key — the live pointer regardless of runtime
-    row = _db.query_one(con, "prop", cols="node_id", key__like=_AGENT_PREFIX + "%", value=sid)
+    row = Prop.query_one(con, key__like=_AGENT_PREFIX + "%", value=sid)
     if not row:
         return ""
-    node = _db.get(con, "node", row["node_id"])
+    node = Node.get(con, row.node_id)
     if not node:
         return ""
-    return f"{node['id']}\t{node['title']}"
+    return f"{node.id}\t{node.title}"
 
 def _agent_hook_json(con, sid):
     """The current binding as a Claude Code `UserPromptSubmit` hook payload (JSON), or "" if
@@ -1544,8 +1542,7 @@ def _has_agent_history(con, nid, sid):
     """Whether the (node, session) bind is already in the history trail — dedup by the
     `session` metric, so re-binding the same pair never duplicates it, yet a pair that was
     bound without a history record still gets one on a later bind."""
-    return _db.query_one(con, "metric", cols="id", node_id=nid,
-                         tag=_SESSION_METRIC_TAG, value_text=sid) is not None
+    return Metric.exists(con, node_id=nid, tag=_SESSION_METRIC_TAG, value_text=sid)
 
 def _record_bind_history(con, nid, sid, agent):
     """Append-only record that session `sid` (run by `agent`) was bound to node `nid`.
@@ -1620,9 +1617,9 @@ def _agent_set(args, con):
     key = _agent_key(agent)
     nid = args.id
     _require_node(con, nid)
-    cur = _db.query_one(con, "prop", cols="value", node_id=nid, key=key)
-    if cur and cur["value"] != sid:
-        out(_c(f"⚠ #{nid} 已被 session {cur['value'][:8]}… 绑定,将被覆盖", "later"))
+    cur = Prop.query_one(con, node_id=nid, key=key)
+    if cur and cur.value != sid:
+        out(_c(f"⚠ #{nid} 已被 session {cur.value[:8]}… 绑定,将被覆盖", "later"))
     # Record the history trail unless told not to AND it isn't already recorded — dedup by the
     # actual metric (not "is the prop already set"), so a pair bound before history existed
     # (an early auto-bind, or a --no-record bind) still gets recorded on a later bind.
@@ -1634,7 +1631,8 @@ def _agent_set(args, con):
         _record_bind_history(con, nid, sid, agent)   # append-only history trail
     con.commit()
     _invalidate_agent_cache(sid)   # binding changed → integrations re-fetch via `wl agent context`
-    title = (_db.get(con, "node", nid) or {})["title"]
+    _node = Node.get(con, nid)
+    title = _node.title if _node else ""
     line = _c("✓", "done") + " " + _c(f"#{nid}", "id") + " ← " + _c(f"{agent}:{sid[:8]}…", "meta") + " · " + _short(title)
     if do_record:
         line += _c("  +history", "meta")
@@ -1651,10 +1649,10 @@ def _agent_ls(args, con):
     items = []
     for r in rows:
         nid, sid = r["node_id"], r["value"]
-        node = _db.get(con, "node", nid)
-        title = node["title"] if node else "(deleted)"
+        node = Node.get(con, nid)
+        title = node.title if node else "(deleted)"
         last = _db.query_one(con, "log", cols="MAX(logged_at) AS m", node_id=nid)
-        act = (last["m"] if last else None) or (node["created_at"] if node else "") or ""
+        act = (last["m"] if last else None) or (node.created_at if node else "") or ""
         bl = con.execute(
             "SELECT MAX(l.logged_at) AS m FROM log l JOIN metric mt ON mt.log_id = l.id "
             f"WHERE l.node_id = ? AND mt.tag = ? AND mt.value_text = ? AND l.{_db.ALIVE}",
@@ -1721,14 +1719,15 @@ def _agent_context(args, con):
 def _agent_show(args, con):
     # bare `wl agent` → show the current session's binding (under whichever agent key it lives)
     sid = _agent_need_sid()
-    row = _db.query_one(con, "prop", cols="node_id, key", key__like=_AGENT_PREFIX + "%", value=sid)
+    row = Prop.query_one(con, key__like=_AGENT_PREFIX + "%", value=sid)
     if not row:
         result = {"node_id": None, "title": None, "agent": None, "session_id": sid}
         return TextRenderable(result, lambda: out(_c(f"(session {sid[:8]}… 未绑定任何任务)", "meta")))
-    agent = row["key"][len(_AGENT_PREFIX):]
-    title = (_db.get(con, "node", row["node_id"]) or {})["title"]
-    idstr = f"#{row['node_id']}"
-    result = {"node_id": row["node_id"], "title": title, "agent": agent, "session_id": sid}
+    agent = row.key[len(_AGENT_PREFIX):]
+    _n = Node.get(con, row.node_id)
+    title = _n.title if _n else ""
+    idstr = f"#{row.node_id}"
+    result = {"node_id": row.node_id, "title": title, "agent": agent, "session_id": sid}
 
     def _render():
         if render.is_plain():
@@ -1761,8 +1760,7 @@ def cmd_agent(args, con):
 def cmd_clock_ls(args, con):
     """List a node's clock intervals (start → end, duration). Read primitive for clock."""
     _require_node(con, args.id)
-    rows = _db.query(con, "clock", cols="id, node_id, start_at, end_at, elapsed_sec", node_id=args.id, order="id")
-    result = [Clock.from_row(r) for r in rows]
+    result = Clock.query(con, node_id=args.id, order="id")
     _nid = args.id
 
     def _render():
@@ -1787,12 +1785,12 @@ def _render_clock_edit(result):
 def cmd_clock_edit(args, con):
     """Edit a clock interval's start / end (recomputes elapsed_sec). Fix a mistimed
     `wl start/stop/spent` entry."""
-    row = _db.get(con, "clock", args.clock_id)
+    row = Clock.get(con, args.clock_id)
     if not row:
         die(f"clock interval #C{args.clock_id} not found")
     changes = {}
-    start_at = row["start_at"]
-    end_at = row["end_at"]
+    start_at = row.start_at
+    end_at = row.end_at
     if args.start is not None:
         try:
             start_at = _resolve_at_ts(args.start)
@@ -1822,10 +1820,10 @@ def cmd_clock_edit(args, con):
         changes["elapsed_sec"] = None  # --end '' cleared the end → back to running
     Clock.update(con, args.clock_id, changes)
     con.commit()
-    r = _db.get(con, "clock", args.clock_id)
+    r = Clock.get(con, args.clock_id)
     result = ClockEditResult(
-        id=r["id"], node_id=r["node_id"], start_at=r["start_at"],
-        end_at=r["end_at"], elapsed_sec=r["elapsed_sec"],
+        id=r.id, node_id=r.node_id, start_at=r.start_at,
+        end_at=r.end_at, elapsed_sec=r.elapsed_sec,
         clock_id=args.clock_id, summary=", ".join(changes),
     )
     return TextRenderable(result, cmd_name="clock_edit")
@@ -1840,7 +1838,7 @@ def _render_clock_rm(result):
 def cmd_clock_rm(args, con):
     """Soft-delete a clock interval — remove a wrong `wl spent`/start-stop entry."""
     for cid in args.clock_ids:
-        if not _db.exists(con, "clock", id=cid):
+        if not Clock.exists(con, id=cid):
             die(f"clock interval #C{cid} not found")
     for cid in args.clock_ids:
         Clock.delete(con, id=cid)
@@ -1863,8 +1861,7 @@ def cmd_clock(args, con):
 def cmd_link_ls(args, con):
     """List a node's vault-doc links. Read primitive for link (also shown by `wl show`)."""
     _require_node(con, args.id)
-    rows = _db.query(con, "link", cols="vault_doc", node_id=args.id, order="vault_doc")
-    result = [r["vault_doc"] for r in rows]
+    result = [r.vault_doc for r in Link.query(con, node_id=args.id, order="vault_doc")]
     _nid = args.id
 
     def _render():

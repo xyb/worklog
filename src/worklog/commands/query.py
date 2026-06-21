@@ -12,6 +12,7 @@ from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
 from .. import node_types as _nt
+from ..models import Clock, Link, Node
 from ..node_schema import (
     node_view as _node_view, node_summary_view as _node_summary_view,
     type_facet as _type_facet, SUMMARY as _SUMMARY, FULL as _FULL,
@@ -114,23 +115,23 @@ def _node_to_dict(con, n):
                 if r["key"] not in _RELATION_KEY_LABEL}
     nv.relations = {k.replace("-", "_"): v for k, v in relation_view(con, nid).items()}
     nv.backrels = _backrels(con, nid)   # node ids whose text references this node
-    nv.links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=nid)]
+    nv.links = [r.vault_doc for r in Link.query(con, node_id=nid)]
     nv.schedule = {
         "dates": list(dict.fromkeys(r["on_date"] for r in sched_rows if r["on_date"])),
         "rrules": list(dict.fromkeys(r["rrule"] for r in sched_rows if r["rrule"])),
     }
-    nv.children = [{"id": c["id"], "title": c["title"],
-                    "type": _type_facet(node_props(con, c["id"])),
-                    "status": c["status"], "priority": c["priority"]}
-                   for c in _db.query(con, "node", parent_id=nid, order="priority NULLS LAST, id")]
+    nv.children = [{"id": c.id, "title": c.title,
+                    "type": _type_facet(node_props(con, c.id)),
+                    "status": c.status, "priority": c.priority}
+                   for c in Node.query(con, parent_id=nid, order="priority NULLS LAST, id")]
     nv.logs = [{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]}
                for r in _db.query(con, "log", cols="id, logged_at, body, tag", node_id=nid, order="id")]
     nv.metrics = [{"log_id": r["log_id"], "tag": r["tag"], "value_num": r["value_num"],
                    "value_text": r["value_text"], "unit": r["unit"], "note": r["note"], "at": r["at"]}
                   for r in _db.query(con, "metric", cols="log_id, tag, value_num, value_text, unit, note, at",
                                      node_id=nid, order="id")]
-    nv.clock = [{"start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"]}
-                for r in _db.query(con, "clock", cols="start_at, end_at, elapsed_sec", node_id=nid, order="id")]
+    nv.clock = [{"start_at": r.start_at, "end_at": r.end_at, "elapsed_sec": r.elapsed_sec}
+                for r in Clock.query(con, node_id=nid, order="id")]
     return nv.to_dict(_FULL)
 
 
@@ -880,9 +881,9 @@ def _summary_buckets(con, args):
     doing = [n for n in nodes if n["status"] == "DOING"]
 
     clock_min = 0
-    for r in _db.query(con, "clock", cols="end_at, elapsed_sec", end_at__ne=None):
-        if inw(r["end_at"]):
-            clock_min += int((r["elapsed_sec"] or 0) / 60)
+    for r in Clock.query(con, end_at__ne=None):
+        if inw(r.end_at):
+            clock_min += int((r.elapsed_sec or 0) / 60)
 
     # pending (window-relevant): planned / doing / added-in-window and not done
     pending = [
@@ -1315,7 +1316,7 @@ def _show_detail(con, args, n):
             out("    " + _c(f"{r['key']:12s} =", "meta") + " " + _c(r["value"]))
         for ln in rel_lines:   # nested relation: sub-block (split/related + =backrels)
             out(ln)
-    links = [r["vault_doc"] for r in _db.query(con, "link", cols="vault_doc", node_id=args.id)]
+    links = [r.vault_doc for r in Link.query(con, node_id=args.id)]
     if links:
         out("  " + _c("links:", "meta") + "    " + _c(", ".join(f"[[{d}]]" for d in links)))
     # schedule (sched table): one-off dates + recurring rules. First-hand info for debugging
@@ -1381,12 +1382,12 @@ def _show_timeline(con, args, n):
             head = _truncate_log_body(r["body"], indent_cols=_display_width(prefix), full=_log_full(args))
             events.append((r["logged_at"], label, head, r["id"], mrows))
     # structured clock intervals (start→end, from the clock table)
-    for c in _db.query(con, "clock", cols="start_at, end_at, elapsed_sec", node_id=args.id, order="id"):
-        if c["end_at"]:
-            extra = f"{_tu.utc_to_local(c['start_at'])[11:16]}→{_tu.utc_to_local(c['end_at'])[11:16]} ({(c['elapsed_sec'] or 0) // 60}min)"
+    for c in Clock.query(con, node_id=args.id, order="id"):
+        if c.end_at:
+            extra = f"{_tu.utc_to_local(c.start_at)[11:16]}→{_tu.utc_to_local(c.end_at)[11:16]} ({(c.elapsed_sec or 0) // 60}min)"
         else:
-            extra = f"{_tu.utc_to_local(c['start_at'])[11:16]}→… (running)"
-        events.append((c["start_at"], "⏱ clock", extra, None, ()))
+            extra = f"{_tu.utc_to_local(c.start_at)[11:16]}→… (running)"
+        events.append((c.start_at, "⏱ clock", extra, None, ()))
     if events:
         events.sort(key=lambda e: e[0])
         # tail: --no-timeline/brief=0 / --all-timelines=None full expansion / --timeline-tail N / default 5

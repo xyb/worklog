@@ -323,7 +323,7 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
             log_id = _insert_log(con, nid, entry)
             # a log entry may carry structured datapoints: {"body":..., "metrics":[{tag,value,unit}]}
             if isinstance(entry, dict) and entry.get("metrics"):
-                log_at = _db.get(con, "log", log_id)["logged_at"]
+                log_at = Log.get(con, log_id).logged_at
                 for mspec in entry["metrics"]:
                     import_metric(con, log_id, nid, mspec, default_at=log_at)
         # node-level metrics → a dedicated carrier log (1 carrier → N datapoints, e.g. a CGM import)

@@ -23,6 +23,7 @@ from __future__ import annotations
 from . import db_table as _db
 from . import node_types as _nt
 from . import timeutil as _tu
+from .models import Node
 from .node import create_node
 from .queries import _upsert_prop
 
@@ -50,7 +51,7 @@ def find_time_node(con, level, period):
                                                       key=_nt.K_PERIOD, value=period)}
         candidates = by_level & by_period
     for nid in sorted(candidates):
-        if _db.get(con, "node", nid) is not None:   # node itself still live
+        if Node.get(con, nid) is not None:
             return nid
     return None
 
