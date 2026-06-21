@@ -321,11 +321,21 @@ def cmd_add(args, con):
     return TextRenderable(result, _render)
 
 
+@dataclass
+class LogWriteResult:
+    id: int
+    node_id: int
+    body: str
+    logged_at: str
+    status_changed: bool
+    metrics_added: int
+
+
 @text_renderer("log")
 def _render_log(result):
-    progress = " (status: TODO → DOING)" if result["status_changed"] else ""
-    metrics = f" + {result['metrics_added']} metric(s)" if result["metrics_added"] else ""
-    out(f"✓ log added to #{result['node_id']}{progress}{metrics}  @{_tu.utc_to_local(result['logged_at'])[11:16]}")
+    progress = " (status: TODO → DOING)" if result.status_changed else ""
+    metrics = f" + {result.metrics_added} metric(s)" if result.metrics_added else ""
+    out(f"✓ log added to #{result.node_id}{progress}{metrics}  @{_tu.utc_to_local(result.logged_at)[11:16]}")
 
 
 @output_format
@@ -360,9 +370,11 @@ def cmd_log(args, con):
         metrics_added = attach_metric_specs(con, log_id, args.id, specs, at=log_at)
     con.commit()
     row = _db.get(con, "log", log_id)
-    result = {"id": log_id, "node_id": args.id, "body": row["body"], "logged_at": row["logged_at"],
-              "status_changed": status_changed, "metrics_added": metrics_added}
-    return TextRenderable(result, cmd_name="log")
+    return TextRenderable(
+        LogWriteResult(id=log_id, node_id=args.id, body=row["body"], logged_at=row["logged_at"],
+                       status_changed=status_changed, metrics_added=metrics_added),
+        cmd_name="log",
+    )
 
 
 @output_format
@@ -473,9 +485,19 @@ def cmd_stop(args, con):
     return TextRenderable(result, _render)
 
 
+@dataclass
+class SpentResult:
+    id: int
+    node_id: int
+    start_at: str
+    end_at: str
+    elapsed_sec: int
+    mins: int
+
+
 @text_renderer("spent")
 def _render_spent(result):
-    out(f"✓ #{result['node_id']} spent {result['mins']}min ({_tu.utc_to_local(result['start_at'])[11:16]} → {_tu.utc_to_local(result['end_at'])[11:16]})")
+    out(f"✓ #{result.node_id} spent {result.mins}min ({_tu.utc_to_local(result.start_at)[11:16]} → {_tu.utc_to_local(result.end_at)[11:16]})")
 
 
 @output_format
@@ -512,10 +534,12 @@ def cmd_spent(args, con):
                                    "elapsed_sec": mins * 60})
     con.commit()
     r = _db.get(con, "clock", cid)
-    result = {"id": r["id"], "node_id": r["node_id"],
-              "start_at": r["start_at"], "end_at": r["end_at"], "elapsed_sec": r["elapsed_sec"],
-              "mins": mins}
-    return TextRenderable(result, cmd_name="spent")
+    return TextRenderable(
+        SpentResult(id=r["id"], node_id=r["node_id"],
+                    start_at=r["start_at"], end_at=r["end_at"], elapsed_sec=r["elapsed_sec"],
+                    mins=mins),
+        cmd_name="spent",
+    )
 
 
 @output_format
@@ -812,6 +836,13 @@ def cmd_tag_group(args, con):
         die("usage: wl tag <id> +x -y  |  wl tag <add|ls|rm> … (see `wl tag --help`)")
     {"add": cmd_tag, "ls": cmd_tag_ls, "rm": cmd_tag_rm}[sub](args, con)
 
+@dataclass
+class TickResult:
+    node_id: int
+    log_id: int
+    done: bool
+
+
 @output_format
 def cmd_tick(args, con):
     """Quick check-in: add a log for today to one or more nodes (default body='✓ done', overridable with --note).
@@ -829,7 +860,7 @@ def cmd_tick(args, con):
         checkin_metric(con, log_id, nid, today)
         if args.done:
             _db.update(con, "node", nid, {"status": "DONE", "closed_at": _tu.utc_now()})
-        result.append({"node_id": nid, "log_id": log_id, "done": args.done})
+        result.append(TickResult(node_id=nid, log_id=log_id, done=bool(args.done)))
     con.commit()
     return TextRenderable(result, cmd_name="tick")
 
@@ -837,7 +868,7 @@ def cmd_tick(args, con):
 @text_renderer("tick")
 def _render_tick(result):
     for item in result:
-        out(_c(f"✓ #{item['node_id']} checked in", "meta") + (_c(" + DONE", "done") if item["done"] else ""))
+        out(_c(f"✓ #{item.node_id} checked in", "meta") + (_c(" + DONE", "done") if item.done else ""))
 
 
 @output_format
@@ -1086,13 +1117,24 @@ def cmd_log_ls(args, con):
     return TextRenderable(result, _render)
 
 
+@dataclass
+class LogShowResult:
+    id: int
+    node_id: int
+    tag: str | None
+    body: str
+    logged_at: str
+    title: str
+    label: str
+
+
 @text_renderer("log_show")
 def _render_log_show(result):
-    out(_c(f"#L{result['id']}", "id") + " "
-        + _c(f"[{_tu.utc_to_local(result['logged_at'])}]", "meta") + " "
-        + _c(result["label"], "meta") + " "
-        + _c(f"#{result['node_id']}", "id") + " " + _c(f"'{result['title']}'", "meta"))
-    out(result["body"])
+    out(_c(f"#L{result.id}", "id") + " "
+        + _c(f"[{_tu.utc_to_local(result.logged_at)}]", "meta") + " "
+        + _c(result.label, "meta") + " "
+        + _c(f"#{result.node_id}", "id") + " " + _c(f"'{result.title}'", "meta"))
+    out(result.body)
 
 
 @output_format
@@ -1104,10 +1146,12 @@ def cmd_log_show(args, con):
     if row is None:
         die(f"no log #L{args.log_id}")
     node = _db.get(con, "node", row["node_id"])
-    result = {"id": row["id"], "node_id": row["node_id"], "tag": row["tag"],
-              "body": row["body"], "logged_at": row["logged_at"],
-              "title": node["title"] if node else "?", "label": row["tag"] or "note"}
-    return TextRenderable(result, cmd_name="log_show")
+    return TextRenderable(
+        LogShowResult(id=row["id"], node_id=row["node_id"], tag=row["tag"],
+                      body=row["body"], logged_at=row["logged_at"],
+                      title=node["title"] if node else "?", label=row["tag"] or "note"),
+        cmd_name="log_show",
+    )
 
 
 @text_renderer("retag")
