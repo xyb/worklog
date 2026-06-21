@@ -10,7 +10,61 @@ from pathlib import Path
 from .. import db_table as _db
 from ..render import _c, die, out
 from .views import _cn_weekday, _date_label
-from .output import output_format, TextRenderable
+from .output import output_format, text_renderer, TextRenderable
+
+
+@text_renderer("dateinfo")
+def _render_dateinfo(result):
+    if isinstance(result, list):
+        if not result:
+            out(_c("(no date metadata)", "meta"))
+        else:
+            for r in result:
+                out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
+    elif "imported" in result:
+        out(_c(f"✓ imported {result['imported']} date metadata entries", "meta"))
+    elif result.get("cleared") is not None:
+        if result["cleared"]:
+            out(_c(f"✓ cleared metadata for {result['date']}", "meta"))
+        else:
+            out(_c(f"({result['date']} had no metadata)", "meta"))
+    elif result.get("action") == "set":
+        out(_c(f"✓ {result['date']} {result['weekday']} · {result['label']}", "meta"))
+    elif result.get("action") == "show":
+        lbl = result["label"]
+        out(_c(f"{result['date']} {result['weekday']}" + (f" · {lbl}" if lbl else " (no label)"), "meta"))
+
+
+@text_renderer("date_set")
+def _render_date_set(result):
+    out(_c(f"✓ {result['date']} {result['weekday']} · {result['label']}", "meta"))
+
+
+@text_renderer("date_ls")
+def _render_date_ls(result):
+    if isinstance(result, dict) and result.get("action") == "show":
+        lbl = result["label"]
+        out(_c(f"{result['date']} {result['weekday']}" + (f" · {lbl}" if lbl else " (no label)"), "meta"))
+    else:
+        rows = result if isinstance(result, list) else result.get("rows", [])
+        if not rows:
+            out(_c("(no date metadata)", "meta"))
+        else:
+            for r in rows:
+                out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
+
+
+@text_renderer("date_rm")
+def _render_date_rm(result):
+    if result["cleared"]:
+        out(_c(f"✓ cleared metadata for {result['date']}", "meta"))
+    else:
+        out(_c(f"({result['date']} had no metadata)", "meta"))
+
+
+@text_renderer("date_import")
+def _render_date_import(result):
+    out(_c(f"✓ imported {result['imported']} date metadata entries", "meta"))
 
 
 @output_format
@@ -25,36 +79,28 @@ def cmd_dateinfo(args, con):
             _db.upsert(con, "date_meta", {"date": d, "label": label}, key=("date",))
             n += 1
         con.commit()
-        return TextRenderable({"imported": n}, lambda: out(_c(f"✓ imported {n} date metadata entries", "meta")))
+        return TextRenderable({"imported": n}, cmd_name="dateinfo")
     if args.date and args.label:
         _db.upsert(con, "date_meta", {"date": args.date, "label": args.label}, key=("date",))
         con.commit()
-        _d, _l = args.date, args.label
-        _wd = _cn_weekday(args.date)
-        return TextRenderable({"date": _d, "label": _l}, lambda: out(_c(f"✓ {_d} {_wd} · {_l}", "meta")))
+        return TextRenderable(
+            {"action": "set", "date": args.date, "label": args.label, "weekday": _cn_weekday(args.date)},
+            cmd_name="dateinfo",
+        )
     if args.date and args.clear:
         n = _db.delete(con, "date_meta", date=args.date)
         con.commit()
-        _d = args.date
-        _msg = _c(f"✓ cleared metadata for {_d}", "meta") if n else _c(f"({_d} had no metadata)", "meta")
-        return TextRenderable({"date": _d, "cleared": n}, lambda: out(_msg))
+        return TextRenderable({"date": args.date, "cleared": n}, cmd_name="dateinfo")
     # no args / only date: list
     if args.date:
         lbl = _date_label(con, args.date)
-        _d, _wd = args.date, _cn_weekday(args.date)
-        _msg = _c(f"{_d} {_wd}" + (f" · {lbl}" if lbl else " (no label)"), "meta")
-        return TextRenderable({"date": _d, "label": lbl}, lambda: out(_msg))
+        return TextRenderable(
+            {"action": "show", "date": args.date, "label": lbl, "weekday": _cn_weekday(args.date)},
+            cmd_name="dateinfo",
+        )
     rows = _db.query(con, "date_meta", cols="date, label", order="date")
     result = [{"date": r["date"], "label": r["label"]} for r in rows]
-
-    def _render():
-        if not rows:
-            out(_c("(no date metadata)", "meta"))
-        else:
-            for r in rows:
-                out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
-
-    return TextRenderable(result, _render)
+    return TextRenderable(result, cmd_name="dateinfo")
 
 
 @output_format
@@ -63,8 +109,10 @@ def cmd_date_set(args, con):
     (= `wl dateinfo <date> <label>`)."""
     _db.upsert(con, "date_meta", {"date": args.date, "label": args.label}, key=("date",))
     con.commit()
-    _d, _l, _wd = args.date, args.label, _cn_weekday(args.date)
-    return TextRenderable({"date": _d, "label": _l}, lambda: out(_c(f"✓ {_d} {_wd} · {_l}", "meta")))
+    return TextRenderable(
+        {"date": args.date, "label": args.label, "weekday": _cn_weekday(args.date)},
+        cmd_name="date_set",
+    )
 
 
 @output_format
@@ -74,20 +122,13 @@ def cmd_date_ls(args, con):
     d = getattr(args, "date", None)
     if d:
         lbl = _date_label(con, d)
-        _wd = _cn_weekday(d)
-        _msg = _c(f"{d} {_wd}" + (f" · {lbl}" if lbl else " (no label)"), "meta")
-        return TextRenderable({"date": d, "label": lbl}, lambda: out(_msg))
+        return TextRenderable(
+            {"action": "show", "date": d, "label": lbl, "weekday": _cn_weekday(d)},
+            cmd_name="date_ls",
+        )
     rows = _db.query(con, "date_meta", cols="date, label", order="date")
     result = [{"date": r["date"], "label": r["label"]} for r in rows]
-
-    def _render():
-        if not rows:
-            out(_c("(no date metadata)", "meta"))
-        else:
-            for r in rows:
-                out(_c(f"{r['date']} {_cn_weekday(r['date'])} · {r['label']}", "meta"))
-
-    return TextRenderable(result, _render)
+    return TextRenderable(result, cmd_name="date_ls")
 
 
 @output_format
@@ -96,9 +137,7 @@ def cmd_date_rm(args, con):
     (= `wl dateinfo <date> --clear`)."""
     n = _db.delete(con, "date_meta", date=args.date)
     con.commit()
-    _d = args.date
-    _msg = _c(f"✓ cleared metadata for {_d}", "meta") if n else _c(f"({_d} had no metadata)", "meta")
-    return TextRenderable({"date": _d, "cleared": n}, lambda: out(_msg))
+    return TextRenderable({"date": args.date, "cleared": n}, cmd_name="date_rm")
 
 
 @output_format
@@ -113,7 +152,7 @@ def cmd_date_import(args, con):
         _db.upsert(con, "date_meta", {"date": d, "label": label}, key=("date",))
         n += 1
     con.commit()
-    return TextRenderable({"imported": n}, lambda: out(_c(f"✓ imported {n} date metadata entries", "meta")))
+    return TextRenderable({"imported": n}, cmd_name="date_import")
 
 
 def cmd_date_group(args, con):

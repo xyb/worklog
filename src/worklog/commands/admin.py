@@ -13,13 +13,83 @@ from .. import render
 from ..render import _c, out, _resolve_theme, THEMES
 from ..xdg import (_resolve_db_path, _resolve_aliases_path, _resolve_config_path,
                    _xdg_data_home, _xdg_config_home)
-from .output import output_format, TextRenderable
+from .output import output_format, TextRenderable, text_renderer
 
 # Lazy access to the cli module (db_init / migration helpers / __version__) — at call time.
 from .. import cli as _cli  # noqa: E402
 
 # Bundled config.ini template (shipped in the wheel, like help/*.md), copied by `wl config init`.
 _CONFIG_TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "config.ini"
+
+
+@text_renderer("config_init")
+def _render_config_init(result):
+    _dest = result["path"]
+    if not result["created"]:
+        out(_c(f"config already exists — not overwriting: {_dest}", "meta"))
+    else:
+        out(_c(f"✓ wrote config template: {_dest}", "done"))
+        out(_c("  edit it (everything starts commented = defaults), then `wl config` shows resolved values.", "meta"))
+
+
+@text_renderer("config")
+def _render_config(result):
+    def _row(label, value, hint=""):
+        hint_part = "  " + _c(hint, "meta") if hint else ""
+        out(f"  {label:<18} {value}{hint_part}")
+
+    db = result["database"]
+    aliases_path = result["aliases"]["path"]
+    aliases_exists = result["aliases"]["exists"]
+    xdg = result["xdg"]
+    env = result["env"]
+    ec = result["embedding"]
+    ec_api_key_set = result["embedding_api_key_set"]
+    vec_backend = result["vector_backend"]
+
+    out(_c(f"worklog {result['version']}", "header"))
+    out("")
+    out(_c("paths:", "header"))
+    _row("database", db["path"], f"[{db['source']}] {db['size']}")
+    _row("aliases", aliases_path, "(exists)" if aliases_exists else "(not configured)")
+    out("")
+    out(_c("XDG directories:", "header"))
+    _row("XDG_DATA_HOME", xdg["data_home"], "(env set)" if os.environ.get("XDG_DATA_HOME") else "(default)")
+    _row("XDG_CONFIG_HOME", xdg["config_home"], "(env set)" if os.environ.get("XDG_CONFIG_HOME") else "(default)")
+    out("")
+    out(_c("environment:", "header"))
+    for var in ("WORKLOG_DB", "WORKLOG_COLOR", "WORKLOG_THEME", "NO_COLOR"):
+        val = env.get(var)
+        _row(var, val if val else _c("(not set)", "meta"))
+    out("")
+    out(_c("embedding (wl query / reindex):", "header"))
+    _row("endpoint", ec["endpoint"], f"[{ec['source']['endpoint']}]")
+    _row("model", ec["model"], f"[{ec['source']['model']}]")
+    _row("dimensions", ec["dimensions"] if ec["dimensions"] is not None else _c("(model native)", "meta"),
+         f"[{ec['source']['dimensions']}]")
+    _row("api_key", _c("(set)", "meta") if ec_api_key_set else _c("(none)", "meta"),
+         f"[{ec['source']['api_key']}]")
+    qp = ec.get("query_prompt")
+    qp_show = _c("(disabled)", "meta") if not qp else (qp[:54].replace("\n", "\\n") + ("…" if len(qp) > 54 else ""))
+    _row("query_prompt", qp_show, f"[{ec['source']['query_prompt']}]")
+    if vec_backend == "lancedb":
+        _row("vector store", "LanceDB", "the 'semantic' extra (fast)")
+    else:
+        _row("vector store", "SQLite (pure-Python fallback)",
+             "no LanceDB wheel — `pip install 'pyworklog[semantic]'` for the fast store")
+    out("")
+    out(_c("runtime:", "header"))
+    _row("python", result["python"], f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
+    _row("rich", "available" if result["rich"] else "not installed (plain-text mode)")
+
+
+@text_renderer("migrate")
+def _render_migrate(result):
+    if result["pending"] == 0:
+        out(_c(f"✓ DB at version {result['version']}, no pending migrations ({result['total']} total).", "done"))
+    else:
+        applied = result["applied"]
+        out(_c(f"✓ DB now at version {result['version']} ({len(applied)} migration(s) applied).", "done"))
 
 
 def cmd_init(args, con):
@@ -33,19 +103,10 @@ def cmd_config_init(args, con):
     dest = _resolve_config_path()
     _dest = str(dest)
     if dest.exists():
-        return TextRenderable(
-            {"created": False, "path": _dest},
-            lambda: out(_c(f"config already exists — not overwriting: {_dest}", "meta")),
-        )
+        return TextRenderable({"created": False, "path": _dest}, cmd_name="config_init")
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(_CONFIG_TEMPLATE, dest)
-    return TextRenderable(
-        {"created": True, "path": _dest},
-        lambda: (
-            out(_c(f"✓ wrote config template: {_dest}", "done")),
-            out(_c("  edit it (everything starts commented = defaults), then `wl config` shows resolved values.", "meta")),
-        ),
-    )
+    return TextRenderable({"created": True, "path": _dest}, cmd_name="config_init")
 
 
 @output_format
@@ -82,52 +143,7 @@ def cmd_config(args, con):
         "python": sys.executable,
         "rich": render._RICH_AVAIL,
     }
-    _db, _db_src, _db_size = db, db_src, db_size
-    _aliases = aliases
-    _ec = ec
-    _vec_backend = vec_backend
-
-    def _row(label, value, hint=""):
-        hint_part = "  " + _c(hint, "meta") if hint else ""
-        out(f"  {label:<18} {value}{hint_part}")
-
-    def _render():
-        out(_c(f"worklog {_cli.__version__}", "header"))
-        out("")
-        out(_c("paths:", "header"))
-        _row("database", _db, f"[{_db_src}] {_db_size}")
-        _row("aliases", _aliases, "(exists)" if _aliases.exists() else "(not configured)")
-        out("")
-        out(_c("XDG directories:", "header"))
-        _row("XDG_DATA_HOME", _xdg_data_home(), "(env set)" if os.environ.get("XDG_DATA_HOME") else "(default)")
-        _row("XDG_CONFIG_HOME", _xdg_config_home(), "(env set)" if os.environ.get("XDG_CONFIG_HOME") else "(default)")
-        out("")
-        out(_c("environment:", "header"))
-        for var in ("WORKLOG_DB", "WORKLOG_COLOR", "WORKLOG_THEME", "NO_COLOR"):
-            val = os.environ.get(var)
-            _row(var, val if val else _c("(not set)", "meta"))
-        out("")
-        out(_c("embedding (wl query / reindex):", "header"))
-        _row("endpoint", _ec["endpoint"], f"[{_ec['source']['endpoint']}]")
-        _row("model", _ec["model"], f"[{_ec['source']['model']}]")
-        _row("dimensions", _ec["dimensions"] if _ec["dimensions"] is not None else _c("(model native)", "meta"),
-             f"[{_ec['source']['dimensions']}]")
-        _row("api_key", _c("(set)", "meta") if _ec["api_key"] else _c("(none)", "meta"),
-             f"[{_ec['source']['api_key']}]")
-        qp = _ec["query_prompt"]
-        qp_show = _c("(disabled)", "meta") if not qp else (qp[:54].replace("\n", "\\n") + ("…" if len(qp) > 54 else ""))
-        _row("query_prompt", qp_show, f"[{_ec['source']['query_prompt']}]")
-        if _vec_backend == "lancedb":
-            _row("vector store", "LanceDB", "the 'semantic' extra (fast)")
-        else:
-            _row("vector store", "SQLite (pure-Python fallback)",
-                 "no LanceDB wheel — `pip install 'pyworklog[semantic]'` for the fast store")
-        out("")
-        out(_c("runtime:", "header"))
-        _row("python", sys.executable, f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")
-        _row("rich", "available" if render._RICH_AVAIL else "not installed (plain-text mode)")
-
-    return TextRenderable(result, _render)
+    return TextRenderable(result, cmd_name="config")
 
 
 @output_format
@@ -142,18 +158,16 @@ def cmd_migrate(args, con):
     current = _cli._db_version(con)
     pending = [p for p in files if int(p.stem.split("_", 1)[0]) > current]
     if not pending:
-        _cur, _total = current, len(files)
         return TextRenderable(
-            {"version": _cur, "pending": 0, "total": _total, "applied": []},
-            lambda: out(_c(f"✓ DB at version {_cur}, no pending migrations ({_total} total).", "done")),
+            {"version": current, "pending": 0, "total": len(files), "applied": []},
+            cmd_name="migrate",
         )
     out(_c(f"applying {len(pending)} migration(s) (DB at version {current}):", "header"))
     applied = _cli._run_migrations(con, verbose=True)
     new_version = _cli._db_version(con)
-    _new, _applied = new_version, [p.name for p in applied]
     return TextRenderable(
-        {"version": _new, "applied": _applied},
-        lambda: out(_c(f"✓ DB now at version {_new} ({len(_applied)} migration(s) applied).", "done")),
+        {"version": new_version, "pending": len(applied), "applied": [p.name for p in applied]},
+        cmd_name="migrate",
     )
 
 

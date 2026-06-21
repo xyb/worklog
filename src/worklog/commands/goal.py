@@ -22,7 +22,7 @@ from ..helpers import _resolve_concrete_date, _truncate_log_body
 from ..render import _c, die, out
 from .timenodes import _ensure_day, _ensure_today_day
 from .views import _goal_progress, _emit_goal_targets
-from .output import output_format, TextRenderable
+from .output import output_format, TextRenderable, text_renderer
 
 
 _GOAL_ID_MENTION = re.compile(r"(?:WL)?#(\d+)")
@@ -93,6 +93,15 @@ def _goal_id_hint(con, body, already, set_stem, full_stem):
         out(f"  {set_stem} <id…>")
 
 
+@text_renderer("goal_rm")
+def _render_goal_rm(result):
+    nid = result["node_id"]
+    field = result["field"]
+    n = result["cleared"]
+    msg = _c(f"✓ #{nid} {field} cleared ({n} log(s))" if n else f"(#{nid} has no {field})", "meta")
+    out(msg)
+
+
 @output_format
 def cmd_goal(args, con):
     """The default (bare) form of `wl goal`: read/write TODAY's goal. `wl goal` reads; `wl goal
@@ -105,9 +114,9 @@ def cmd_goal(args, con):
         row = _latest_typed_log(con, nid, "goal")
         if not (row and row["body"]):
             return TextRenderable(None, lambda: out(_c("(no goal set for today)", "meta")))
-        result = {"body": row["body"], "logged_at": row["logged_at"]}
         _body = row["body"]
         _progress = _goal_progress(con, nid, _body)
+        result = {"body": _body, "logged_at": row["logged_at"]}
         return TextRenderable(result, lambda: (
             out(_body + _c(_progress, "meta")) or _emit_goal_targets(con, nid)
         ))
@@ -155,7 +164,7 @@ def cmd_summary_prop(args, con):
         if not row or not row["body"]:
             return TextRenderable(None, lambda: out(_c(f"(no summary set for {label})", "meta")))
         at = row["logged_at"]
-        result = {"body": row["body"], "logged_at": row["logged_at"]}
+        result = {"body": row["body"], "logged_at": at}
         _body = row["body"]
         _suffix = _c(f"  (written at {at})", "meta") if at else ""
         return TextRenderable(result, lambda: out(_body + _suffix))
@@ -280,9 +289,7 @@ def cmd_goal_rm(args, con):
     n = _db.delete(con, "log", node_id=args.id, tag=field)
     con.commit()
     result = {"node_id": args.id, "field": field, "cleared": n}
-    _nid, _field = args.id, field
-    _msg = _c(f"✓ #{_nid} {_field} cleared ({n} log(s))" if n else f"(#{_nid} has no {_field})", "meta")
-    return TextRenderable(result, lambda: out(_msg))
+    return TextRenderable(result, cmd_name="goal_rm")
 
 
 def cmd_goal_group(args, con):

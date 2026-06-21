@@ -25,7 +25,7 @@ from .. import db_table as _db
 from ..helpers import _resolve_concrete_date, _resolve_window
 from ..queries import _require_node, _has_checkin
 from ..render import _c, die, out
-from .output import output_format, TextRenderable
+from .output import output_format, TextRenderable, text_renderer
 
 _CARRIER_TYPE = "metric"  # log.tag marking an auto-created metric carrier log
 CHECKIN_TAG = "checkin"   # reserved metric tag: the structured "done today" signal
@@ -193,6 +193,11 @@ def attach_metric_specs(con, log_id, node_id, specs, *, at=None):
     return n
 
 
+@text_renderer("metric_add")
+def _render_metric_add(result):
+    out(_c("✓", "done") + " " + result["_line"])
+
+
 @output_format
 def cmd_metric_add(args, con):
     """Attach a structured datapoint to a node (via a carrier log)."""
@@ -229,8 +234,20 @@ def cmd_metric_add(args, con):
         raise
     row = _db.get(con, "metric", mid)
     result = _metric_dict(row)
-    _line_str = _line(row)
-    return TextRenderable(result, lambda: out(_c("✓", "done") + " " + _line_str))
+    result["_line"] = _line(row)
+    return TextRenderable(result, cmd_name="metric_add")
+
+
+@text_renderer("metric_ls")
+def _render_metric_ls(result):
+    if not result["rows"]:
+        out(_c(f"({result['empty_msg']})", "meta"))
+    else:
+        for r in result["rows"]:
+            line = _line(r)
+            if result["glob"]:
+                line = _c(f"#{r['node_id']}", "id") + " " + line
+            out(line)
 
 
 @output_format
@@ -257,24 +274,22 @@ def cmd_metric_ls(args, con):
     order = "node_id, at, id" if glob else "at, id"
     rows = list(con.execute(
         f"SELECT * FROM metric WHERE {' AND '.join(where)} ORDER BY {order}", params))
-    result = [{"id": r["id"], "node_id": r["node_id"], "log_id": r["log_id"],
-               "tag": r["tag"], "value_num": r["value_num"], "value_text": r["value_text"],
-               "unit": r["unit"], "note": r["note"], "at": r["at"]} for r in rows]
+    data_rows = [{"id": r["id"], "node_id": r["node_id"], "log_id": r["log_id"],
+                  "tag": r["tag"], "value_num": r["value_num"], "value_text": r["value_text"],
+                  "unit": r["unit"], "note": r["note"], "at": r["at"]} for r in rows]
     filt = f" tag={args.tag}" if args.tag else ""
     scope = "" if args.all else " in window (use --all / --week / --month)"
     subj = "no metrics" if glob else f"node #{node} has no metrics"
+    empty_msg = f"{subj}{filt}{scope}"
+    return TextRenderable(
+        data_rows,
+        lambda: _render_metric_ls({"rows": data_rows, "glob": glob, "empty_msg": empty_msg}),
+    )
 
-    def _render():
-        if not rows:
-            out(_c(f"({subj}{filt}{scope})", "meta"))
-        else:
-            for r in rows:
-                line = _line(r)
-                if glob:
-                    line = _c(f"#{r['node_id']}", "id") + " " + line
-                out(line)
 
-    return TextRenderable(result, _render)
+@text_renderer("metric_edit")
+def _render_metric_edit(result):
+    out(_c("✓", "done") + " " + result["_line"])
 
 
 @output_format
@@ -334,8 +349,14 @@ def cmd_metric_edit(args, con):
     con.commit()
     row = _db.get(con, "metric", mid)
     result = _metric_dict(row)
-    _line_str = _line(row)
-    return TextRenderable(result, lambda: out(_c("✓", "done") + " " + _line_str))
+    result["_line"] = _line(row)
+    return TextRenderable(result, cmd_name="metric_edit")
+
+
+@text_renderer("metric_rm")
+def _render_metric_rm(result):
+    for m in result["messages"]:
+        out(_c(m, "meta"))
 
 
 @output_format
@@ -361,8 +382,8 @@ def cmd_metric_rm(args, con):
             msg += f" + its empty carrier log #L{log_id}"
         msgs.append(msg)
     con.commit()
-    result = {"deleted": list(args.metric_ids)}
-    return TextRenderable(result, lambda: [out(_c(m, "meta")) for m in msgs])
+    result = {"deleted": list(args.metric_ids), "messages": msgs}
+    return TextRenderable(result, cmd_name="metric_rm")
 
 
 _SUBS = {

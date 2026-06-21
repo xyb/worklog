@@ -19,7 +19,7 @@ from .. import render
 from ..render import _c, _node_line, _hl_terms, _detail_line, die, out
 from ..helpers import _truncate_log_body, _display_width
 from ..xdg import _resolve_vec_db_path
-from .output import output_format, TextRenderable
+from .output import output_format, TextRenderable, text_renderer
 
 # Batch bounds for embedding: a CHARACTER budget (≈ equal work / batch, the basis for an
 # even progress bar) plus a node cap (keeps a single request's payload reasonable).
@@ -195,12 +195,14 @@ def _chunk_rows(chunks, vecs, cfg, dim):
             for (nid, title, st, pr, field, text), v in zip(chunks, vecs)]
 
 
-def _make_reindex_render(result, backend):
-    """Return a _render() closure for cmd_reindex TextRenderable."""
-    def _render():
-        if not result:
-            out(_c("✓ index already up to date", "done"))
-            return
+@text_renderer("reindex")
+def _render_reindex(result):
+    """Text renderer for cmd_reindex, registered in _TEXT_RENDERERS."""
+    status = result.get("status", "")
+    backend = result.get("backend", "")
+    if status == "up_to_date":
+        out(_c("✓ index already up to date", "done"))
+    elif status == "indexed":
         mode = result.get("mode", "")
         if mode == "full":
             out(_c(f"✓ indexed {result['nodes']} node(s) ({result['chunks']} chunks) "
@@ -210,10 +212,9 @@ def _make_reindex_render(result, backend):
                    f"-{result['removed']} removed ({result['chunks_embedded']} chunks embedded)", "done"))
         elif mode == "incremental-full":
             out(_c(f"✓ indexed {result['nodes']} node(s) ({result['chunks']} chunks)", "done"))
-        if backend == "sqlite":
-            out(_c("  (sqlite fallback backend — install the 'semantic' extra "
-                   "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
-    return _render
+    if backend == "sqlite":
+        out(_c("  (sqlite fallback backend — install the 'semantic' extra "
+               "[pip install 'pyworklog[semantic]'] for the faster LanceDB store)", "meta"))
 
 
 @output_format
@@ -232,10 +233,17 @@ def cmd_reindex(args, con):
             lambda: out(_c("(nothing to index — no nodes yet)", "meta")),
         )
     db = _open_store(args)
+    backend_name = _vs.backend_name(db)
     if not getattr(args, "full", False):
         # Default: incremental; _reindex_incremental falls back to full when store is empty/new
         result = _reindex_incremental(con, db, cfg, chunks)
-        return TextRenderable(result or {}, _make_reindex_render(result, _vs.backend_name(db)))
+        if result is None:
+            return TextRenderable({"status": "up_to_date", "backend": backend_name}, cmd_name="reindex")
+        if result is False:
+            return TextRenderable({"status": "error", "backend": backend_name}, cmd_name="reindex")
+        result["status"] = "indexed"
+        result["backend"] = backend_name
+        return TextRenderable(result, cmd_name="reindex")
     try:
         vecs = _embed_with_progress([c[5] for c in chunks], cfg)
     except _embedding.EmbeddingError as e:
@@ -245,9 +253,9 @@ def cmd_reindex(args, con):
     _vs.clear(db)
     _vs.upsert(db, rows)
     n_nodes = len({c[0] for c in chunks})
-    result = {"mode": "full", "nodes": n_nodes, "chunks": len(rows), "model": cfg["model"], "dim": dim}
-    _backend = _vs.backend_name(db)
-    return TextRenderable(result, _make_reindex_render(result, _backend))
+    result = {"status": "indexed", "mode": "full", "nodes": n_nodes, "chunks": len(rows),
+              "model": cfg["model"], "dim": dim, "backend": backend_name}
+    return TextRenderable(result, cmd_name="reindex")
 
 
 def _reindex_incremental(con, db, cfg, chunks, *, quiet=False):

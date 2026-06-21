@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from ..render import _c, die, out
 from ..xdg import _resolve_aliases_path
-from .output import output_format, TextRenderable
+from .output import output_format, text_renderer, TextRenderable
 
 # Lazy access to the cli module (for HANDLERS) — at call time, to avoid the cli ↔ commands cycle.
 from .. import cli as _cli  # noqa: E402
@@ -33,22 +33,39 @@ def _write_aliases_cfg(cfg, p):
         cfg.write(f)
 
 
+@text_renderer("alias_ls")
+def _render_alias_ls(result):
+    aliases = result["aliases"]
+    if not aliases:
+        out(_c(f"(no aliases configured — file: {result['config_path']})", "meta"))
+        return
+    for item in aliases:
+        out("  " + _c(item["name"], "id") + _c(" → ", "meta") + _c(item["target"]))
+
+
+@text_renderer("alias_add")
+def _render_alias_add(result):
+    out(_c(f"✓ alias '{result['name']}' → '{result['target']}' (takes effect on the next wl run)", "meta"))
+
+
+@text_renderer("alias_rm")
+def _render_alias_rm(result):
+    if result["removed"]:
+        out(_c(f"✓ alias '{result['name']}' removed (takes effect on the next wl run)", "meta"))
+    else:
+        out(_c(f"(no alias '{result['name']}')", "meta"))
+
+
 @output_format
 def cmd_alias_ls(args, con):
     """List configured command aliases (name → target)."""
     cfg, p = _read_aliases_cfg()
     items = sorted(cfg["aliases"].items())
-    result = [{"name": n, "target": t} for n, t in items]
-    _p = p
-
-    def _render():
-        if not items:
-            out(_c(f"(no aliases configured — file: {_p})", "meta"))
-            return
-        for name, target in items:
-            out("  " + _c(name, "id") + _c(" → ", "meta") + _c(target))
-
-    return TextRenderable(result, _render)
+    result = {
+        "aliases": [{"name": n, "target": t} for n, t in items],
+        "config_path": str(p),
+    }
+    return TextRenderable(result, cmd_name="alias_ls")
 
 
 @output_format
@@ -69,9 +86,7 @@ def cmd_alias_add(args, con):
     cfg, p = _read_aliases_cfg()
     cfg["aliases"][name] = target
     _write_aliases_cfg(cfg, p)
-    _name, _target = name, target
-    return TextRenderable({"name": name, "target": target},
-                          lambda: out(_c(f"✓ alias '{_name}' → '{_target}' (takes effect on the next wl run)", "meta")))
+    return TextRenderable({"name": name, "target": target}, cmd_name="alias_add")
 
 
 @output_format
@@ -79,14 +94,11 @@ def cmd_alias_rm(args, con):
     """Remove a command alias."""
     name = args.name.strip()
     cfg, p = _read_aliases_cfg()
-    _name = name
     if name not in cfg["aliases"]:
-        return TextRenderable({"name": name, "removed": False},
-                              lambda: out(_c(f"(no alias '{_name}')", "meta")))
+        return TextRenderable({"name": name, "removed": False}, cmd_name="alias_rm")
     del cfg["aliases"][name]
     _write_aliases_cfg(cfg, p)
-    return TextRenderable({"name": name, "removed": True},
-                          lambda: out(_c(f"✓ alias '{_name}' removed (takes effect on the next wl run)", "meta")))
+    return TextRenderable({"name": name, "removed": True}, cmd_name="alias_rm")
 
 
 def cmd_alias(args, con):

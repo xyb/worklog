@@ -8,7 +8,32 @@ from .metric import checkin_metric
 from ..queries import _has_checkin, _insert_log, node_type
 from ..render import _c, out
 from .views import _scheduled_node_ids
-from .output import output_format, TextRenderable
+from .output import output_format, TextRenderable, text_renderer
+
+
+@text_renderer("checkin")
+def _render_checkin(result):
+    if result.get("canceled"):
+        out(_c("(canceled, no changes made)", "meta"))
+        return
+    checked_in = result["checked_in"]
+    total = result["total"]
+    if total == 0:
+        today = result["today"]
+        type_str = "/".join(result.get("types", ["habit"]))
+        out(_c(f"(no {type_str} scheduled to check in for {today})", "meta"))
+        return
+    if "new" not in result:
+        # all-already-done path: checked_in == total
+        out(_c(f"all {checked_in}/{total} already checked in for {result['today']} ✓", "done"))
+        return
+    new = result["new"]
+    skipped = result.get("skipped", 0)
+    out(_c(
+        f"done {checked_in}/{total} · new this run {new}" +
+        (f" · skipped {skipped}" if skipped else "") +
+        " · for detailed notes use `wl tick <id> --note ...` or `wl checkin --per-item`",
+        "header"))
 
 
 @output_format
@@ -18,20 +43,19 @@ def cmd_checkin(args, con):
     --per-item: per-item prompt mode (allows per-item note; also the fallback for non-TTY / piped input)."""
     rows, today, types = _checkin_collect(con, args)
     if not rows:
-        _today, _types = today, types
         return TextRenderable(
-            {"today": _today, "checked_in": 0, "total": 0},
-            lambda: out(_c(f"(no {'/'.join(_types)} scheduled to check in for {_today})", "meta")),
+            {"today": today, "checked_in": 0, "total": 0, "types": sorted(types)},
+            cmd_name="checkin",
         )
 
     pending = [r for r in rows if not r["already"]]
     pre_done = len(rows) - len(pending)
 
     if not pending:
-        _n, _today = len(rows), today
+        _n = len(rows)
         return TextRenderable(
-            {"today": _today, "checked_in": _n, "total": _n},
-            lambda: out(_c(f"all {_n}/{_n} already checked in for {_today} ✓", "done")),
+            {"today": today, "checked_in": _n, "total": _n},
+            cmd_name="checkin",
         )
 
     if getattr(args, "per_item", False) or not _is_interactive_tty():
@@ -42,10 +66,9 @@ def cmd_checkin(args, con):
     options = [(f"#{r['id']} {r['title']}", False) for r in pending]
     chosen = _multi_select_tty(options, header)
     if chosen is None:
-        _today = today
         return TextRenderable(
-            {"today": _today, "checked_in": pre_done, "total": len(rows), "canceled": True},
-            lambda: out(_c("(canceled, no changes made)", "meta")),
+            {"today": today, "checked_in": pre_done, "total": len(rows), "canceled": True},
+            cmd_name="checkin",
         )
 
     for i in chosen:
@@ -55,19 +78,9 @@ def cmd_checkin(args, con):
     con.commit()
     done_now = len(chosen)
     skipped = len(pending) - done_now
-    _today, _total = today, len(rows)
-    _pre_done, _done_now, _skipped = pre_done, done_now, skipped
-    result = {"today": _today, "checked_in": _pre_done + _done_now, "total": _total,
-              "new": _done_now, "skipped": _skipped}
-
-    def _render():
-        out(_c(
-            f"done {_pre_done + _done_now}/{_total} · new this run {_done_now}" +
-            (f" · skipped {_skipped}" if _skipped else "") +
-            " · for detailed notes use `wl tick <id> --note ...` or `wl checkin --per-item`",
-            "header"))
-
-    return TextRenderable(result, _render)
+    result = {"today": today, "checked_in": pre_done + done_now, "total": len(rows),
+              "new": done_now, "skipped": skipped}
+    return TextRenderable(result, cmd_name="checkin")
 
 
 def _checkin_collect(con, args):
@@ -225,14 +238,6 @@ def _checkin_per_item(con, rows, today, pre_done):
         else:
             out(f"{marker} #{nid} checked in: {_c(body, 'meta')}")
     print()
-    _total = len(rows)
-    _pre_done, _done_now, _skipped = pre_done, done_now, skipped
-    result = {"today": today, "checked_in": _pre_done + _done_now, "total": _total,
-              "new": _done_now, "skipped": _skipped}
-    return TextRenderable(
-        result,
-        lambda: out(_c(
-            f"done {_pre_done + _done_now}/{_total} · new this run {_done_now}" +
-            (f" · skipped {_skipped}" if _skipped else ""),
-            "header")),
-    )
+    result = {"today": today, "checked_in": pre_done + done_now, "total": len(rows),
+              "new": done_now, "skipped": skipped}
+    return TextRenderable(result, cmd_name="checkin")

@@ -9,7 +9,25 @@ from ..helpers import _resolve_concrete_date
 from ..render import _c, die, out
 from .state import _ids_list
 from .views import _WEEKDAY_ABBR
-from .output import output_format, TextRenderable
+from .output import output_format, TextRenderable, text_renderer
+
+
+@text_renderer("sched_clear")
+def _render_sched_clear(result):
+    for m in result["messages"]:
+        out(m)
+
+
+@text_renderer("sched_query")
+def _render_sched_query(result):
+    for item in result:
+        out(item["_msg"])
+
+
+@text_renderer("sched_write")
+def _render_sched_write(result):
+    for m in result["messages"]:
+        out(m)
 
 
 @output_format
@@ -26,18 +44,19 @@ def cmd_sched(args, con):
             total += n
             clear_msgs.append(_c(f"✓ #{nid} cleared {n} schedule entries", "meta"))
         con.commit()
-        return TextRenderable({"cleared": total}, lambda: [out(m) for m in clear_msgs])
+        return TextRenderable({"action": "clear", "cleared": total, "messages": clear_msgs},
+                              cmd_name="sched_clear")
     if not args.when and not args.recur:
         result = []
-        query_msgs = []
         for nid in ids:
             rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
             if not rows:
-                query_msgs.append(("meta", _c(f"#{nid} has no schedule", "meta")))
+                result.append({"node_id": nid, "on_date": None, "rrule": None,
+                                "_msg": _c(f"#{nid} has no schedule", "meta")})
             for r in rows:
-                query_msgs.append(("planned", "  " + _c(f"#{nid} @" + (r["on_date"] or r["rrule"]), "planned")))
-                result.append({"node_id": nid, "on_date": r["on_date"], "rrule": r["rrule"]})
-        return TextRenderable(result, lambda: [out(m) for _, m in query_msgs])
+                result.append({"node_id": nid, "on_date": r["on_date"], "rrule": r["rrule"],
+                                "_msg": "  " + _c(f"#{nid} @" + (r["on_date"] or r["rrule"]), "planned")})
+        return TextRenderable(result, cmd_name="sched_query")
     render_msgs = []
     if args.recur:
         try:
@@ -75,8 +94,19 @@ def cmd_sched(args, con):
     nid = ids[0]
     rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid,
                      order="on_date NULLS LAST, rrule")
-    result = [{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]
-    return TextRenderable(result, lambda: [out(m) for m in render_msgs])
+    schedule = [{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]
+    msgs = render_msgs
+    return TextRenderable(schedule, lambda: _render_sched_write({"messages": msgs, "schedule": schedule}))
+
+
+@text_renderer("sched_ls")
+def _render_sched_ls(result):
+    if not result:
+        out(_c("has no schedule", "meta"))
+    else:
+        nid = result[0]["node_id"]
+        for item in result:
+            out("  " + _c(f"#{nid} @" + (item["on_date"] or item["rrule"]), "planned"))
 
 
 @output_format
@@ -86,17 +116,14 @@ def cmd_sched_ls(args, con):
     _check_ids_exist(con, [args.id])
     rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id,
                      order="on_date NULLS LAST, rrule")
-    result = [{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]
-    _nid = args.id
+    nid = args.id
+    result = [{"node_id": nid, "on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]
+    return TextRenderable(result, cmd_name="sched_ls")
 
-    def _render():
-        if not rows:
-            out(_c(f"#{_nid} has no schedule", "meta"))
-        else:
-            for r in rows:
-                out("  " + _c(f"#{_nid} @" + (r["on_date"] or r["rrule"]), "planned"))
 
-    return TextRenderable(result, _render)
+@text_renderer("sched_rm")
+def _render_sched_rm(result):
+    out(_c(f"✓ #{result['node_id']} cleared {result['cleared']} schedule entries", "meta"))
 
 
 @output_format
@@ -106,9 +133,7 @@ def cmd_sched_rm(args, con):
     _check_ids_exist(con, [args.id])
     n = _db.delete(con, "sched", node_id=args.id)
     con.commit()
-    result = {"cleared": n}
-    _nid = args.id
-    return TextRenderable(result, lambda: out(_c(f"✓ #{_nid} cleared {n} schedule entries", "meta")))
+    return TextRenderable({"node_id": args.id, "cleared": n}, cmd_name="sched_rm")
 
 
 def cmd_sched_group(args, con):

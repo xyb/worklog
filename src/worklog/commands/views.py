@@ -63,7 +63,7 @@ from ..queries import (
     _upsert_prop,
 )
 from .metric import _fmt_value, metric_rows
-from .output import output_format, TextRenderable
+from .output import output_format, TextRenderable, text_renderer
 from ..render import (
     _PRI_STYLE,
     _STATUS_STYLE,
@@ -119,6 +119,13 @@ def _tree_json_data(con, args):
     return [node_json(r, 0) for r in roots]
 
 
+@text_renderer("tree_empty")
+def _render_tree_empty(result):
+    """Empty-root path: no top-level nodes matched (after filtering). The JSON data is
+    already the empty list []; text just shows a hint."""
+    out(_c('(empty — add a task with `wl add "..."`)', "meta"))
+
+
 @output_format
 def cmd_tree(args, con):
     # explicit --status overrides the default CANCELED hide so the filtered tree can
@@ -167,8 +174,7 @@ def cmd_tree(args, con):
         roots = list(con.execute(root_sql, params_root))
 
     if not roots:
-        return TextRenderable(_tree_json_data(con, args),
-                              lambda: out(_c('(empty — add a task with `wl add "..."`)', "meta")))
+        return TextRenderable(_tree_json_data(con, args), cmd_name="tree_empty")
 
     # default depth limit to avoid flooding
     max_depth = args.depth if args.depth is not None else (3 if args.root is not None else 2)

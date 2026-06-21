@@ -57,7 +57,7 @@ from ..queries import (
     _delete_link,
 )
 from .metric import import_metric, _CARRIER_TYPE
-from .output import output_format, TextRenderable
+from .output import output_format, TextRenderable, text_renderer
 from ..render import (
     _PRI_STYLE,
     _STATUS_STYLE,
@@ -78,6 +78,35 @@ from ..xdg import _resolve_db_path, _resolve_aliases_path, _xdg_data_home, _xdg_
 # Used at function call time (not at import) to avoid the cli ↔ commands
 # import cycle.
 from .. import cli as _cli  # noqa: E402
+
+
+@text_renderer("import")
+def _render_import(result):
+    if result.get("dry_run"):
+        add, upd, refs = result["add"], result["update"], result.get("refs", [])
+        out(_c("[dry-run]", "meta") + _c(f" would add {add} · update {upd} (not written)"))
+        if refs:
+            out("  " + _c("ref: " + ", ".join(refs), "meta"))
+    else:
+        add, upd = result["add"], result["update"]
+        ref_map = result.get("refs", {})
+        out(_c("✓", "done") + _c(f" added {add} · updated {upd}"))
+        if ref_map:
+            print("  ref->id: " + ", ".join(f"{k}=#{v}" for k, v in ref_map.items()))
+
+
+@text_renderer("apply")
+def _render_apply(result):
+    if result.get("dry_run"):
+        plan = result["operations"]
+        out(_c("[dry-run]", "meta") + _c(f" {len(plan)} operations (not written):", "header"))
+        for desc in plan:
+            out("  " + _c(desc))
+    else:
+        counts = result
+        out(_c("✓", "done") + _c(
+            f" added {counts['add']} · updated {counts['update']} · deleted {counts['delete']}"
+        ))
 
 
 @output_format
@@ -106,26 +135,13 @@ def cmd_import(args, con):
         die(f"import failed (rolled back): {e}")
 
     if dry:
-        _add, _upd, _refs = counters["add"], counters["update"], list(ref_map.keys())
-        result = {"dry_run": True, "add": _add, "update": _upd, "refs": _refs}
-
-        def _render():
-            out(_c("[dry-run]", "meta") + _c(f" would add {_add} · update {_upd} (not written)"))
-            if _refs:
-                out("  " + _c("ref: " + ", ".join(_refs), "meta"))
-
-        return TextRenderable(result, _render)
+        result = {"dry_run": True, "add": counters["add"], "update": counters["update"],
+                  "refs": list(ref_map.keys())}
+        return TextRenderable(result, cmd_name="import")
     con.commit()
-    _add, _upd = counters["add"], counters["update"]
-    _ref_map = dict(ref_map)
-    result = {"add": _add, "update": _upd, "refs": {k: v for k, v in _ref_map.items()}}
-
-    def _render():
-        out(_c("✓", "done") + _c(f" added {_add} · updated {_upd}"))
-        if _ref_map:
-            print("  ref->id: " + ", ".join(f"{k}=#{v}" for k, v in _ref_map.items()))
-
-    return TextRenderable(result, _render)
+    result = {"add": counters["add"], "update": counters["update"],
+              "refs": {k: v for k, v in ref_map.items()}}
+    return TextRenderable(result, cmd_name="import")
 
 
 # --- wl-diff format (apply) ---
@@ -254,24 +270,12 @@ def cmd_apply(args, con):
         die("validation failed (not written):\n  " + "\n  ".join(errors))
     plan = _apply_plan(ops)
     if args.dry_run:
-        _plan = plan
-        result = {"dry_run": True, "operations": _plan}
-
-        def _render():
-            out(_c("[dry-run]", "meta") + _c(f" {len(_plan)} operations (not written):", "header"))
-            for desc in _plan:
-                out("  " + _c(desc))
-
-        return TextRenderable(result, _render)
+        result = {"dry_run": True, "operations": plan}
+        return TextRenderable(result, cmd_name="apply")
     counts = _apply_execute(con, ops)
     con.commit()
-    _counts = counts
-    return TextRenderable(
-        {"add": _counts["add"], "update": _counts["update"], "delete": _counts["delete"]},
-        lambda: out(_c("✓", "done") + _c(
-            f" added {_counts['add']} · updated {_counts['update']} · deleted {_counts['delete']}"
-        )),
-    )
+    result = {"add": counts["add"], "update": counts["update"], "delete": counts["delete"]}
+    return TextRenderable(result, cmd_name="apply")
 
 def _import_node(con, spec, parent_id, ref_map, dry, counters):
     """Recursively insert a node (with tags/props/links/logs/children). Returns new id (placeholder None in dry mode)."""

@@ -14,7 +14,7 @@ from .. import db_table as _db
 from .. import node_types as _nt
 from ..node_schema import node_view as _node_view, type_facet as _type_facet, SUMMARY as _SUMMARY, FULL as _FULL
 from .metric import _fmt_value, metric_rows
-from .output import output_format, TextRenderable
+from .output import output_format, text_renderer, TextRenderable
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
@@ -475,6 +475,17 @@ def cmd_focus(args, con):
 
     return TextRenderable(json_result, _render)
 
+@text_renderer("ancestors")
+def _render_ancestors(data):
+    if not data:
+        return
+    target_id = data[-1]["id"]
+    for depth, r in enumerate(data):
+        indent = "  " * depth
+        arrow = "▶ " if r["id"] == target_id else ""
+        out(f"{indent}{arrow}" + _c(f"#{r['id']}", "id") + " " + _c(f"[{r['type']}]", "type") + " " + _c(r["title"], "header" if r["id"] == target_id else None))
+
+
 @output_format
 def cmd_ancestors(args, con):
     """Show only the upstream path (root -> node)."""
@@ -483,16 +494,7 @@ def cmd_ancestors(args, con):
         die(f"node #{args.id} not found")
     json_result = [{"id": p["id"], "title": p["title"], "type": node_type(con, p),
                     "status": p["status"], "priority": p["priority"]} for p in chain]
-    captured_chain = chain
-    captured_id = args.id
-
-    def _render():
-        for depth, node in enumerate(captured_chain):
-            indent = "  " * depth
-            arrow = "▶ " if node["id"] == captured_id else ""
-            out(f"{indent}{arrow}" + _c(f"#{node['id']}", "id") + " " + _c(f"[{node_type(con, node)}]", "type") + " " + _c(node["title"], "header" if node["id"] == captured_id else None))
-
-    return TextRenderable(json_result, _render)
+    return TextRenderable(json_result, cmd_name="ancestors")
 
 @output_format
 def cmd_descendants(args, con):
@@ -690,6 +692,32 @@ def cmd_projects(args, con):
     return TextRenderable(json_result, _render)
 
 
+@text_renderer("types")
+def _render_types(data):
+    from collections import OrderedDict
+    if not data:
+        out("(no type.*/date.* props yet)")
+        return
+    by_key = OrderedDict()
+    for r in data:
+        by_key.setdefault(r["key"], []).append((r["value"], r["count"]))
+    # type.* facets first (the classification), then date.* time values; alphabetical within each
+    keys = sorted(by_key, key=lambda k: (0 if k.startswith("type.") else 1, k))
+    lv = _nt.DATE_LEVELS
+    for k in keys:
+        vs = by_key[k]
+        # type.date: order by time level (finest first → lifetime last), not by count
+        if k == _nt.K_DATE:
+            vs = sorted(vs, key=lambda vc: lv.index(vc[0]) if vc[0] in lv else -1, reverse=True)
+        # date.period/start/end are high-cardinality time values — show the total, not every value
+        if k.startswith("date.") and len(vs) > 6:
+            body = f"{sum(c for _, c in vs)} ({len(vs)} distinct)"
+        else:
+            # an existence facet with no sub-value (custom type.<x> stored as "") shows just its count
+            body = " · ".join(f"{v} {c}" if v else str(c) for v, c in vs)
+        out(_c(f"{k:13}", "type") + " " + _c(body, "meta"))
+
+
 @output_format
 def cmd_types(args, con):
     """List the ``type.*`` / ``date.*`` classification props in use + counts — the RAW vocabulary
@@ -707,28 +735,7 @@ def cmd_types(args, con):
     # type.* facets first (the classification), then date.* time values; alphabetical within each
     keys = sorted(by_key, key=lambda k: (0 if k.startswith("type.") else 1, k))
     json_result = [{"key": k, "value": v, "count": c} for k in keys for v, c in by_key[k]]
-    captured_keys = keys
-    captured_by_key = by_key
-
-    def _render():
-        if not captured_keys:
-            out("(no type.*/date.* props yet)")
-            return
-        lv = _nt.DATE_LEVELS
-        for k in captured_keys:
-            vs = captured_by_key[k]
-            # type.date: order by time level (finest first → lifetime last), not by count
-            if k == _nt.K_DATE:
-                vs = sorted(vs, key=lambda vc: lv.index(vc[0]) if vc[0] in lv else -1, reverse=True)
-            # date.period/start/end are high-cardinality time values — show the total, not every value
-            if k.startswith("date.") and len(vs) > 6:
-                body = f"{sum(c for _, c in vs)} ({len(vs)} distinct)"
-            else:
-                # an existence facet with no sub-value (custom type.<x> stored as "") shows just its count
-                body = " · ".join(f"{v} {c}" if v else str(c) for v, c in vs)
-            out(_c(f"{k:13}", "type") + " " + _c(body, "meta"))
-
-    return TextRenderable(json_result, _render)
+    return TextRenderable(json_result, cmd_name="types")
 
 
 def _list_vocab(con, table, col, *, style, sort_by_count=True):

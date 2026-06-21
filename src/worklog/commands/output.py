@@ -7,11 +7,14 @@ decides how to render it.
     @output_format
     def cmd_foo(args, con):
         result = {"id": ..., "key": ...}
-        def _render():
-            out("✓ human-readable line")   # called by TextFormatter.emit()
-        return TextRenderable(result, _render)
+        return TextRenderable(result, cmd_name="foo")
+
+    @text_renderer("foo")
+    def _render_foo(result):
+        out("✓ " + result["id"])   # called by TextFormatter.emit()
 
 Add a new output format: subclass Formatter and register it in _FORMATTERS.
+Override a command's text render: assign to _TEXT_RENDERERS["foo"] directly.
 """
 from __future__ import annotations
 
@@ -26,20 +29,26 @@ class TextRenderable:
     """Carries structured data (for JSON) and a text renderer (for text mode).
 
     Return from @output_format handlers to separate data from presentation:
-      - TextFormatter.emit() calls .render() to produce human-readable output
-      - JSONFormatter.emit() serialises .data, never calls .render()
+      - TextFormatter.emit() dispatches to a registered renderer by cmd_name,
+        falling back to the inline _render closure for un-migrated handlers
+      - JSONFormatter.emit() serialises .data, never calls any renderer
 
-    The render function is typically a closure that captures handler-local
-    context (computed labels, sibling rows, etc.) without polluting .data.
+    Preferred form (registry-based, data/render fully decoupled):
+        return TextRenderable(result, cmd_name="foo")   # renderer in _TEXT_RENDERERS
+
+    Legacy form (inline closure, still supported for backward compat):
+        return TextRenderable(result, _render)
     """
-    __slots__ = ("data", "_render")
+    __slots__ = ("data", "_render", "cmd_name")
 
-    def __init__(self, data, render):
+    def __init__(self, data, render=None, *, cmd_name=None):
         self.data = data
         self._render = render
+        self.cmd_name = cmd_name
 
     def render(self):
-        self._render()
+        if self._render:
+            self._render()
 
 
 class Formatter:
@@ -61,16 +70,48 @@ class Formatter:
         pass
 
 
-class TextFormatter(Formatter):
-    """Rich text mode: out() calls in the render function flow to the terminal.
+_TEXT_RENDERERS: dict[str, object] = {}
 
-    emit() calls TextRenderable.render() when the handler returned one;
-    plain dicts/None are ignored (backward-compat for un-migrated handlers
-    that still call out() inline during the handler body).
+
+def text_renderer(name: str):
+    """Register a text render function for a command.
+
+    The decorated function receives the handler's result dict and produces
+    human-readable terminal output.  TextFormatter.emit() dispatches here
+    by cmd_name, so handlers and render logic live in separate scopes.
+
+    Example::
+
+        @text_renderer("alias_ls")
+        def _render_alias_ls(result):
+            for item in result:
+                out(_c(item["name"], "id") + " → " + item["target"])
+
+    Override a built-in renderer at runtime::
+
+        from worklog.commands.output import _TEXT_RENDERERS
+        _TEXT_RENDERERS["alias_ls"] = my_custom_renderer
+    """
+    def decorator(fn):
+        _TEXT_RENDERERS[name] = fn
+        return fn
+    return decorator
+
+
+class TextFormatter(Formatter):
+    """Rich text mode: dispatches to _TEXT_RENDERERS by cmd_name, then falls
+    back to the inline _render closure for backward compat.
+
+    emit() is a no-op for plain dicts/None (un-migrated handlers that still
+    call out() inline during the handler body work unchanged).
     """
 
     def emit(self, data) -> None:
-        if isinstance(data, TextRenderable):
+        if not isinstance(data, TextRenderable):
+            return
+        if data.cmd_name and data.cmd_name in _TEXT_RENDERERS:
+            _TEXT_RENDERERS[data.cmd_name](data.data)
+        elif data._render:
             data.render()
 
 
