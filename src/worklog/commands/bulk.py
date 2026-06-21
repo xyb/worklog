@@ -13,6 +13,7 @@ from pathlib import Path
 from .. import render
 from .. import db_table as _db
 from .. import timeutil as _tu
+from ..models import Log, Node, Prop, Tag
 from ..node import create_node
 from ..helpers import (
     _apply_top_limit,
@@ -245,7 +246,7 @@ def _apply_execute(con, ops):
             )
             # classification is carried by @prop type.* sub-lines (applied below), not a token
             for t in f.get("tags", []):
-                _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
+                Tag.upsert(con, {"node_id": nid, "tag": t})
             for directive, val in o["subs"]:
                 _apply_sub(con, nid, directive, val)
 
@@ -307,7 +308,7 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
         )
         counters["add"] += 1
         for t in spec.get("tags", []):
-            _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
+            Tag.upsert(con, {"node_id": nid, "tag": t})
         sub_keys = set()
         for k, v in (spec.get("props") or {}).items():
             _upsert_prop(con, nid, k, str(v))
@@ -327,7 +328,7 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
                     import_metric(con, log_id, nid, mspec, default_at=log_at)
         # node-level metrics → a dedicated carrier log (1 carrier → N datapoints, e.g. a CGM import)
         if spec.get("metrics"):
-            log_id = _db.insert(con, "log", {
+            log_id = Log.insert(con, {
                 "node_id": nid, "logged_at": _tu.utc_now(), "body": "", "tag": _CARRIER_TYPE,
             })
             for mspec in spec["metrics"]:
@@ -375,11 +376,11 @@ def _import_update(con, spec, dry, counters):
     if spec.get("status") == "DONE" and "closed_at" not in spec:
         changes["closed_at"] = _tu.utc_now()
     if changes:
-        _db.update(con, "node", nid, changes)
+        Node.update(con, nid, changes)
     for t in spec.get("add_tags", []):
-        _db.upsert(con, "tag", {"node_id": nid, "tag": t}, key=("node_id", "tag"))
+        Tag.upsert(con, {"node_id": nid, "tag": t})
     for t in spec.get("remove_tags", []):
-        _db.delete(con, "tag", node_id=nid, tag=t)
+        Tag.delete(con, node_id=nid, tag=t)
     for d in spec.get("add_links", []):
         _upsert_link(con, nid, d)
     for entry in spec.get("add_logs", []):
@@ -546,7 +547,7 @@ def _exec_update(con, o):
         if field in _SET_COL:
             col = _SET_COL[field]
             if action == "clear":
-                _db.update(con, "node", nid, {col: None})
+                Node.update(con, nid, {col: None})
             else:
                 if field == "parent":
                     v = int(value)
@@ -554,14 +555,14 @@ def _exec_update(con, o):
                     v = _norm_sched(value)
                 else:
                     v = value
-                _db.update(con, "node", nid, {col: v})
+                Node.update(con, nid, {col: v})
                 if field == "status" and value == "DONE":
                     con.execute("UPDATE node SET closed_at = ? WHERE id = ? AND closed_at IS NULL", (_tu.utc_now(), nid))
         elif field == "tag":
             if action == "add":
-                _db.upsert(con, "tag", {"node_id": nid, "tag": value}, key=("node_id", "tag"))
+                Tag.upsert(con, {"node_id": nid, "tag": value})
             else:
-                _db.delete(con, "tag", node_id=nid, tag=value)
+                Tag.delete(con, node_id=nid, tag=value)
         elif field == "log":
             _insert_log(con, nid, value)
         elif field == "link":
@@ -576,7 +577,7 @@ def _exec_update(con, o):
                 if k in DATE_SYNC_KEYS:
                     sync_time_node_dates(con, nid)   # complete a time node set via raw prop
             else:
-                _db.delete(con, "prop", node_id=nid, key=value)
+                Prop.delete(con, node_id=nid, key=value)
 
 def _fieldop_desc(action, field, value):
     if action == "clear":

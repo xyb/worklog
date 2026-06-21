@@ -5,9 +5,9 @@ dict→INSERT helper: no raw SQL, no hand-written column lists.
 """
 from __future__ import annotations
 
-from . import db_table as _db
 from . import node_types as _nt
 from . import timeutil as _tu
+from .models import Node
 from .queries import _upsert_prop
 
 
@@ -27,7 +27,7 @@ def create_node(con, *, title, parent_id=None, status=None, priority=None,
                      ("body", body), ("closed_at", closed_at)):
         if val is not None:
             row[col] = val
-    nid = _db.insert(con, "node", row)
+    nid = Node.insert(con, row)
     if para:
         _upsert_prop(con, nid, _nt.K_PARA, para)
     written = {}

@@ -8,7 +8,6 @@ import sys
 from pathlib import Path
 
 from ..models import DateMeta
-from .. import db_table as _db
 from ..render import _c, die, out
 from .views import _cn_weekday, _date_label
 from .output import output_format, text_renderer, TextRenderable
@@ -77,19 +76,19 @@ def cmd_dateinfo(args, con):
         data = json.loads(raw)  # {"2026-05-01": "Labor Day", ...}
         n = 0
         for d, label in data.items():
-            _db.upsert(con, "date_meta", {"date": d, "label": label}, key=("date",))
+            DateMeta.upsert(con, {"date": d, "label": label})
             n += 1
         con.commit()
         return TextRenderable(DateInfoImportResult(imported=n), cmd_name="dateinfo")
     if args.date and args.label:
-        _db.upsert(con, "date_meta", {"date": args.date, "label": args.label}, key=("date",))
+        DateMeta.upsert(con, {"date": args.date, "label": args.label})
         con.commit()
         return TextRenderable(
             DateInfoSetResult(date=args.date, label=args.label, weekday=_cn_weekday(args.date)),
             cmd_name="dateinfo",
         )
     if args.date and args.clear:
-        n = _db.delete(con, "date_meta", date=args.date)
+        n = DateMeta.delete(con, date=args.date)
         con.commit()
         return TextRenderable(DateInfoClearResult(date=args.date, cleared=n), cmd_name="dateinfo")
     if args.date:
@@ -105,7 +104,7 @@ def cmd_dateinfo(args, con):
 def cmd_date_set(args, con):
     """Set/update a date's metadata label — the create/update verb of the date group
     (= `wl dateinfo <date> <label>`)."""
-    _db.upsert(con, "date_meta", {"date": args.date, "label": args.label}, key=("date",))
+    DateMeta.upsert(con, {"date": args.date, "label": args.label})
     con.commit()
     return TextRenderable(
         DateInfoSetResult(date=args.date, label=args.label, weekday=_cn_weekday(args.date)),
@@ -131,7 +130,7 @@ def cmd_date_ls(args, con):
 def cmd_date_rm(args, con):
     """Clear a date's metadata label — the delete verb of the date group
     (= `wl dateinfo <date> --clear`)."""
-    n = _db.delete(con, "date_meta", date=args.date)
+    n = DateMeta.delete(con, date=args.date)
     con.commit()
     return TextRenderable(DateInfoClearResult(date=args.date, cleared=n), cmd_name="date_rm")
 
@@ -145,7 +144,7 @@ def cmd_date_import(args, con):
     data = json.loads(raw)
     n = 0
     for d, label in data.items():
-        _db.upsert(con, "date_meta", {"date": d, "label": label}, key=("date",))
+        DateMeta.upsert(con, {"date": d, "label": label})
         n += 1
     con.commit()
     return TextRenderable(DateInfoImportResult(imported=n), cmd_name="date_import")

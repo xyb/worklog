@@ -16,7 +16,7 @@ from .. import timeutil as _tu
 from .output import output_format, TextRenderable, text_renderer
 from .. import db_table as _db
 from .. import node_types as _nt
-from ..models import Log, Clock, Prop
+from ..models import Clock, Log, Metric, Node, Prop, Sched, Tag
 from .dtos import (
     ClockEditResult, ClockRmResult, LogShowResult, LogWriteResult, NodeEditResult,
     NodeReparentResult, NodeRmResult, PropRmResult, RelogResult, RetagResult,
@@ -148,7 +148,7 @@ def _add_sched(con, node_id, args):
         d = _resolve_concrete_date(args.sched)
     except ValueError:
         die(f"invalid --sched date '{args.sched}' (use YYYY-MM-DD / today / tomorrow / day-after-tomorrow / yesterday)")
-    _db.insert(con, "sched", {"node_id": node_id, "on_date": d, "created_at": _tu.utc_now()})
+    Sched.insert(con, {"node_id": node_id, "on_date": d, "created_at": _tu.utc_now()})
     return " " + _c(f"@{d}", "planned")
 
 
@@ -188,7 +188,7 @@ def _add_log_and_metrics(con, node_id, args, at_ts):
         if at_ts:
             # at_ts is already a UTC instant — insert directly (don't round-trip through
             # _insert_log's dict path, which would re-apply local→UTC)
-            created_log_id = _db.insert(con, "log", {"node_id": node_id, "logged_at": at_ts, "body": log_body.strip()})
+            created_log_id = Log.insert(con, {"node_id": node_id, "logged_at": at_ts, "body": log_body.strip()})
         else:
             created_log_id = _insert_log(con, node_id, log_body.strip())
         log_hint = " + log"
@@ -198,7 +198,7 @@ def _add_log_and_metrics(con, node_id, args, at_ts):
         if created_log_id is not None:
             mlog_id = created_log_id
         else:
-            mlog_id = _db.insert(con, "log", {
+            mlog_id = Log.insert(con, {
                 "node_id": node_id, "logged_at": at_ts or _tu.utc_now(),
                 "body": "", "tag": _CARRIER_TYPE,
             })
@@ -290,7 +290,7 @@ def cmd_add(args, con):
     except ValueError as e:
         die(f"{e}")
     for t in tags:
-        _db.upsert(con, "tag", {"node_id": node_id, "tag": t}, key=("node_id", "tag"))
+        Tag.upsert(con, {"node_id": node_id, "tag": t})
     # creation-time side effects, each returning its echo hint (order fixed by the output line below)
     sched_hint = _add_sched(con, node_id, args)
     link_hint = _add_link(con, node_id, args)
@@ -355,7 +355,7 @@ def cmd_log(args, con):
     if not getattr(args, "keep_status", False) and not date:
         row = _db.query_one(con, "node", cols="status", id=args.id)
         if row and row["status"] == "TODO":
-            _db.update(con, "node", args.id, {"status": "DOING"})
+            Node.update(con, args.id, {"status": "DOING"})
             status_changed = True
     # --metric: attach structured datapoint(s) to this log (inherit its timestamp)
     metrics_added = 0
@@ -399,7 +399,7 @@ def cmd_defer(args, con):
     except ValueError as e:
         die(f"{e}")
     for nid in ids:
-        _db.update(con, "node", nid, {"status": "LATER", "scheduled_date": when})
+        Node.update(con, nid, {"status": "LATER", "scheduled_date": when})
     con.commit()
     from .query import _node_summary_view
     result = [_node_summary_view(con, _db.get(con, "node", nid)) for nid in ids]
@@ -430,8 +430,8 @@ def cmd_start(args, con):
         if _db.exists(con, "clock", node_id=nid, end_at=None):
             skipped.append(nid)
             continue
-        _db.update(con, "node", nid, {"status": "DOING"})
-        _db.insert(con, "clock", {"node_id": nid, "start_at": ts})
+        Node.update(con, nid, {"status": "DOING"})
+        Clock.insert(con, {"node_id": nid, "start_at": ts})
         started.append(nid)
     con.commit()
     from .query import _node_summary_view
@@ -466,7 +466,7 @@ def cmd_stop(args, con):
         if stopped < started:
             die(f"--at {stop_ts} is earlier than the clock start {row['start_at']} (#{nid})")
         secs = max(60, int((stopped - started).total_seconds()))  # floor at 1 min
-        _db.update(con, "clock", row["id"], {"end_at": stop_ts, "elapsed_sec": secs})
+        Clock.update(con, row["id"], {"end_at": stop_ts, "elapsed_sec": secs})
         stop_lines.append((nid, secs))
     con.commit()
     from .query import _node_summary_view
@@ -515,8 +515,8 @@ def cmd_spent(args, con):
     from datetime import timedelta as _td
     start_dt = end_dt - _td(minutes=mins)
     start_ts = start_dt.strftime("%Y-%m-%d %H:%M:%S")
-    cid = _db.insert(con, "clock", {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
-                                   "elapsed_sec": mins * 60})
+    cid = Clock.insert(con, {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
+                            "elapsed_sec": mins * 60})
     con.commit()
     r = _db.get(con, "clock", cid)
     return TextRenderable(
@@ -754,12 +754,12 @@ def cmd_tag(args, con):
         if op.startswith("-"):
             t = op[1:].strip()
             if t:
-                _db.delete(con, "tag", node_id=args.id, tag=t)
+                Tag.delete(con, node_id=args.id, tag=t)
                 removed.append(t)
         else:
             t = op[1:].strip() if op.startswith("+") else op
             if t:
-                _db.upsert(con, "tag", {"node_id": args.id, "tag": t}, key=("node_id", "tag"))
+                Tag.upsert(con, {"node_id": args.id, "tag": t})
                 added.append(t)
     con.commit()
     result = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
@@ -796,7 +796,7 @@ def cmd_tag_rm(args, con):
     for raw in args.tags:
         t = raw.lstrip("+-").strip()
         if t:
-            _db.delete(con, "tag", node_id=args.id, tag=t)
+            Tag.delete(con, node_id=args.id, tag=t)
             removed.append(t)
     con.commit()
     result = [r["tag"] for r in _db.query(con, "tag", cols="tag", node_id=args.id, order="tag")]
@@ -838,7 +838,7 @@ def cmd_tick(args, con):
         # structured "done today" signal (one per node per day) — not "a log exists"
         checkin_metric(con, log_id, nid, today)
         if args.done:
-            _db.update(con, "node", nid, {"status": "DONE", "closed_at": _tu.utc_now()})
+            Node.update(con, nid, {"status": "DONE", "closed_at": _tu.utc_now()})
         result.append(TickResult(node_id=nid, log_id=log_id, done=bool(args.done)))
     con.commit()
     return TextRenderable(result, cmd_name="tick")
@@ -862,8 +862,8 @@ def cmd_wait(args, con):
         if row:
             now_s = _tu.utc_now()
             secs = max(60, int((datetime.fromisoformat(now_s) - datetime.fromisoformat(row["start_at"])).total_seconds()))
-            _db.update(con, "clock", row["id"], {"end_at": now_s, "elapsed_sec": secs})
-        _db.update(con, "node", nid, {"status": "WAIT"})
+            Clock.update(con, row["id"], {"end_at": now_s, "elapsed_sec": secs})
+        Node.update(con, nid, {"status": "WAIT"})
         if args.note:
             _insert_log(con, nid, f"WAIT: {args.note}")
     con.commit()
@@ -1051,7 +1051,7 @@ def cmd_relog(args, con):
         changes["body"] = new_body
     if new_ts is not None:
         changes["logged_at"] = new_ts
-    _db.update(con, "log", log_id, changes)
+    Log.update(con, log_id, changes)
     con.commit()
 
     new_row = _db.get(con, "log", log_id)
@@ -1127,7 +1127,7 @@ def cmd_retag(args, con):
         die(f"no log #L{args.log_id}")
     raw = (args.tag or "").strip()
     new = None if raw.lower() in ("", "-", "note", "none") else raw
-    _db.update(con, "log", args.log_id, {"tag": new})
+    Log.update(con, args.log_id, {"tag": new})
     con.commit()
     result = RetagResult(log_id=args.log_id, tag=new)
     return TextRenderable(result, cmd_name="retag")
@@ -1242,7 +1242,7 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
         for nid in ids:
             if at_ts:
                 # at_ts is already UTC — insert directly (avoid _insert_log re-localizing)
-                _db.insert(con, "log", {"node_id": nid, "logged_at": at_ts, "body": log_body})
+                Log.insert(con, {"node_id": nid, "logged_at": at_ts, "body": log_body})
             else:
                 _insert_log(con, nid, log_body)
 
@@ -1252,7 +1252,7 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
     elif reopen:
         changes["closed_at"] = None   # -> SET closed_at = NULL
     for nid in ids:
-        _db.update(con, "node", nid, changes)
+        Node.update(con, nid, changes)
     con.commit()
     label = msg or ("reopened → " + new_status if reopen else "→ " + new_status)
     note = f" @{_tu.utc_to_local(at_ts)[11:16]}" if at_ts else ""
@@ -1320,7 +1320,7 @@ def cmd_node_reparent(args, con):
         # include_deleted: catch a live descendant reachable through a tombstoned intermediate
         if new_parent in _collect_descendants(con, nid, include_deleted=True):
             die(f"#{new_parent} is a descendant of #{nid} — reparenting there would make a cycle")
-    _db.update(con, "node", nid, {"parent_id": new_parent})
+    Node.update(con, nid, {"parent_id": new_parent})
     con.commit()
     where = "the top level" if new_parent is None else f"#{new_parent}"
     result = NodeReparentResult(node_id=nid, parent_id=new_parent, where=where)
@@ -1384,11 +1384,11 @@ def cmd_node_edit(args, con):
     if not changes and para is None:
         die("nothing to edit (give --title / --priority / --para / --body / --scheduled / --deadline)")
     if changes:
-        _db.update(con, "node", nid, changes)
+        Node.update(con, nid, changes)
     conflicts = []
     if para is not None:
         # set the PARA role via the type.* namespace (the column is gone). Replace any prior role.
-        _db.delete(con, "prop", node_id=nid, key=_nt.K_PARA)
+        Prop.delete(con, node_id=nid, key=_nt.K_PARA)
         _upsert_prop(con, nid, _nt.K_PARA, para)
         changes["para"] = para
         # The type.* model is orthogonal, so --para does NOT auto-clear a node's OTHER
@@ -1450,11 +1450,11 @@ def cmd_prop_rm(args, con):
     if key in _RESERVED_LOG_TAGS:
         # key-routed shortcut, symmetric with `wl set`: goal/summary live in the log table
         # as reserved-tag logs, not props — clear it there (= wl goal rm).
-        n = _db.delete(con, "log", node_id=args.id, tag=key)
+        n = Log.delete(con, node_id=args.id, tag=key)
         con.commit()
         return TextRenderable(PropRmResult(key=key, node_id=args.id, removed=n, from_log=True),
                               cmd_name="prop_rm")
-    n = _db.delete(con, "prop", node_id=args.id, key=key)
+    n = Prop.delete(con, node_id=args.id, key=key)
     if n and (key.startswith("type.") or key.startswith("date.")):
         # a structural classification key just changed what this node IS — surface it (non-blocking),
         # since removing e.g. type.para demotes a project to a bare task, or type.date un-places a
@@ -1562,19 +1562,19 @@ def _record_bind_history(con, nid, sid, agent):
     Written once per (node, session) bind, NOT stamped onto every later log — one row per
     association instead of tagging every write, which is the whole point of the light design."""
     now = _tu.utc_now()
-    log_id = _db.insert(con, "log", {
+    log_id = Log.insert(con, {
         "node_id": nid, "logged_at": now,
         "body": f"agent session bound · {agent}:{sid[:8]}…",
         "tag": "metric",   # auto metric-carrier log (same convention as `wl metric add`)
     })
     # the session id, as its own metric
-    _db.insert(con, "metric", {
+    Metric.insert(con, {
         "log_id": log_id, "node_id": nid, "tag": _SESSION_METRIC_TAG,
         "value_num": None, "value_text": sid, "unit": None,
         "note": None, "at": now,
     })
     # the agent runtime name, as its own metric (value = the prop-key suffix)
-    _db.insert(con, "metric", {
+    Metric.insert(con, {
         "log_id": log_id, "node_id": nid, "tag": _AGENT_METRIC_TAG,
         "value_num": None, "value_text": agent, "unit": None,
         "note": None, "at": now,
@@ -1628,7 +1628,7 @@ def _agent_set(args, con):
     # (an early auto-bind, or a --no-record bind) still gets recorded on a later bind.
     do_record = getattr(args, "record", True) and not _has_agent_history(con, nid, sid)
     # one session → one node: drop this sid's live pointer under ANY agent key before re-binding
-    _db.delete(con, "prop", key__like=_AGENT_PREFIX + "%", value=sid)
+    Prop.delete(con, key__like=_AGENT_PREFIX + "%", value=sid)
     _upsert_prop(con, nid, key, sid)
     if do_record:
         _record_bind_history(con, nid, sid, agent)   # append-only history trail
@@ -1703,7 +1703,7 @@ def _agent_ls(args, con):
 
 def _agent_rm(args, con):
     sid = _agent_need_sid()
-    n = _db.delete(con, "prop", key__like=_AGENT_PREFIX + "%", value=sid)   # any agent's key
+    n = Prop.delete(con, key__like=_AGENT_PREFIX + "%", value=sid)   # any agent's key
     con.commit()
     _invalidate_agent_cache(sid)   # drop cached binding so the hook stops injecting
     out(_c(f"✓ unbound (session {sid[:8]}…)" if n else f"(session {sid[:8]}… 本来就没绑定)", "meta"))
@@ -1820,7 +1820,7 @@ def cmd_clock_edit(args, con):
             changes["elapsed_sec"] = secs
     elif "end_at" in changes and end_at is None:
         changes["elapsed_sec"] = None  # --end '' cleared the end → back to running
-    _db.update(con, "clock", args.clock_id, changes)
+    Clock.update(con, args.clock_id, changes)
     con.commit()
     r = _db.get(con, "clock", args.clock_id)
     result = ClockEditResult(
@@ -1843,7 +1843,7 @@ def cmd_clock_rm(args, con):
         if not _db.exists(con, "clock", id=cid):
             die(f"clock interval #C{cid} not found")
     for cid in args.clock_ids:
-        _db.delete(con, "clock", id=cid)
+        Clock.delete(con, id=cid)
     con.commit()
     result = ClockRmResult(deleted=list(args.clock_ids), count=len(args.clock_ids))
     return TextRenderable(result, cmd_name="clock_rm")

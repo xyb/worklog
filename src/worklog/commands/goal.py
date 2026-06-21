@@ -10,6 +10,7 @@ import re
 
 from .. import timeutil as _tu
 from .. import db_table as _db
+from ..models import Log, Metric
 from ..queries import (
     _check_ids_exist,
     _node_exists,
@@ -66,10 +67,10 @@ def _set_goal_targets(con, node_id, ids):
     if current == want:
         return _c(f"= #{node_id} goal targets already {shown}", "meta")
     for r in _db.query(con, "metric", cols="id", log_id=row["id"], tag="goal"):
-        _db.delete(con, "metric", id=r["id"])   # replace: clear the old set first
+        Metric.delete(con, id=r["id"])   # replace: clear the old set first
     for i in want:
-        _db.insert(con, "metric", {"log_id": row["id"], "node_id": node_id, "tag": "goal",
-                   "value_num": i, "at": _tu.utc_now()})
+        Metric.insert(con, {"log_id": row["id"], "node_id": node_id, "tag": "goal",
+                            "value_num": i, "at": _tu.utc_now()})
     con.commit()
     return _c(f"✓ #{node_id} goal targets: {shown}", "meta")
 
@@ -288,7 +289,7 @@ def cmd_goal_rm(args, con):
     Soft-deletes the field's typed logs (reversible). Also reachable as `wl unset <node> <key>`."""
     _require_node(con, args.id)
     field = "summary" if getattr(args, "summary", False) else "goal"
-    n = _db.delete(con, "log", node_id=args.id, tag=field)
+    n = Log.delete(con, node_id=args.id, tag=field)
     con.commit()
     result = {"node_id": args.id, "field": field, "cleared": n}
     return TextRenderable(result, cmd_name="goal_rm")

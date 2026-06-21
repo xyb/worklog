@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from .. import timeutil as _tu
 from .. import db_table as _db
+from ..models import Sched
 from ..queries import _check_ids_exist
 from ..helpers import _resolve_concrete_date
 from ..render import _c, die, out
@@ -66,7 +67,7 @@ def cmd_sched(args, con):
         nodes = []
         total = 0
         for nid in ids:
-            n = _db.delete(con, "sched", node_id=nid)
+            n = Sched.delete(con, node_id=nid)
             total += n
             nodes.append({"node_id": nid, "count": n})
         con.commit()
@@ -91,7 +92,7 @@ def cmd_sched(args, con):
             exists = _db.exists(con, "sched", node_id=nid, rrule=rule)
             ops.append({"type": "rrule", "node_id": nid, "rule": rule, "exists": exists})
             if not exists:
-                _db.insert(con, "sched", {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
+                Sched.insert(con, {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
         con.commit()
     if args.when:
         try:
@@ -105,7 +106,7 @@ def cmd_sched(args, con):
             exists = _db.exists(con, "sched", node_id=nid, on_date=d)
             ops.append({"type": "on_date", "node_id": nid, "date": d, "exists": exists})
             if not exists:
-                _db.insert(con, "sched", {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
+                Sched.insert(con, {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
         con.commit()
     # return updated schedule list for the first (usually only) id
     nid = ids[0]
@@ -149,7 +150,7 @@ def cmd_sched_rm(args, con):
     """Clear a node's schedule entries — the delete verb of the sched group (= `wl sched
     <id> --clear`). Removes every one-off and recurring entry for the node."""
     _check_ids_exist(con, [args.id])
-    n = _db.delete(con, "sched", node_id=args.id)
+    n = Sched.delete(con, node_id=args.id)
     con.commit()
     return TextRenderable({"node_id": args.id, "cleared": n}, cmd_name="sched_rm")
 

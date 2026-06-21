@@ -14,6 +14,7 @@ from . import db_table as _db
 from . import node_types as _nt
 from .helpers import GENERIC_TAGS  # noqa: F401
 from .helpers import _resolve_concrete_date
+from .models import Clock, Link, Log, Metric, Node, Prop, Sched, Tag
 from .render import die
 
 
@@ -47,7 +48,7 @@ def _insert_log(con, nid, entry):
             # date only, no time: a degenerate "logged on this day" — keep the
             # bare local date verbatim (no instant to convert; day-grouping reads it as-is)
             logged_at = date
-        return _db.insert(con, "log", {"node_id": nid, "logged_at": logged_at, "body": body})
+        return Log.insert(con, {"node_id": nid, "logged_at": logged_at, "body": body})
     elif time_part:
         # no date but time given -> today + that time (local) -> store UTC
         if not _re.match(r"^(?:[01]?\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$", time_part):
@@ -55,9 +56,9 @@ def _insert_log(con, nid, entry):
         if time_part.count(":") == 1:
             time_part += ":00"
         logged_at = _tu.local_to_utc(f"{_tu.today()} {time_part}")
-        return _db.insert(con, "log", {"node_id": nid, "logged_at": logged_at, "body": body})
+        return Log.insert(con, {"node_id": nid, "logged_at": logged_at, "body": body})
     else:
-        return _db.insert(con, "log", {"node_id": nid, "logged_at": _tu.utc_now(), "body": body})
+        return Log.insert(con, {"node_id": nid, "logged_at": _tu.utc_now(), "body": body})
 
 def _project_members(con, proj_id):
     """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""
@@ -183,17 +184,22 @@ def soft_delete_node(con, nid):
     sched / clock / metric, all keyed by node_id) — the app-level replacement for the
     old `ON DELETE CASCADE` now that FK enforcement is off. Tombstones, never removes;
     reversible by clearing `deleted_at`. No commit. Returns the node rowcount."""
-    n = _db.delete(con, "node", id=nid)
-    for spoke in _NODE_SPOKES:
-        _db.delete(con, spoke, node_id=nid)
+    n = Node.delete(con, id=nid)
+    Log.delete(con, node_id=nid)
+    Tag.delete(con, node_id=nid)
+    Link.delete(con, node_id=nid)
+    Prop.delete(con, node_id=nid)
+    Sched.delete(con, node_id=nid)
+    Clock.delete(con, node_id=nid)
+    Metric.delete(con, node_id=nid)
     return n
 
 
 def soft_delete_log(con, log_id):
     """Soft-delete a log and its metrics (the old `metric.log_id` CASCADE, now
     app-level). Tombstones, never removes. No commit. Returns the log rowcount."""
-    n = _db.delete(con, "log", id=log_id)
-    _db.delete(con, "metric", log_id=log_id)
+    n = Log.delete(con, id=log_id)
+    Metric.delete(con, log_id=log_id)
     return n
 
 
@@ -320,12 +326,12 @@ def _set_typed_log(con, node_id, log_type, body, goals=None):
     the latest is current). No commit; caller owns the transaction. For a `goal` log, `goals` (an
     ordered node-id list, priority first) is stored as one `goal` metric per id, in order. The
     caller supplies them — wl never parses the prose. Returns the log id."""
-    log_id = _db.insert(con, "log", {
+    log_id = Log.insert(con, {
         "node_id": node_id, "tag": log_type, "body": body, "logged_at": _tu.utc_now(),
     })
     if goals and log_type == "goal":
         for i in goals:   # insertion order = priority
-            _db.insert(con, "metric", {
+            Metric.insert(con, {
                 "log_id": log_id, "node_id": node_id, "tag": _GOAL_METRIC,
                 "value_num": i, "at": _tu.utc_now(),
             })
@@ -468,7 +474,7 @@ def _upsert_prop(con, nid, key, value):
     # (a bad type.para / type.date would silently break tree-building + views). Non-reserved
     # user props pass straight through (free values).
     value = _nt.validate_prop(key, value)
-    _db.upsert(con, "prop", {"node_id": nid, "key": key, "value": value}, key=("node_id", "key"))
+    Prop.upsert(con, {"node_id": nid, "key": key, "value": value})
 
 
 # --- task↔task relations (relation.* props) ---------------------------------
@@ -561,7 +567,7 @@ def sync_time_node_dates(con, nid):
         if key in want:
             _upsert_prop(con, nid, key, want[key])
         elif key in props:
-            _db.delete(con, "prop", node_id=nid, key=key)
+            Prop.delete(con, node_id=nid, key=key)
 
 
 def node_type_from_props(props) -> str:
@@ -673,7 +679,7 @@ def _remove_id_from_prop_list(con, nid, key, rm_id):
     if ids:
         _upsert_prop(con, nid, key, ",".join(str(i) for i in ids))
     else:
-        _db.delete(con, "prop", node_id=nid, key=key)
+        Prop.delete(con, node_id=nid, key=key)
     return True
 
 
@@ -745,7 +751,7 @@ def _upsert_link(con, nid, doc):
     name via `_strip_wikilink` first. The single chokepoint for link writes. No commit.
     Returns the stripped doc name (callers echo it)."""
     name = _strip_wikilink(doc)
-    _db.upsert(con, "link", {"node_id": nid, "vault_doc": name}, key=("node_id", "vault_doc"))
+    Link.upsert(con, {"node_id": nid, "vault_doc": name})
     return name
 
 
@@ -754,7 +760,7 @@ def _delete_link(con, nid, doc):
     link added as `X` is removable whether the caller passes `X` or `[[X]]`. No
     commit. Returns (stripped_name, rowcount)."""
     name = _strip_wikilink(doc)
-    return name, _db.delete(con, "link", node_id=nid, vault_doc=name)
+    return name, Link.delete(con, node_id=nid, vault_doc=name)
 
 
 # generic ORDER BY fragment: priority A/B/C first, NULL last; same priority by id ascending.

@@ -24,7 +24,7 @@ from dataclasses import dataclass
 from .. import timeutil as _tu
 from .. import db_table as _db
 from ..helpers import _resolve_concrete_date, _resolve_window
-from ..models import Metric
+from ..models import Log, Metric
 from ..queries import _require_node, _has_checkin
 from ..render import _c, die, out
 from .output import output_format, TextRenderable, text_renderer
@@ -146,7 +146,7 @@ def _insert_metric_on_log(con, log_id, node_id, tag, value, *,
     u = unit if vnum is not None else None  # unit only meaningful on a numeric value
     # explicit UTC "now" when no time given, so we never fall back to the localtime
     # column DEFAULT; a caller-supplied `at` is already UTC (or a bare date)
-    return _db.insert(con, "metric", {
+    return Metric.insert(con, {
         "log_id": log_id, "node_id": node_id, "tag": tag,
         "value_num": vnum, "value_text": vtext, "unit": u, "note": note,
         "at": at if at else _tu.utc_now(),
@@ -222,7 +222,7 @@ def cmd_metric_add(args, con):
         if at is None:
             at = log["logged_at"]  # inherit the existing log's time, not "now"
     else:
-        log_id = _db.insert(con, "log", {
+        log_id = Log.insert(con, {
             "node_id": node, "logged_at": at or _tu.utc_now(),
             "body": args.body or "", "tag": _CARRIER_TYPE,
         })
@@ -345,7 +345,7 @@ def cmd_metric_edit(args, con):
     if not changes:
         die("nothing to change (give --value/--num/--text/--unit/--note/--tag/--at)")
 
-    _db.update(con, "metric", mid, changes)
+    Metric.update(con, mid, changes)
     con.commit()
     row = _db.get(con, "metric", mid)
     return TextRenderable(Metric.from_row(row), cmd_name="metric_edit")
@@ -371,12 +371,12 @@ def cmd_metric_rm(args, con):
             msgs.append(f"(metric #M{mid} not found)")
             continue
         log_id = row["log_id"]
-        _db.delete(con, "metric", id=mid)
+        Metric.delete(con, id=mid)
         msg = f"✓ deleted metric #M{mid}"
         log = _db.query_one(con, "log", cols="body, tag", id=log_id)
         remaining = _db.count(con, "metric", log_id=log_id)
         if log and log["tag"] == _CARRIER_TYPE and not (log["body"] or "").strip() and remaining == 0:
-            _db.delete(con, "log", id=log_id)
+            Log.delete(con, id=log_id)
             msg += f" + its empty carrier log #L{log_id}"
         msgs.append(msg)
     con.commit()
