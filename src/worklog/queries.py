@@ -64,10 +64,8 @@ def _project_members(con, proj_id):
     """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""
     ids = set()
     proj_tags = {r.tag for r in Tag.query(con, node_id=proj_id)} - GENERIC_TAGS
-    for r in con.execute(
-            f"SELECT id FROM node n WHERE n.parent_id=? AND n.{_db.ALIVE} AND ({workitem_sql('n')})",
-            (proj_id,)):
-        ids.add(r["id"])
+    for n in filter_workitems(con, Node.query(con, parent_id=proj_id)):
+        ids.add(n["id"])
     if proj_tags:
         for r in nodes_with_tag(con, proj_tags, types=("task", "meetlog", "habit"), cols="id"):
             ids.add(r["id"])
@@ -665,6 +663,26 @@ def workitem_sql(alias="n"):
     # co-present custom type.<x>, so they stay in the set even when a custom prop also exists.
     return (f"({para_task} OR (NOT {has_para} AND NOT {has_date} "
             f"AND ({has_habit} OR {has_meetlog} OR NOT {has_custom})))")
+
+
+_WORKITEM_TYPES = ("task", "habit", "meetlog")
+
+
+def filter_workitems(con, nodes):
+    """Keep only the work items (derived type task / habit / meetlog) from a batch of node rows —
+    the Python-compose replacement for the `workitem_sql` EXISTS predicate. Classifies via ONE
+    batched read of *just this batch's* `type.*` props (`node_id__in`) plus the pure
+    `node_type_from_props`; no per-node query (not N+1) and no full-table prop scan (only the
+    candidates handed in). Input order preserved. Caller decides the candidate batch — a project's
+    children, a status-filtered set, the whole table for a summary — so the read scales to need."""
+    nodes = list(nodes)
+    ids = [n["id"] for n in nodes]
+    if not ids:
+        return []
+    type_props = {}
+    for r in _db.query(con, "prop", cols="node_id, key, value", key__like="type.%", node_id__in=ids):
+        type_props.setdefault(r["node_id"], {})[r["key"]] = r["value"]
+    return [n for n in nodes if node_type_from_props(type_props.get(n["id"], {})) in _WORKITEM_TYPES]
 
 
 def _add_id_to_prop_list(con, nid, key, add_id):

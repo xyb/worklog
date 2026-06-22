@@ -46,6 +46,7 @@ from ..queries import (
     time_node_by_period,
     node_has_type,
     workitem_sql,
+    filter_workitems,
     make_node_filter,
     nodes_with_tag,
     _has_checkin,
@@ -568,11 +569,7 @@ def _tree_by(con, by, nf=None):
             if not ids:
                 out("    " + _c("(no linked tasks)", "meta"))
         # orphans: task/meetlog/habit not attached to any project
-        orphans = [
-            Node.from_row(r) for r in con.execute(
-                f"SELECT * FROM node n WHERE n.{_db.ALIVE} AND ({workitem_sql('n')}) "
-                "ORDER BY priority NULLS LAST, id")
-        ]
+        orphans = filter_workitems(con, Node.query(con, order="priority NULLS LAST, id"))
         orphans = [n for n in orphans if n["id"] not in claimed]
         if nf:
             orphans = [n for n in orphans if nf(n["id"])]

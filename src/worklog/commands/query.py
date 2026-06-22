@@ -50,7 +50,7 @@ from ..queries import (
     node_type,
     node_props,
     nodes_with_type,
-    workitem_sql,
+    filter_workitems,
     make_node_filter,
     nodes_with_tag,
     _insert_log,
@@ -863,13 +863,14 @@ def _summary_buckets(con, args):
         # ts is a UTC *_at instant -> compare on its local calendar day
         return bool(ts) and since <= _tu.local_day_of(ts) <= until
 
-    sql = f"SELECT * FROM node n WHERE n.{_db.ALIVE} AND ({workitem_sql('n')})"
+    sql = f"SELECT * FROM node n WHERE n.{_db.ALIVE}"
     sm_params = []
     frag, p = _status_filter_sql(include_canceled=inc_cancel)
     if frag:
         sql += " AND " + frag
         sm_params.extend(p)
-    nodes = [Node.from_row(r) for r in con.execute(sql, sm_params)]
+    # candidate = status-filtered nodes; work-item classification is a Python pass over just this batch
+    nodes = filter_workitems(con, [Node.from_row(r) for r in con.execute(sql, sm_params)])
     done = [n for n in nodes if inw(n["closed_at"])]
     added_open = [n for n in nodes if inw(n["created_at"]) and not inw(n["closed_at"])]
     doing = [n for n in nodes if n["status"] == "DOING"]
