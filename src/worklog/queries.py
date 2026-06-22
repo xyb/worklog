@@ -638,51 +638,38 @@ def node_has_type(con, nid, key, value=None):
     return Prop.exists(con, node_id=nid, key=key, value=value)
 
 
-def workitem_sql(alias="n"):
-    """SQL predicate: the node (table aliased ``alias``) has DERIVED type task/habit/meetlog — an
-    actionable work item — expressed purely from type.* props (column-free). Must match
-    node_types.node_type_from_props's precedence (para > date > habit > meetlog > custom > task) exactly,
-    so it equals ``node_type_from_props(props) IN ('task','habit','meetlog')``: a node is a work item iff
-    its type.para is 'task' (the role wins regardless of any other dim), OR it has no para AND no
-    time level AND no custom type.<x> (a bare node, or a pure habit/meetlog — those reserved keys
-    aren't the 'custom' the last clause excludes)."""
-    def _ex(cond):  # EXISTS a live prop on this node matching cond
-        return "EXISTS(SELECT 1 FROM prop WHERE node_id=" + alias + ".id AND " + cond + " AND " + _db.ALIVE + ")"
-    para_task = _ex("key='type.para' AND value='task'")
-    has_para = _ex("key='type.para'")
-    has_date = _ex("key='type.date'")
-    has_habit = _ex("key='type.habit'")
-    has_meetlog = _ex("key='type.meetlog'")
-    # length(key) > 5 mirrors node_type_from_props's `len(k) > len(TYPE_NS)` guard: a bare 'type.' key
-    # (empty suffix) is NOT a custom type, so it must not exclude the node from the work-item set.
-    has_custom = _ex("key LIKE 'type.%' AND length(key) > 5 "
-                     "AND key NOT IN ('type.para','type.date','type.habit','type.meetlog')")
-    # node_type_from_props precedence para > date > habit > meetlog > custom > task, restricted to the
-    # task/habit/meetlog set: type.para='task' (role wins outright), OR — with no para and no time
-    # level — a habit, a meetlog, or a bare node (no custom type.<x>). habit/meetlog outrank a
-    # co-present custom type.<x>, so they stay in the set even when a custom prop also exists.
-    return (f"({para_task} OR (NOT {has_para} AND NOT {has_date} "
-            f"AND ({has_habit} OR {has_meetlog} OR NOT {has_custom})))")
-
-
 _WORKITEM_TYPES = ("task", "habit", "meetlog")
 
 
-def filter_workitems(con, nodes):
-    """Keep only the work items (derived type task / habit / meetlog) from a batch of node rows —
-    the Python-compose replacement for the `workitem_sql` EXISTS predicate. Classifies via ONE
-    batched read of *just this batch's* `type.*` props (`node_id__in`) plus the pure
-    `node_type_from_props`; no per-node query (not N+1) and no full-table prop scan (only the
-    candidates handed in). Input order preserved. Caller decides the candidate batch — a project's
-    children, a status-filtered set, the whole table for a summary — so the read scales to need."""
-    nodes = list(nodes)
-    ids = [n["id"] for n in nodes]
-    if not ids:
-        return []
+def classify_types(con, node_ids):
+    """Map each node id to its derived type token — the on-demand batch classification primitive
+    (replaces the `workitem_sql` EXISTS predicate and per-node `node_type` in batch paths). ONE
+    read of *just these ids'* `type.*` props (`node_id__in`) + the pure `node_type_from_props`: no
+    per-node query (not N+1), no full-table scan (only the ids handed in). The caller picks the
+    batch by need — a project's children, a day's logged nodes, a status-filtered set — so the read
+    scales to what's used. (A deleted node's props are tombstoned too, so a missing/empty entry
+    classifies as a bare `task`; callers pre-filter to live nodes, so that case doesn't arise.)"""
+    node_ids = list(node_ids)
+    if not node_ids:
+        return {}
     type_props = {}
-    for r in _db.query(con, "prop", cols="node_id, key, value", key__like="type.%", node_id__in=ids):
+    for r in _db.query(con, "prop", cols="node_id, key, value", key__like="type.%", node_id__in=node_ids):
         type_props.setdefault(r["node_id"], {})[r["key"]] = r["value"]
-    return [n for n in nodes if node_type_from_props(type_props.get(n["id"], {})) in _WORKITEM_TYPES]
+    return {nid: node_type_from_props(type_props.get(nid, {})) for nid in node_ids}
+
+
+def filter_workitems(con, nodes):
+    """Keep only the work items (derived type task/habit/meetlog) from a batch of node rows, by
+    classifying that batch (see classify_types). Input order preserved."""
+    nodes = list(nodes)
+    types = classify_types(con, [n["id"] for n in nodes])
+    return [n for n in nodes if types.get(n["id"]) in _WORKITEM_TYPES]
+
+
+def workitem_ids(con, node_ids):
+    """The subset of node_ids whose derived type is a work item — for filtering rows that only carry
+    a node_id (e.g. a `log JOIN node` result) without rebuilding node objects."""
+    return {nid for nid, t in classify_types(con, node_ids).items() if t in _WORKITEM_TYPES}
 
 
 def _add_id_to_prop_list(con, nid, key, add_id):

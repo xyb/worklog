@@ -198,7 +198,7 @@ class TestReadersAreColumnFree:
 class TestWorkitemMatchesNodeType:
     def test_para_task_with_date_is_still_a_workitem(self, tmp_db):
         # a node with BOTH type.para=task and type.date=day: node_type_from_props='task' (para wins),
-        # so workitem_sql MUST include it too (the divergence fix).
+        # so workitem_ids MUST include it too.
         tmp_db.ensure_db(); con = tmp_db.db_connect()
         from worklog import db_table as _db, timeutil as _tu, queries, node_types as nt
         nid = _db.insert(con, "node", {"title": "x", "created_at": _tu.utc_now()})
@@ -207,16 +207,17 @@ class TestWorkitemMatchesNodeType:
         con.commit()
         props = queries.node_props(con, nid)
         assert queries.node_type_from_props(props) == "task"
-        row = con.execute(
-            f"SELECT 1 FROM node n WHERE n.id=? AND ({queries.workitem_sql('n')})", (nid,)).fetchone()
-        assert row is not None      # workitem_sql agrees with node_type_from_props — no split-brain
+        # classification is now Python-only (no SQL predicate to drift); workitem_ids agrees
+        assert nid in queries.workitem_ids(con, [nid])
         con.close()
 
 
-class TestWorkitemSqlEqualsNodeType:
-    """Drift guard (root fix for the recurring SQL-vs-Python divergence): workitem_sql must equal
-    node_type_from_props(props) IN (task,habit,meetlog) for EVERY combination of the classification keys —
-    exhaustively, so no future edge combo (para+date, habit+custom, bare 'type.', …) can escape."""
+class TestWorkitemIdsEqualsNodeType:
+    """Classification correctness, end to end: workitem_ids (which reads each node's type.* props
+    from the DB and classifies via node_type_from_props) must equal node_type_from_props(props) IN
+    (task,habit,meetlog) for EVERY combination of the classification keys — exhaustively, so no edge
+    combo (para+date, habit+custom, bare 'type.', …) can escape. (There is no longer a separate SQL
+    predicate to drift against; this now guards the DB-read + batch-classify path.)"""
 
     def test_equivalence_exhaustive(self, tmp_db):
         import itertools
@@ -240,10 +241,9 @@ class TestWorkitemSqlEqualsNodeType:
             for k, v in props.items():
                 con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (nid, k, v))
             con.commit()
-            sql_match = con.execute(
-                f"SELECT 1 FROM node n WHERE n.id=? AND ({queries.workitem_sql('n')})", (nid,)).fetchone() is not None
+            db_match = nid in queries.workitem_ids(con, [nid])
             py_match = queries.node_type_from_props(props) in ("task", "habit", "meetlog")
-            assert sql_match == py_match, \
-                f"combo {props}: workitem_sql={sql_match} but node_type_from_props={queries.node_type_from_props(props)!r}"
+            assert db_match == py_match, \
+                f"combo {props}: workitem_ids={db_match} but node_type_from_props={queries.node_type_from_props(props)!r}"
         assert n == 4 * 2 * 2 * 2 * 2 * 2   # 128 combinations, all checked
         con.close()

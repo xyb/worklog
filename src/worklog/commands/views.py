@@ -45,7 +45,7 @@ from ..queries import (
     nodes_with_type,
     time_node_by_period,
     node_has_type,
-    workitem_sql,
+    workitem_ids,
     filter_workitems,
     make_node_filter,
     nodes_with_tag,
@@ -401,12 +401,14 @@ def _collect_day_items(con, target, inc_cancel):
                    node.title, node.status, node.priority
             FROM log JOIN node ON log.node_id = node.id
             WHERE {_tu.local_day_sql('log.logged_at')} = ?
-              AND ({workitem_sql('node')})
               AND log.{_db.ALIVE} AND node.{_db.ALIVE}
               {cancel_sql}
             ORDER BY log.logged_at, log.node_id""",
         [target] + cparams,
     ).fetchall()
+    # work-item filter in Python (replaces the workitem_sql EXISTS): one batched type-prop read
+    wi = workitem_ids(con, {r["node_id"] for r in rows})
+    rows = [r for r in rows if r["node_id"] in wi]
     items = {}
     for r in rows:
         items.setdefault(r["node_id"], {"node": r, "logs": []})["logs"].append(r["body"])
@@ -723,12 +725,14 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
         rf"""SELECT log.node_id, log.body, node.title, node.status, node.priority
             FROM log JOIN node ON log.node_id = node.id
             WHERE {_tu.local_day_sql('log.logged_at')} = ?
-              AND ({workitem_sql('node')})
               AND log.{_db.ALIVE} AND node.{_db.ALIVE}
               {cancel_sql}
             ORDER BY log.node_id""",
         [target] + cparams,
     ).fetchall()
+    # work-item filter in Python (replaces the workitem_sql EXISTS): one batched type-prop read
+    wi = workitem_ids(con, {r["node_id"] for r in rows})
+    rows = [r for r in rows if r["node_id"] in wi]
     tasks = OrderedDict()
     for r in rows:
         tasks.setdefault(r["node_id"], {"r": r, "logs": []})["logs"].append(r["body"])
