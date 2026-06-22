@@ -247,3 +247,34 @@ class TestWorkitemIdsEqualsNodeType:
                 f"combo {props}: workitem_ids={db_match} but node_type_from_props={queries.node_type_from_props(props)!r}"
         assert n == 4 * 2 * 2 * 2 * 2 * 2   # 128 combinations, all checked
         con.close()
+
+
+class TestBatchClassificationPrimitives:
+    """Direct contract of the on-demand batch primitives that replaced the workitem_sql EXISTS:
+    classify_types (id → type token), filter_workitems (node rows → work items), workitem_ids
+    (raw ids → work-item id set). Classify correctly, preserve input order, read on-demand."""
+
+    def test_classify_filter_workitem_ids_and_empty(self, tmp_db):
+        from worklog import db_table as _db, timeutil as _tu, queries
+        tmp_db.ensure_db(); con = tmp_db.db_connect()
+        proj = _db.insert(con, "node", {"title": "P", "created_at": _tu.utc_now()})
+        queries._upsert_prop(con, proj, "type.para", "project")
+        task = _db.insert(con, "node", {"title": "T", "created_at": _tu.utc_now()})
+        queries._upsert_prop(con, task, "type.para", "task")
+        habit = _db.insert(con, "node", {"title": "H", "created_at": _tu.utc_now()})
+        queries._upsert_prop(con, habit, "type.habit", "true")
+        bare = _db.insert(con, "node", {"title": "B", "created_at": _tu.utc_now()})  # no type.* → bare task
+        con.commit()
+        ids = [proj, task, habit, bare]
+
+        # classify_types maps each id to its derived token (one batched read of just these ids)
+        assert queries.classify_types(con, ids) == {proj: "project", task: "task", habit: "habit", bare: "task"}
+        # filter_workitems keeps task/habit/bare(→task), drops the project, and preserves input order
+        assert [n["id"] for n in queries.filter_workitems(con, [{"id": i} for i in ids])] == [task, habit, bare]
+        # workitem_ids: same classification over raw ids (for JOIN rows that only carry a node_id)
+        assert queries.workitem_ids(con, ids) == {task, habit, bare}
+        # empty batch: no query, empty result (the day-with-no-logs path)
+        assert queries.classify_types(con, []) == {}
+        assert queries.filter_workitems(con, []) == []
+        assert queries.workitem_ids(con, []) == set()
+        con.close()
