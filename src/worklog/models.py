@@ -55,6 +55,12 @@ class _Model:
         # Behave like a sqlite3.Row: only declared columns are subscriptable, and a
         # miss raises KeyError (not AttributeError). Stops ``n["query"]`` from silently
         # returning a bound method and surfaces typo'd column names.
+        #
+        # DELIBERATELY KEPT — decided NOT to remove. The renderers index nodes by column
+        # name (``n["title"]``), so this shim lets a Node stand in for a Row on those paths.
+        # "Phase B" (drop the shim, rewrite every ``n["x"]`` to attribute access ``n.x``) was
+        # evaluated and deferred: hundreds of call sites, zero behavior change, net-negative
+        # ROI for now. Revisit only if a concrete need arises. See DESIGN §26.
         if key not in self.__dataclass_fields__:
             raise KeyError(key)
         return getattr(self, key)
