@@ -35,20 +35,12 @@ from ..helpers import (
     GENERIC_TAGS,
 )
 from ..queries import (
-    _ancestors_chain,
     _check_ids_exist,
-    _collect_descendants,
-    soft_delete_node,
     _has_tag,
     _insert_log,
-    _node_bucket,
     _node_clock_min,
     _node_exists,
-    _node_plan,
-    _node_project,
     _node_tags,
-    _project_members,
-    _sec_group,
     _status_filter_sql,
     _upsert_prop,
     node_type_from_props,
@@ -56,6 +48,10 @@ from ..queries import (
     DATE_SYNC_KEYS,
     _upsert_link,
     _delete_link,
+)
+from ..graph import (
+    _collect_descendants,
+    soft_delete_node,
 )
 from .metric import import_metric, _CARRIER_TYPE
 from .output import output_format, TextRenderable, text_renderer

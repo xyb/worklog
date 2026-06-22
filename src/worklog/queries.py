@@ -60,93 +60,6 @@ def _insert_log(con, nid, entry):
     else:
         return Log.insert(con, {"node_id": nid, "logged_at": _tu.utc_now(), "body": body})
 
-def _project_members(con, proj_id):
-    """Set of task/meetlog/habit ids linked to a project: structural children (parent) + shared semantic tags"""
-    ids = set()
-    proj_tags = {r.tag for r in Tag.query(con, node_id=proj_id)} - GENERIC_TAGS
-    for n in filter_workitems(con, Node.query(con, parent_id=proj_id)):
-        ids.add(n["id"])
-    if proj_tags:
-        for r in nodes_with_tag(con, proj_tags, types=("task", "meetlog", "habit"), cols="id"):
-            ids.add(r["id"])
-    return ids
-
-def _ancestors_chain(con, node_id):
-    """Return the path list[Row] from the top-level root to node (inclusive). Cycle-safe:
-    FK enforcement is off so `parent_id` integrity isn't DB-guaranteed and a
-    bad/legacy graph could contain a cycle — a visited set stops the walk re-entering it
-    rather than looping forever."""
-    chain = []
-    cur = Node.get(con, node_id)
-    if not cur:
-        return chain
-    chain.append(cur)
-    seen = {node_id}
-    while cur["parent_id"] and cur["parent_id"] not in seen:
-        seen.add(cur["parent_id"])
-        cur = Node.get(con, cur["parent_id"])
-        if not cur:
-            break
-        chain.append(cur)
-    return list(reversed(chain))
-
-def _node_bucket(con, nid):
-    """Bucket a node into work / personal / other by work/personal tag."""
-    tags = {r.tag for r in Tag.query(con, node_id=nid)}
-    if "work" in tags:
-        return "work"
-    if "personal" in tags:
-        return "personal"
-    return "other"
-
-def _node_project(con, nid):
-    """Return the project ancestor (id, title) of a node, or (None, '(unassigned)') if none."""
-    for p in _ancestors_chain(con, nid):
-        if node_type(con, p) == "project":
-            return p["id"], p["title"]
-    return None, "(unassigned)"
-
-def _node_plan(con, nid, sched_ids):
-    """Derive planned vs unplanned: scheduled that day (or carrying the transitional
-    'planned' tag) = planned; everything else = unplanned. The old separate
-    'unplanned (untagged)' bucket was a migration-era distinction — now that
-    planned/unplanned is derived from sched, anything not scheduled is just unplanned."""
-    if nid in sched_ids:
-        return "planned"
-    tags = {r.tag for r in Tag.query(con, node_id=nid)}
-    if "planned" in tags:
-        return "planned"
-    return "unplanned"
-
-def _sec_group(con, nid, n, by, sched_ids):
-    """(key, display title) for the secondary group. by in project/priority/plan."""
-    if by == "priority":
-        label = {"A": "P0", "B": "P1", "C": "P2"}.get(n["priority"], "—")
-        return label, label
-    if by == "plan":
-        label = _node_plan(con, nid, sched_ids)
-        return label, label
-    pid, ptitle = _node_project(con, nid)
-    return (pid if pid is not None else ptitle), ptitle
-
-def _collect_descendants(con, root_id, *, include_deleted=False):
-    """Recursively collect all descendant ids of a node (excluding self). By default only
-    live nodes; `include_deleted=True` walks through tombstoned nodes too, so a structural
-    cascade (soft-delete subtree / cycle check) reaches live nodes hanging under an already-
-    tombstoned intermediate."""
-    acc = []
-    stack = [root_id]
-    seen = {root_id}  # cycle-safe: FK is off, so a bad parent_id graph could loop
-    while stack:
-        pid = stack.pop()
-        children = _db.query(con, "node", cols="id", parent_id=pid, include_deleted=include_deleted)
-        for c in children:
-            if c["id"] in seen:
-                continue
-            seen.add(c["id"])
-            acc.append(c["id"])
-            stack.append(c["id"])
-    return acc
 
 def _has_tag(con, nid, tag):
     return Tag.exists(con, node_id=nid, tag=tag)
@@ -184,35 +97,6 @@ def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
         if not ids:
             return []
     return _read_nodes_by_ids(con, ids, cols=cols, order=order)
-
-
-# every spoke table references node_id; soft-deleting a node tombstones these too —
-# the app-level stand-in for the old FK ON DELETE CASCADE (foreign_keys is now OFF).
-_NODE_SPOKES = ("log", "tag", "link", "prop", "sched", "clock", "metric")
-
-
-def soft_delete_node(con, nid):
-    """Soft-delete a node and everything hanging off it (log / tag / link / prop /
-    sched / clock / metric, all keyed by node_id) — the app-level replacement for the
-    old `ON DELETE CASCADE` now that FK enforcement is off. Tombstones, never removes;
-    reversible by clearing `deleted_at`. No commit. Returns the node rowcount."""
-    n = Node.delete(con, id=nid)
-    Log.delete(con, node_id=nid)
-    Tag.delete(con, node_id=nid)
-    Link.delete(con, node_id=nid)
-    Prop.delete(con, node_id=nid)
-    Sched.delete(con, node_id=nid)
-    Clock.delete(con, node_id=nid)
-    Metric.delete(con, node_id=nid)
-    return n
-
-
-def soft_delete_log(con, log_id):
-    """Soft-delete a log and its metrics (the old `metric.log_id` CASCADE, now
-    app-level). Tombstones, never removes. No commit. Returns the log rowcount."""
-    n = Log.delete(con, id=log_id)
-    Metric.delete(con, log_id=log_id)
-    return n
 
 
 _PRI_FILTER_ALIASES = {"P0": "A", "P1": "B", "P2": "C", "A": "A", "B": "B", "C": "C"}
@@ -700,56 +584,6 @@ def _remove_id_from_prop_list(con, nid, key, rm_id):
         Prop.delete(con, node_id=nid, key=key)
     return True
 
-
-def relation_view(con, nid):
-    """Resolved bidirectional relations for a node: an ordered dict
-    {'split-from': [ids], 'split-into': [ids], 'related': [ids]}. Unions the node's own
-    relation.* props with the reverse derived from every other node's props
-    (A.split_into ∋ nid ⇒ nid.split-from ∋ A), so one-sided data still shows both ways.
-    Each list is order-preserving + deduped, excludes nid itself, and only includes live
-    nodes (a relation to a soft-deleted node is dropped from the view)."""
-    merged = {t: [] for t in _RELATION_TYPES}
-    seen = {t: set() for t in _RELATION_TYPES}
-
-    def _add(label, i):
-        if i == nid or i in seen[label] or not _node_exists(con, i):
-            return
-        seen[label].add(i)
-        merged[label].append(i)
-
-    # own props
-    for r in Prop.query(con, node_id=nid):
-        lbl = _RELATION_KEY_LABEL.get(r.key)
-        if lbl:
-            for i in _parse_id_list(r.value):
-                _add(lbl, i)
-    # reverse: any other node whose relation.* list points at nid
-    for r in Prop.query(con, key__like="relation.%"):
-        lbl = _RELATION_REVERSE_LABEL.get(r.key)
-        if lbl and nid in _parse_id_list(r.value):
-            _add(lbl, r.node_id)
-    return merged
-
-
-def _backrels(con, nid):
-    """Back-relations ('what links here' / 维基百科链入): other nodes whose TEXT mentions this
-    node's id — a `#<nid>` or `WL#<nid>` reference in a log body or a node body. Returns sorted
-    distinct node ids, excluding self. A bare `#` or a `WL#` prefix counts; a letter run like
-    `PR#`/`LUM-` does NOT (so a GitHub PR / Linear ref isn't mistaken for a node ref). Unlike the
-    stored relation.* props, these are MACHINE-DERIVED (computed by scanning text), so the show
-    view marks the row with a leading `=` + italic to set it apart from the real relations."""
-    import re
-    # candidates via a cheap LIKE, then a word-boundary regex confirms it's a real node ref
-    pat = re.compile(rf"(?<![A-Za-z0-9])(?:WL)?#0*{nid}(?!\d)")
-    found = set()
-    like = f"%#{nid}%"
-    for src_id, body in _db.query(con, "log", cols="DISTINCT node_id, body", body__like=like):
-        if src_id != nid and pat.search(body or ""):
-            found.add(src_id)
-    for src_id, body in _db.query(con, "node", cols="id, body", body__like=like):
-        if src_id != nid and pat.search(body or ""):
-            found.add(src_id)
-    return sorted(found)
 
 
 def _strip_wikilink(doc):

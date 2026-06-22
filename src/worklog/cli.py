@@ -55,16 +55,25 @@ from .queries import (
     _check_ids_exist,
     _upsert_prop,
     _status_filter_sql,
-    _project_members,
+    _has_tag,
+    _node_clock_min,
+    _node_exists,
+)
+# graph operations live in graph.py (single source); re-exported here so tests reach them via the
+# unified `worklog.cli` entry (`wl.X`), the historical convention from when cli.py was one file.
+from .graph import (  # noqa: F401
     _ancestors_chain,
+    _collect_descendants,
+    _project_members,
+    soft_delete_node,
+    soft_delete_log,
+    relation_view,
+    _backrels,
+    _apply_relation,
     _node_bucket,
     _node_project,
     _node_plan,
     _sec_group,
-    _collect_descendants,
-    _has_tag,
-    _node_clock_min,
-    _node_exists,
 )
 from .helpers import GENERIC_TAGS  # noqa: F401
 from .helpers import (

@@ -36,9 +36,7 @@ from ..helpers import (
     GENERIC_TAGS,
 )
 from ..queries import (
-    _ancestors_chain,
     _check_ids_exist,
-    _collect_descendants,
     _has_tag,
     node_type,
     node_props,
@@ -53,16 +51,17 @@ from ..queries import (
     _latest_typed_log,
     _log_goals,
     _insert_log,
-    _node_bucket,
     _node_clock_min,
     _node_exists,
-    _node_plan,
-    _node_project,
     _node_tags,
-    _project_members,
-    _sec_group,
     _status_filter_sql,
     _upsert_prop,
+)
+from ..graph import (
+    _ancestors_chain,
+    _collect_descendants,
+    _node_bucket,
+    _sec_group,
 )
 from .metric import metric_rows
 from .output import output_format, TextRenderable, text_renderer
@@ -89,7 +88,6 @@ from ..xdg import _resolve_db_path, _resolve_aliases_path, _xdg_data_home, _xdg_
 # Used at function call time (not at import) to avoid the cli ↔ commands
 # import cycle.
 from .. import cli as _cli  # noqa: E402
-
 
 
 def _tree_json_data(con, args):

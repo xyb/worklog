@@ -344,7 +344,7 @@ class TestMetricSchema:
     def test_soft_delete_node_tombstones_its_metrics(self, cli, tmp_db):
         """FK enforcement is off; soft-deleting a node tombstones its metrics
         via the app-level cascade (queries.soft_delete_node), not an FK CASCADE."""
-        from worklog import queries as q
+        from worklog import graph as q
         cli("add", "t")
         cli("log", "1", "carrier")
         con = tmp_db.db_connect()
@@ -363,7 +363,7 @@ class TestMetricSchema:
     def test_soft_delete_log_tombstones_its_metrics(self, cli, tmp_db):
         """Soft-deleting a carrier log tombstones its metrics (the old metric.log_id
         CASCADE, now app-level via queries.soft_delete_log)."""
-        from worklog import queries as q
+        from worklog import graph as q
         cli("add", "t")
         cli("log", "1", "carrier")
         con = tmp_db.db_connect()

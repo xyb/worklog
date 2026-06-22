@@ -43,9 +43,7 @@ from ..helpers import (
     GENERIC_TAGS,
 )
 from ..queries import (
-    _ancestors_chain,
     _check_ids_exist,
-    _collect_descendants,
     _has_tag,
     node_type,
     node_props,
@@ -54,18 +52,18 @@ from ..queries import (
     make_node_filter,
     nodes_with_tag,
     _insert_log,
-    _node_bucket,
     _node_clock_min,
     _node_exists,
-    _node_plan,
-    _node_project,
     _node_tags,
-    _project_members,
-    _sec_group,
     _status_filter_sql,
     _upsert_prop,
-    relation_view,
     _RELATION_KEY_LABEL,
+)
+from ..graph import (
+    _ancestors_chain,
+    _collect_descendants,
+    _project_members,
+    relation_view,
     _backrels,
 )
 from ..render import (

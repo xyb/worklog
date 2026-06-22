@@ -5,7 +5,7 @@ guarded so a pre-existing/legacy cycle degrades gracefully instead of hanging th
 import sqlite3
 import pytest
 
-from worklog.queries import _collect_descendants, _ancestors_chain
+from worklog.graph import _collect_descendants, _ancestors_chain
 
 
 def _make_cycle(tmp_db):

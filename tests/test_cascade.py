@@ -5,7 +5,7 @@ from reads, instead of physically removing anything."""
 import sqlite3
 import pytest
 
-from worklog import queries as q
+from worklog import graph as q
 
 
 class TestSoftDeleteCascade:

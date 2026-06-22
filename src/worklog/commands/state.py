@@ -43,22 +43,13 @@ from ..helpers import (
     GENERIC_TAGS,
 )
 from ..queries import (
-    _ancestors_chain,
     _check_ids_exist,
-    _collect_descendants,
-    soft_delete_log,
-    soft_delete_node,
     _has_tag,
     _insert_log,
-    _node_bucket,
     _node_clock_min,
     _node_exists,
     _require_node,
-    _node_plan,
-    _node_project,
     _node_tags,
-    _project_members,
-    _sec_group,
     _status_filter_sql,
     _upsert_prop,
     node_type,
@@ -71,10 +62,14 @@ from ..queries import (
     _RESERVED_LOG_TAGS,
     _reserved_prop_hint,
     _RELATION_TYPES,
-    _add_id_to_prop_list,
-    _remove_id_from_prop_list,
+)
+from ..graph import (
+    _collect_descendants,
+    soft_delete_log,
+    soft_delete_node,
     relation_view,
     _backrels,
+    _apply_relation,
 )
 from ..node import create_node
 from .. import node_types as _nt
@@ -602,26 +597,6 @@ def _norm_relation_type(rtype):
     return rt
 
 
-def _apply_relation(con, nid, rtype, others, *, rm=False):
-    """Add (or with rm=True, remove) a relation between `nid` and each id in `others`,
-    writing BOTH sides (split-from ↔ split-into; related is symmetric). Self-relations are
-    skipped. No commit (caller owns the transaction). Returns the applied other-ids.
-    The shared core behind `wl relation` and `wl add --relation`."""
-    key, inv = _RELATION_TYPES[rtype]
-    done = []
-    for o in others:
-        if o == nid:
-            continue
-        if rm:
-            _remove_id_from_prop_list(con, nid, key, o)
-            _remove_id_from_prop_list(con, o, inv, nid)
-        else:
-            _add_id_to_prop_list(con, nid, key, o)
-            _add_id_to_prop_list(con, o, inv, nid)
-        done.append(o)
-    return done
-
-
 def _parse_relation_spec(spec):
     """Parse a `wl add --relation` spec string '<type> <id> [<id>…]' → (rtype, [ids]).
     e.g. 'split-from 42' or 'related 42 43'."""
@@ -649,7 +624,6 @@ def cmd_relation(args, con):
     _require_node(con, args.id)
     rtype = getattr(args, "rtype", None)
     others_raw = list(args.others or [])
-    from ..queries import relation_view
     if rtype is None:
         _nid = args.id
         result = relation_view(con, _nid)
