@@ -67,6 +67,13 @@ def _clause(conds: dict):
             if not vals:               # empty IN matches nothing (valid, deterministic)
                 frags.append("0")
                 continue
+            # DELIBERATELY UNCHUNKED: one `?` per value, so a call with more values than SQLite's
+            # SQLITE_MAX_VARIABLE_NUMBER (999 on <3.32, 32766 since) raises "too many SQL variables".
+            # The on-demand-batch readers (queries._read_nodes_by_ids / classify_types) feed an
+            # id__in list bounded by the candidate set — for a whole-tree summary/orphans that is
+            # every live node. At worklog scale (low thousands) this is far under the ceiling, so we
+            # keep the simple form. If the node count can ever approach the limit, chunk HERE (batch
+            # the values into <ceiling-sized groups, OR the fragments) so every caller benefits at once.
             frags.append(f"{col} IN ({', '.join('?' * len(vals))})")
             params.extend(vals)
         elif val is None and op in ("eq", "ne"):
