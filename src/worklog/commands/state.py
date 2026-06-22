@@ -299,7 +299,7 @@ def cmd_add(args, con):
 
     con.commit()
     from .query import _node_summary_view
-    result = _node_summary_view(con, _db.get(con, "node", node_id))
+    result = _node_summary_view(con, Node.get(con, node_id))
     st = (" " + _c(f"[{status}]", _STATUS_STYLE.get(status, "todo"))) if status else ""
     # echo the node's DERIVED type (post --prop) so a `--prop type.habit` add reports "habit", not "task"
     echo_type = node_type(con, node_id)

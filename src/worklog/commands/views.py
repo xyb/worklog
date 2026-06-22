@@ -11,7 +11,7 @@ from pathlib import Path
 from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
-from ..models import DateMeta
+from ..models import DateMeta, Node
 from ..node_schema import node_view as _node_view, type_facet as _type_facet, CORE as _CORE
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
 from ..helpers import (
@@ -98,13 +98,13 @@ def _tree_json_data(con, args):
     (for filtered flat data use `wl ls -o json`)."""
     inc_cancel = getattr(args, "show_canceled", False)
     if args.root is not None:
-        root = _db.get(con, "node", args.root)
+        root = Node.get(con, args.root)
         if not root:
             die(f"node #{args.root} not found")
         roots = [root]
         max_depth = args.depth if args.depth is not None else 3
     else:
-        roots = list(_db.query(con, "node", parent_id=None, order="priority NULLS LAST, id"))
+        roots = list(Node.query(con, parent_id=None, order="priority NULLS LAST, id"))
         max_depth = args.depth if args.depth is not None else 2
     if not inc_cancel:
         roots = [r for r in roots if r["status"] != "CANCELED"]
@@ -112,7 +112,7 @@ def _tree_json_data(con, args):
     def node_json(n, depth):
         d = _node_view(con, n, _CORE).to_dict(_CORE)   # id, title, status, priority, type (NodeView contract)
         if depth < max_depth:
-            kids = _db.query(con, "node", parent_id=n["id"], order="priority NULLS LAST, id")
+            kids = Node.query(con, parent_id=n["id"], order="priority NULLS LAST, id")
             kids = [c for c in kids if inc_cancel or c["status"] != "CANCELED"]
             d["children"] = [node_json(c, depth + 1) for c in kids]
         return d
@@ -145,7 +145,7 @@ def cmd_tree(args, con):
     if nf is not None:
         root_node = None
         if args.root is not None:
-            root_node = _db.get(con, "node", args.root)
+            root_node = Node.get(con, args.root)
             if not root_node:
                 die(f"node #{args.root} not found")
         return TextRenderable(
@@ -160,7 +160,7 @@ def cmd_tree(args, con):
 
     if args.root is not None:
         # expand subtree from a specified node as root (no longer requires parent_id IS NULL)
-        root = _db.get(con, "node", args.root)
+        root = Node.get(con, args.root)
         if not root:
             die(f"node #{args.root} not found")
         roots = [root]
@@ -221,8 +221,7 @@ def _goal_target_rows(con, node_id):
     priority order (the `goal` metrics on its latest goal log). [] if the goal has no targets.
     The single source for showing a goal's targets across `wl day` / `wl goal` / `-o json`."""
     rows = []
-    for i in _log_goals(con, node_id):
-        n = _db.get(con, "node", i)
+    for n in Node.gets(con, _log_goals(con, node_id)):
         if n:
             rows.append({"id": n["id"], "title": n["title"], "status": n["status"] or "TODO"})
     return rows
@@ -242,7 +241,7 @@ def _goal_counts(con, node_id, body):
         if nid in seen:
             continue
         seen.add(nid)
-        n = _db.get(con, "node", nid)
+        n = Node.get(con, nid)
         if not n:
             continue
         total += 1
@@ -295,12 +294,12 @@ def _day_goals_dict(con, day):
     if s and s.body:
         d["summary"] = s.body
         d["summary_at"] = s.logged_at   # UTC instant
-    wk = _db.get(con, "node", day["parent_id"]) if day["parent_id"] else None
+    wk = Node.get(con, day["parent_id"]) if day["parent_id"] else None
     if wk and node_type(con, wk) == "week":
         wg = _latest_typed_log(con, wk["id"], "goal")
         if wg and wg.body:
             d["week_goal"] = wg.body
-        mo = _db.get(con, "node", wk["parent_id"]) if wk["parent_id"] else None
+        mo = Node.get(con, wk["parent_id"]) if wk["parent_id"] else None
         if mo and node_type(con, mo) == "month":
             mg = _latest_typed_log(con, mo["id"], "goal")
             if mg and mg.body:
@@ -373,14 +372,14 @@ def _emit_day_header(con, day, target):
             if newer:
                 out(_c(f"  > ⚠ {newer} change(s) after recap; consider rewriting via wl recap", "doing"))
     # the week's and month's goal — same `goal` tag on the ancestor week / month node
-    wk = _db.get(con, "node", day["parent_id"]) if day["parent_id"] else None
+    wk = Node.get(con, day["parent_id"]) if day["parent_id"] else None
     if wk and node_type(con, wk) == "week":
         wg = _latest_typed_log(con, wk["id"], "goal")
         if wg and wg.body:
             out(_c(_header_blockquote(wg.body, _DAY_MARKERS["week"]), "meta")
                 + _c(_goal_progress(con, wk["id"], wg.body), "meta"))
             _emit_goal_targets(con, wk["id"])
-        mo = _db.get(con, "node", wk["parent_id"]) if wk["parent_id"] else None
+        mo = Node.get(con, wk["parent_id"]) if wk["parent_id"] else None
         if mo and node_type(con, mo) == "month":
             mg = _latest_typed_log(con, mo["id"], "goal")
             if mg and mg.body:
@@ -563,8 +562,7 @@ def _tree_by(con, by, nf=None):
                     continue
             pri = " " + _pri_marker(proj["priority"])
             out("▸ " + _c(f"#{proj['id']}", "id") + pri + " " + _c(proj["title"], "header") + "  " + _c(f"({len(ids)})", "meta"))
-            for nid in sorted(ids):
-                n = _db.get(con, "node", nid)
+            for nid, n in zip(sorted(ids), Node.gets(con, sorted(ids))):
                 claimed.add(nid)
                 out(_node_line(con, n))
             if not ids:
@@ -624,7 +622,7 @@ def _pinned_at(con, node):
     already scheduled this month'. Returns [] for non-time / day nodes."""
     if node_type(con, node) not in _FUZZY_TIME_LEVELS:
         return []
-    return _db.query(con, "node", scheduled_date=node["title"], order="priority NULLS LAST, id")
+    return Node.query(con, scheduled_date=node["title"], order="priority NULLS LAST, id")
 
 
 def _print_tree(con, node, depth, max_depth, *, include_canceled=False, log_tail=3, full=False):
@@ -673,8 +671,7 @@ def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log
     # drill-down: in a full filtered tree the pin already shows under its own project.
     pin_parent = {}  # time_node_id -> [matching pin rows]
     if root_node is not None:
-        for tnid in universe:
-            tn = _db.get(con, "node", tnid)
+        for tnid, tn in zip(universe, Node.gets(con, universe)):
             if not tn or node_type(con, tn) not in _FUZZY_TIME_LEVELS:
                 continue
             matched = [p for p in _pinned_at(con, tn)
@@ -691,7 +688,7 @@ def _print_filtered_tree(con, nf, *, root_node=None, include_canceled=False, log
     if root_node is not None:
         roots = [root_node]
     else:
-        roots = [r for r in _db.query(con, "node", parent_id=None) if r["id"] in keep]
+        roots = [r for r in Node.query(con, parent_id=None) if r["id"] in keep]
     for root in roots:
         _print_kept_subtree(con, root, 0, keep, pin_parent=pin_parent,
                             include_canceled=include_canceled, log_tail=log_tail, full=full)

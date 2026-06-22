@@ -79,14 +79,14 @@ def _ancestors_chain(con, node_id):
     bad/legacy graph could contain a cycle — a visited set stops the walk re-entering it
     rather than looping forever."""
     chain = []
-    cur = _db.get(con, "node", node_id)
+    cur = Node.get(con, node_id)
     if not cur:
         return chain
     chain.append(cur)
     seen = {node_id}
     while cur["parent_id"] and cur["parent_id"] not in seen:
         seen.add(cur["parent_id"])
-        cur = _db.get(con, "node", cur["parent_id"])
+        cur = Node.get(con, cur["parent_id"])
         if not cur:
             break
         chain.append(cur)
@@ -272,7 +272,7 @@ def make_node_filter(con, args):
     def ok(nid):
         if nid in cache:
             return cache[nid]
-        n = _db.get(con, "node", nid)
+        n = Node.get(con, nid)
         res = n is not None
         if res and statuses and n["status"] not in statuses:
             res = False

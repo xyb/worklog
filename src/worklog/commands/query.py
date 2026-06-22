@@ -146,8 +146,7 @@ def _node_summary_dict(con, n) -> dict:
 def cmd_show(args, con):
     ids = _ids_list(args)
     nodes = []
-    for nid in ids:
-        n = _db.get(con, "node", nid)
+    for nid, n in zip(ids, Node.gets(con, ids)):
         if not n:
             die(f"node #{nid} not found")
         nodes.append(_node_to_dict(con, n))
@@ -167,11 +166,7 @@ def cmd_show(args, con):
 def _ls_ids(con, args):
     """`wl ls --ids 1 2 3`: list specific nodes directly (like `ls file1 file2`), skipping filters.
     Returns (rows, render_fn) — rows for JSON data, render_fn for text output."""
-    rows = []
-    for nid in args.ids:
-        r = _db.get(con, "node", nid)
-        if r:
-            rows.append(r)
+    rows = [r for r in Node.gets(con, args.ids) if r]
     captured_rows = list(rows)
     brief = getattr(args, "brief", False)
 
@@ -341,8 +336,7 @@ def cmd_find(args, con):
 
     inc_cancel = getattr(args, "show_canceled", False)
     rows = []
-    for nid in hits:
-        n = _db.get(con, "node", nid)
+    for n in Node.gets(con, list(hits)):
         if not n:
             continue  # a hit on a live spoke row whose node is soft-deleted (or missing) — skip
         if para and node_props(con, n["id"]).get(_nt.K_PARA) != para:   # exact type.para role
@@ -404,7 +398,7 @@ def cmd_find(args, con):
 @output_format
 def cmd_focus(args, con):
     """Focus on a node: upstream path + self + downstream subtree."""
-    n = _db.get(con, "node", args.id)
+    n = Node.get(con, args.id)
     if not n:
         die(f"node #{args.id} not found")
 
@@ -417,7 +411,7 @@ def cmd_focus(args, con):
         children = []
         pinned = []
     else:
-        children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
+        children = Node.query(con, parent_id=args.id, order="priority NULLS LAST, id")
         inc_cancel = getattr(args, "show_canceled", False)
         pinned = [p for p in _pinned_at(con, n) if inc_cancel or p["status"] != "CANCELED"]
 
@@ -503,7 +497,7 @@ def cmd_ancestors(args, con):
 @output_format
 def cmd_descendants(args, con):
     """Show only the downstream subtree (node -> all descendants)."""
-    n = _db.get(con, "node", args.id)
+    n = Node.get(con, args.id)
     if not n:
         die(f"node #{args.id} not found")
     desc_ids = sorted(_collect_descendants(con, args.id))
@@ -552,7 +546,7 @@ def cmd_agenda(args, con):
         if key in seen:
             continue
         seen.add(key)
-        n = _db.get(con, "node", node_id)
+        n = Node.get(con, node_id)
         if not n:
             continue
         if nf and not nf(node_id):
@@ -801,10 +795,9 @@ def cmd_changes(args, con):
 
     buckets = []
     for proj in projects:
-        members = _project_members(con, proj["id"])
+        members = list(_project_members(con, proj["id"]))
         done, added_open, logged = [], [], 0
-        for mid in members:
-            n = _db.get(con, "node", mid)
+        for mid, n in zip(members, Node.gets(con, members)):
             d = in_win(n["closed_at"])
             if d:
                 done.append(n)
@@ -1338,7 +1331,7 @@ def _show_detail(con, args, n):
             parts.append("on " + ", ".join(dates))
         out("  " + _c("schedule:", "meta") + " " + _c("; ".join(parts), "planned"))
     # children (direct only)
-    children = _db.query(con, "node", parent_id=args.id, order="priority NULLS LAST, id")
+    children = Node.query(con, parent_id=args.id, order="priority NULLS LAST, id")
     if children:
         out("  " + _c(f"children ({len(children)}):", "meta"))
         for c in children:
@@ -1411,7 +1404,7 @@ def _show_timeline(con, args, n):
 
 
 def _show_one(args, con):
-    n = _db.get(con, "node", args.id)
+    n = Node.get(con, args.id)
     if not n:
         die(f"node #{args.id} not found")
     _show_detail(con, args, n)
