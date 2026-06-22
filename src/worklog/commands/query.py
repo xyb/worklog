@@ -462,7 +462,7 @@ def cmd_focus(args, con):
                 out(_c("related: (only generic-dimension tags; no project/topic tag to link by)", "meta"))
             else:
                 exclude = set(c["id"] for c in captured_children) | {p["id"] for p in captured_pinned} | {p["id"] for p in captured_chain}
-                rel = [Node.from_row(r) for r in nodes_with_tag(con, sem_tags, order="id")]
+                rel = nodes_with_tag(con, sem_tags, order="id")
                 rel = [r for r in rel if r["id"] not in exclude]
                 if rel:
                     out(_c(f"related (shared tag {'/'.join(sem_tags)}):", "header"))

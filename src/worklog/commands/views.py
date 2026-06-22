@@ -528,7 +528,7 @@ def _tree_by(con, by, nf=None):
             out("(no semantic tags)")
             return
         for tag in sem:
-            rows = [Node.from_row(r) for r in nodes_with_tag(con, tag, order="priority NULLS LAST, id")]
+            rows = nodes_with_tag(con, tag, order="priority NULLS LAST, id")
             if nf:
                 rows = [n for n in rows if nf(n["id"])]
                 if not rows:
@@ -583,8 +583,8 @@ def _tree_by(con, by, nf=None):
 
     elif by == "direction":
         for direction in ("work", "personal"):
-            rows = [Node.from_row(r) for r in nodes_with_tag(con, direction, types=("task", "meetlog", "habit", "project"),
-                                  order="priority NULLS LAST, id")]
+            rows = nodes_with_tag(con, direction, types=("task", "meetlog", "habit", "project"),
+                                  order="priority NULLS LAST, id")
             if nf:
                 rows = [n for n in rows if nf(n["id"])]
                 if not rows:

@@ -158,7 +158,10 @@ def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
     """Nodes carrying ANY of `tags` (a str or an iterable) — the single-table
     decomposition of `node JOIN tag`: collect node ids from the tag table, then
     read those nodes. `types` further restricts by derived type; `cols` / `order` pass
-    through to the node read. Returns list[Row] (deduped by node; empty tags → [])."""
+    through to the node read. Returns list[Node] for the default full-row read (ready to
+    hand to a renderer); a `cols=` projection (e.g. cols="id") returns raw list[Row]
+    instead, since a partial row can't satisfy Node.from_row. Deduped by node; empty
+    tags → []."""
     tag_list = [tags] if isinstance(tags, str) else list(tags)
     if not tag_list:
         return []
@@ -171,7 +174,10 @@ def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
         ids = [i for i in ids if node_type(con, i) in want]
         if not ids:
             return []
-    return _db.query(con, "node", cols=cols, order=order, id__in=ids)
+    rows = _db.query(con, "node", cols=cols, order=order, id__in=ids)
+    # convert at this boundary so every full-row caller gets Node objects without
+    # repeating the wrap (and a future caller can't forget it); projections stay raw.
+    return [Node.from_row(r) for r in rows] if cols == "*" else rows
 
 
 # every spoke table references node_id; soft-deleting a node tombstones these too —
