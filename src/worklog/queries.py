@@ -605,25 +605,32 @@ def node_type(con, n):
 def nodes_with_type(con, key, value=None, *, cols="*", order=None):
     """Live nodes carrying the prop ``key`` (optionally ``=value``) — the column-free single-value
     classification lookup (``type.para=project``, ``type.date=day``, ``type.habit`` existence, …).
-    Tombstone-filtered on both node and prop."""
-    sql = (f"SELECT {cols} FROM node n WHERE n.{_db.ALIVE} AND EXISTS("
-           f"SELECT 1 FROM prop WHERE node_id=n.id AND key=? AND {_db.ALIVE}"
-           + (" AND value=?" if value is not None else "") + ")")
-    params = [key] + ([value] if value is not None else [])
-    if order:
-        sql += f" ORDER BY {order}"
-    return con.execute(sql, params).fetchall()
+    Decomposed into two simple single-table reads (prop lookup for the carrying node ids, then a
+    node read) instead of an EXISTS subquery. Returns list[Node] for the default full-row read; a
+    ``cols=`` projection returns raw list[Row]. Tombstone-filtered on both node and prop (a deleted
+    node has its props tombstoned too, so the prop-side filter already excludes it)."""
+    conds = {"cols": "node_id", "key": key}
+    if value is not None:
+        conds["value"] = value
+    ids = sorted({r["node_id"] for r in _db.query(con, "prop", **conds)})
+    if not ids:
+        return []
+    rows = _db.query(con, "node", cols=cols, order=order, id__in=ids)
+    return [Node.from_row(r) for r in rows] if cols == "*" else rows
 
 
 def time_node_by_period(con, level, period, *, cols="*"):
     """The live time node of ``level`` whose ``date.period`` == ``period`` (e.g. day
     ``2026-06-14``, month ``2026-06``) — the column-free time-node lookup, matching on
-    ``type.date`` + ``date.period``. Returns a Row, or None."""
-    return con.execute(
-        f"SELECT {cols} FROM node n WHERE n.{_db.ALIVE} "
-        f"AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.date' AND value=? AND {_db.ALIVE}) "
-        f"AND EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='date.period' AND value=? AND {_db.ALIVE}) "
-        "ORDER BY n.id LIMIT 1", (level, period)).fetchone()
+    ``type.date`` + ``date.period``. Decomposed into two prop lookups intersected to the node id,
+    then a node read — no EXISTS subquery. Returns a Row, or None."""
+    by_level = {r["node_id"] for r in _db.query(con, "prop", cols="node_id", key="type.date", value=level)}
+    by_period = {r["node_id"] for r in _db.query(con, "prop", cols="node_id", key="date.period", value=period)}
+    ids = sorted(by_level & by_period)
+    if not ids:
+        return None
+    rows = _db.query(con, "node", cols=cols, id__in=ids, order="id", limit=1)
+    return rows[0] if rows else None
 
 
 def node_has_type(con, nid, key, value=None):

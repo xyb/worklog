@@ -773,8 +773,8 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
 
     _life = nodes_with_type(con, "type.date", "lifetime", order="id")
     life = _life[0] if _life else None
-    has_day = bool(nodes_with_type(con, "type.date", "day", cols="n.id"))
-    has_month = bool(nodes_with_type(con, "type.date", "month", cols="n.id"))
+    has_day = bool(nodes_with_type(con, "type.date", "day", cols="id"))
+    has_month = bool(nodes_with_type(con, "type.date", "month", cols="id"))
     if not life and not has_day and not has_month:
         # Nothing anchors the timeline/areas overview. Be honest about *why* it's empty: a
         # brand-new DB vs. nodes that exist but aren't in the overview's scope yet — never
