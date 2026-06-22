@@ -18,7 +18,7 @@ View DTOs (what ``@text_renderer`` and ``JSONFormatter`` receive) live in
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING
 
 from . import db_table as _db
@@ -41,6 +41,12 @@ class _Model:
 
     def __getitem__(self, key: str):
         return getattr(self, key)
+
+    @classmethod
+    def from_row(cls, row) -> Self:
+        """Build from a sqlite3.Row (or any mapping) — field names match column names,
+        so each field is pulled by name. Subclasses need no override."""
+        return cls(**{f.name: row[f.name] for f in fields(cls)})
 
     # ── reads ──────────────────────────────────────────────────────────────────
     @classmethod
@@ -121,15 +127,6 @@ class Node(_IdPK, _Model):
     closed_at: str | None    # UTC instant
     body: str | None
 
-    @classmethod
-    def from_row(cls, row) -> Node:
-        return cls(
-            id=row["id"], parent_id=row["parent_id"], title=row["title"],
-            status=row["status"], priority=row["priority"], created_at=row["created_at"],
-            scheduled_date=row["scheduled_date"], deadline_date=row["deadline_date"],
-            closed_at=row["closed_at"], body=row["body"],
-        )
-
 
 @dataclass
 class Log(_IdPK, _Model):
@@ -140,13 +137,6 @@ class Log(_IdPK, _Model):
     logged_at: str    # UTC instant
     body: str
     tag: str | None   # log role: note / goal / summary / metric (carrier) / clock / …
-
-    @classmethod
-    def from_row(cls, row) -> Log:
-        return cls(
-            id=row["id"], node_id=row["node_id"], logged_at=row["logged_at"],
-            body=row["body"], tag=row["tag"],
-        )
 
 
 @dataclass
@@ -163,14 +153,6 @@ class Metric(_IdPK, _Model):
     note: str | None
     at: str           # UTC instant or bare date (YYYY-MM-DD) for day-granularity entries
 
-    @classmethod
-    def from_row(cls, row) -> Metric:
-        return cls(
-            id=row["id"], log_id=row["log_id"], node_id=row["node_id"],
-            tag=row["tag"], value_num=row["value_num"], value_text=row["value_text"],
-            unit=row["unit"], note=row["note"], at=row["at"],
-        )
-
 
 @dataclass
 class Clock(_IdPK, _Model):
@@ -181,13 +163,6 @@ class Clock(_IdPK, _Model):
     start_at: str        # UTC instant
     end_at: str | None   # NULL while running
     elapsed_sec: int | None  # NULL while running; set on stop
-
-    @classmethod
-    def from_row(cls, row) -> Clock:
-        return cls(
-            id=row["id"], node_id=row["node_id"], start_at=row["start_at"],
-            end_at=row["end_at"], elapsed_sec=row["elapsed_sec"],
-        )
 
 
 @dataclass
@@ -200,13 +175,6 @@ class Sched(_IdPK, _Model):
     rrule: str | None    # recurrence rule: daily / weekly:Mon,Wed / monthly:5 / …
     created_at: str
 
-    @classmethod
-    def from_row(cls, row) -> Sched:
-        return cls(
-            id=row["id"], node_id=row["node_id"], on_date=row["on_date"],
-            rrule=row["rrule"], created_at=row["created_at"],
-        )
-
 
 @dataclass
 class Prop(_Upsertable, _Model):
@@ -217,10 +185,6 @@ class Prop(_Upsertable, _Model):
     key: str
     value: str
 
-    @classmethod
-    def from_row(cls, row) -> Prop:
-        return cls(node_id=row["node_id"], key=row["key"], value=row["value"])
-
 
 @dataclass
 class Tag(_Upsertable, _Model):
@@ -229,10 +193,6 @@ class Tag(_Upsertable, _Model):
     _upsert_key = ("node_id", "tag")
     node_id: int
     tag: str
-
-    @classmethod
-    def from_row(cls, row) -> Tag:
-        return cls(node_id=row["node_id"], tag=row["tag"])
 
 
 @dataclass
@@ -243,10 +203,6 @@ class Link(_Upsertable, _Model):
     node_id: int
     vault_doc: str  # vault document name without .md suffix
 
-    @classmethod
-    def from_row(cls, row) -> Link:
-        return cls(node_id=row["node_id"], vault_doc=row["vault_doc"])
-
 
 @dataclass
 class DateMeta(_Upsertable, _Model):
@@ -255,10 +211,6 @@ class DateMeta(_Upsertable, _Model):
     _upsert_key = ("date",)
     date: str    # YYYY-MM-DD
     label: str   # e.g. "Labor Day holiday" / "makeup workday"
-
-    @classmethod
-    def from_row(cls, row) -> DateMeta:
-        return cls(date=row["date"], label=row["label"])
 
     @classmethod
     def get(cls, con, date: str) -> DateMeta | None:
