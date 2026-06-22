@@ -35,14 +35,12 @@ def _node_chunks(con):
     enough context to stand on its own. Search max-pools chunks back to nodes, so a
     node surfaces on its single most relevant passage instead of an averaged blur.
     Returns list of (node_id, title, status, priority, chunk_field, chunk_text)."""
-    nodes = con.execute(
-        f"SELECT id, title, body, status, priority FROM node WHERE {_db.ALIVE} ORDER BY id"
-    ).fetchall()
+    nodes = _db.query(con, "node", cols="id, title, body, status, priority", order="id")
     logs = {}
-    for r in con.execute(f"SELECT node_id, body FROM log WHERE {_db.ALIVE} ORDER BY id"):
+    for r in _db.query(con, "log", cols="node_id, body", order="id"):
         logs.setdefault(r["node_id"], []).append(r["body"] or "")
     tags = {}
-    for r in con.execute(f"SELECT node_id, tag FROM tag WHERE {_db.ALIVE}"):
+    for r in _db.query(con, "tag", cols="node_id, tag"):
         tags.setdefault(r["node_id"], []).append(r["tag"] or "")
     chunks = []
     for n in nodes:
@@ -149,17 +147,16 @@ def _keyword_hits(con, terms):
 
     for t in terms:
         like = f"%{t}%"
-        for r in con.execute(f"SELECT id FROM node WHERE {_db.ALIVE} AND title LIKE ?", (like,)):
+        for r in _db.query(con, "node", cols="id", title__like=like):
             add(r["id"], _KW_FIELD_WEIGHT["title"], t)
-        for r in con.execute(f"SELECT id FROM node WHERE {_db.ALIVE} AND body LIKE ?", (like,)):
+        for r in _db.query(con, "node", cols="id", body__like=like):
             add(r["id"], _KW_FIELD_WEIGHT["body"], t)
-        for r in con.execute(f"SELECT DISTINCT node_id FROM log WHERE {_db.ALIVE} AND body LIKE ?", (like,)):
+        for r in _db.query(con, "log", cols="DISTINCT node_id", body__like=like):
             add(r["node_id"], _KW_FIELD_WEIGHT["log"], t)
-        for r in con.execute(f"SELECT DISTINCT node_id FROM tag WHERE {_db.ALIVE} AND tag LIKE ?", (like,)):
+        for r in _db.query(con, "tag", cols="DISTINCT node_id", tag__like=like):
             add(r["node_id"], _KW_FIELD_WEIGHT["tag"], t)
     # drop canceled / missing nodes (a log/tag match can point at one)
-    alive = {r["id"] for r in con.execute(
-        f"SELECT id FROM node WHERE {_db.ALIVE} AND status != 'CANCELED'")}
+    alive = {r["id"] for r in _db.query(con, "node", cols="id", status__ne="CANCELED")}
     return {nid: (score[nid], len(covered[nid])) for nid in score if nid in alive}
 
 
@@ -399,7 +396,7 @@ def cmd_query(args, con):
     # warn (on stderr, so stdout/JSON stays clean) when the index is out of date vs the
     # live DB — a node added/changed since the last `wl reindex` is absent from the vector side
     # (scores 0.000, only the keyword leg carries it), which is otherwise silent and confusing.
-    n_unindexed = con.execute(f"SELECT count(*) FROM node WHERE {_db.ALIVE}").fetchone()[0] - len(vec_map)
+    n_unindexed = Node.count(con) - len(vec_map)
     if n_unindexed > 0:
         print(f"⚠ {n_unindexed} node(s) not indexed — run `wl reindex` (they match by keyword only, not meaning)",  # noqa
               file=sys.stderr)

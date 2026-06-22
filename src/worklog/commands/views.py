@@ -780,8 +780,7 @@ def _print_default_tree(con, *, include_canceled=False, log_tail=3, full=False):
         # brand-new DB vs. nodes that exist but aren't in the overview's scope yet — never
         # imply "the DB is empty" when nodes actually exist (the old bare "(no root nodes)"
         # printed identically in both cases and misread as empty).
-        total = con.execute(
-            f"SELECT COUNT(*) AS c FROM node WHERE {_db.ALIVE}").fetchone()["c"]
+        total = Node.count(con)
         if total == 0:
             out(_c('(empty — add a task with `wl add "..."`, or `wl day` to start today)', "meta"))
         else:

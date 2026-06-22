@@ -728,12 +728,10 @@ def _backrels(con, nid):
     pat = re.compile(rf"(?<![A-Za-z0-9])(?:WL)?#0*{nid}(?!\d)")
     found = set()
     like = f"%#{nid}%"
-    for src_id, body in con.execute(
-        f"SELECT DISTINCT node_id, body FROM log WHERE {_db.ALIVE} AND body LIKE ?", (like,)):
+    for src_id, body in _db.query(con, "log", cols="DISTINCT node_id, body", body__like=like):
         if src_id != nid and pat.search(body or ""):
             found.add(src_id)
-    for src_id, body in con.execute(
-        f"SELECT id, body FROM node WHERE {_db.ALIVE} AND body LIKE ?", (like,)):
+    for src_id, body in _db.query(con, "node", cols="id, body", body__like=like):
         if src_id != nid and pat.search(body or ""):
             found.add(src_id)
     return sorted(found)
