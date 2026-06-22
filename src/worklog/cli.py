@@ -655,12 +655,12 @@ Before applying to an existing DB, the runner snapshots it to a same-dir
 is recoverable. A fresh init (no data yet) is not backed up.""")
 
     sub.add_parser("doctor",
-        help="check the node graph for inconsistencies no foreign key prevents (dangling parent, cycles, orphan spokes, dead/one-sided relations)",
+        help="check the node graph for inconsistencies no foreign key prevents (dangling parent, cycles, orphan spokes, dead/one-sided/self relations)",
         formatter_class=_WlHelpFormatter,
         epilog="""\
 FK enforcement is off, so the DB can't reject a parent_id pointing at a deleted
 node, a parent cycle, a spoke row (log/tag/...) left behind when its node was
-deleted, a relation.* ref to a dead node, or a one-sided relation. The everyday
+deleted, a relation.* ref to a dead node, a one-sided relation, or a self-referential edge. The everyday
 read/write paths stay defensive, but legacy data, a manual SQL edit, or a
 half-applied bulk op can still leave dirt.
 

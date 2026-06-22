@@ -44,7 +44,7 @@ INVARIANTS — no foreign key enforces any of these; app code holds them on the 
   1. every `parent_id` points at a LIVE node (no dangling), and the parent chain is acyclic;
   2. every live spoke row's `node_id` is a live node (`soft_delete_node` cascades the spokes);
   3. every `relation.*` ref is a live node, and relation edges are symmetric
-     (A.split_into ∋ B ⟺ B.split_from ∋ A; related is mutual — `_apply_relation` writes both sides).
+     (A.split_into ∋ B ⟺ B.split_from ∋ A; related is mutual; _apply_relation writes both sides), and no relation is self-referential.
 Because nothing in the DB enforces them, the everyday walks ALSO stay defensive (cycle-safe
 `seen` sets, `_node_exists` guards) so legacy/corrupt data degrades gracefully instead of hanging
 or crashing; `wl doctor` is the explicit "find + fix the dirt" signal.
@@ -284,7 +284,7 @@ def _sec_group(con, nid, n, by, sched_ids):
 class GraphIssue:
     """One graph inconsistency found by check_integrity. `node_id` is the offending node (for a
     spoke orphan, the spoke row's dangling node_id). `kind` is one of: dangling_parent / cycle /
-    orphan_spoke / dead_relation / asymmetric_relation."""
+    orphan_spoke / dead_relation / asymmetric_relation / self_relation."""
     kind: str
     node_id: int
     detail: str
@@ -336,10 +336,15 @@ def check_integrity(con):
         rel.setdefault(r["node_id"], {})[r["key"]] = set(_parse_id_list(r["value"]))
     inverse_key = {own: inv for own, inv in _RELATION_TYPES.values()}   # own relation key -> inverse key
     for nid, keys in rel.items():
+        if nid not in live:
+            continue   # owner node is dead — orphan_spoke already reports this prop; auditing its
+            #            relations on top would spuriously demand a back-edge to a dead node.
         for key, refs in keys.items():
             inv = inverse_key.get(key)
             for ref in refs:
-                if ref not in live:
+                if ref == nid:   # self-referential edge — write path skips it, view drops it; surface the dirt
+                    issues.append(GraphIssue("self_relation", nid, f"relation {key} points at itself"))
+                elif ref not in live:
                     issues.append(GraphIssue("dead_relation", nid, f"relation {key} points at missing/deleted node #{ref}"))
                 elif inv and nid not in rel.get(ref, {}).get(inv, set()):
                     issues.append(GraphIssue("asymmetric_relation", nid,

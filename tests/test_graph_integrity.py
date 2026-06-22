@@ -128,6 +128,32 @@ class TestAsymmetricRelation:
         con.commit()
         assert "asymmetric_relation" not in _kinds(check_integrity(con))
 
+    def test_dead_owner_relation_prop_is_only_orphan_not_asymmetric(self, tmp_db):
+        """A relation prop whose OWNER node is missing/deleted (an orphan prop the cascade missed)
+        is reported by orphan_spoke. It must NOT *also* be flagged asymmetric — the root cause is
+        the dead owner (fix = drop the orphan prop), not a missing back-edge on the live node."""
+        con = _con(tmp_db)
+        _node(con, 1)   # live; owner node #2 never existed
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (2, 'relation.related', '1')")
+        con.commit()
+        kinds = _kinds(check_integrity(con))
+        assert "orphan_spoke" in kinds            # the dead-owner prop is caught here
+        assert "asymmetric_relation" not in kinds  # and NOT spuriously flagged asymmetric
+
+
+class TestSelfRelation:
+    def test_self_referential_relation_is_flagged(self, tmp_db):
+        """A node relating to itself (relation.* listing its own id) is dirt the write path avoids
+        and relation_view silently drops — so it'd be invisible. doctor must surface it."""
+        con = _con(tmp_db)
+        _node(con, 1)
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'relation.related', '1')")  # relates to self
+        con.commit()
+        kinds = _kinds(check_integrity(con))
+        assert "self_relation" in kinds
+        # a self-ref must not be misclassified as dead (it's live) or asymmetric
+        assert "dead_relation" not in kinds and "asymmetric_relation" not in kinds
+
 
 class TestDoctorCommand:
     """End-to-end: `wl doctor` reports issues (text + JSON), read-only."""
