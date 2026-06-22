@@ -101,7 +101,7 @@ from .bulk import (
 )
 # meta.py was split into per-command modules (2026-06-13): admin / dateinfo / goal / alias /
 # checkin / sched + the shared timenodes helpers.
-from .admin import cmd_init, cmd_config, cmd_migrate, cmd_themes
+from .admin import cmd_init, cmd_config, cmd_migrate, cmd_themes, cmd_doctor
 from .dateinfo import (
     cmd_dateinfo,
     cmd_date_set,

@@ -39,10 +39,19 @@ LAYERING RULE (follow this — it's what keeps the import graph acyclic):
   • Free functions, not a class — the node graph is one table with cycle-safe walks; an ORM/Graph
     class would add ceremony for zero benefit (DESIGN G3). This IS the repository layer already.
 
-Cycle safety: FK is off, so a bad/legacy `parent_id` could loop; every tree walk carries a
-`seen` set and stops rather than spinning.
+INVARIANTS — no foreign key enforces any of these; app code holds them on the write paths and
+`check_integrity` (`wl doctor`) audits them on demand:
+  1. every `parent_id` points at a LIVE node (no dangling), and the parent chain is acyclic;
+  2. every live spoke row's `node_id` is a live node (`soft_delete_node` cascades the spokes);
+  3. every `relation.*` ref is a live node, and relation edges are symmetric
+     (A.split_into ∋ B ⟺ B.split_from ∋ A; related is mutual — `_apply_relation` writes both sides).
+Because nothing in the DB enforces them, the everyday walks ALSO stay defensive (cycle-safe
+`seen` sets, `_node_exists` guards) so legacy/corrupt data degrades gracefully instead of hanging
+or crashing; `wl doctor` is the explicit "find + fix the dirt" signal.
 """
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from . import db_table as _db
 from .models import Log, Metric, Node, Prop, Tag
@@ -262,3 +271,77 @@ def _sec_group(con, nid, n, by, sched_ids):
         return label, label
     pid, ptitle = _node_project(con, nid)
     return (pid if pid is not None else ptitle), ptitle
+
+
+# ── integrity check (the cost of no foreign keys) ──────────────────────────────
+# FK enforcement is OFF, so nothing in the DB stops the graph from going inconsistent: a
+# parent_id pointing at a deleted node, a parent cycle, a spoke row whose node was deleted out from
+# under it, a relation.* ref to a dead node, or a one-sided relation. The everyday read/write paths
+# stay defensive (cycle-safe walks, soft_delete cascade, wl relation writes both sides), but legacy
+# data, a manual SQL edit, or a half-applied bulk op can still leave dirt. `wl doctor` scans for it.
+
+@dataclass
+class GraphIssue:
+    """One graph inconsistency found by check_integrity. `node_id` is the offending node (for a
+    spoke orphan, the spoke row's dangling node_id). `kind` is one of: dangling_parent / cycle /
+    orphan_spoke / dead_relation / asymmetric_relation."""
+    kind: str
+    node_id: int
+    detail: str
+
+
+def check_integrity(con):
+    """Scan the LIVE node graph for the inconsistencies no foreign key prevents. Pure read, never
+    mutates. Returns list[GraphIssue]. On-demand batch: reads node + each spoke + relation props
+    ONCE and checks in Python (no per-node query) — O(N + spoke rows + relation props)."""
+    issues = []
+    # one batched read: every live node's id + parent
+    parent_of = {r["id"]: r["parent_id"] for r in _db.query(con, "node", cols="id, parent_id")}
+    live = set(parent_of)
+
+    # 1. dangling parent_id — parent set but missing or soft-deleted
+    for nid, pid in parent_of.items():
+        if pid is not None and pid not in live:
+            issues.append(GraphIssue("dangling_parent", nid, f"parent #{pid} is missing or deleted"))
+
+    # 2. parent cycle — iterative DFS coloring; each node visited once (O(N)).
+    #    white=unseen, "gray"=on the current path, "black"=proven to reach a root/dangling/known-safe.
+    color = {}
+    for start in parent_of:
+        if color.get(start):
+            continue
+        path, cur = [], start
+        while cur is not None and cur in live and color.get(cur) is None:
+            color[cur] = "gray"
+            path.append(cur)
+            cur = parent_of[cur]
+        if cur is not None and color.get(cur) == "gray":   # walked back into the current path → cycle
+            loop = path[path.index(cur):]
+            chain = "->".join(f"#{x}" for x in loop)
+            for n in loop:
+                issues.append(GraphIssue("cycle", n, f"on a parent_id cycle: {chain}"))
+        for n in path:
+            color[n] = "black"
+
+    # 3. orphan spoke — a live spoke row whose node_id isn't a live node (cascade missed it, or dirt)
+    for spoke in _NODE_SPOKES:
+        for r in _db.query(con, spoke, cols="DISTINCT node_id"):
+            sid = r["node_id"]
+            if sid not in live:
+                issues.append(GraphIssue("orphan_spoke", sid, f"live {spoke} row(s) on missing/deleted node #{sid}"))
+
+    # 4 & 5. relation.* — dead refs + one-sided edges. Read every relation prop once.
+    rel = {}   # node_id -> {key: set(ref ids)}
+    for r in _db.query(con, "prop", cols="node_id, key, value", key__like="relation.%"):
+        rel.setdefault(r["node_id"], {})[r["key"]] = set(_parse_id_list(r["value"]))
+    inverse_key = {own: inv for own, inv in _RELATION_TYPES.values()}   # own relation key -> inverse key
+    for nid, keys in rel.items():
+        for key, refs in keys.items():
+            inv = inverse_key.get(key)
+            for ref in refs:
+                if ref not in live:
+                    issues.append(GraphIssue("dead_relation", nid, f"relation {key} points at missing/deleted node #{ref}"))
+                elif inv and nid not in rel.get(ref, {}).get(inv, set()):
+                    issues.append(GraphIssue("asymmetric_relation", nid,
+                                             f"{key} #{ref}, but #{ref} has no matching {inv} back to #{nid}"))
+    return issues

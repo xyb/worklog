@@ -379,7 +379,7 @@ _HELP_FAMILY = {
     "set": "prop", "unset": "prop", "unlink": "link", "relog": "log", "unlog": "log", "retag": "log",
     "cancel": "done", "reopen": "done", "ancestors": "focus", "descendants": "focus",
     "date": "dateinfo",
-    "themes": "admin", "init": "admin", "config": "admin", "migrate": "admin",
+    "themes": "admin", "init": "admin", "config": "admin", "migrate": "admin", "doctor": "admin",
     "print-completion": "admin",
     "tags": "tag", "props": "prop", "metrics": "metric",   # the cross-node "list all" lists
 }
@@ -653,6 +653,20 @@ to retry after a failed migration.
 Before applying to an existing DB, the runner snapshots it to a same-dir
 `<db>.pre-v<N>.bak` (N = the version before migrating), so a bad migration
 is recoverable. A fresh init (no data yet) is not backed up.""")
+
+    sub.add_parser("doctor",
+        help="check the node graph for inconsistencies no foreign key prevents (dangling parent, cycles, orphan spokes, dead/one-sided relations)",
+        formatter_class=_WlHelpFormatter,
+        epilog="""\
+FK enforcement is off, so the DB can't reject a parent_id pointing at a deleted
+node, a parent cycle, a spoke row (log/tag/...) left behind when its node was
+deleted, a relation.* ref to a dead node, or a one-sided relation. The everyday
+read/write paths stay defensive, but legacy data, a manual SQL edit, or a
+half-applied bulk op can still leave dirt.
+
+`wl doctor` scans the live graph and reports each issue by kind + node. It is
+READ-ONLY — it never changes data; fix what it finds with the normal commands
+(e.g. re-parent a dangling node, re-run `wl relation` to restore symmetry).""")
 
 
     cfgp = sub.add_parser("config",
@@ -1809,6 +1823,7 @@ User aliases: add [aliases] section to ~/.config/worklog/aliases.ini (e.g. d = d
 from . import commands
 from .commands import (
     cmd_migrate,
+    cmd_doctor,
     cmd_init,
     cmd_config,
     cmd_add,
@@ -1922,6 +1937,7 @@ def cmd_node(args, con):
 HANDLERS = {
     "config": cmd_config,
     "migrate": cmd_migrate,
+    "doctor": cmd_doctor,
     "init": cmd_init,
     "add": cmd_add,
     "log": cmd_log_group,

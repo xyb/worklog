@@ -198,3 +198,35 @@ def cmd_themes(args, con):
         prev.print("  [doing]\\[/][/doing] [pri_b]\\[#B][/pri_b] [id]#43[/id] doing sample    "
                    "[later]\\[>][/later] [pri_c]\\[#C][/pri_c] [id]#44[/id] later sample  [meta]«meta»[/meta]")
         prev.print()
+
+
+@output_format
+def cmd_doctor(args, con):
+    """Scan the node graph for the inconsistencies no foreign key prevents (FK is off):
+    dangling parent_id, parent cycles, orphaned spoke rows, relation.* refs to dead nodes,
+    one-sided relations. Read-only — reports, never fixes. A clean exit means the graph is
+    consistent."""
+    from ..graph import check_integrity
+    issues = check_integrity(con)
+    return TextRenderable(
+        {"issue_count": len(issues),
+         "issues": [{"kind": i.kind, "node_id": i.node_id, "detail": i.detail} for i in issues]},
+        cmd_name="doctor",
+    )
+
+
+@text_renderer("doctor")
+def _render_doctor(result):
+    issues = result["issues"]
+    if not issues:
+        out(_c("✓ graph consistent — no integrity issues found", "done"))
+        return
+    out(_c(f"⚠ {len(issues)} graph integrity issue(s) found:", "doing"))
+    by_kind = {}
+    for i in issues:
+        by_kind.setdefault(i["kind"], []).append(i)
+    for kind in sorted(by_kind):
+        group = by_kind[kind]
+        out(_c(f"  {kind} ({len(group)}):", "header"))
+        for i in group:
+            out("    " + _c(f"#{i['node_id']}", "id") + "  " + _c(i["detail"], "meta"))
