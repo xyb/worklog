@@ -404,20 +404,19 @@ def cmd_query(args, con):
         print(f"⚠ {n_unindexed} node(s) not indexed — run `wl reindex` (they match by keyword only, not meaning)",  # noqa
               file=sys.stderr)
 
+    # fetch every fused node in one query; both the JSON and the render path share it
+    node_pairs = [(nid, n) for nid, n in zip(fused, Node.gets(con, fused)) if n]
+
     # build JSON result list (used in JSON mode; computed before text output for DRY)
     json_rows = []
-    for nid in fused:
-        n = _db.get(con, "node", nid)
-        if not n:
-            continue
+    for nid, n in node_pairs:
         h = vec_map.get(nid, {})
-        json_rows.append({"id": nid, "title": n["title"], "status": n["status"], "priority": n["priority"],
+        json_rows.append({"id": nid, "title": n.title, "status": n.status, "priority": n.priority,
                          "score": round(h.get("score", 0.0), 4),
                          "matched_field": h.get("chunk_field", ""), "matched_text": h.get("chunk_text", "")})
 
     # build node objects for rendering (avoid re-querying in _render)
-    fused_nodes = [(nid, n, vec_map.get(nid, {}))
-                   for nid, n in zip(fused, Node.gets(con, list(fused))) if n]
+    fused_nodes = [(nid, n, vec_map.get(nid, {})) for nid, n in node_pairs]
 
     def _render():
         if not fused_nodes:

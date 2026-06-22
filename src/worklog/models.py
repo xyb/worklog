@@ -1,17 +1,28 @@
 """Domain model layer: dataclasses that mirror the worklog DB schema.
 
 One class per table. Design rules:
-- Field names match DB column names exactly.
-- ``from_row(row)`` constructs from a sqlite3.Row or any mapping.
+- Field names match DB column names EXACTLY — ``from_row`` reflects over the
+  dataclass fields and pulls each by name, so a field with no matching column
+  raises at construction. Never add a display-only field to a model; that's
+  what the view DTOs in ``commands/dtos.py`` are for.
 - CRUD lives on the shared bases (``_Model`` + the ``_IdPK`` / ``_Upsertable``
   mixins), with the table name baked into the ``_table`` class attribute.
-  A concrete class only declares ``_table``, its fields, and ``from_row``.
+  A concrete class only declares ``_table`` (+ ``_upsert_key`` for natural-key
+  tables) and its fields; ``from_row`` and every CRUD method are inherited.
   Reads: ``get`` / ``gets`` / ``query`` / ``query_one`` / ``count`` / ``exists``.
   Writes: ``insert`` / ``update`` / ``upsert`` / ``delete`` / ``purge``.
   None of these commit; the caller owns the transaction.
+- Reads always ``SELECT *`` (``from_row`` needs every column). For a column
+  projection or an aliased/JOIN/aggregate read, go straight to ``db_table`` —
+  that's the deliberate escape hatch for anything the full-row models can't say.
+- ``_table`` / ``_upsert_key`` live ONLY on the non-dataclass mixins (untyped
+  class attrs). Do NOT declare an annotated ``_foo: T`` constant on a concrete
+  dataclass — ``@dataclass`` would turn it into a required field.
 - No business logic, no rendering.
 - ``deleted_at`` is omitted — it is a storage implementation detail of the
-  soft-delete system; models represent *live* domain objects.
+  soft-delete system; models represent *live* domain objects. Reads hide
+  tombstones (``include_deleted=False`` default); writes (``update`` by id,
+  ``upsert``) see through them — an ``upsert`` revives a soft-deleted row.
 
 View DTOs (what ``@text_renderer`` and ``JSONFormatter`` receive) live in
 ``commands/dtos.py``, centralised and importable from any command module.
@@ -30,16 +41,22 @@ if TYPE_CHECKING:  # py3.11+; only a type checker imports this. Runtime uses str
 class _Model:
     """Active-Record-lite base shared by every table model.
 
-    Concrete subclasses set ``_table`` (the table name), declare their dataclass
-    fields, and define ``from_row``; the CRUD wrappers here build on those. The
-    ``__getitem__`` shim gives dict-style read access so a model object is a
-    drop-in replacement for a ``sqlite3.Row``.
+    Concrete subclasses set ``_table`` (the table name) and declare their
+    dataclass fields; ``from_row`` and the CRUD wrappers here do the rest. The
+    ``__getitem__`` shim gives dict-style read access to declared columns so a
+    model object is a drop-in for a ``sqlite3.Row`` on the read paths that index
+    by column name (it does not implement ``.keys()`` / positional indexing).
 
     Reads filter soft-deleted rows unless ``include_deleted=True``. No method
     commits — the caller owns the transaction."""
     _table: str
 
     def __getitem__(self, key: str):
+        # Behave like a sqlite3.Row: only declared columns are subscriptable, and a
+        # miss raises KeyError (not AttributeError). Stops ``n["query"]`` from silently
+        # returning a bound method and surfaces typo'd column names.
+        if key not in self.__dataclass_fields__:
+            raise KeyError(key)
         return getattr(self, key)
 
     @classmethod
@@ -215,5 +232,4 @@ class DateMeta(_Upsertable, _Model):
     @classmethod
     def get(cls, con, date: str) -> DateMeta | None:
         """Fetch by the natural ``date`` key (date_meta has no surrogate id)."""
-        row = _db.query_one(con, cls._table, date=date)
-        return cls.from_row(row) if row else None
+        return cls.query_one(con, date=date)
