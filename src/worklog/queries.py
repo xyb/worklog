@@ -152,6 +152,16 @@ def _has_tag(con, nid, tag):
     return Tag.exists(con, node_id=nid, tag=tag)
 
 
+def _read_nodes_by_ids(con, ids, *, cols="*", order=None, limit=None):
+    """Read live nodes for a precomputed id set — the shared tail of the prop/tag decompositions.
+    Returns list[Node] for the default full-row read (ready for a renderer); a `cols=` projection
+    returns raw list[Row], since a partial row can't satisfy Node.from_row. Empty ids → []."""
+    if not ids:
+        return []
+    rows = _db.query(con, "node", cols=cols, order=order, limit=limit, id__in=ids)
+    return [Node.from_row(r) for r in rows] if cols == "*" else rows
+
+
 def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
     """Nodes carrying ANY of `tags` (a str or an iterable) — the single-table
     decomposition of `node JOIN tag`: collect node ids from the tag table, then
@@ -173,10 +183,7 @@ def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
         ids = [i for i in ids if type_map[i] in want]
         if not ids:
             return []
-    rows = _db.query(con, "node", cols=cols, order=order, id__in=ids)
-    # convert at this boundary so every full-row caller gets Node objects without
-    # repeating the wrap (and a future caller can't forget it); projections stay raw.
-    return [Node.from_row(r) for r in rows] if cols == "*" else rows
+    return _read_nodes_by_ids(con, ids, cols=cols, order=order)
 
 
 # every spoke table references node_id; soft-deleting a node tombstones these too —
@@ -612,23 +619,18 @@ def nodes_with_type(con, key, value=None, *, cols="*", order=None):
     if value is not None:
         conds["value"] = value
     ids = sorted({r["node_id"] for r in _db.query(con, "prop", **conds)})
-    if not ids:
-        return []
-    rows = _db.query(con, "node", cols=cols, order=order, id__in=ids)
-    return [Node.from_row(r) for r in rows] if cols == "*" else rows
+    return _read_nodes_by_ids(con, ids, cols=cols, order=order)
 
 
 def time_node_by_period(con, level, period, *, cols="*"):
     """The live time node of ``level`` whose ``date.period`` == ``period`` (e.g. day
     ``2026-06-14``, month ``2026-06``) — the column-free time-node lookup, matching on
     ``type.date`` + ``date.period``. Decomposed into two prop lookups intersected to the node id,
-    then a node read — no EXISTS subquery. Returns a Row, or None."""
+    then a node read — no EXISTS subquery. Returns a Node, or None."""
     by_level = {r["node_id"] for r in _db.query(con, "prop", cols="node_id", key="type.date", value=level)}
     by_period = {r["node_id"] for r in _db.query(con, "prop", cols="node_id", key="date.period", value=period)}
     ids = sorted(by_level & by_period)
-    if not ids:
-        return None
-    rows = _db.query(con, "node", cols=cols, id__in=ids, order="id", limit=1)
+    rows = _read_nodes_by_ids(con, ids, cols=cols, order="id", limit=1)
     return rows[0] if rows else None
 
 

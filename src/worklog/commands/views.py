@@ -389,37 +389,46 @@ def _emit_day_header(con, day, target):
                 _emit_goal_targets(con, mo["id"])
 
 
+def _day_workitem_log_rows(con, target, inc_cancel, *, extra_cols="", order="log.node_id"):
+    """The day's log rows whose node is a work item: `log JOIN node` for `target`'s local day (the
+    time-window JOIN stays SQL), then a batched work-item filter (workitem_ids — one type-prop read
+    over the day's logged nodes). Shared by _collect_day_items / _print_day_activity. `extra_cols`
+    appends log columns (e.g. `log.logged_at`); `order` is the SQL ORDER BY."""
+    cfrag, cparams = _status_filter_sql(include_canceled=inc_cancel, col="node.status")
+    cancel_sql = (" AND " + cfrag) if cfrag else ""
+    sel = "log.node_id, log.body, node.title, node.status, node.priority" + (", " + extra_cols if extra_cols else "")
+    rows = con.execute(
+        rf"""SELECT {sel}
+            FROM log JOIN node ON log.node_id = node.id
+            WHERE {_tu.local_day_sql('log.logged_at')} = ?
+              AND log.{_db.ALIVE} AND node.{_db.ALIVE}
+              {cancel_sql}
+            ORDER BY {order}""",
+        [target] + cparams,
+    ).fetchall()
+    wi = workitem_ids(con, {r["node_id"] for r in rows})
+    return [r for r in rows if r["node_id"] in wi]
+
+
 def _collect_day_items(con, target, inc_cancel):
     """The day's work items: every task/habit/meetlog with a log on that local day, plus any
     scheduled for that day with no log yet (planned-ahead, visible before being worked). Returns
     (items, sched_ids), items mapping node_id -> {node, logs:[...]}. CANCELED nodes are dropped
     unless inc_cancel."""
-    cfrag, cparams = _status_filter_sql(include_canceled=inc_cancel, col="node.status")
-    cancel_sql = (" AND " + cfrag) if cfrag else ""
-    rows = con.execute(
-        rf"""SELECT log.node_id, log.logged_at, log.body,
-                   node.title, node.status, node.priority
-            FROM log JOIN node ON log.node_id = node.id
-            WHERE {_tu.local_day_sql('log.logged_at')} = ?
-              AND log.{_db.ALIVE} AND node.{_db.ALIVE}
-              {cancel_sql}
-            ORDER BY log.logged_at, log.node_id""",
-        [target] + cparams,
-    ).fetchall()
-    # work-item filter in Python (replaces the workitem_sql EXISTS): one batched type-prop read
-    wi = workitem_ids(con, {r["node_id"] for r in rows})
-    rows = [r for r in rows if r["node_id"] in wi]
+    rows = _day_workitem_log_rows(con, target, inc_cancel,
+                                  extra_cols="log.logged_at", order="log.logged_at, log.node_id")
     items = {}
     for r in rows:
         items.setdefault(r["node_id"], {"node": r, "logs": []})["logs"].append(r["body"])
     sched_ids = _scheduled_node_ids(con, target)
+    sched_wi = workitem_ids(con, sched_ids)   # batch-classify the scheduled-ahead set (same primitive as the log side)
     for nid in sched_ids:
-        if nid not in items:
-            nr = _db.query_one(con, "node", cols="id AS node_id, title, status, priority", id=nid)
-            if nr and node_type(con, nid) in ("task", "habit", "meetlog"):
-                if not inc_cancel and nr["status"] == "CANCELED":
-                    continue
-                items[nid] = {"node": nr, "logs": []}
+        if nid in items or nid not in sched_wi:
+            continue
+        nr = _db.query_one(con, "node", cols="id AS node_id, title, status, priority", id=nid)
+        if nr is None or (not inc_cancel and nr["status"] == "CANCELED"):
+            continue
+        items[nid] = {"node": nr, "logs": []}
     return items, sched_ids
 
 
@@ -719,20 +728,7 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
     from collections import OrderedDict
 
     target = day_node["title"][:10]
-    cfrag, cparams = _status_filter_sql(include_canceled=include_canceled, col="node.status")
-    cancel_sql = (" AND " + cfrag) if cfrag else ""
-    rows = con.execute(
-        rf"""SELECT log.node_id, log.body, node.title, node.status, node.priority
-            FROM log JOIN node ON log.node_id = node.id
-            WHERE {_tu.local_day_sql('log.logged_at')} = ?
-              AND log.{_db.ALIVE} AND node.{_db.ALIVE}
-              {cancel_sql}
-            ORDER BY log.node_id""",
-        [target] + cparams,
-    ).fetchall()
-    # work-item filter in Python (replaces the workitem_sql EXISTS): one batched type-prop read
-    wi = workitem_ids(con, {r["node_id"] for r in rows})
-    rows = [r for r in rows if r["node_id"] in wi]
+    rows = _day_workitem_log_rows(con, target, include_canceled)
     tasks = OrderedDict()
     for r in rows:
         tasks.setdefault(r["node_id"], {"r": r, "logs": []})["logs"].append(r["body"])
