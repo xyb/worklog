@@ -260,7 +260,7 @@ def cmd_ls(args, con):
     # ls-specific dimensions (--parent / --unscheduled / --recent / --sort) build the SQL; the
     # shared --tag/--para/--status filter is applied below as a post-pass via make_node_filter.
     sql, params = _ls_build_query(con, args)
-    rows = list(con.execute(sql, params))
+    rows = [Node.from_row(r) for r in con.execute(sql, params)]
     nf = make_node_filter(con, args)
     if nf:
         rows = [n for n in rows if nf(n["id"])]
@@ -462,7 +462,7 @@ def cmd_focus(args, con):
                 out(_c("related: (only generic-dimension tags; no project/topic tag to link by)", "meta"))
             else:
                 exclude = set(c["id"] for c in captured_children) | {p["id"] for p in captured_pinned} | {p["id"] for p in captured_chain}
-                rel = nodes_with_tag(con, sem_tags, order="id")
+                rel = [Node.from_row(r) for r in nodes_with_tag(con, sem_tags, order="id")]
                 rel = [r for r in rel if r["id"] not in exclude]
                 if rel:
                     out(_c(f"related (shared tag {'/'.join(sem_tags)}):", "header"))
@@ -615,10 +615,12 @@ def cmd_projects(args, con):
         if frag:
             where += " AND " + frag
             proj_params.extend(p)
-    projects = con.execute(
-        f"SELECT * FROM node {where} {_ORDER_BY_PRI_ID}",
-        proj_params,
-    ).fetchall()
+    projects = [
+        Node.from_row(r) for r in con.execute(
+            f"SELECT * FROM node {where} {_ORDER_BY_PRI_ID}",
+            proj_params,
+        )
+    ]
     if not projects:
         return TextRenderable([], lambda: out("(no active projects)"))
 
@@ -867,7 +869,7 @@ def _summary_buckets(con, args):
     if frag:
         sql += " AND " + frag
         sm_params.extend(p)
-    nodes = con.execute(sql, sm_params).fetchall()
+    nodes = [Node.from_row(r) for r in con.execute(sql, sm_params)]
     done = [n for n in nodes if inw(n["closed_at"])]
     added_open = [n for n in nodes if inw(n["created_at"]) and not inw(n["closed_at"])]
     doing = [n for n in nodes if n["status"] == "DOING"]

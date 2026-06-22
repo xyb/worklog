@@ -117,17 +117,19 @@ def _find_similar_open(con, title, node_type):
     nt = _norm_title(title)
     if not nt:
         return []
-    rows = con.execute(
-        # derived type IN ('task','project'): an explicit type.para=task/project,
-        # OR a bare node (no type.* classification at all → a plain task).
-        "SELECT * FROM node n WHERE "
-        "(EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.para' "
-        f"        AND value IN ('task','project') AND {_db.ALIVE}) "
-        f" OR NOT EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key LIKE 'type.%' AND {_db.ALIVE})) "
-        # project status is NULL (DESIGN §40); NULL NOT IN (...) is NULL, not TRUE, so
-        # guard explicitly or projects would never match.
-        f"AND (n.status IS NULL OR n.status NOT IN ('DONE','CANCELED')) AND n.{_db.ALIVE} ORDER BY id"
-    ).fetchall()
+    rows = [
+        Node.from_row(r) for r in con.execute(
+            # derived type IN ('task','project'): an explicit type.para=task/project,
+            # OR a bare node (no type.* classification at all → a plain task).
+            "SELECT * FROM node n WHERE "
+            "(EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key='type.para' "
+            f"        AND value IN ('task','project') AND {_db.ALIVE}) "
+            f" OR NOT EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key LIKE 'type.%' AND {_db.ALIVE})) "
+            # project status is NULL (DESIGN §40); NULL NOT IN (...) is NULL, not TRUE, so
+            # guard explicitly or projects would never match.
+            f"AND (n.status IS NULL OR n.status NOT IN ('DONE','CANCELED')) AND n.{_db.ALIVE} ORDER BY id"
+        )
+    ]
     hits = []
     for r in rows:
         rn = _norm_title(r["title"])

@@ -172,7 +172,7 @@ def cmd_tree(args, con):
             if frag:
                 root_sql += " AND " + frag
                 params_root.extend(p)
-        roots = list(con.execute(root_sql, params_root))
+        roots = [Node.from_row(r) for r in con.execute(root_sql, params_root)]
 
     if not roots:
         return TextRenderable(_tree_json_data(con, args), cmd_name="tree_empty")
@@ -528,7 +528,7 @@ def _tree_by(con, by, nf=None):
             out("(no semantic tags)")
             return
         for tag in sem:
-            rows = nodes_with_tag(con, tag, order="priority NULLS LAST, id")
+            rows = [Node.from_row(r) for r in nodes_with_tag(con, tag, order="priority NULLS LAST, id")]
             if nf:
                 rows = [n for n in rows if nf(n["id"])]
                 if not rows:
@@ -568,9 +568,11 @@ def _tree_by(con, by, nf=None):
             if not ids:
                 out("    " + _c("(no linked tasks)", "meta"))
         # orphans: task/meetlog/habit not attached to any project
-        orphans = con.execute(
-            f"SELECT * FROM node n WHERE n.{_db.ALIVE} AND ({workitem_sql('n')}) "
-            "ORDER BY priority NULLS LAST, id").fetchall()
+        orphans = [
+            Node.from_row(r) for r in con.execute(
+                f"SELECT * FROM node n WHERE n.{_db.ALIVE} AND ({workitem_sql('n')}) "
+                "ORDER BY priority NULLS LAST, id")
+        ]
         orphans = [n for n in orphans if n["id"] not in claimed]
         if nf:
             orphans = [n for n in orphans if nf(n["id"])]
@@ -581,8 +583,8 @@ def _tree_by(con, by, nf=None):
 
     elif by == "direction":
         for direction in ("work", "personal"):
-            rows = nodes_with_tag(con, direction, types=("task", "meetlog", "habit", "project"),
-                                  order="priority NULLS LAST, id")
+            rows = [Node.from_row(r) for r in nodes_with_tag(con, direction, types=("task", "meetlog", "habit", "project"),
+                                  order="priority NULLS LAST, id")]
             if nf:
                 rows = [n for n in rows if nf(n["id"])]
                 if not rows:
@@ -599,7 +601,7 @@ def _tree_children(con, node, include_canceled=False):
     if frag:
         sql += " AND " + frag
         sql_params.extend(p)
-    rows = list(con.execute(sql, sql_params))
+    rows = [Node.from_row(r) for r in con.execute(sql, sql_params)]
 
     def key(r):
         if node_type(con, r) in _TIME_LEVELS:
