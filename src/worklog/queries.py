@@ -167,9 +167,10 @@ def nodes_with_tag(con, tags, *, types=None, cols="*", order=None):
     if not ids:
         return []
     if types is not None:
-        # restrict by DERIVED type (column-free): filter the id list, then read
+        # restrict by DERIVED type (column-free): batch-classify the candidate ids in one read, then filter
         want = set(types)
-        ids = [i for i in ids if node_type(con, i) in want]
+        type_map = classify_types(con, ids)
+        ids = [i for i in ids if type_map[i] in want]
         if not ids:
             return []
     rows = _db.query(con, "node", cols=cols, order=order, id__in=ids)
