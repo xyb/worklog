@@ -327,7 +327,10 @@ def cmd_add(args, con):
 def _render_log(result):
     progress = " (status: TODO → DOING)" if result.status_changed else ""
     metrics = f" + {result.metrics_added} metric(s)" if result.metrics_added else ""
-    out(f"✓ log added to #{result.node_id}{progress}{metrics}  @{_tu.utc_to_local(result.logged_at)[11:16]}")
+    at = _tu.utc_to_local(result.logged_at)[11:16]
+    out(f"✓ log added to #{result.node_id}{progress}{metrics}  @{at}")
+    if result.time_defaulted:
+        out(_c(f"  ↳ --date had no --time, so the time was set to now ({at}); add --time HH:MM to set a specific time", "meta"))
 
 
 @output_format
@@ -364,7 +367,8 @@ def cmd_log(args, con):
     row = Log.get(con, log_id)
     return TextRenderable(
         LogWriteResult(id=log_id, node_id=args.id, body=row.body, logged_at=row.logged_at,
-                       status_changed=status_changed, metrics_added=metrics_added),
+                       status_changed=status_changed, metrics_added=metrics_added,
+                       time_defaulted=bool(date and not time_)),
         cmd_name="log",
     )
 

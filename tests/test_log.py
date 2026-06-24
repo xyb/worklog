@@ -454,6 +454,21 @@ class TestLogTimestamp:
         ts = self._last_logged_at(cli, tmp_db, "--date", "2026-06-20", "--time", "14:30")
         assert self._is_full_instant(ts) and _tu.local_day_of(ts) == "2026-06-20"
 
+    def test_date_without_time_shows_hint(self, cli):
+        cli("add", "t")
+        _, out, _ = cli("log", "1", "x", "--date", "today")
+        assert "time was set to now" in out   # transparent: the user is told the time was filled
+
+    def test_date_with_time_no_hint(self, cli):
+        cli("add", "t")
+        _, out, _ = cli("log", "1", "x", "--date", "2026-06-20", "--time", "14:30")
+        assert "time was set to now" not in out
+
+    def test_plain_log_no_hint(self, cli):
+        cli("add", "t")
+        _, out, _ = cli("log", "1", "x")
+        assert "time was set to now" not in out
+
 
 class TestRetag:
     """`wl retag #L<id> <tag>` — change a single log's tag (note/goal/summary/custom)."""

@@ -25,6 +25,7 @@ class LogWriteResult:
     logged_at: str
     status_changed: bool
     metrics_added: int
+    time_defaulted: bool = False   # --date given without --time → the time was filled with "now"
 
 
 @dataclass
