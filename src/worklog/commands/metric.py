@@ -63,7 +63,18 @@ def _resolve_at(s):
             t += ":00"
         # a date+time is a local instant -> store UTC; a bare date stays literal
         return _tu.local_to_utc(f"{d} {t}")
-    return d
+    return d   # bare date — the metric's `at` may stay day-granular; the carrier log promotes it (see _carrier_instant)
+
+
+def _carrier_instant(at):
+    """A full UTC instant for a carrier log's `logged_at` — logs must be full instants (DESIGN §21,
+    graph.py invariant #4), unlike a metric's `at` which may be a day-granular bare date. A bare-date
+    `at` gets the current wall-clock time stamped on that date; an instant passes through; None → now."""
+    if at is None:
+        return _tu.utc_now()
+    if len(at) < 19:   # bare date "YYYY-MM-DD" (a full instant is 19 chars)
+        return _tu.local_to_utc(f"{at} {_tu.local_now()[11:19]}")
+    return at
 
 
 def _parse_value(value, force_text):
@@ -223,7 +234,7 @@ def cmd_metric_add(args, con):
             at = log.logged_at  # inherit the existing log's time, not "now"
     else:
         log_id = Log.insert(con, {
-            "node_id": node, "logged_at": at or _tu.utc_now(),
+            "node_id": node, "logged_at": _carrier_instant(at),
             "body": args.body or "", "tag": _CARRIER_TYPE,
         })
 

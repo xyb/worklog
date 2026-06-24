@@ -61,9 +61,11 @@ class TestMetricAdd:
         cli("metric", "add", "1", "weight", "70", "--at", "2026-06-01", "--note", "am")
         con = tmp_db.db_connect()
         m = con.execute("SELECT * FROM metric").fetchone()
-        assert m["at"] == "2026-06-01" and m["note"] == "am"
+        assert m["at"] == "2026-06-01" and m["note"] == "am"   # datapoint stays day-granular
         log = con.execute("SELECT logged_at FROM log WHERE id = ?", (m["log_id"],)).fetchone()
-        assert log["logged_at"] == "2026-06-01"
+        # carrier log is a full instant (logs must be), grouping under the requested day
+        from worklog import timeutil as _tu
+        assert len(log["logged_at"]) >= 19 and _tu.local_day_of(log["logged_at"]) == "2026-06-01"
 
     def test_add_at_keyword_resolved(self, cli, tmp_db):
         self._node(cli)
@@ -402,8 +404,9 @@ class TestMetricHelperParams:
         con = tmp_db.db_connect()
         m = con.execute("SELECT at FROM metric").fetchone()
         log_at = con.execute("SELECT logged_at FROM log WHERE node_id=1 ORDER BY id DESC LIMIT 1").fetchone()["logged_at"]
-        # metric inherits the log's (now full) timestamp; --date keeps the time, landing on that day
-        assert m["at"] == log_at and m["at"].startswith("2026-06-01") and len(m["at"]) >= 19
+        # metric inherits the log's (now full) timestamp; --date keeps the time, landing on that day (tz-safe)
+        from worklog import timeutil as _tu
+        assert m["at"] == log_at and len(m["at"]) >= 19 and _tu.local_day_of(m["at"]) == "2026-06-01"
 
     def test_log_metric_hint_in_output(self, cli):
         cli("add", "h", "--prop", "type.habit=true")
@@ -508,7 +511,8 @@ class TestMetricImport:
         assert rows[0]["tag"] == "glucose" and rows[0]["value_num"] == 5.4 and rows[0]["unit"] == "mmol/L"
         assert rows[1]["tag"] == "checkin" and rows[1]["value_num"] == 1
         # both inherit the log's (now full) timestamp on the backfilled day, hang off the same log
-        assert rows[0]["at"].startswith("2026-06-01") and rows[0]["log_id"] == rows[1]["log_id"]
+        from worklog import timeutil as _tu
+        assert _tu.local_day_of(rows[0]["at"]) == "2026-06-01" and rows[0]["log_id"] == rows[1]["log_id"]
 
     def test_import_node_level_metrics_single_carrier(self, cli, tmp_db, tmp_path):
         self._import(cli, tmp_path, {"add": [

@@ -444,12 +444,15 @@ class TestLogTimestamp:
         assert self._is_full_instant(self._last_logged_at(cli, tmp_db, "--date", "-1"))
 
     def test_date_historical_keeps_time_and_lands_on_day(self, cli, tmp_db):
+        from worklog import timeutil as _tu
         ts = self._last_logged_at(cli, tmp_db, "--date", "2026-06-20")
-        assert self._is_full_instant(ts) and ts.startswith("2026-06-20")
+        # tz-safe: logged_at is a UTC instant; its LOCAL day must be the requested date
+        assert self._is_full_instant(ts) and _tu.local_day_of(ts) == "2026-06-20"
 
     def test_date_with_explicit_time(self, cli, tmp_db):
+        from worklog import timeutil as _tu
         ts = self._last_logged_at(cli, tmp_db, "--date", "2026-06-20", "--time", "14:30")
-        assert self._is_full_instant(ts) and ts.startswith("2026-06-20")
+        assert self._is_full_instant(ts) and _tu.local_day_of(ts) == "2026-06-20"
 
 
 class TestRetag:
