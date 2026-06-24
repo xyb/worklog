@@ -204,7 +204,7 @@ def cmd_themes(args, con):
 def cmd_doctor(args, con):
     """Scan the node graph for the inconsistencies no foreign key prevents (FK is off):
     dangling parent_id, parent cycles, orphaned spoke rows, relation.* refs to dead nodes,
-    one-sided or self-referential relations. Read-only — reports, never fixes. A clean exit means the graph is
+    one-sided or self-referential relations, date-only log timestamps. Read-only — reports, never fixes. A clean exit means the graph is
     consistent."""
     from ..graph import check_integrity
     issues = check_integrity(con)

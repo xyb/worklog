@@ -529,6 +529,7 @@ When migrating a historical worklog, a log's `logged_at` must land on **the day 
 - Entry points all covered: `wl log --date` / import `logs` & `add_logs` / apply `+log` & `@log` — all go through `_insert_log`
 - Illegal date is caught by `date.fromisoformat`
 - `wl show` timeline sorts by `logged_at`, so historical dates land correctly
+- **`logged_at` is ALWAYS a full instant** — `--date` without `--time` stamps the *current* wall-clock time on that date (`local_to_utc("<date> <now-HH:MM:SS>")`), so a backfilled log keeps intra-day ordering + a real `@HH:MM` instead of a bare date. Day-grouping still lands on the given date (a complete local datetime round-tripped through UTC, so timezone never rolls it). This is invariant #4 in `graph.py`, audited by `wl doctor`'s `bare_timestamp` check. (Older logs written before this — and the day-granularity `checkin` metric `at` — can still be bare dates; `local_day_sql`'s CASE handles those.)
 
 ## 22. Day reproduction view `wl day` + `wl logs --group` (markdown day structure)
 

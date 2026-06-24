@@ -419,6 +419,38 @@ class TestLogDateWords:
         assert code2 != 0
 
 
+class TestLogTimestamp:
+    """logged_at must ALWAYS be a full UTC instant (`YYYY-MM-DD HH:MM:SS`), never a bare date — a
+    bare date loses intra-day ordering and renders no `@HH:MM`. Regression guard for every log path,
+    especially `--date` (which used to store a bare date and drop the time)."""
+
+    def _last_logged_at(self, cli, tmp_db, *log_args):
+        cli("add", "t")
+        cli("log", "1", "body", *log_args)
+        con = tmp_db.db_connect()
+        return con.execute("SELECT logged_at FROM log ORDER BY id DESC LIMIT 1").fetchone()[0]
+
+    @staticmethod
+    def _is_full_instant(ts):
+        return len(ts) >= 19 and ts[10] == " " and ts[13] == ":"   # "YYYY-MM-DD HH:MM:SS"
+
+    def test_plain_log_keeps_time(self, cli, tmp_db):
+        assert self._is_full_instant(self._last_logged_at(cli, tmp_db))
+
+    def test_date_today_keeps_time(self, cli, tmp_db):
+        assert self._is_full_instant(self._last_logged_at(cli, tmp_db, "--date", "today"))
+
+    def test_date_relative_keeps_time(self, cli, tmp_db):
+        assert self._is_full_instant(self._last_logged_at(cli, tmp_db, "--date", "-1"))
+
+    def test_date_historical_keeps_time_and_lands_on_day(self, cli, tmp_db):
+        ts = self._last_logged_at(cli, tmp_db, "--date", "2026-06-20")
+        assert self._is_full_instant(ts) and ts.startswith("2026-06-20")
+
+    def test_date_with_explicit_time(self, cli, tmp_db):
+        ts = self._last_logged_at(cli, tmp_db, "--date", "2026-06-20", "--time", "14:30")
+        assert self._is_full_instant(ts) and ts.startswith("2026-06-20")
+
 
 class TestRetag:
     """`wl retag #L<id> <tag>` — change a single log's tag (note/goal/summary/custom)."""

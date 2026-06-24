@@ -45,6 +45,8 @@ INVARIANTS — no foreign key enforces any of these; app code holds them on the 
   2. every live spoke row's `node_id` is a live node (`soft_delete_node` cascades the spokes);
   3. every `relation.*` ref is a live node, and relation edges are symmetric
      (A.split_into ∋ B ⟺ B.split_from ∋ A; related is mutual; _apply_relation writes both sides), and no relation is self-referential.
+  4. every log's `logged_at` is a full UTC instant (`YYYY-MM-DD HH:MM:SS`), never a bare date —
+     a date loses intra-day ordering and renders no `@HH:MM`.
 Because nothing in the DB enforces them, the everyday walks ALSO stay defensive (cycle-safe
 `seen` sets, `_node_exists` guards) so legacy/corrupt data degrades gracefully instead of hanging
 or crashing; `wl doctor` is the explicit "find + fix the dirt" signal.
@@ -284,14 +286,14 @@ def _sec_group(con, nid, n, by, sched_ids):
 class GraphIssue:
     """One graph inconsistency found by check_integrity. `node_id` is the offending node (for a
     spoke orphan, the spoke row's dangling node_id). `kind` is one of: dangling_parent / cycle /
-    orphan_spoke / dead_relation / asymmetric_relation / self_relation."""
+    orphan_spoke / dead_relation / asymmetric_relation / self_relation / bare_timestamp."""
     kind: str
     node_id: int
     detail: str
 
 
 def check_integrity(con):
-    """Scan the LIVE node graph for the inconsistencies no foreign key prevents. Pure read, never
+    """Scan the live graph for the inconsistencies no foreign key prevents, plus the data invariant that a log's logged_at is a full instant (not a bare date). Pure read, never
     mutates. Returns list[GraphIssue]. On-demand batch: reads node + each spoke + relation props
     ONCE and checks in Python (no per-node query) — O(N + spoke rows + relation props)."""
     issues = []
@@ -349,4 +351,13 @@ def check_integrity(con):
                 elif inv and nid not in rel.get(ref, {}).get(inv, set()):
                     issues.append(GraphIssue("asymmetric_relation", nid,
                                              f"{key} #{ref}, but #{ref} has no matching {inv} back to #{nid}"))
+
+    # 6. bare-timestamp logs — logged_at must be a full instant, not a date-only string. A bare date
+    #    (legacy `wl log --date`, or a manual SQL edit) loses intra-day ordering and renders no
+    #    @HH:MM. One batched read of the log table; "YYYY-MM-DD" is 10 chars, a full instant is 19.
+    for r in _db.query(con, "log", cols="id, node_id, logged_at"):
+        ts = r["logged_at"]
+        if ts and len(ts) < 19:
+            issues.append(GraphIssue("bare_timestamp", r["node_id"],
+                                     f"log #L{r['id']} has a date-only logged_at '{ts}' (no time)"))
     return issues

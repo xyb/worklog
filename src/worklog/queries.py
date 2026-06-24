@@ -45,9 +45,11 @@ def _insert_log(con, nid, entry):
             # a date+time the user typed is local wall-clock -> store UTC
             logged_at = _tu.local_to_utc(f"{date} {time_part}")
         else:
-            # date only, no time: a degenerate "logged on this day" — keep the
-            # bare local date verbatim (no instant to convert; day-grouping reads it as-is)
-            logged_at = date
+            # date given, no explicit time: stamp the CURRENT wall-clock time ON that date, so the
+            # log keeps a real instant. A bare date loses intra-day ordering and renders no @HH:MM
+            # (logged_at must be a full UTC instant — see the invariant in DESIGN §21). day-grouping
+            # still lands on `date`: it's a complete local datetime round-tripped through UTC.
+            logged_at = _tu.local_to_utc(f"{date} {_tu.local_now()[11:19]}")
         return Log.insert(con, {"node_id": nid, "logged_at": logged_at, "body": body})
     elif time_part:
         # no date but time given -> today + that time (local) -> store UTC

@@ -143,10 +143,11 @@ def local_day_sql(col: str) -> str:
     modifier is a controlled value (`localtime` or a fixed `±HH:MM`), never user
     input, so inlining it is safe. Usage: `f"... WHERE {local_day_sql('at')} = ?"`.
 
-    Bare `YYYY-MM-DD` values (date-only logged_at from `wl log --date`, and the
-    0003-backfilled checkin metric.at) are literal local dates — the CASE leaves
-    them untouched, because offsetting a midnight (e.g. a negative `$WORKLOG_TZ`)
-    would wrongly roll them to the previous day."""
+    Bare `YYYY-MM-DD` values (legacy date-only logged_at from logs written before
+    `wl log --date` started keeping the time, and the 0003-backfilled checkin
+    metric.at) are literal local dates — the CASE leaves them untouched, because
+    offsetting a midnight (e.g. a negative `$WORKLOG_TZ`) would wrongly roll them
+    to the previous day."""
     mod = tz_sql_modifier()
     return (f"CASE WHEN length({col}) >= 19 THEN substr(datetime({col}, '{mod}'), 1, 10) "
             f"ELSE substr({col}, 1, 10) END")

@@ -155,6 +155,27 @@ class TestSelfRelation:
         assert "dead_relation" not in kinds and "asymmetric_relation" not in kinds
 
 
+class TestBareTimestamp:
+    """logged_at must be a full UTC instant; a date-only value (legacy `wl log --date` behavior, or
+    a manual SQL edit) loses intra-day ordering. doctor surfaces it so it can be fixed."""
+
+    def test_date_only_logged_at_is_flagged(self, tmp_db):
+        con = _con(tmp_db)
+        _node(con, 1)
+        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (1, '2026-06-20', 'bare-date log')")
+        con.commit()
+        issues = check_integrity(con)
+        assert "bare_timestamp" in _kinds(issues)
+        assert any(i.node_id == 1 for i in _of_kind(issues, "bare_timestamp"))
+
+    def test_full_instant_logged_at_is_clean(self, tmp_db):
+        con = _con(tmp_db)
+        _node(con, 1)
+        con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (1, '2026-06-20 14:30:00', 'ok')")
+        con.commit()
+        assert "bare_timestamp" not in _kinds(check_integrity(con))
+
+
 class TestDoctorCommand:
     """End-to-end: `wl doctor` reports issues (text + JSON), read-only."""
 
