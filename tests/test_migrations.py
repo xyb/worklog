@@ -566,3 +566,39 @@ class TestMigration0011DropKind:
         assert "kind" in cols                # rolled back: column intact
         assert db.db_version(con) == 10      # version not bumped
         con.close()
+
+
+class TestMigration0012BareDates:
+    """0012 (Python migration): promote date-only log timestamps to full instants (local midnight)."""
+
+    def _run_mig12(self, con):
+        import importlib.util, pathlib
+        from worklog import db
+        path = pathlib.Path(db.__file__).parent / "migrations" / "0012_promote_bare_date_logs.py"
+        spec = importlib.util.spec_from_file_location("m0012", str(path))
+        m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+        m.migrate(con); con.commit()
+
+    def test_promotes_bare_dates_leaves_full_instants(self, cli, tmp_db):
+        from worklog import timeutil as _tu
+        cli("add", "t")   # node 1; ensure_db brings the DB to the latest version
+        con = tmp_db.db_connect()
+        # re-seed a legacy bare-date log + a metric.at bare date (intentional, must NOT be touched)
+        con.execute("INSERT INTO log (id, node_id, logged_at, body) VALUES (101, 1, '2026-06-20', 'bare')")
+        con.execute("INSERT INTO log (id, node_id, logged_at, body) VALUES (102, 1, '2026-06-20 14:30:00', 'full')")
+        con.commit()
+        self._run_mig12(con)
+        bare = con.execute("SELECT logged_at FROM log WHERE id=101").fetchone()[0]
+        full = con.execute("SELECT logged_at FROM log WHERE id=102").fetchone()[0]
+        assert bare == _tu.local_to_utc("2026-06-20 00:00:00")   # promoted to that day's local midnight
+        assert _tu.local_day_of(bare) == "2026-06-20" and len(bare) == 19  # tz-safe + full instant
+        assert full == "2026-06-20 14:30:00"                     # already full → untouched
+
+    def test_idempotent_no_bare_dates_left(self, cli, tmp_db):
+        cli("add", "t")
+        con = tmp_db.db_connect()
+        con.execute("INSERT INTO log (id, node_id, logged_at, body) VALUES (201, 1, '2026-06-20', 'bare')")
+        con.commit()
+        self._run_mig12(con)
+        self._run_mig12(con)   # second run finds nothing length-10 to promote
+        assert con.execute("SELECT COUNT(*) FROM log WHERE length(logged_at) = 10").fetchone()[0] == 0
