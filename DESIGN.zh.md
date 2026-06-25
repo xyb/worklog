@@ -774,6 +774,8 @@ skill 维护成本下降, help 一改全跟。
 
 数据层三层: `models.py`（每表一个 dataclass + 增删改查）→ handlers（`commands/`）→ 视图 DTO（`commands/dtos.py`）。`db_table.py` 是 model 之下的底层 SQL 封装（参数绑定、`ALIVE` 软删除谓词、标识符校验）。
 
+- **软删除约定靠 lint 强制，不靠 review。** `ALIVE = "deleted_at IS NULL"` 是谓词的单一来源；model 读取和 `_where`/`clause` 助手都会自动 AND 上它，但 raw JOIN/CTE/聚合 SELECT 是绕过它的逃生通道——在那儿漏掉就会把 tombstone 行泄漏进 `wl day`/搜索。`tests/test_alive_lint.py` 用 `ast` 解析每个源文件（f-string 折叠成一条语句），断言: (1) `deleted_at IS NULL` 除了 `ALIVE` 定义处别处不许手写; (2) 每个对软删表的 raw 读取都带 ALIVE——内联写或在所在函数里拼装（`where.append(_db.ALIVE)`）皆可。逃生通道照留, lint 只是把"漏掉"从静默泄漏变成红色测试。（跳过已应用的 `migrations/` 和生成的 shell 补全模板。）
+
 - **model 类是 Active-Record-lite。** 每表一个 `@dataclass` 镜像表的列，**字段名与列名严格一致**。增删改查放在共享基类上，具体类只剩 `_table` + 字段: `_Model`（query / query_one / count / exists / insert / delete / purge + `__getitem__`）、`_IdPK` mixin（整数 id 表的 get / gets / update）、`_Upsertable` mixin（自然键表的 upsert），表名放在 `_table` 类属性里。`from_row` 是一个反射式构造器（`cls(**{f.name: row[f.name] …})`）——字段在行里找不到对应列就在构造时报错，把"字段名==列名"这条规则从注释变成**强制**。绝不给 model 加纯展示字段，那是 `commands/dtos.py` 视图 DTO 的职责。
 - **读取一律 `SELECT *`**（from_row 需要每一列）。列投影、别名 / JOIN / 聚合读取直接走 `db_table`——这是全行 model 无法表达的、刻意保留的逃生通道。读取隐藏 tombstone（默认 `include_deleted=False`）；写入（按 id 的 `update`、`upsert`）穿透它——`upsert` 会复活一个被软删的行。`_table` / `_upsert_key` 只声明在非 dataclass 的 mixin 上（无类型标注的类属性）；在具体 dataclass 上写带标注的 `_foo: T` 会变成必填字段。
 - **`gets(ids)` 是批量读取**——一次查询返回与输入等长、缺失为 None、保持顺序的列表。用它替代 N+1 的 `get` 循环。
