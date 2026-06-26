@@ -43,7 +43,7 @@ def test_group_header_indented_lead_and_style(plain):
 
 def test_group_header_unset_priority_still_4col_marker(plain):
     # _pri_marker never blanks: an unset priority renders the muted [# ], keeping alignment
-    _group_header("x", pri=None) if False else _group_header("x", pri="")
+    _group_header("x", pri="")
     assert plain() == "\n▸ [# ] x\n"
 
 

@@ -1927,11 +1927,10 @@ from .commands import (
 
 def cmd_node(args, con):
     """Dispatch `wl node <add|ls|show|edit|rm|reparent>` (the metric-style entity group). The top-level add/ls/show route to the same handlers."""
-    sub = getattr(args, "node_sub", None)
-    if sub is None:
-        render.die("usage: wl node <add|ls|show|edit|rm|reparent> … (see `wl node --help`)")
-    {"add": cmd_add, "ls": cmd_ls, "show": cmd_show,
-     "edit": cmd_node_edit, "rm": cmd_node_rm, "reparent": cmd_node_reparent}[sub](args, con)
+    return render.dispatch_group(args, con, "node_sub",
+        {"add": cmd_add, "ls": cmd_ls, "show": cmd_show,
+         "edit": cmd_node_edit, "rm": cmd_node_rm, "reparent": cmd_node_reparent},
+        usage="usage: wl node <add|ls|show|edit|rm|reparent> … (see `wl node --help`)")
 
 
 HANDLERS = {

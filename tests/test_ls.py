@@ -84,8 +84,9 @@ class TestLsAdvanced:
         for i in range(25):
             cli("add", f"t{i}")
         _, out, _ = cli("ls")
-        # default limit 20
-        assert "showing 20/25" in out
+        # default limit 20 — pin the FULL hint wording (the shared _print_truncation_hint form:
+        # `(showing N/total, <advice>)`, comma-separated), not just the `showing N/total` substring
+        assert "(showing 20/25, --limit N to adjust / --all to see all)" in out
         # t0..t19 present (priority+id ascending)
         assert "t0" in out and "t19" in out
         assert "t20" not in out and "t24" not in out

@@ -16,6 +16,7 @@ generated shell-completion templates in `completion.py` (raw sqlite3 in zsh/bash
 """
 import ast
 import pathlib
+import re
 
 SRC = pathlib.Path(__file__).parent.parent / "src" / "worklog"
 
@@ -27,7 +28,7 @@ SOFT_TABLES = {"node", "log", "metric", "tag", "prop", "clock", "sched", "link",
 SKIP_FILES = {"completion.py"}        # generated shell-completion templates (raw sqlite3 in shell)
 SKIP_DIRS = {"migrations"}            # already-applied migrations run against raw/legacy rows
 
-_FROM_RE = __import__("re").compile(r"\bFROM\s+(" + "|".join(SOFT_TABLES) + r")\b", __import__("re").I)
+_FROM_RE = re.compile(r"\bFROM\s+(" + "|".join(SOFT_TABLES) + r")\b", re.I)
 
 
 def _py_files():
@@ -50,7 +51,9 @@ def _flat(node):
             for v in node.values
         )
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        return (_flat(node.left) or "") + " " + (_flat(node.right) or "")
+        # join WITHOUT a separator: `"SELECT … FROM no" + "de WHERE …"` must rejoin to `…node…`,
+        # not `…no de…` — a stray space would split a keyword across the concat and fail open.
+        return (_flat(node.left) or "") + (_flat(node.right) or "")
     return None
 
 
@@ -58,6 +61,16 @@ def _docstring_ids(tree):
     """ids of bare-expression string nodes (module/func/class docstrings) — documentation, not SQL."""
     return {id(n.value) for n in ast.walk(tree)
             if isinstance(n, ast.Expr) and isinstance(n.value, (ast.Constant, ast.JoinedStr))}
+
+
+def _alive_def_ids(tree):
+    """id() of the string on the RHS of `ALIVE = "deleted_at IS NULL"` — the ONE place the predicate
+    may be hand-written (the constant's single definition). Exempting by node, not by file, means a
+    SECOND hand-written copy elsewhere in db_table.py (a new helper bypassing the constant) is still
+    flagged — db_table.py is exactly where that regression is most likely."""
+    return {id(n.value) for n in ast.walk(tree)
+            if isinstance(n, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "ALIVE" for t in n.targets)}
 
 
 def _enclosing_refs_alive(src, funcs, lineno):
@@ -100,15 +113,12 @@ def test_no_handwritten_alive_predicate():
     offenders = []
     for f, rel in _py_files():
         tree = ast.parse(f.read_text())
-        docs = _docstring_ids(tree)
+        exempt = _docstring_ids(tree) | _alive_def_ids(tree)  # docstrings + the ALIVE definition itself
         for n in ast.walk(tree):
-            if not isinstance(n, (ast.Constant, ast.JoinedStr)) or id(n) in docs:
+            if not isinstance(n, (ast.Constant, ast.JoinedStr)) or id(n) in exempt:
                 continue
             s = _flat(n)
             if s and "deleted_at IS NULL" in s:
-                # the one allowed site: the `ALIVE = "deleted_at IS NULL"` definition in db_table.py
-                if rel.name == "db_table.py":
-                    continue
                 offenders.append(f"{rel}:{n.lineno}")
     assert not offenders, (
         "hand-written `deleted_at IS NULL` — use the `_db.ALIVE` constant instead:\n  "
