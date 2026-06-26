@@ -76,6 +76,7 @@ from ..render import (
     die,
     _hl,
     _pri_marker,
+    _group_header,
     _node_line,
     _detail_line,
     _print_truncation_hint,
@@ -283,8 +284,8 @@ def cmd_ls(args, con):
     captured_total = total
 
     def _render():
-        if len(captured_display_rows) < captured_total:
-            out(_c(f"(showing {len(captured_display_rows)}/{captured_total}; --limit N to adjust / --all to see all)", "meta"))
+        _print_truncation_hint(len(captured_display_rows), captured_total,
+                               extra="--limit N to adjust / --all to see all")
         for n in captured_display_rows:
             out(_node_line(con, n, tags=not brief, sched=not brief))
 
@@ -829,8 +830,7 @@ def cmd_changes(args, con):
             out(_c("(no project changes in window)", "meta"))
             return
         for proj, done, added_open, logged in captured_buckets:
-            pri = _pri_marker(proj["priority"]) + " "
-            out("\n▸ " + pri + _c(proj["title"], "header"))
+            _group_header(proj["title"], pri=proj["priority"])
             if done:
                 out("  " + _c("✓ done", "done") + f" {len(done)}: " + _c(", ".join(f"#{n['id']} {n['title']}" for n in done)))
             if added_open:
@@ -994,8 +994,7 @@ def _render_summary(con, args, b):
                 pd = day_done.get(d, [])
                 pw = day_worked.get(d, [])
                 pp = day_pend.get(d, [])
-                out("\n▸ " + _c(d, "header")
-                    + _c(f"  (done {len(pd)} / worked {len(pw)} / pending {len(pp)})", "meta"))
+                _group_header(d, suffix=f"(done {len(pd)} / worked {len(pw)} / pending {len(pp)})")
                 _print_block(pd, pp, p_worked=pw)
     elif done_map or pend_map:
         out(_c("\n=== by project ===", "header"))
@@ -1025,15 +1024,14 @@ def _render_summary(con, args, b):
             plan.sort(key=lambda x: (len(x[1]) + len(x[2])), reverse=True)
             plan = plan[:top_n]
         for proj, pd, pp in plan:
-            pri = _pri_marker(proj["priority"]) + " "
-            out("\n▸ " + pri + _c(proj["title"], "header") + _c(f"  (done {len(pd)} / pending {len(pp)})", "meta"))
+            _group_header(proj["title"], pri=proj["priority"], suffix=f"(done {len(pd)} / pending {len(pp)})")
             if not projects_only:
                 _print_block(pd, pp)
         # window nodes not in any project
         od = [done_map[i] for i in done_map if i not in claimed]
         op = [pend_map[i] for i in pend_map if i not in claimed]
         if (od or op) and top_n is None:
-            out("\n▸ " + _c("(unassigned)", "header") + _c(f"  (done {len(od)} / pending {len(op)})", "meta"))
+            _group_header("(unassigned)", suffix=f"(done {len(od)} / pending {len(op)})")
             if not projects_only:
                 _print_block(od, op)
 

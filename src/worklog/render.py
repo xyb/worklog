@@ -468,3 +468,31 @@ def _print_truncation_hint(shown, total, extra=""):
             msg += f", {extra}"
         msg += ")"
         out(_c(msg, "meta"))
+
+
+def _group_header(title, *, style="header", pri=None, node_id=None, suffix=None, lead="\n"):
+    """Emit one `▸ ` group-section header — the single shape behind every grouped view
+    (`wl day` sections, `--by project/direction`, `changes`, `summary`, `projects`). An optional
+    `#id` and the 4-col priority marker prefix the styled title; `suffix` (caller-worded, e.g.
+    `"(done 3 / pending 2)"` or `"(5)"`) trails dimmed. `lead` precedes the glyph — a blank line by
+    default, `""` or an indent for a nested/flush header. Callers own the suffix WORDING; this owns
+    the glyph, spacing, and `id/pri/title/suffix` styling so the six call sites can't drift apart."""
+    parts = []
+    if node_id is not None:
+        parts.append(_c(f"#{node_id}", "id"))
+    if pri is not None:
+        parts.append(_pri_marker(pri))
+    parts.append(_c(title, style))
+    line = lead + "▸ " + " ".join(parts)
+    if suffix:
+        line += "  " + _c(suffix, "meta")
+    out(line)
+
+
+def _log_body_row(body, indent, *, full=False):
+    """Emit one dimmed log line under a node — `<indent>· <body>`, the body truncated to one
+    line. `indent_cols` is `len(indent) + 2` for the `· ` glyph (the relationship the two
+    day/activity call sites used to hand-compute, once as a hard-coded `10` for an 8-space
+    indent)."""
+    shown = _truncate_log_body(body, indent_cols=len(indent) + 2, full=full)
+    out(indent + _c("· " + shown, "meta"))

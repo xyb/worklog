@@ -74,7 +74,8 @@ from ..render import (
     _c,
     die,
     _hl,
-    _pri_marker,
+    _group_header,
+    _log_body_row,
     _hang_wrap,
     _node_line,
     _node_activity_prefix,
@@ -570,8 +571,8 @@ def _tree_by(con, by, nf=None):
                 # drop every project because no member is itself a project.
                 if not ids and not nf(proj["id"]):
                     continue
-            pri = " " + _pri_marker(proj["priority"])
-            out("▸ " + _c(f"#{proj['id']}", "id") + pri + " " + _c(proj["title"], "header") + "  " + _c(f"({len(ids)})", "meta"))
+            _group_header(proj["title"], node_id=proj["id"], pri=proj["priority"],
+                          suffix=f"({len(ids)})", lead="")
             for nid, n in zip(sorted(ids), Node.gets(con, sorted(ids))):
                 claimed.add(nid)
                 out(_node_line(con, n))
@@ -583,7 +584,7 @@ def _tree_by(con, by, nf=None):
         if nf:
             orphans = [n for n in orphans if nf(n["id"])]
         if orphans:
-            out("▸ " + _c("(unassigned)", "header") + "  " + _c(f"({len(orphans)})", "meta"))
+            _group_header("(unassigned)", suffix=f"({len(orphans)})", lead="")
             for n in orphans:
                 out(_node_line(con, n))
 
@@ -750,9 +751,7 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
             if omitted:
                 out("  " * (depth + 2) + _c(f"· … ({omitted} earlier logs elided)", "meta"))
             for body in shown:
-                indent = "  " * (depth + 2)
-                shown_body = _truncate_log_body(body, indent_cols=len(indent) + 2, full=full)
-                out(indent + _c("· " + shown_body, "meta"))
+                _log_body_row(body, "  " * (depth + 2), full=full)
             # fold that day's datapoints (skip checkin marker — reflected by [x]); elide >5
             indent = "  " * (depth + 2)
             mrows = [m for m in con.execute(
@@ -832,7 +831,7 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
         if sortk:
             groups = sorted(groups, key=lambda kv: sortk(kv[1]["title"]))
         for _, g in groups:
-            out("    ▸ " + _c(g["title"], "type"))
+            _group_header(g["title"], style="type", lead="    ")
             for nid, it in g["tasks"].items():
                 n = it["node"]
                 logs = it["logs"]
@@ -871,10 +870,8 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 bodies = logs if log_tail is None else logs[-log_tail:]
                 if log_tail is not None and len(logs) > log_tail:
                     out("        " + _c(f"· … ({len(logs) - log_tail} earlier logs elided)", "meta"))
-                # log body rendering: indent 8 + "· " 2 = 10 cols, remaining width-10-2 for one line
                 for body in bodies:
-                    shown = _truncate_log_body(body, indent_cols=10, full=full)
-                    out("        " + _c("· " + shown, "meta"))
+                    _log_body_row(body, "        ", full=full)
                 # fold this node's datapoints that day beneath it (skip the checkin marker —
                 # it's already reflected by the [x]); over-count elided
                 if day:
