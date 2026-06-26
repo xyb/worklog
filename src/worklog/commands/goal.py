@@ -20,7 +20,7 @@ from ..queries import (
     _RESERVED_LOG_TAGS,
 )
 from ..helpers import _resolve_concrete_date, _truncate_log_body
-from ..render import _c, die, out
+from ..render import _c, die, dispatch_group, out
 from .timenodes import _ensure_day, _ensure_today_day
 from .views import _goal_progress, _emit_goal_targets
 from .output import output_format, TextRenderable, text_renderer
@@ -297,7 +297,6 @@ def cmd_goal_rm(args, con):
 def cmd_goal_group(args, con):
     """Dispatch `wl goal` — bare (or the `today` default verb) reads/writes today's goal via
     cmd_goal; `set`/`ls`/`rm` reach any node's reserved-tag logs (goal / summary)."""
-    sub = getattr(args, "goal_sub", None)
-    if sub in (None, "today"):
-        return cmd_goal(args, con)
-    {"set": cmd_goal_set, "ls": cmd_goal_ls, "rm": cmd_goal_rm}[sub](args, con)
+    return dispatch_group(args, con, "goal_sub",
+        {"today": cmd_goal, "set": cmd_goal_set, "ls": cmd_goal_ls, "rm": cmd_goal_rm},
+        default=cmd_goal)

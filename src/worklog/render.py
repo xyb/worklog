@@ -209,6 +209,25 @@ def die(msg: str, *, status: int = 400) -> NoReturn:
     sys.exit(1 if status < 500 else 2)
 
 
+def dispatch_group(args, con, attr, table, usage=None, default=None):
+    """Route `wl <group> <sub>` to its handler — the single source for the entity-group
+    dispatcher every group (tag / clock / prop / link / metric / goal / agent / …) repeats.
+    `attr` is the argparse dest holding the chosen sub-verb; `table` maps sub-verb → handler.
+    A bare group (sub is None) runs `default(args, con)` when given, else dies with `usage`.
+    Sub-verbs are argparse `choices`, so an unknown sub can't reach here — `table[sub]` is total
+    over real inputs. Returns the handler's result so `-o json` / TextRenderable propagate.
+
+    A new group is a routing table + one call: `return dispatch_group(args, con, "x_sub", {...},
+    usage="…")`. A default verb that aliases the bare form (e.g. goal's `today`) is just another
+    table entry pointing at the same handler as `default=`."""
+    sub = getattr(args, attr, None)
+    if sub is None:
+        if default is not None:
+            return default(args, con)
+        die(usage)
+    return table[sub](args, con)
+
+
 def out(s):
     """Unified output: when highlighting is enabled, use rich (markup rendering); otherwise plain print."""
     if _SUPPRESS_DEPTH > 0:

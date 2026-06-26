@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 from ..models import DateMeta
-from ..render import _c, die, out
+from ..render import _c, dispatch_group, out
 from .views import _cn_weekday, _date_label
 from .output import output_format, text_renderer, TextRenderable
 from .dtos import DateInfoClearResult, DateInfoImportResult, DateInfoSetResult, DateInfoShowResult
@@ -154,8 +154,6 @@ def cmd_date_group(args, con):
     """Dispatch `wl date <set|ls|rm|import>` (the metric-style entity group).
     A clean group (no default verb — `date` doesn't collide with any leaf). `wl dateinfo`
     is the polymorphic everyday shortcut over the same date_meta table."""
-    sub = getattr(args, "date_sub", None)
-    if sub is None:
-        die("usage: wl date <set|ls|rm|import> … (see `wl date --help`)")
-    {"set": cmd_date_set, "ls": cmd_date_ls, "rm": cmd_date_rm,
-     "import": cmd_date_import}[sub](args, con)
+    return dispatch_group(args, con, "date_sub",
+        {"set": cmd_date_set, "ls": cmd_date_ls, "rm": cmd_date_rm, "import": cmd_date_import},
+        usage="usage: wl date <set|ls|rm|import> … (see `wl date --help`)")

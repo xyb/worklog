@@ -122,7 +122,12 @@ The one **clean group** (no collision, so no default verb) is **`date`** (the `d
 table): `date set / ls / rm / import`, with `wl dateinfo` as the polymorphic everyday
 shortcut (sets when given a label, lists when not, `--clear` / `--import` variants).
 
-The `<entity> <verb>` reshape is now **complete** for every entity.
+The `<entity> <verb>` reshape is now **complete** for every entity. Every group's dispatcher is
+the same shape, so it routes through one shared helper — `render.dispatch_group(args, con, attr,
+table, usage=, default=)`: `attr` is the argparse dest holding the sub-verb, `table` maps sub-verb
+→ handler, a bare group runs `default(args, con)` (e.g. agent's *show*, goal's *today*) or dies
+with `usage`. A new group is a routing table plus one call; the 4-line per-group boilerplate (and
+metric's old `_SUBS`) is gone — the convention lives in the helper, not in eleven copies.
 
 **B. Composite helper** — a one-step shortcut that wraps one or more primitives for
 the common path; never the *only* way to do something (the primitive stays). Status

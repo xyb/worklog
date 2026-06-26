@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..render import _c, die, out
+from ..render import _c, die, dispatch_group, out
 from ..xdg import _resolve_aliases_path
 from .output import output_format, text_renderer, TextRenderable
 
@@ -115,7 +115,6 @@ def cmd_alias_rm(args, con):
 
 def cmd_alias(args, con):
     """Dispatch `wl alias <add|ls|rm>` — manage command aliases in aliases.ini."""
-    sub = getattr(args, "alias_sub", None)
-    if sub is None:
-        die("usage: wl alias <add|ls|rm> … (see `wl alias --help`)")
-    {"add": cmd_alias_add, "ls": cmd_alias_ls, "rm": cmd_alias_rm}[sub](args, con)
+    return dispatch_group(args, con, "alias_sub",
+        {"add": cmd_alias_add, "ls": cmd_alias_ls, "rm": cmd_alias_rm},
+        usage="usage: wl alias <add|ls|rm> … (see `wl alias --help`)")

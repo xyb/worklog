@@ -82,6 +82,7 @@ from ..render import (
     THEMES,
     _c,
     die,
+    dispatch_group,
     _hl,
     _pri_marker,
     _node_line,
@@ -796,10 +797,9 @@ def cmd_tag_group(args, con):
     """Dispatch `wl tag <add|ls|rm>` (the metric-style entity group).
     `add` is the default verb (`wl tag <id> +x -y` == `wl tag add <id> +x -y`) and keeps the
     full +add / -remove / bare-add / empty-list grammar; `ls` / `rm` are single-purpose."""
-    sub = getattr(args, "tag_sub", None)
-    if sub is None:
-        die("usage: wl tag <id> +x -y  |  wl tag <add|ls|rm> … (see `wl tag --help`)")
-    {"add": cmd_tag, "ls": cmd_tag_ls, "rm": cmd_tag_rm}[sub](args, con)
+    return dispatch_group(args, con, "tag_sub",
+        {"add": cmd_tag, "ls": cmd_tag_ls, "rm": cmd_tag_rm},
+        usage="usage: wl tag <id> +x -y  |  wl tag <add|ls|rm> … (see `wl tag --help`)")
 
 @output_format
 def cmd_tick(args, con):
@@ -1116,10 +1116,9 @@ def cmd_log_group(args, con):
     `add` is the default verb (`wl log <id> "body"` == `wl log add <id> "body"`); `edit`
     is `wl relog` and `rm` is `wl unlog` (both keep their top-level shortcuts); `show`
     prints one log's full content."""
-    sub = getattr(args, "log_sub", None)
-    if sub is None:
-        die("usage: wl log <id> \"body\"  |  wl log <add|ls|edit|rm|show> … (see `wl log --help`)")
-    {"add": cmd_log, "ls": cmd_log_ls, "edit": cmd_relog, "rm": cmd_unlog, "show": cmd_log_show}[sub](args, con)
+    return dispatch_group(args, con, "log_sub",
+        {"add": cmd_log, "ls": cmd_log_ls, "edit": cmd_relog, "rm": cmd_unlog, "show": cmd_log_show},
+        usage="usage: wl log <id> \"body\"  |  wl log <add|ls|edit|rm|show> … (see `wl log --help`)")
 
 
 @output_format
@@ -1447,10 +1446,9 @@ def cmd_prop_rm(args, con):
 
 def cmd_prop(args, con):
     """Dispatch `wl prop <set|ls|rm>` (the metric-style entity group)."""
-    sub = getattr(args, "prop_sub", None)
-    if sub is None:
-        die("usage: wl prop <set|ls|rm> … (see `wl prop --help`)")
-    {"set": cmd_set, "ls": cmd_prop_ls, "rm": cmd_prop_rm}[sub](args, con)
+    return dispatch_group(args, con, "prop_sub",
+        {"set": cmd_set, "ls": cmd_prop_ls, "rm": cmd_prop_rm},
+        usage="usage: wl prop <set|ls|rm> … (see `wl prop --help`)")
 
 
 # --- agent entity group: bind the current agent session to a node, stored as an
@@ -1730,10 +1728,10 @@ def _agent_show(args, con):
 def cmd_agent(args, con):
     """`wl agent` — bind the current agent session to a node.
     wl agent <id> = set · wl agent = show current · wl agent ls = list all · wl agent rm = unbind."""
-    sub = getattr(args, "agent_sub", None)
     # set/ls/rm/context dispatch like every other entity group; bare `wl agent` → show
-    {"set": _agent_set, "ls": _agent_ls, "rm": _agent_rm,
-     "context": _agent_context}.get(sub, _agent_show)(args, con)
+    return dispatch_group(args, con, "agent_sub",
+        {"set": _agent_set, "ls": _agent_ls, "rm": _agent_rm, "context": _agent_context},
+        default=_agent_show)
 
 # --- clock entity group: ls / edit / rm (create = start/stop/spent) ---
 @output_format
@@ -1830,10 +1828,9 @@ def cmd_clock_rm(args, con):
 def cmd_clock(args, con):
     """Dispatch `wl clock <ls|edit|rm>` (the metric-style entity group).
     Creating intervals stays with the `start` / `stop` / `spent` composite helpers."""
-    sub = getattr(args, "clock_sub", None)
-    if sub is None:
-        die("usage: wl clock <ls|edit|rm> … (create with start/stop/spent; see `wl clock --help`)")
-    {"ls": cmd_clock_ls, "edit": cmd_clock_edit, "rm": cmd_clock_rm}[sub](args, con)
+    return dispatch_group(args, con, "clock_sub",
+        {"ls": cmd_clock_ls, "edit": cmd_clock_edit, "rm": cmd_clock_rm},
+        usage="usage: wl clock <ls|edit|rm> … (create with start/stop/spent; see `wl clock --help`)")
 
 
 # --- link entity group: add / ls / rm, default verb `add` ---
@@ -1858,7 +1855,6 @@ def cmd_link_group(args, con):
     """Dispatch `wl link <add|ls|rm>`. `add` is the default verb, so the legacy
     `wl link 42 doc` still works (the parser expands it to `wl link add 42 doc`). `rm` also
     has the top-level shortcut `wl unlink`."""
-    sub = getattr(args, "link_sub", None)
-    if sub is None:
-        die("usage: wl link <id…> <doc>  |  wl link <add|ls|rm> … (see `wl link --help`)")
-    {"add": cmd_link, "ls": cmd_link_ls, "rm": cmd_unlink}[sub](args, con)
+    return dispatch_group(args, con, "link_sub",
+        {"add": cmd_link, "ls": cmd_link_ls, "rm": cmd_unlink},
+        usage="usage: wl link <id…> <doc>  |  wl link <add|ls|rm> … (see `wl link --help`)")

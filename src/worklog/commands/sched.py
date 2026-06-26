@@ -8,7 +8,7 @@ from .. import db_table as _db
 from ..models import Sched
 from ..queries import _check_ids_exist
 from ..helpers import _resolve_concrete_date
-from ..render import _c, die, out
+from ..render import _c, die, dispatch_group, out
 from .state import _ids_list
 from .views import _WEEKDAY_ABBR
 from .output import output_format, TextRenderable, text_renderer
@@ -160,10 +160,9 @@ def cmd_sched_group(args, con):
     `add` is the default verb (`wl sched <id> <when>` == `wl sched add <id> <when>`) and
     keeps the full when / --recur / --clear / list-when-empty grammar (`cmd_sched`); `ls`
     lists, `rm` clears. `wl defer` (status=LATER + rough hint) stays its own command."""
-    sub = getattr(args, "sched_sub", None)
-    if sub is None:
-        die("usage: wl sched <id> <when>  |  wl sched <add|ls|rm> … (see `wl sched --help`)")
-    {"add": cmd_sched, "ls": cmd_sched_ls, "rm": cmd_sched_rm}[sub](args, con)
+    return dispatch_group(args, con, "sched_sub",
+        {"add": cmd_sched, "ls": cmd_sched_ls, "rm": cmd_sched_rm},
+        usage="usage: wl sched <id> <when>  |  wl sched <add|ls|rm> … (see `wl sched --help`)")
 
 
 def _norm_rrule(s):

@@ -26,7 +26,7 @@ from .. import db_table as _db
 from ..helpers import _resolve_concrete_date, _resolve_window
 from ..models import Log, Metric
 from ..queries import _require_node, _has_checkin
-from ..render import _c, die, out
+from ..render import _c, die, dispatch_group, out
 from .output import output_format, TextRenderable, text_renderer
 
 _CARRIER_TYPE = "metric"  # log.tag marking an auto-created metric carrier log
@@ -395,17 +395,8 @@ def cmd_metric_rm(args, con):
     return TextRenderable(result, cmd_name="metric_rm")
 
 
-_SUBS = {
-    "add": cmd_metric_add,
-    "ls": cmd_metric_ls,
-    "edit": cmd_metric_edit,
-    "rm": cmd_metric_rm,
-}
-
-
 def cmd_metric(args, con):
     """Dispatch `wl metric <add|ls|edit|rm>`."""
-    sub = getattr(args, "metric_sub", None)
-    if sub is None:
-        die("usage: wl metric <add|ls|edit|rm> … (see `wl metric --help`)")
-    _SUBS[sub](args, con)
+    return dispatch_group(args, con, "metric_sub",
+        {"add": cmd_metric_add, "ls": cmd_metric_ls, "edit": cmd_metric_edit, "rm": cmd_metric_rm},
+        usage="usage: wl metric <add|ls|edit|rm> … (see `wl metric --help`)")
