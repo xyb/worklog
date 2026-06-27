@@ -116,7 +116,11 @@ def _commands():
     """The set of real subcommand names, so a bare `wl <word>` is colored as a command only
     when <word> actually is one (prose like 'wl maps the tree' stays plain). Lazy + cached."""
     global _COMMANDS
-    if _COMMANDS is None:
+    # HANDLERS is populated by build_parser() (it used to be an import-time literal); recompute
+    # while it's still empty rather than caching an empty set forever — so a call that happens to
+    # land before the parser is built self-heals on the next call instead of permanently losing
+    # command coloring. Once populated (61 fixed names) the frozenset is cached for good.
+    if not _COMMANDS:
         try:
             from ..cli import HANDLERS
             _COMMANDS = frozenset(HANDLERS)

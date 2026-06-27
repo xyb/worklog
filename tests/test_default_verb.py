@@ -4,7 +4,17 @@ default verb; `wl link ls/rm` reach the group; `wl unlink` is the rm shortcut.""
 import sqlite3
 import pytest
 
+from worklog import cli
 from worklog.cli import _expand_default_verb
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _build_registry():
+    """`_DEFAULT_VERB_ENTITIES` is populated by `add_cmd` during build_parser() (the default-verb
+    entry now lives with its group's registration, not in a standalone literal). These unit tests
+    call `_expand_default_verb` directly, so build the parser ONCE for the module to populate the
+    table — in real use build_parser() always runs before any parse triggers the expansion."""
+    cli.build_parser()
 
 
 class TestExpandDefaultVerb:

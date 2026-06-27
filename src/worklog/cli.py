@@ -355,16 +355,10 @@ def _args_unlog(p):
 # Some entity groups share a name with the old leaf command (link / sched / log / tag).
 # To keep the legacy leaf form working (`wl link 42 doc`) while adding `wl link add/ls/rm`,
 # we insert the group's *default verb* when the token after the entity isn't a known verb.
-# entity -> (default_verb, {known sub-verbs})
-_DEFAULT_VERB_ENTITIES = {
-    "link": ("add", frozenset(("add", "ls", "rm"))),
-    "tag": ("add", frozenset(("add", "ls", "rm"))),
-    "log": ("add", frozenset(("add", "ls", "edit", "rm", "show"))),
-    "sched": ("add", frozenset(("add", "ls", "rm"))),
-    "agent": ("set", frozenset(("set", "ls", "rm", "context"))),
-    # goal's default form writes/reads TODAY's goal (text, not an int id); set/ls/rm reach any node
-    "goal": ("today", frozenset(("today", "set", "ls", "rm"))),
-}
+# entity -> (default_verb, {known sub-verbs}). DERIVED: each group's add_cmd(..., default_verb=…)
+# populates this during build_parser(); empty until then (only read at parse time / completion, both
+# after build_parser). The single source is the group's own add_cmd call, not a separate table here.
+_DEFAULT_VERB_ENTITIES = {}
 # global flags that consume the next token as their value (skip it when locating the subcommand)
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format", "--width", "--title", "-o", "--output"))
 # global store_true flags (no value token)
@@ -498,12 +492,38 @@ class _WlParser(argparse.ArgumentParser):
         return colorize_help(super().format_help())
 
 
+def add_cmd(subparsers, name, handler, *, parents=(), default_verb=None, **kw):
+    """Register ONE top-level command at a single call site — the source for its parser, its handler
+    (→ the derived HANDLERS), and its default-verb entry (→ _DEFAULT_VERB_ENTITIES). Replaces the
+    old split where the name lived in BOTH `sub.add_parser("x", …)` and `HANDLERS["x"]=cmd_x` (drift:
+    a name in one but not the other was a silent bug). `formatter_class` defaults to _WlHelpFormatter
+    (every command wants it); `parents` passes straight through (commands combine filters / window /
+    embed_parent / output_parent, so it's a list, not a bool). Mutates the module dicts in place — by
+    the time build_parser() returns they're fully populated, before any parse / dispatch reads them.
+    Returns the parser so the caller can still `.add_argument(...)` / nest subparsers."""
+    kw.setdefault("formatter_class", _WlHelpFormatter)
+    if parents:
+        kw["parents"] = list(parents)
+    p = subparsers.add_parser(name, **kw)
+    HANDLERS[name] = handler
+    if default_verb is not None:
+        _DEFAULT_VERB_ENTITIES[name] = default_verb
+    return p
+
+
 def build_parser():
     global _USER_ALIASES, _USER_ALIAS_MAP
     if _USER_ALIASES is None:
         _USER_ALIAS_MAP = _user_alias_map()
         _USER_ALIASES = _load_user_aliases(_USER_ALIAS_MAP)
     user_aliases = _USER_ALIASES
+
+    # add_cmd populates HANDLERS / _DEFAULT_VERB_ENTITIES as a side effect below; clear first so each
+    # build is a clean rebuild (a pure function of the current command set), not an accumulation
+    # across repeated build_parser() calls. main() and every parse path call build_parser() before
+    # reading these tables, so they're fully populated by the time anything dispatches.
+    HANDLERS.clear()
+    _DEFAULT_VERB_ENTITIES.clear()
 
     p = _WlParser(
         prog="wl",
@@ -637,9 +657,8 @@ Good to know:
             return getattr(self._sub, k)
     sub = _SubWrapper(_real_sub)
 
-    sub.add_parser("migrate",
+    add_cmd(sub, "migrate", cmd_migrate,
         help="apply pending SQL migrations from migrations/NNNN_*.sql (auto-run on every command; this is the explicit form)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 The DB version is tracked via `PRAGMA user_version`. Every migration in
 `migrations/` is named NNNN_*.sql (numeric prefix sorts the apply order);
@@ -654,9 +673,8 @@ Before applying to an existing DB, the runner snapshots it to a same-dir
 `<db>.pre-v<N>.bak` (N = the version before migrating), so a bad migration
 is recoverable. A fresh init (no data yet) is not backed up.""")
 
-    sub.add_parser("doctor",
+    add_cmd(sub, "doctor", cmd_doctor,
         help="check the node graph for inconsistencies no foreign key prevents (dangling parent, cycles, orphan spokes, dead/one-sided/self relations, date-only log timestamps)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 FK enforcement is off, so the DB can't reject a parent_id pointing at a deleted
 node, a parent cycle, a spoke row (log/tag/...) left behind when its node was
@@ -669,9 +687,8 @@ READ-ONLY — it never changes data; fix what it finds with the normal commands
 (e.g. re-parent a dangling node, re-run `wl relation` to restore symmetry).""")
 
 
-    cfgp = sub.add_parser("config",
+    cfgp = add_cmd(sub, "config", cmd_config,
         help="print resolved configuration: DB path, aliases path, XDG dirs, env vars, embedding",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Shows where worklog reads from and how the runtime is configured (paths, env, embedding backend).
 `wl config init` writes a commented config.ini template you can edit (won't overwrite an existing one).
@@ -684,9 +701,8 @@ Read-only by default — bare `wl config` does not create anything.""")
                "defaults + [synonyms] example, all commented. Edit it, then `wl config` shows the "
                "resolved values. Won't overwrite an existing file.")
 
-    sub.add_parser("init",
+    add_cmd(sub, "init", cmd_init,
         help="initialize SQLite DB (default ~/.local/share/worklog/worklog.db; skips if it exists)",
-        formatter_class=_WlHelpFormatter,
         epilog="""Run once on a fresh machine before using wl.
 
 DB path resolution:
@@ -696,11 +712,10 @@ DB path resolution:
 
 Config (aliases.ini) lives at $XDG_CONFIG_HOME/worklog/aliases.ini (default ~/.config/worklog/aliases.ini).""")
 
-    a = sub.add_parser("add",
+    a = add_cmd(sub, "add", cmd_add,
         parents=[output_parent],
         help="create a new node (task/project/area/meetlog/habit/day...); compound flags let you do add + log + done + sched + link + relation in one shot",
         description="Create a new node (task/project/area/meetlog/habit/day/...). Compound flags support add + log + done + sched + link + relation in one step, replacing several separate commands. Canonical form: `wl node add` (this is the shortcut; see `wl node -h`).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl add "ship the Q3 report"                          # simplest — a task
@@ -717,10 +732,9 @@ More: `wl help add` (fuller intro + key options) · `wl help para` (areas / proj
     # log entity group: add / ls / edit / rm. `add` is the default verb so the
     # everyday `wl log <id> "body"` keeps working; `edit` = wl relog, `rm` = wl unlog
     # (both keep their top-level shortcuts). The rich cross-cutting view stays at `wl logs`.
-    g = sub.add_parser("log",
+    g = add_cmd(sub, "log", cmd_log_group, default_verb=("add", frozenset(("add", "ls", "edit", "rm", "show"))),
         help="log CRUD: add / ls / edit / rm — wl log 42 \"body\" adds (default verb); edit=relog, rm=unlog",
         description="Log-entry CRUD on a node (progress / event stream) — the metric-style entity group. `wl log <id> \"body\"` is the add shortcut (the default verb; auto-progresses TODO->DOING unless --keep-status). `wl relog` = `log edit`, `wl unlog` = `log rm`. The full filterable stream view is `wl logs`.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl log 42 "result: PR#13 merged"               # progress now (add, the default verb)
@@ -757,11 +771,10 @@ More: `wl help log` (vs `wl tick` habit check-in / `wl logs` filterable stream).
   wl log rm --node 39                 # delete the latest log for #39 today
   wl log rm --node 39 --all           # delete all of #39's logs that day"""))
 
-    d = sub.add_parser("done",
+    d = add_cmd(sub, "done", cmd_done,
         parents=[output_parent],
         help="mark node DONE + closed_at (multiple ids; --log/--at for one-shot log+done)",
         description="Mark node as DONE and write closed_at. Accepts multiple ids. --log/--at combines log + close + timestamp in one step (replaces wl log -> wl done two-step).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl done 42                                  # mark done
@@ -776,10 +789,9 @@ Inverse of wl reopen (undo DONE back to TODO).""")
     d.add_argument("--log", "-m", help="add a log (result / output / numbers) right before closing")
     d.add_argument("--at", help="closed_at + log use this timestamp (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
 
-    df = sub.add_parser("defer",
+    df = add_cmd(sub, "defer", cmd_defer,
         parents=[output_parent],
         help="defer a task to a future point (LATER + scheduled_date; fuzzy times supported)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl defer 42 someday        # no committed time, just "later"
@@ -792,10 +804,9 @@ More: `wl help defer`.""")
     df.add_argument("id", type=int, help="node id to defer")
     df.add_argument("date", help="scheduled time (precise or fuzzy): YYYY-MM-DD / YYYY-MM / YYYY-Www / YYYY-Qn / YYYY / someday / tomorrow / next-week / next-month / next-quarter")
 
-    s = sub.add_parser("start",
+    s = add_cmd(sub, "start", cmd_start,
         parents=[output_parent],
         help="clock-in to start timing (batch ids; --at to backfill past time)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl start 42                       # start timing now (opens a clock interval)
@@ -807,10 +818,9 @@ Related: close with wl stop <id>; see what's running via wl active; wl spent rec
     s.add_argument("ids", type=int, nargs="+", help="node id(s)")
     s.add_argument("--at", help="backfill start time: HH:MM (today) / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
 
-    st = sub.add_parser("stop",
+    st = add_cmd(sub, "stop", cmd_stop,
         parents=[output_parent],
         help="clock-out to stop timing + compute elapsed (multiple ids; --at to backfill past end)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl stop 42                            # stop now, close the interval (elapsed=Nmin)
@@ -822,10 +832,9 @@ Difference from wl spent: stop closes a prior open clock; spent creates a closed
     st.add_argument("ids", type=int, nargs="+", help="node id(s)")
     st.add_argument("--at", help="backfill end time (must be later than the clock start)")
 
-    sp = sub.add_parser("spent",
+    sp = add_cmd(sub, "spent", cmd_spent,
         parents=[output_parent],
         help="record a past time spent (build a clock interval from a duration, good for retrospective entries)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl spent 42 45               # 45 minutes (start = NOW - 45m, stop = NOW)
@@ -839,11 +848,10 @@ Difference from wl start/stop: spent builds a closed clock interval from a durat
     sp.add_argument("duration", help="duration: 90 / 90m / 1h30m / 2h")
     sp.add_argument("--at", help="end timestamp (default NOW); start = at - duration")
 
-    ac = sub.add_parser("active",
+    ac = add_cmd(sub, "active", cmd_active,
         parents=[output_parent],
         help="tasks running right now (open clock) + today's elapsed + latest log",
         description="List tasks that are timing right now (an open clock interval). Shows current session elapsed, today's total, and the most recent log. Good for live focus check and finding tasks you forgot to stop.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl active           # tasks timing now (session elapsed + today's total + latest log)
@@ -854,10 +862,9 @@ Close a forgotten timer with `wl stop <id>`.
 More: `wl help active` (vs `wl day` full-day review).""")
     # ac has no other flags but we keep the variable for future args (e.g. --since to look at past activity)
 
-    wa = sub.add_parser("wait",
+    wa = add_cmd(sub, "wait", cmd_wait,
         parents=[output_parent],
         help="mark WAIT (blocked on others / external input); auto-closes the clock; multiple ids",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl wait 42                            # mark WAIT (suspended)
@@ -868,10 +875,9 @@ Note: marking WAIT auto-closes any open clock (WAIT = suspended, no longer timin
     wa.add_argument("ids", type=int, nargs="+", help="node id(s)")
     wa.add_argument("-n", "--note", help="add a log explaining what you're waiting on")
 
-    ro = sub.add_parser("reopen",
+    ro = add_cmd(sub, "reopen", cmd_reopen,
         parents=[output_parent],
         help="undo DONE/CANCELED/WAIT/LATER back to TODO + clear closed_at (multiple ids)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl reopen 42         # single id
@@ -880,10 +886,9 @@ Common examples:
 Inverse of wl done/cancel. Use when you change your mind and want to restart a task.""")
     ro.add_argument("ids", type=int, nargs="+", help="node id(s)")
 
-    cx = sub.add_parser("cancel",
+    cx = add_cmd(sub, "cancel", cmd_cancel,
         parents=[output_parent],
         help="mark CANCELED + closed_at (drop / no-longer-doing; parallel to done); --log/--at supported",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl cancel 42                        # drop it
@@ -898,10 +903,9 @@ Difference from wl wait: wait = paused (still planning to do); cancel = not doin
 
     # link entity group: add / ls / rm with a default verb of `add`, so the
     # legacy `wl link 42 doc` still works (the parser expands it to `wl link add 42 doc`).
-    ln = sub.add_parser("link",
+    ln = add_cmd(sub, "link", cmd_link_group, default_verb=("add", frozenset(("add", "ls", "rm"))),
         help="link CRUD: add / ls / rm — wl link 42 doc adds (default verb), wl unlink = rm",
         description="Vault-doc link CRUD — the metric-style entity group. `wl link <id…> <doc>` is the add shortcut (the default verb); `wl unlink` is the rm shortcut.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl link 42 "Project hub doc"          # link (add — the default verb)
@@ -916,11 +920,10 @@ More: `wl help link`.""")
     _lnls.add_argument("id", type=int)
     _args_link(_lnsub.add_parser("rm", parents=[output_parent], help="remove a vault-doc link (= wl unlink)"))
 
-    ul = sub.add_parser("unlink",
+    ul = add_cmd(sub, "unlink", cmd_unlink,
         parents=[output_parent],
         help="remove one vault-doc link from a node (= wl link rm)",
         description="Remove one vault-doc link from a node (symmetric with link add). Canonical form: `wl link rm` (this is the shortcut; see `wl link -h`).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
   wl unlink 42 "Project hub doc"        # remove that one link from #42
   wl unlink 42 43 "shared topic"        # from multiple ids at once
@@ -929,11 +932,10 @@ Removes a single link; the rest of the node's links are untouched (unlike cleari
 them all). No-op with a notice if that link wasn't present.""")
     _args_link(ul)
 
-    rel = sub.add_parser("relation",
+    rel = add_cmd(sub, "relation", cmd_relation,
         parents=[output_parent],
         help="task↔task relations: split-from / split-into / related (writes both sides)",
         description="Record or list relations between tasks — split-from / split-into / related — stored as relation.* props (comma-separated id lists). Distinct from ancestors (the parent/child hierarchy): relations express derivation / association across the tree. Adding writes BOTH sides (split-from on A also sets split-into on B; related is symmetric); the view also derives the reverse from other nodes, so it always reads bidirectionally.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl relation 42                        # list #42's relations
@@ -954,11 +956,10 @@ More: `wl help relation`.""")
         help="the related node id(s)")
     rel.add_argument("--rm", action="store_true", help="remove the relation (from both sides)")
 
-    se = sub.add_parser("set",
+    se = add_cmd(sub, "set", cmd_set,
         parents=[output_parent],
         help="set a value on a node — key-routed shortcut: a prop (= wl prop set) or goal/summary (= wl goal set)",
         description="Set a value on a node — a key-routed shortcut. The key goal or summary routes to `wl goal set` (history-preserving reserved-tag log); any other key routes to `wl prop set` (static single-value UDA prop). So `wl set` is to `prop set` / `goal set` what `wl add` is to `node add`.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl set 42 owner xyb                  # a prop (static single-value; = wl prop set)
@@ -971,10 +972,9 @@ More: `wl help set`.""")
     _args_prop_set(se)
 
     # prop entity group: set / ls / rm. `set` → wl set shortcut; `rm` → wl unset.
-    pr = sub.add_parser("prop",
+    pr = add_cmd(sub, "prop", cmd_prop,
         help="prop (UDA) CRUD: set / ls / rm (set has the top-level shortcut wl set; rm = wl unset)",
         description="Custom key=value prop (UDA) CRUD — the metric-style entity group. goal/summary (reserved-tag logs) and real tags are NOT props (use wl goal/recap and wl tag).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Shortcuts: set → `wl set`, rm → `wl unset` (same handlers); `ls` has none (props also show
 inline in `wl show`).
@@ -992,11 +992,10 @@ More: `wl help prop`.""")
     _args_prop_rm(_prsub.add_parser("rm", parents=[output_parent], help="remove a prop (= wl unset)",
         description="Remove a UDA prop (soft-delete the row). Also: the top-level shortcut `wl unset`."))
 
-    ag = sub.add_parser("agent",
+    ag = add_cmd(sub, "agent", cmd_agent, default_verb=("set", frozenset(("set", "ls", "rm", "context"))),
         parents=[output_parent],
         help="bind the current AI agent session to a task: wl agent <id> (set) / wl agent (show) / wl agent ls / wl agent rm",
         description="Bind the current AI agent session to a node so the agent knows which task it's on and the status line / hook context can surface it. Stored as an `agent_session.<agent>` prop on the node (agent = claude / cursor / codex / …, from $WL_AGENT or --agent, default claude) — no new table. `wl agent <id>` is the set shortcut (default verb).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl agent 42             # bind this session to task #42 (default verb: set) — records history
@@ -1040,11 +1039,10 @@ More: `wl help agent`.""")
     _agctx.add_argument("--hook", action="store_true",
         help="emit a ready-to-print Claude Code UserPromptSubmit JSON payload instead (so a hook needs no jq)")
 
-    us = sub.add_parser("unset",
+    us = add_cmd(sub, "unset", cmd_prop_rm,
         parents=[output_parent],
         help="remove a value from a node — key-routed: a prop (= wl prop rm) or goal/summary (= wl goal rm)",
         description="Remove a value from a node — the delete counterpart of `wl set`, key-routed the same way: the key goal or summary clears that reserved-tag log (= `wl goal rm`); any other key removes a UDA prop (= `wl prop rm`).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl unset 42 owner                   # remove the 'owner' prop (= wl prop rm)
@@ -1054,10 +1052,9 @@ Key-routed like `wl set`: goal/summary → that reserved-tag log, any other key 
     _args_prop_rm(us)
 
     # clock entity group: ls / edit / rm. Create stays start/stop/spent.
-    ck = sub.add_parser("clock",
+    ck = add_cmd(sub, "clock", cmd_clock,
         help="clock-interval CRUD: ls / edit / rm (create with start / stop / spent)",
         description="Time-tracking interval CRUD — the metric-style entity group. Intervals are CREATED by the composite helpers `wl start` / `wl stop` / `wl spent`; this group lists, edits and removes them.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl clock ls 42                      # list #42's time intervals
@@ -1080,10 +1077,9 @@ Create intervals with the composite helpers:
     # tag entity group: add / ls / rm. `add` is the default verb so the everyday
     # `wl tag <id> +x -y` keeps working (full +add / -remove / bare-add / empty-list grammar);
     # `ls` lists, `rm` removes. Update is atomic (add/remove), so there is no `edit` verb.
-    tg = sub.add_parser("tag",
+    tg = add_cmd(sub, "tag", cmd_tag_group, default_verb=("add", frozenset(("add", "ls", "rm"))),
         help="tag CRUD: add / ls / rm — wl tag 42 +work -planned adds/removes (default verb add)",
         description="Real-tag CRUD on a node (the tag table; drives work/personal bucketing & grouping) — the metric-style entity group. `wl tag <id> …` is the add shortcut (the default verb) and keeps the full +add / -remove / bare-add / empty-list grammar. Distinct from `wl set <id> tags …`, which would create a shadow 'tags' prop.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl tag 42 +work +P0        # add tags (default verb; bare word also adds)
@@ -1108,10 +1104,9 @@ More: `wl help tag`.""")
     _tgr.add_argument("tags", nargs="+", metavar="tag",
                       help="tag name(s) to remove (plain name; to use a - prefix use wl tag <id> -tag)")
 
-    sh = sub.add_parser("show", parents=[output_parent],
+    sh = add_cmd(sub, "show", cmd_show, parents=[output_parent],
         help="full detail + timeline for a node (accepts multiple ids)",
         description="All info on a node: metadata (status/priority/parents/tags/links/props) + timeline (created/scheduled/closed/log merged by time). Timeline defaults to the last 5; use --all-timelines for full expansion. `-o json` for the full machine-readable node. Canonical form: `wl node show` (this is the shortcut; see `wl node -h`).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl show 42                   # full detail + last 5 timeline entries
@@ -1125,10 +1120,9 @@ More: `wl help show` (vs `wl focus` up/down context / `wl logs --id` log stream 
     # node entity group: the metric-style `wl node <verb>` primitive CRUD.
     # The top-level add/ls/show are the high-frequency shortcuts onto the same handlers;
     # edit/rm/reparent are the field-edit / soft-delete / move primitives.
-    nd = sub.add_parser("node",
+    nd = add_cmd(sub, "node", cmd_node,
         help="node primitive CRUD: add / ls / show / edit / rm / reparent (add/ls/show also have top-level shortcuts)",
         description="Node CRUD primitives — the metric-style entity group. `wl add` / `wl ls` / `wl show` are the high-frequency shortcuts onto the same handlers; `node edit` / `node rm` / `node reparent` are the field-edit / soft-delete / move primitives.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Shortcuts: add → `wl add`, ls → `wl ls`, show → `wl show` (same handlers); edit / rm /
 reparent have no top-level shortcut — call them under `node`.
@@ -1162,10 +1156,9 @@ More: `wl help node`.""")
     _ndrp.add_argument("id", type=int)
     _ndrp.add_argument("parent", help="new parent node id, or 'none'/'root' to detach to the top level")
 
-    ls = sub.add_parser("ls", parents=[filters, output_parent],
+    ls = add_cmd(sub, "ls", cmd_ls, parents=[filters, output_parent],
                         help="list nodes (default limit 20; see shell ls -t / -S / -r-style dimensions)",
                         description="List nodes (multi-dimensional, shell-ls style). Canonical form: `wl node ls` (this is the shortcut; see `wl node -h`).",
-                        formatter_class=_WlHelpFormatter,
                         epilog="""\
 Common examples (shell-ls multi-dimensional):
   wl ls --parent 45                  direct children of #45 (one level, like ls dir/)
@@ -1180,10 +1173,9 @@ Common examples (shell-ls multi-dimensional):
 More: `wl help ls` · sharper entry points: wl find <q> / wl day / wl active / wl projects.""")
     _args_node_ls(ls)
 
-    tr = sub.add_parser("tree", parents=[filters, output_parent],
+    tr = add_cmd(sub, "tree", cmd_tree, parents=[filters, output_parent],
         help="tree view of nodes (default: timeline up to today + areas one level, ~30 rows)",
         description="Tree view of nodes. Default: timeline expanded up to today (year -> quarter -> month -> week -> today + today's tasks) + areas one level, ~30 rows to avoid scrolling. Use --root <id> to drill into a node.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl tree                      # default overview (timeline to today + areas)
@@ -1204,10 +1196,9 @@ More: `wl help tree` (vs `wl ls` flat list / `wl day` single day / `wl projects`
     tr.add_argument("--all-logs", action="store_true",
                     help="full log expansion in day-node activities, no elision")
 
-    fo = sub.add_parser("focus",
+    fo = add_cmd(sub, "focus", cmd_focus,
         parents=[output_parent],
         help="focus on a node: upstream path + self + downstream subtree",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl focus 42                    # upstream path + self + direct children
@@ -1219,24 +1210,21 @@ Related: wl show is self + timeline only; wl ancestors/descendants only go one d
     fo.add_argument("--depth", type=int, help="max downstream depth")
     fo.add_argument("--related", action="store_true", help="also show tag-related nodes")
 
-    an = sub.add_parser("ancestors",
+    an = add_cmd(sub, "ancestors", cmd_ancestors,
         parents=[output_parent],
         help="upstream path: ancestor chain from root to the node",
-        formatter_class=_WlHelpFormatter,
         epilog="Example: wl ancestors 42 -> Lifetime / Area / Project / Task. Inverse: wl descendants for the downstream subtree.")
     an.add_argument("id", type=int, help="node id")
 
-    de = sub.add_parser("descendants",
+    de = add_cmd(sub, "descendants", cmd_descendants,
         parents=[output_parent],
         help="downstream subtree: all descendants of a node",
-        formatter_class=_WlHelpFormatter,
         epilog="Example: wl descendants 7 --depth 2 -> two levels of children under #7. wl tree --root 7 is equivalent but rendered as a tree.")
     de.add_argument("id", type=int, help="node id")
     de.add_argument("--depth", type=int, help="max depth")
 
-    ag = sub.add_parser("agenda", parents=[filters, output_parent],
+    ag = add_cmd(sub, "agenda", cmd_agenda, parents=[filters, output_parent],
         help="cross-time-range scheduling overview: everything scheduled in [start, end]",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Lists every node scheduled within the range, across all granularities (a task pinned
 at @2026-06 month-level or @2026-W23 week-level shows up alongside exact days), ordered
@@ -1251,10 +1239,9 @@ tree view misses month/week/someday-pinned items.
     ag.add_argument("--someday", action="store_true", help="also list someday / fuzzy-scheduled nodes at the end")
     ag.add_argument("--all", action="store_true", help="include DONE/CANCELED (default hides terminal-status)")
 
-    pj = sub.add_parser("projects", parents=[window, output_parent],
+    pj = add_cmd(sub, "projects", cmd_projects, parents=[window, output_parent],
         help="list active projects + subtask counts + recent activity",
         description="List all active projects (type.para=project, status not DONE/CANCELED) with subtask counts + last log time. --since filters to projects with activity after that date.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl projects                         # all active projects (cards: subtask counts + activity)
@@ -1268,10 +1255,9 @@ More: `wl help projects` (vs `wl tree --by project` / `wl ls --para project`).""
     pj.add_argument("--top", type=int, metavar="N",
                     help="top N by priority+id (semantics: high-priority active projects)")
 
-    sub.add_parser("changes", parents=[window, output_parent],
+    add_cmd(sub, "changes", cmd_changes, parents=[window, output_parent],
         help="per-project changes in a time window (added / done / log counts)",
         description="What happened to each project in a time window: tasks added, tasks closed, new log count. Good input for weekly reports and Linear updates.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl changes --week 2026-W22          # this week's changes (per-project)
@@ -1282,10 +1268,9 @@ Weekly/Linear-update input: added / closed / log counts per project.
 
 More: `wl help changes` (vs `wl summary` state snapshot / `wl projects` cards).""")
 
-    sm = sub.add_parser("summary", parents=[window, output_parent],
+    sm = add_cmd(sub, "summary", cmd_summary, parents=[window, output_parent],
         help="time-window aggregate: done/doing/added counts + grouped by project or day",
         description="Snapshot of current state distribution in a time window: counts of done / doing / added, grouped by project (default) or day. First-pass material for weekly / monthly reports.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl summary --week 2026-W22             # this week (by project)
@@ -1302,10 +1287,9 @@ More: `wl help summary` (vs `wl changes` deltas / `wl day` single day).""")
     sm.add_argument("--no-dedup", action="store_true",
                     help="no dedup: a task across multiple projects is repeated in each bucket (old behavior)")
 
-    dy = sub.add_parser("day", parents=[filters, output_parent],
+    dy = add_cmd(sub, "day", cmd_day, parents=[filters, output_parent],
         help="full view of a day (default today): bucket -> project/plan -> task -> log",
         description="Full view of one day: work/personal/other -> (planned/unplanned/project/priority) -> task -> indented logs. The header states the day's nature (workday / weekend, refined to holiday / leave / makeup by a `wl dateinfo` label). Top shows end-of-day summary + today's goal + the week's & month's goal (if set). Defaults to log-date-driven (works for past days too).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl day                       # today
@@ -1328,11 +1312,10 @@ More: `wl help day` · `wl help planning` (the optional per-level planning caden
     dy.add_argument("--all-logs", action="store_true",
                     help="full log expansion, no elision (overrides default tail=3)")
 
-    g = sub.add_parser("goal",
+    g = add_cmd(sub, "goal", cmd_goal_group, default_verb=("today", frozenset(("today", "set", "ls", "rm"))),
         parents=[output_parent],
         help="goal CRUD: read/write a node's goal — what you aim to deliver (history-preserving)",
         description="Read or write a goal — a short statement of what you aim to deliver. Bare `wl goal` reads/writes TODAY's goal (the default form, auto-creates today's day node); `wl goal set/ls/rm <node>` reach any node (day / week / month / year — the level is the node's type). Stored as a `goal` log (history-preserving: each write appends, the latest is current). `wl day` shows today's at the top. A goal can carry trailing node ids — its target nodes, in priority order — stored as `goal` metrics so the link is structured, not parsed from the prose.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl goal "ship the Q3 report draft"     # write today's goal
@@ -1370,11 +1353,10 @@ Planning rhythm (all optional, all history-preserving):
     _grm.add_argument("id", type=int)
     _grm.add_argument("--summary", action="store_true", help="clear the summary instead of the goal")
 
-    rc = sub.add_parser("recap",
+    rc = add_cmd(sub, "recap", cmd_summary_prop,
         parents=[output_parent],
         help="read/write a day's end-of-day summary — what actually happened (history-preserving)",
         description="Read or write a day's end-of-day summary — a short reflection on what actually happened. Stored as the day node's `summary` reserved-tag log (history-preserving); the write time is recorded so `wl day` can warn if you log more after recapping. The evening counterpart to `wl goal`.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl recap "shipped the draft; blocked on review"   # write today's summary
@@ -1390,9 +1372,8 @@ counterpart; week/month goals are `wl goal set <week>` / `<month> "..." …ids`.
     rc.add_argument("--diff", action="store_true",
                     help="list the plain-note logs added that day AFTER the recap was written (what `wl day`'s '⚠ N change(s) after recap' counts; excludes checkin/metric noise) — judge if a rewrite is warranted")
 
-    tk = sub.add_parser("tick",
+    tk = add_cmd(sub, "tick", cmd_tick,
         help="quick check-in: add a log to each node today (batch habit check-in)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl tick 39                          # default body "✓ done"
@@ -1406,10 +1387,9 @@ For interactive habit batch review, use wl checkin (interactive multi-select).""
     tk.add_argument("-n", "--note", help="custom log body (default '✓ done')")
     tk.add_argument("--done", action="store_true", help="also mark DONE")
 
-    ul = sub.add_parser("unlog",
+    ul = add_cmd(sub, "unlog", cmd_unlog,
         help="delete a log entry: #L<id> exact / --node delete latest that day (undo tick)",
         description="Delete a log entry (soft-delete). Canonical form: `wl log rm` (this is the shortcut; see `wl log -h`).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl unlog #L282                      # exact delete by log id
@@ -1423,10 +1403,9 @@ Find a log id: wl show <node_id> or wl logs --id <node_id> displays #L<id> in th
 Edit a mistyped log with wl relog #L<id> instead. (Timing lives in the clock table, not logs — fix a clock with wl stop --at.)""")
     _args_unlog(ul)
 
-    rl = sub.add_parser("relog",
+    rl = add_cmd(sub, "relog", cmd_relog,
         help="rewrite a log: new body / new time / editor",
         description="Rewrite an existing log's body or timestamp. Canonical form: `wl log edit` (this is the shortcut; see `wl log -h`).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl relog #L282 "fixed content"     # change body
@@ -1439,10 +1418,9 @@ Timing lives in the clock table, not logs — to fix a clock interval use wl sto
 Cannot move a log across nodes (that's unlog + log).""")
     _args_relog(rl)
 
-    rt = sub.add_parser("retag",
+    rt = add_cmd(sub, "retag", cmd_retag,
         help="change one log's tag (goal / summary / custom; `note` clears to a plain note)",
         description="Change a single log's `tag` directly — the tag classifies a log's role (goal / summary / a custom marker); a plain note has no tag. `note` / `none` / `-` / empty clears it back to a plain note.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
   wl retag #L282 goal      # mark this log as a goal
   wl retag #L282 summary   # ... or a summary
@@ -1451,13 +1429,12 @@ Cannot move a log across nodes (that's unlog + log).""")
     rt.add_argument("tag", help="new tag (goal / summary / a custom marker; `note` clears it)")
 
     # ── metric: structured datapoints on a log (node → log → metric) ──
-    mt = sub.add_parser("metric",
+    mt = add_cmd(sub, "metric", cmd_metric,
         help="structured datapoints (check-in / number / measurement): add/ls/edit/rm",
         description="CRUD for metrics — structured datapoints that hang off a log "
                     "(node → log → metric). A metric has a `tag` (what it is: glucose / "
                     "pullups / checkin …), an optional numeric or text value + unit, a note, "
                     "and a timestamp.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl metric add 42 glucose 5.4 --unit mmol/L     # a numeric datapoint on node #42
@@ -1504,9 +1481,8 @@ A metric must hang off a log; without --on-log a (possibly empty-body) carrier l
     _mr = _msub.add_parser("rm", parents=[output_parent], help="delete one or more metrics")
     _mr.add_argument("metric_ids", type=_metric_id_arg, nargs="+", help="metric id(s) (#M7 / M7 / 7)")
 
-    ci = sub.add_parser("checkin",
+    ci = add_cmd(sub, "checkin", cmd_checkin,
         help="interactive check-in of today's habits (default multi-select arrows / space / Enter)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl checkin                          # default multi-select (arrows / space / Enter)
@@ -1524,10 +1500,9 @@ For single habit check-in, use wl tick <id>.""")
     # `wl sched <id> <when>` / `wl sched <id> --clear` keep working (full when / --recur /
     # --clear / list-when-empty grammar via cmd_sched); `ls` lists, `rm` clears. `wl defer`
     # (status=LATER + rough hint) stays its own composite command.
-    sc = sub.add_parser("sched",
+    sc = add_cmd(sub, "sched", cmd_sched_group, default_verb=("add", frozenset(("add", "ls", "rm"))),
         help="sched CRUD: add / ls / rm — wl sched 42 2026-06-15 schedules (default verb add); drives wl day 'planned'",
         description="Forward-planning CRUD — schedule a task to a day / recurring rule (drives wl day 'planned') — the metric-style entity group. `wl sched <id> <when>` is the add shortcut (the default verb) and keeps the full when / --recur / --clear / list-when-empty grammar. Distinct from `wl defer` (status=LATER + rough hint).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl sched 42 2026-06-15       # a specific day (today / tomorrow short forms too)
@@ -1552,10 +1527,9 @@ More: `wl help sched` (the full recurring-rule grammar).""")
     _scr = _scsub.add_parser("rm", parents=[output_parent], help="clear a node's schedule entries (= wl sched <id> --clear)")
     _scr.add_argument("id", type=int)
 
-    di = sub.add_parser("dateinfo",
+    di = add_cmd(sub, "dateinfo", cmd_dateinfo,
         help="date metadata (holiday/vacation/working-day swap; shown in wl day header)",
         description="Date metadata (holiday / vacation / working-day-swap label; shown in the wl day header) — the polymorphic everyday shortcut over the date_meta table. The explicit metric-style form is the `wl date set / ls / rm / import` group (see `wl date -h`).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl dateinfo 2026-05-01 "Labor Day"        # single entry  (= wl date set)
@@ -1573,10 +1547,9 @@ Explicit verbs: wl date set/ls/rm/import (same date_meta table; see `wl date -h`
 
     # date entity group: set / ls / rm / import. A clean group — `date` doesn't
     # collide with any leaf, so no default verb. `wl dateinfo` is the polymorphic shortcut.
-    dt = sub.add_parser("date",
+    dt = add_cmd(sub, "date", cmd_date_group,
         help="date-metadata CRUD: set / ls / rm / import (polymorphic shortcut: wl dateinfo)",
         description="Date-metadata CRUD (holiday / vacation / working-day-swap label, shown in the wl day header) — the metric-style entity group. The everyday polymorphic shortcut is `wl dateinfo` (set when a label is given, list when not, --clear / --import variants).",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Shortcut (same date_meta table):
   wl dateinfo …            polymorphic everyday form (= these verbs auto-dispatched)
@@ -1600,10 +1573,9 @@ Common examples:
     # are managed via `wl goal set/ls/rm` and the bare `wl goal` / `wl recap` shortcuts.)
 
     # alias command: manage ~/.config/worklog/aliases.ini (wired into the parser at startup)
-    al = sub.add_parser("alias",
+    al = add_cmd(sub, "alias", cmd_alias,
         help="manage command aliases: add / ls / rm (e.g. wl alias add w \"day -t work\" → wl w)",
         description="Manage command aliases stored in ~/.config/worklog/aliases.ini. An alias maps a short name to a wl command, optionally WITH arguments — `wl alias add w \"day -t work\"` makes `wl w` == `wl day -t work` (extra args you type are appended); `wl alias add d day` makes `wl d` == `wl day`. Aliases are wired in at startup, so a change takes effect on the NEXT wl invocation.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
   wl alias add d day            # wl d == wl day (next run)
   wl alias add w "day -t work"  # wl w == wl day -t work (quote a target with args)
@@ -1620,9 +1592,8 @@ Args you type after the alias are appended (`wl w 2026-06-08` → `wl day -t wor
     _alsub.add_parser("ls", help="list configured aliases")
     _alsub.add_parser("rm", help="remove an alias").add_argument("name", help="alias name to remove")
 
-    im = sub.add_parser("import",
+    im = add_cmd(sub, "import", cmd_import,
         help="bulk load from JSON ({add:[...],update:[...]}; main AI integration path)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl import data.json             # load a {"add":[...],"update":[...]} document
@@ -1635,9 +1606,8 @@ More: `wl help import` (the full JSON shape).""")
     im.add_argument("file", help="JSON file path, or - for stdin")
     im.add_argument("--dry-run", action="store_true", help="preview without writing")
 
-    ap = sub.add_parser("apply",
+    ap = add_cmd(sub, "apply", cmd_apply,
         help="apply wl-diff lightweight bulk changes (+add/~update/-delete/ anchor; same format as wl output)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl apply diff.txt              # apply a wl-diff (+add / ~update / -delete; mirrors wl output)
@@ -1650,11 +1620,10 @@ More: `wl help apply` (the full wl-diff format).""")
     ap.add_argument("file", help="wl-diff file path, or - for stdin")
     ap.add_argument("--dry-run", action="store_true", help="validate + preview without writing")
 
-    fd = sub.add_parser("find",
+    fd = add_cmd(sub, "find", cmd_find,
         parents=[output_parent],
         help="full-text search nodes (title/body/log/tag/prop/link, any match)",
         description="Full-text search across fields: title/body/log/tag/prop/link, any match returns. Default limit 20; --all removes it.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl find skill                       # default limit 20 (--all / --limit N to adjust)
@@ -1681,9 +1650,8 @@ More: `wl help find` (vs `wl ls --tag` precise filter / `wl ls --recent` by time
     embed_parent.add_argument("--query-prompt", dest="query_prompt",
         help="query template ({query} placeholder; pass '' to disable) — overrides config/env")
 
-    rx = sub.add_parser("reindex", parents=[embed_parent],
+    rx = add_cmd(sub, "reindex", cmd_reindex, parents=[embed_parent],
         help="build/update the semantic search index (incremental by default)",
-        formatter_class=_WlHelpFormatter,
         description="Embed live nodes (title+body+logs+tags) via the configured embedding server "
                     "and store the vectors in a sidecar store. Default = incremental: only "
                     "new/changed nodes are re-embedded and deleted ones are evicted. On first run "
@@ -1705,9 +1673,8 @@ More: `wl query` to search; configure the backend in config.ini [embedding] / $W
     rx.add_argument("--auto", action="store_true",
                     help="single-flight background worker: hold a lock (skip if one's running) and loop incremental passes until the index is clean. Spawned automatically after a write when [index] auto_reindex is on")
 
-    qy = sub.add_parser("query", parents=[embed_parent, output_parent],
+    qy = add_cmd(sub, "query", cmd_query, parents=[embed_parent, output_parent],
         help="semantic search: nearest nodes by meaning (vs `find`'s keyword match)",
-        formatter_class=_WlHelpFormatter,
         description="Embed the query and return the nodes whose meaning is closest (cosine), "
                     "finding paraphrases that keyword `find` misses. Needs `wl reindex` first. "
                     "Uses the LanceDB store if installed, else the pure-Python SQLite fallback.",
@@ -1722,9 +1689,8 @@ More: `wl find` for exact keyword/substring; `wl reindex` to (re)build the index
     qy.add_argument("--limit", type=int, metavar="N", default=10, help="max results (default 10)")
     qy.add_argument("--threshold", type=float, metavar="T", help="drop matches with cosine score below T")
 
-    lg = sub.add_parser("logs", parents=[window, filters, output_parent],
+    lg = add_cmd(sub, "logs", cmd_logs, parents=[window, filters, output_parent],
         help="list log entries (default last 7 days; preset today/yesterday/week/recent)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Common examples:
   wl logs today                       # presets: today / yesterday / week / recent
@@ -1757,33 +1723,27 @@ More: `wl help logs` (vs `wl day` structured view / `wl show <id>` single-node t
     lg.add_argument("--limit", type=int, metavar="N",
                     help="show only the first N logs (for non --by-task cases, to prevent flooding)")
 
-    sub.add_parser("types", parents=[output_parent],
+    add_cmd(sub, "types", cmd_types, parents=[output_parent],
         help="list the type.*/date.* classification props in use + counts (raw, grouped by key)",
-        formatter_class=_WlHelpFormatter,
         epilog="The raw classification vocabulary grouped by `type.*`/`date.*` key — each facet shown on its own, so a node shows under every facet it carries. `-o json` for the machine list. Filter by role with `wl ls --para <role>`, or by classification prop with `wl ls --prop type.<x>`.")
 
-    sub.add_parser("tags", parents=[output_parent],
+    add_cmd(sub, "tags", cmd_tags, parents=[output_parent],
         help="list every tag in use + a count of nodes carrying it",
-        formatter_class=_WlHelpFormatter,
         epilog="Cross-node companion to `wl tag <id>`. Most-used first; `-o json` too. List a tag's nodes: `wl ls -t <tag>`.")
-    sub.add_parser("props", parents=[output_parent],
+    add_cmd(sub, "props", cmd_props, parents=[output_parent],
         help="list every prop key in use + a count (namespaces like github.*/linear.* group)",
-        formatter_class=_WlHelpFormatter,
         epilog="Cross-node companion to `wl prop ls <id>`. Alphabetical; `-o json` too. Reverse-query a key: `wl ls --prop <key>`.")
-    sub.add_parser("metrics", parents=[output_parent],
+    add_cmd(sub, "metrics", cmd_metrics, parents=[output_parent],
         help="list every metric tag in use + a count of datapoints",
-        formatter_class=_WlHelpFormatter,
         epilog="Cross-node companion to `wl metric ls <id>`. Most-used first; `-o json` too.")
 
-    sub.add_parser("themes",
+    add_cmd(sub, "themes", cmd_themes,
         help="list all color themes (one-line preview per theme)",
-        formatter_class=_WlHelpFormatter,
         epilog="Switch theme: top-level --theme {auto,dark,light,mono} flag, or export WORKLOG_THEME=...; auto probes terminal background and picks dark/light.")
 
-    hp = sub.add_parser("help",
+    hp = add_cmd(sub, "help", cmd_help,
         help="info-style topic browser: wl help lists topics, wl help <topic> reads one",
         description="Browse the bundled help topics — fuller explanations of commands, concepts, parameters, and workflows than `<command> -h` gives, with 'See also' links. `wl help` shows a short overview; `wl help --all` lists every topic by category; `wl help <topic>` reads one topic.",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Examples:
   wl help                 # short overview + pointer to the full list
@@ -1798,9 +1758,8 @@ per-command reference, `wl help <topic>` is the fuller teaching layer.""")
     hp.add_argument("--all", action="store_true", help="list every help topic by category (the full index)")
     hp.add_argument("--lang", help="help language (default: $WORKLOG_LANG / $LANG, falling back to en)")
 
-    pc = sub.add_parser("print-completion",
+    pc = add_cmd(sub, "print-completion", cmd_print_completion,
         help="dump shell completion script (argparse -> fish/bash/zsh; init-load model)",
-        formatter_class=_WlHelpFormatter,
         epilog="""\
 Usage (write once to your shell rc, then new shells auto-load; stays in sync with code changes):
   # fish: add to ~/.config/fish/config.fish
@@ -1933,69 +1892,12 @@ def cmd_node(args, con):
         usage="usage: wl node <add|ls|show|edit|rm|reparent> … (see `wl node --help`)")
 
 
-HANDLERS = {
-    "config": cmd_config,
-    "migrate": cmd_migrate,
-    "doctor": cmd_doctor,
-    "init": cmd_init,
-    "add": cmd_add,
-    "log": cmd_log_group,
-    "done": cmd_done,
-    "defer": cmd_defer,
-    "start": cmd_start,
-    "stop": cmd_stop,
-    "spent": cmd_spent,
-    "active": cmd_active,
-    "wait": cmd_wait,
-    "reopen": cmd_reopen,
-    "cancel": cmd_cancel,
-    "link": cmd_link_group,
-    "unlink": cmd_unlink,
-    "relation": cmd_relation,
-    "set": cmd_set,
-    "unset": cmd_prop_rm,
-    "tag": cmd_tag_group,
-    "node": cmd_node,
-    "agent": cmd_agent,
-    "prop": cmd_prop,
-    "clock": cmd_clock,
-    "metric": cmd_metric,
-    "show": cmd_show,
-    "ls": cmd_ls,
-    "tree": cmd_tree,
-    "projects": cmd_projects,
-    "types": cmd_types,
-    "tags": cmd_tags,
-    "props": cmd_props,
-    "metrics": cmd_metrics,
-    "changes": cmd_changes,
-    "summary": cmd_summary,
-    "focus": cmd_focus,
-    "ancestors": cmd_ancestors,
-    "descendants": cmd_descendants,
-    "agenda": cmd_agenda,
-    "day": cmd_day,
-    "goal": cmd_goal_group,
-    "recap": cmd_summary_prop,
-    "tick": cmd_tick,
-    "unlog": cmd_unlog,
-    "relog": cmd_relog,
-    "retag": cmd_retag,
-    "checkin": cmd_checkin,
-    "sched": cmd_sched_group,
-    "dateinfo": cmd_dateinfo,
-    "date": cmd_date_group,
-    "alias": cmd_alias,
-    "import": cmd_import,
-    "apply": cmd_apply,
-    "find": cmd_find,
-    "query": cmd_query,
-    "reindex": cmd_reindex,
-    "logs": cmd_logs,
-    "themes": cmd_themes,
-    "help": cmd_help,
-    "print-completion": cmd_print_completion,
-}
+# DERIVED: each command's add_cmd(name, handler, …) registers here during build_parser();
+# replaces the old hand-maintained literal where a name lived in BOTH the parser and this dict
+# (drift: a name in one but not the other was a silent bug). Mutated in place — main()/tests read
+# it only after build_parser() has run. Aliases are NOT keys here (main() resolves an alias by
+# checking `args.cmd not in HANDLERS` first), matching the prior behaviour.
+HANDLERS = {}
 
 
 def _print_welcome():
