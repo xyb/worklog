@@ -109,3 +109,59 @@ class TestConfigSources:
         code, out, _ = cli("config")
         assert code == 0
         assert "SQLite (pure-Python fallback)" in out
+
+
+class TestAutoReindexEnabled:
+    """`auto_reindex_enabled()`: env var wins, else config.ini `[index] auto_reindex`, else default ON."""
+
+    def _cfg(self, tmp_path, monkeypatch, body=None):
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        if body is not None:
+            d = tmp_path / "worklog"
+            d.mkdir(parents=True, exist_ok=True)
+            (d / "config.ini").write_text(body, encoding="utf-8")
+        from worklog import config
+        return config
+
+    def test_default_on_when_no_env_no_file(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("WORKLOG_AUTO_REINDEX", raising=False)
+        cfg = self._cfg(tmp_path, monkeypatch)
+        assert cfg.auto_reindex_enabled() is True
+
+    @pytest.mark.parametrize("val", ["0", "false", "no", "off", "", "  FALSE  "])
+    def test_env_falsy_disables(self, tmp_path, monkeypatch, val):
+        monkeypatch.setenv("WORKLOG_AUTO_REINDEX", val)
+        cfg = self._cfg(tmp_path, monkeypatch)
+        assert cfg.auto_reindex_enabled() is False
+
+    @pytest.mark.parametrize("val", ["1", "true", "yes", "on", "anything"])
+    def test_env_truthy_enables(self, tmp_path, monkeypatch, val):
+        monkeypatch.setenv("WORKLOG_AUTO_REINDEX", val)
+        cfg = self._cfg(tmp_path, monkeypatch)
+        assert cfg.auto_reindex_enabled() is True
+
+    def test_env_wins_over_config(self, tmp_path, monkeypatch):
+        # config says false, env says on → env wins
+        monkeypatch.setenv("WORKLOG_AUTO_REINDEX", "1")
+        cfg = self._cfg(tmp_path, monkeypatch, "[index]\nauto_reindex = false\n")
+        assert cfg.auto_reindex_enabled() is True
+
+    def test_config_false_disables(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("WORKLOG_AUTO_REINDEX", raising=False)
+        cfg = self._cfg(tmp_path, monkeypatch, "[index]\nauto_reindex = false\n")
+        assert cfg.auto_reindex_enabled() is False
+
+    def test_config_true_enables(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("WORKLOG_AUTO_REINDEX", raising=False)
+        cfg = self._cfg(tmp_path, monkeypatch, "[index]\nauto_reindex = true\n")
+        assert cfg.auto_reindex_enabled() is True
+
+    def test_config_without_index_section_defaults_on(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("WORKLOG_AUTO_REINDEX", raising=False)
+        cfg = self._cfg(tmp_path, monkeypatch, "[embedding]\nbackend = sqlite\n")
+        assert cfg.auto_reindex_enabled() is True
+
+    def test_malformed_config_defaults_on(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("WORKLOG_AUTO_REINDEX", raising=False)
+        cfg = self._cfg(tmp_path, monkeypatch, "this is not = valid ini [[[\n")
+        assert cfg.auto_reindex_enabled() is True

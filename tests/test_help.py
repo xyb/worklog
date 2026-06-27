@@ -58,6 +58,18 @@ class TestHelpCommand:
         assert "everything is a node" in out
         assert "See also:" in out and "status" in out
 
+    def test_see_also_wraps_on_narrow_width(self, cli, monkeypatch):
+        # `types` has 5 see-also links; on a narrow terminal they can't fit one line, so the
+        # See-also row wraps into several aligned rows (the wrapping branch in _render_topic).
+        monkeypatch.setenv("COLUMNS", "24")
+        code, out, _ = cli("help", "types")
+        assert code == 0
+        for link in ("ls", "tree", "projects", "node", "para"):
+            assert link in out
+        # the see-also block spans more than one line at this width
+        see_lines = [ln for ln in out.splitlines() if "\u00b7" in ln or "See also" in ln]
+        assert len(see_lines) >= 2
+
     def test_topic_body_wraps_to_width_on_narrow_terminal(self, cli, monkeypatch):
         # wl help bodies render through the rich console (soft_wrap=True → rich doesn't wrap), so
         # long lines used to overflow to column 0 on a narrow terminal. They now wrap to help_width.
@@ -543,3 +555,28 @@ class TestLsHelpExamples:
         assert "--parent" in ls_parser.epilog
         assert "--unscheduled" in ls_parser.epilog
 
+
+
+class TestRenderBody:
+    """`_render_body` — the restricted-Markdown topic renderer (headings / fenced code / inline)."""
+
+    def _render(self, body, capsys):
+        from worklog.commands import help as H
+        from worklog import render
+        render._init_console("never", None)  # plain output
+        capsys.readouterr()
+        H._render_body(body)
+        return capsys.readouterr().out
+
+    def test_fenced_code_block_dimmed_verbatim(self, capsys, tmp_db):
+        # lines inside ``` … ``` are emitted verbatim (no inline markdown parsing), fences dropped
+        out = self._render("intro\n```\nwl day --since **not-bold**\n```\ndone", capsys)
+        lines = out.splitlines()
+        assert "```" not in out                       # fence lines themselves dropped
+        assert "wl day --since **not-bold**" in lines  # code body verbatim, ** not parsed
+        assert "intro" in out and "done" in out
+
+    def test_heading_and_plain_line(self, capsys, tmp_db):
+        out = self._render("# Title\nplain body line", capsys)
+        assert "Title" in out and "plain body line" in out
+        assert "#" not in out  # ATX heading marker stripped
