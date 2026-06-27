@@ -109,24 +109,19 @@ _MD_INLINE = re.compile(
 )
 
 
-_COMMANDS = None
-
-
 def _commands():
     """The set of real subcommand names, so a bare `wl <word>` is colored as a command only
     when <word> actually is one (prose like 'wl maps the tree' stays plain). Lazy + cached."""
-    global _COMMANDS
-    # HANDLERS is populated by build_parser() (it used to be an import-time literal); recompute
-    # while it's still empty rather than caching an empty set forever — so a call that happens to
-    # land before the parser is built self-heals on the next call instead of permanently losing
-    # command coloring. Once populated (61 fixed names) the frozenset is cached for good.
-    if not _COMMANDS:
-        try:
-            from ..cli import HANDLERS
-            _COMMANDS = frozenset(HANDLERS)
-        except Exception:  # pragma: no cover - cli always importable at runtime
-            _COMMANDS = frozenset()
-    return _COMMANDS
+    # Recompute each call instead of caching: HANDLERS is now populated by build_parser() (it used
+    # to be an import-time literal), so a cache could freeze an empty set (call before any build) or
+    # a PARTIAL set (call mid-build, after HANDLERS.clear() but before the last add_cmd) for the
+    # whole process. frozenset over ~61 names is microseconds and help rendering isn't hot, so the
+    # micro-optimisation isn't worth the staleness risk.
+    try:
+        from ..cli import HANDLERS
+        return frozenset(HANDLERS)
+    except Exception:  # pragma: no cover - cli always importable at runtime
+        return frozenset()
 # `code` → "type" (bright cyan, theme-aware) so it's brighter than the dim body; **bold** →
 # the strong "header" style (plain [bold]=ESC[1m is too faint); *italic* → italic.
 _MD_STYLE = {"`": "type", "**": "header", "*": "italic"}

@@ -9,16 +9,16 @@ behaviour, this asserts the help bytes don't drift.
 The snapshot is normalised across Python versions (argparse renamed the `optional arguments:`
 section header to `options:` in 3.10), so one golden file serves the whole 3.9–3.14 CI matrix.
 
-Regenerate intentionally (same env the test pins: width 100, plain console, no user aliases) with:
+Regenerate intentionally (pins every input the test pins — width 100, color OFF regardless of TTY,
+plain console, no user aliases — and writes through `_norm` so the file is one canonical form
+regardless of interpreter):
 
-    uv run python -c "import json,os,argparse,sys; os.environ['COLUMNS']='120'; \
-        from worklog import cli; cli._init_console('never', None); \
-        cli._USER_ALIASES={}; cli._USER_ALIAS_MAP={}; \
+    uv run python -c "import json,os,argparse; os.environ['COLUMNS']='120'; os.environ['NO_COLOR']='1'; \
+        from worklog import cli; from tests.test_cli_help_golden import _norm; \
+        cli._init_console('never', None); cli._USER_ALIASES={}; cli._USER_ALIAS_MAP={}; \
         p=cli.build_parser(); s=next(a for a in p._actions if isinstance(a,argparse._SubParsersAction)); \
-        h={'__top__':p.format_help()}; h.update({n:sp.format_help() for n,sp in s.choices.items()}); \
+        h={'__top__':_norm(p.format_help())}; h.update({n:_norm(sp.format_help()) for n,sp in s.choices.items()}); \
         open('tests/golden/cli_help.json','w').write(json.dumps(h,ensure_ascii=False,indent=1,sort_keys=True))"
-
-(the test normalises the section header, so regenerating on any 3.9–3.14 interpreter is fine.)
 """
 import argparse
 import json
@@ -52,6 +52,11 @@ def _deterministic_help(monkeypatch):
     (no ANSI), and zero user aliases (the dev's personal ~/.config aliases would otherwise leak
     into sub.choices). Restore the global console afterwards so other tests aren't affected."""
     monkeypatch.setenv("COLUMNS", "120")
+    monkeypatch.setenv("NO_COLOR", "1")  # colorize_help resolves color independently of _CONSOLE,
+                                         # via stdout.isatty() — pin it off so `pytest -s` (real TTY)
+                                         # doesn't bake ANSI into the captured help (same idiom as
+                                         # test_help.py); the byte-identical guard mustn't rest on
+                                         # pytest's stdout capture being non-TTY by accident.
     monkeypatch.setattr(cli, "_USER_ALIASES", {})
     monkeypatch.setattr(cli, "_USER_ALIAS_MAP", {})
     saved = render._CONSOLE
@@ -73,13 +78,18 @@ def test_command_help_matches_golden(_deterministic_help):
 
 
 def test_handlers_match_parser_choices(_deterministic_help):
-    """The cheap structural invariant the registry must hold: the derived HANDLERS keys are exactly
-    the parser's real subcommands, and every handler is callable. Cheaper + more direct than the
-    byte snapshot at catching a command wired into the parser but not HANDLERS (or vice versa)."""
+    """The cheap structural invariant the registry must hold: every handler maps to a real parser
+    subcommand and is callable, and — with user aliases cleared by the fixture, so `choices` holds
+    only canonical names — no parser subcommand lacks a handler. Catches a command wired into the
+    parser but not HANDLERS (or vice versa) more directly than the byte snapshot.
+
+    The forward subset holds regardless of aliases; the reverse equality relies on the fixture's
+    alias clearing (argparse `choices` would otherwise also contain alias keys, which are
+    deliberately NOT HANDLERS keys — main() resolves an alias via `args.cmd not in HANDLERS`)."""
     p = cli.build_parser()
     sub = next(a for a in p._actions if isinstance(a, argparse._SubParsersAction))
-    assert set(cli.HANDLERS) == set(sub.choices), (
-        f"HANDLERS vs parser choices mismatch — "
-        f"only in HANDLERS: {set(cli.HANDLERS) - set(sub.choices)}, "
-        f"only in parser: {set(sub.choices) - set(cli.HANDLERS)}")
     assert all(callable(h) for h in cli.HANDLERS.values())
+    orphan_handlers = set(cli.HANDLERS) - set(sub.choices)  # handler with no parser — always wrong
+    assert not orphan_handlers, f"handlers with no parser subcommand: {orphan_handlers}"
+    unhandled = set(sub.choices) - set(cli.HANDLERS)         # parser command with no handler (no aliases here)
+    assert not unhandled, f"parser subcommands with no handler: {unhandled}"

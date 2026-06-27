@@ -1998,5 +1998,14 @@ def _maybe_kick_reindex(args, con):  # pragma: no cover -- spawns a detached pro
         pass
 
 
+# Populate HANDLERS / _DEFAULT_VERB_ENTITIES at import, restoring the guarantee the old import-time
+# literals gave: these tables are ready the moment `worklog.cli` is imported (and again after any
+# importlib.reload, which resets them to empty). Without this, a caller that reads HANDLERS or runs
+# _expand_default_verb before building a parser would see an empty table; with it, the only cost is
+# building one throwaway parser at import (and reading the alias config, which is a no-op when none
+# exists). main() / tests still build their own parser; this is just the always-populated backstop.
+build_parser()
+
+
 if __name__ == "__main__":
     main()
