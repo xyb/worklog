@@ -745,7 +745,9 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
         prefix, prefix_cols = _node_activity_prefix(n, nid, ind, done=done)
         out(_hang_wrap(prefix, prefix_cols, n["title"], tail=mh, tail_cols=_display_width(mh_plain)))
         if log_tail != 0 and (max_depth is None or depth + 1 < max_depth):
-            logs = t["logs"]
+            # drop empty metric-carrier bodies (their data shows in the ↳ metric lines below), so
+            # they don't render as blank `· ` rows or consume the log-tail budget
+            logs = [b for b in t["logs"] if (b or "").strip()]
             shown = logs if log_tail is None else logs[-log_tail:]
             omitted = 0 if log_tail is None else max(0, len(logs) - log_tail)
             if omitted:
@@ -867,9 +869,14 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                                tail_cols=_display_width(dur_plain + hint_plain + mh_plain)))
                 if log_tail == 0:
                     continue
-                bodies = logs if log_tail is None else logs[-log_tail:]
-                if log_tail is not None and len(logs) > log_tail:
-                    out("        " + _c(f"· … ({len(logs) - log_tail} earlier logs elided)", "meta"))
+                # metric-carrier logs have empty bodies (their data renders in the ↳ metric lines
+                # below); drop them so they don't show as blank `· ` rows or eat the log-tail budget.
+                # `logs` itself stays unfiltered above — a metric-only node was still touched today,
+                # so it must NOT read as «planned·not-done».
+                shown_logs = [b for b in logs if (b or "").strip()]
+                bodies = shown_logs if log_tail is None else shown_logs[-log_tail:]
+                if log_tail is not None and len(shown_logs) > log_tail:
+                    out("        " + _c(f"· … ({len(shown_logs) - log_tail} earlier logs elided)", "meta"))
                 for body in bodies:
                     _log_body_row(body, "        ", full=full)
                 # fold this node's datapoints that day beneath it (skip the checkin marker —

@@ -417,3 +417,28 @@ class TestDayShorthand:
         code, _, err = cli("day", "not-a-date")
         assert code != 0
 
+
+
+class TestDayMetricCarrierBodies:
+    """A metric added without --on-log creates an empty-body carrier log; its datapoint shows as a
+    ↳ metric line, so the empty body must NOT render as a blank `· ` row in wl day (regression)."""
+
+    def test_metric_only_node_has_no_blank_body_rows(self, cli):
+        cli("add", "measurements", "-p", "C")
+        cli("metric", "add", "1", "height", "138", "--unit", "cm")
+        cli("metric", "add", "1", "weight", "25.2", "--unit", "kg")
+        _, out, _ = cli("--color", "never", "day")
+        # the datapoints still show
+        assert "[height] 138 cm" in out and "[weight] 25.2 kg" in out
+        # but no empty `· ` body line (a `·` followed only by whitespace/end)
+        blank = [ln for ln in out.splitlines() if ln.strip() == "·"]
+        assert not blank, f"blank carrier body rows leaked: {blank!r}"
+
+    def test_real_log_not_crowded_out_by_carriers(self, cli):
+        # a real progress log must still show even when metric carriers are also present
+        cli("add", "mixed task", "-p", "A")
+        cli("log", "1", "actual progress note")
+        cli("metric", "add", "1", "pullups", "12")
+        _, out, _ = cli("--color", "never", "day")
+        assert "· actual progress note" in out
+        assert "[pullups] 12" in out
