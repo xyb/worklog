@@ -254,6 +254,7 @@ A node's "what happened" = created / scheduled / closed / individual logs, merge
 - `wl start` writes a log with `body=CLOCK_IN`; `wl stop` writes `CLOCK_OUT elapsed=Nmin (from ...)`
 - CLOCK_* logs are not "progress logs" (filtered out by changes / summary)
 - Time accumulation = sum of all `elapsed=Nmin` from CLOCK_OUT logs (`_node_clock_min`)
+- **Log body rendering (oneline default vs `--log-format full`).** Every truncated view (`day` / `tree` / `logs` / this timeline) shows **one line per log**: `_truncate_log_body` collapses a multi-line body's newlines/whitespace runs to single spaces first, then truncates to the terminal width with `…` (budgeted against the real prefix width). A multi-line body must never spill continuation lines to column 0, nor let the width budget accumulate across lines. `--log-format full` keeps the whole body; where that body is multi-line the timeline hang-indents its continuation lines under the body column (like the `wl day` recap blockquote), not flush-left.
 
 ## 8. Time-window flags (unified, `_resolve_window`)
 

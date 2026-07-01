@@ -9,6 +9,7 @@ links / props) plus a merged timeline (created / scheduled / closed / logs). Acc
   wl show 42
   wl show 42 -q                  # brief: skip the timeline
   wl show 42 --timeline-tail 20  # longer timeline (--all-timelines for full)
+  wl show 42 --log-format full   # full log bodies (multi-line kept; default collapses each to one line)
   wl show 42 -o json             # machine-readable; pipe to jq / a script
 
 **`-o json`** prints the node + all its relations (tags, ancestors, props, links, schedule,
@@ -16,6 +17,10 @@ children, logs, metrics, clock) as one JSON object — an array when several ids
 the full timeline (no elision). Field names mirror the DB columns and are stable enough to script
 against; `*_at` values are **UTC** instants, `*_date` are local calendar days. Lets an AI or a
 shell pull an exact field instead of parsing the text view.
+
+Each timeline log body renders on one line — a multi-line body collapses to one, truncated with
+`…`; `--log-format full` keeps the whole body with continuation lines hang-indented under the body
+column. `wl log show #L<id>` reads a single log in full.
 
 This is where you read a log's `#L<id>` or a metric's `#M<id>` to edit them. For the up/down
 tree context use `wl focus`; for a whole day across nodes use `wl day`; for just one node's
