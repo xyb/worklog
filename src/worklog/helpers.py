@@ -257,6 +257,11 @@ def _truncate_log_body(body, indent_cols, full=False):
     """
     if full:
         return body
+    # collapse embedded newlines / whitespace runs into single spaces FIRST, so a multi-line body
+    # renders as one truncated line (…) instead of spilling continuation lines to column 0 and
+    # letting the width budget accumulate across lines. Every truncated-body view (day / tree /
+    # timeline / logs) wants one line per log; the full multi-line body is still there via full=True.
+    body = " ".join((body or "").split())
     width = _term_width()
     # available columns = width - indent_cols - small safety margin (2 cols to avoid edge wrap).
     # Floor at 1, not 20: a 20-col floor *forces* overflow when indent_cols is large (e.g. the

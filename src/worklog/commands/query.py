@@ -1395,6 +1395,11 @@ def _show_timeline(con, args, n):
         # prefix #L<id> mirrors node #123 with '#'; 'L' distinguishes (letter prefix = log, plain digits = node)
         for ts, label, extra, lid, metrics in shown:
             lid_str = _c(f"#L{lid}", "id") if lid is not None else _c("     ", "meta")
+            # a multi-line body (only in --log-format full; the truncated default is one line) hangs
+            # its continuation lines under the body column instead of spilling to column 0
+            if extra and "\n" in extra:
+                pre_w = _display_width(f"    {_tu.utc_to_local(ts)}  {'#L' + str(lid) if lid is not None else '     '}  {label}  ")
+                extra = extra.replace("\n", "\n" + " " * pre_w)
             # instants (created/closed/log/clock, len-19) render local; literal dates (scheduled) pass through
             out("    " + _c(_tu.utc_to_local(ts), "meta") + "  " + lid_str + "  " + _c(label) + (f"  {_c(extra)}" if extra else ""))
             # fold a log's metrics beneath it (over-count elision keeps it tidy)

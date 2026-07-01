@@ -211,3 +211,30 @@ class TestShowMultilineBody:
         cont = next(l for l in lines if l.strip() == "second line")
         assert cont != "second line"                      # not flush-left at column 0
         assert len(cont) - len(cont.lstrip()) >= 12       # aligned under the body value
+
+
+class TestShowTimelineMultilineBody:
+    """A multi-line log body in `wl show`'s timeline: collapse to one line by default (no
+    continuation spilling to column 0, ellipsis lands at line end), hang-indent under the body
+    column in --log-format full."""
+
+    def test_multiline_log_collapses_to_one_line_by_default(self, cli, monkeypatch):
+        monkeypatch.setenv("COLUMNS", "80")
+        cli("add", "t")
+        cli("log", "1", "summary:\n- point one\n- point two with lots of detail " + "x" * 80)
+        _, out, _ = cli("show", "1")
+        rows = [l for l in out.splitlines() if "✎ log" in l]
+        assert len(rows) == 1                                    # the whole body is on the log row
+        assert "summary:" in rows[0] and "- point one" in rows[0]  # newlines collapsed to spaces
+        assert not any(l.startswith("- point") for l in out.splitlines())  # nothing flush at col 0
+        assert rows[0].rstrip().endswith("…")                    # truncated at the line end
+        assert all(len(l) <= 80 for l in out.splitlines())
+
+    def test_multiline_log_hang_indents_under_full(self, cli):
+        cli("add", "t")
+        cli("log", "1", "head line\nsecond line\nthird line")
+        _, out, _ = cli("--log-format", "full", "show", "1")
+        assert "head line" in out
+        cont = [l for l in out.splitlines() if l.strip() == "second line"]
+        assert cont and cont[0] != "second line"                 # indented, not at column 0
+        assert len(cont[0]) - len(cont[0].lstrip()) >= 20        # aligned under the body column
