@@ -601,6 +601,8 @@ Good to know:
     window.add_argument("--until", help="YYYY-MM-DD (end)")
     window.add_argument("--week", help="YYYY-Www (ISO week, overrides since/until)")
     window.add_argument("--month", help="YYYY-MM (overrides since/until)")
+    window.add_argument("--quarter", help="YYYY-Qn (overrides since/until)")
+    window.add_argument("--year", help="YYYY (overrides since/until)")
 
     # node-filter parent parser (reused by ls/tree/day/logs/agenda so every list/view
     # command takes the SAME --tag/--para/--status, with the same meaning — see

@@ -31,19 +31,34 @@ def _status_marker(status):
     }.get(status, "[ ]")
 
 
-def _resolve_window(args):
-    """Resolve a time window to (since, until) YYYY-MM-DD pair. Priority: week > month > since/until > this Monday to today."""
-    from datetime import date, timedelta
+_WINDOW_HINTS = {"week": "YYYY-Www", "month": "YYYY-MM", "quarter": "YYYY-Qq", "year": "YYYY"}
 
-    if getattr(args, "week", None):
-        y, w = args.week.split("-W")
-        monday = date.fromisocalendar(int(y), int(w), 1)
-        return monday.isoformat(), (monday + timedelta(days=6)).isoformat()
-    if getattr(args, "month", None):
-        y, m = (int(x) for x in args.month.split("-"))
-        first = date(y, m, 1)
-        nxt = date(y + 1, 1, 1) if m == 12 else date(y, m + 1, 1)
-        return first.isoformat(), (nxt - timedelta(days=1)).isoformat()
+
+def _window_period(args):
+    """The (level, period) a window flag names (e.g. ('month', '2026-07')), or (None, None)
+    for a bare `--since/--until` window that maps to no single time node."""
+    for level in ("week", "month", "quarter", "year"):
+        period = getattr(args, level, None)
+        if period:
+            return level, period
+    return None, None
+
+
+def _resolve_window(args):
+    """Resolve a time window to (since, until) YYYY-MM-DD pair. Priority:
+    week > month > quarter > year > since/until > this Monday to today. A malformed
+    period flag (e.g. `--week 2026-07`) dies with a clear hint, never a traceback —
+    validated + spanned through the node_types period oracle so the two can't diverge."""
+    from datetime import timedelta
+    from .node_types import valid_period, span_of
+    from .render import die
+
+    for level in ("week", "month", "quarter", "year"):
+        period = getattr(args, level, None)
+        if period:
+            if not valid_period(level, period):
+                die(f"invalid --{level} '{period}' (expected {_WINDOW_HINTS[level]})")
+            return span_of(level, period)
     today = _tu.today_date()
     since = getattr(args, "since", None) or (today - timedelta(days=today.weekday())).isoformat()
     until = getattr(args, "until", None) or today.isoformat()

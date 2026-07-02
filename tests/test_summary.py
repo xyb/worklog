@@ -101,6 +101,55 @@ class TestSummary:
         assert "clock" in out
 
 
+class TestSummaryWindow:
+    """--week/--month/--quarter/--year resolution + malformed-flag guard (no traceback)."""
+
+    def test_bad_week_format_dies_cleanly(self, cli):
+        # regression: `--week 2026-07` (a month string) used to crash with a raw ValueError
+        code, _, err = cli("summary", "--week", "2026-07")
+        assert code != 0 and "invalid --week" in err
+
+    def test_bad_quarter_format_dies_cleanly(self, cli):
+        code, _, err = cli("summary", "--quarter", "2026-Q9")
+        assert code != 0 and "invalid --quarter" in err
+
+    def test_quarter_window_resolves(self, cli):
+        _, out, _ = cli("summary", "--quarter", "2026-Q3")
+        assert "2026-07-01 ~ 2026-09-30" in out
+
+    def test_year_window_resolves(self, cli):
+        _, out, _ = cli("summary", "--year", "2026")
+        assert "2026-01-01 ~ 2026-12-31" in out
+
+
+class TestSummaryGoalHeader:
+    """#1194: summary shows the window's time-node goal as a wl-day-style dashboard header."""
+
+    def test_month_goal_header(self, cli):
+        cli("add", "2026-07", "--prop", "type.date=month", "--prop", "date.period=2026-07")  # 1
+        cli("set", "1", "goal", "JULY top5")
+        _, out, _ = cli("summary", "--month", "2026-07")
+        assert "⭐" in out and "JULY top5" in out
+
+    def test_quarter_goal_header(self, cli):
+        cli("add", "2026-Q3", "--prop", "type.date=quarter", "--prop", "date.period=2026-Q3")  # 1
+        cli("set", "1", "goal", "Q3 okr")
+        _, out, _ = cli("summary", "--quarter", "2026-Q3")
+        assert "🗓" in out and "Q3 okr" in out
+
+    def test_no_goal_no_header(self, cli):
+        cli("add", "2026-07", "--prop", "type.date=month", "--prop", "date.period=2026-07")
+        _, out, _ = cli("summary", "--month", "2026-07")
+        assert "⭐" not in out
+
+    def test_bare_since_until_window_has_no_header(self, cli):
+        # a --since/--until window names no single time node → no goal header even if the month has one
+        cli("add", "2026-07", "--prop", "type.date=month", "--prop", "date.period=2026-07")
+        cli("set", "1", "goal", "JULY top5")
+        _, out, _ = cli("summary", "--since", "2026-07-01", "--until", "2026-07-31")
+        assert "JULY top5" not in out
+
+
 class TestSummaryJson:
     def test_summary_json(self, cli):
         cli("add", "done task", "-t", "work")

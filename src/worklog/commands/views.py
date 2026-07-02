@@ -282,6 +282,24 @@ def _month_node_for_date(con, target):
     return time_node_by_period(con, "month", target[:7])
 
 
+_PERIOD_GOAL_MARKERS = {"week": "📅 ", "month": "⭐ ", "quarter": "🗓 ", "year": "🏆 "}
+
+
+def _emit_time_goal_header(con, level, period):
+    """The goal-dashboard header for a time node (its own goal + [done/total] + structured
+    target nodes) — the `wl day` header generalized to week/month/quarter/year. No-op when the
+    node or its goal is absent. Used by `wl summary --week/--month/--quarter/--year` (#1194)."""
+    node = time_node_by_period(con, level, period)
+    if not node:
+        return
+    g = _latest_typed_log(con, node["id"], "goal")
+    if not (g and g.body):
+        return
+    out(_c(_header_blockquote(g.body, _PERIOD_GOAL_MARKERS.get(level, "🎯 ")), "meta")
+        + _c(_goal_progress(con, node["id"], g.body), "meta"))
+    _emit_goal_targets(con, node["id"])
+
+
 def _day_goals_dict(con, target, day):
     """The day-header meta as a dict (for `wl day -o json`): goal (+ goal_progress {done,total}),
     summary (+ summary_at), week_goal, month_goal. Only present keys are included."""

@@ -940,6 +940,14 @@ def _render_summary(con, args, b):
         line += f" · clock {clock_min // 60}h{clock_min % 60}m"
     out(_c(line))
 
+    # dashboard header: when the window names one time node (--week/--month/--quarter/--year),
+    # show that node's goal + [done/total] + target nodes, aligning summary with wl day (#1194)
+    from ..helpers import _window_period
+    from .views import _emit_time_goal_header
+    _level, _period = _window_period(args)
+    if _level:
+        _emit_time_goal_header(con, _level, _period)
+
     # by direction
     dir_lines = []
     for d in ("work", "personal"):
