@@ -130,6 +130,20 @@ wl sched <id> --recur yearly:03-21          # every year on a date
 wl sched <id> --recur yearly:-1             # year end 12-31
 ```
 
+**Stop a recurrence** (keep history) with `wl sched stop <id> [date]` — fires up to and
+including `date` (default today), then no more; past occurrences stay intact (unlike `--clear`,
+which erases the rule from history too). Several rules → all stop unless `--rule R` names one.
+`wl show` renders it `recur weekly:Wed (stopped 2026-06-30)`.
+
+**Recurring completion is unified**: `wl tick` a recurring item (habit *or* recurring task) →
+`wl day` shows `[x]` for that day; the node stays recurring (status untouched). `wl show` shows
+its `last check-in: <date>`; `wl ls --not-checked-in N` lists recurring items not checked in
+within N days (or never).
+
+**Forgotten-clock backstop**: `wl active` / `wl day` auto-close any open clock running >12h
+(capped at 12h, reported) and warn on >6h; `wl done`/`cancel`/`wait`/`tick --done` also close a
+running clock, so a closed task never keeps timing.
+
 ## Querying: `wl ls`, timeline tails, precision
 
 ### `wl ls` multi-dimensional query (inspired by shell `ls -t/-S/-r`)

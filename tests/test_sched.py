@@ -296,6 +296,119 @@ class TestSched:
             code, out, _ = cli("day", d)
             assert "#1" in out
 
+    def test_sched_stop_ends_recurrence_inclusive(self, cli):
+        """`wl sched stop <id> <date>` stops a recurrence — fires up to and INCLUDING the stop
+        date, not after. Past occurrences preserved (history intact)."""
+        cli("add", "daily thing")
+        cli("sched", "1", "--recur", "daily")
+        cli("sched", "stop", "1", "2026-06-02")
+        assert "#1" in cli("day", "2026-06-01")[1]   # before stop → still fires (history intact)
+        assert "#1" in cli("day", "2026-06-02")[1]   # stop day inclusive
+        assert "#1" not in cli("day", "2026-06-03")[1]  # after stop → gone
+
+    def test_sched_stop_defaults_to_today(self, cli):
+        from datetime import date, timedelta
+        cli("add", "daily thing")
+        cli("sched", "1", "--recur", "daily")
+        cli("sched", "stop", "1")                     # default = today
+        tomorrow = (date.today() + timedelta(days=1)).isoformat()
+        assert "#1" not in cli("day", tomorrow)[1]
+
+    def test_sched_stop_shows_in_show(self, cli):
+        cli("add", "daily thing")
+        cli("sched", "1", "--recur", "daily")
+        cli("sched", "stop", "1", "2026-06-30")
+        _, show, _ = cli("show", "1")
+        assert "stopped 2026-06-30" in show
+
+    def test_sched_readd_after_stop_reactivates_no_duplicate(self, cli, tmp_db):
+        """re-adding a recurrence you'd stopped reactivates the same row (clears until), not a
+        second live duplicate."""
+        cli("add", "t")
+        cli("sched", "1", "--recur", "daily")
+        cli("sched", "stop", "1", "2026-06-02")
+        cli("sched", "1", "--recur", "daily")   # resume
+        con = tmp_db.db_connect()
+        rows = con.execute("SELECT rrule FROM sched WHERE node_id=1 AND rrule IS NOT NULL").fetchall()
+        assert len(rows) == 1 and rows[0]["rrule"] == "daily"
+
+    def test_sched_stop_rule_accepts_suffixed_string(self, cli, tmp_db):
+        """`--rule` copied from output (carrying `;until=`) still matches, re-stopping at a new date."""
+        cli("add", "t")
+        cli("sched", "1", "--recur", "daily")
+        cli("sched", "stop", "1", "2026-06-02")
+        code, _, _ = cli("sched", "stop", "1", "2026-06-10", "--rule", "daily;until=2026-06-02")
+        assert code == 0
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT rrule FROM sched WHERE node_id=1").fetchone()["rrule"] == "daily;until=2026-06-10"
+
+    def test_not_checked_in_excludes_stopped_recurrence(self, cli):
+        """a recurrence stopped in the past drops off the --not-checked-in nag list."""
+        cli("add", "still-active")
+        cli("sched", "1", "--recur", "daily")
+        cli("add", "ended")
+        cli("sched", "2", "--recur", "daily")
+        cli("sched", "stop", "2", "2026-06-30")   # in the past → no longer active
+        _, out, _ = cli("ls", "--not-checked-in", "7")
+        assert "#1" in out and "#2" not in out
+
+    def test_not_checked_in_rejects_negative(self, cli):
+        code, _, _ = cli("ls", "--not-checked-in=-1")
+        assert code != 0
+
+    def test_done_on_stopped_recurrence_no_recurring_warning(self, cli):
+        """a recurrence stopped in the past no longer fires, so `wl done` must not print the
+        'is recurring / use wl tick' advisory."""
+        cli("add", "t")
+        cli("sched", "1", "--recur", "daily")
+        cli("sched", "stop", "1", "2026-06-30")   # stopped in the past
+        _, out, _ = cli("done", "1")
+        assert "is recurring" not in out
+
+    def test_done_on_active_recurrence_warns_without_until_leak(self, cli):
+        """an active recurrence still warns, but the message shows the clean rule, not `;until=`."""
+        cli("add", "t")
+        cli("sched", "1", "--recur", "daily")
+        cli("sched", "stop", "1", "2099-01-01")   # stopped far in the FUTURE → still active
+        _, out, _ = cli("done", "1")
+        assert "is recurring" in out and ";until=" not in out
+
+    def test_done_warns_when_any_rrule_still_active(self, cli):
+        """a node with one stopped + one active rrule still warns — done checks ALL rules for an
+        active one, not just the first."""
+        cli("add", "t")
+        cli("sched", "1", "--recur", "weekly:Mon")
+        cli("sched", "1", "--recur", "weekly:Wed")
+        cli("sched", "stop", "1", "2026-06-01", "--rule", "weekly:Wed")   # Wed stopped, Mon still active
+        _, out, _ = cli("done", "1")
+        assert "is recurring" in out
+
+    def test_sched_stop_rule_accepts_display_form(self, cli, tmp_db):
+        """`--rule` copied in the display form `base (stopped DATE)` also matches."""
+        cli("add", "t")
+        cli("sched", "1", "--recur", "daily")
+        cli("sched", "stop", "1", "2026-06-02")
+        code, _, _ = cli("sched", "stop", "1", "2026-06-10", "--rule", "daily (stopped 2026-06-02)")
+        assert code == 0
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT rrule FROM sched WHERE node_id=1").fetchone()["rrule"] == "daily;until=2026-06-10"
+
+    def test_show_stopped_recurrence_hides_last_checkin(self, cli):
+        """a retired (past-stopped) recurrence is not a live tracked item — no `last check-in` line."""
+        cli("add", "t")
+        cli("sched", "1", "--recur", "daily")
+        cli("tick", "1")
+        cli("sched", "stop", "1", "2026-06-30")   # stopped in the past
+        _, out, _ = cli("show", "1")
+        assert "last check-in" not in out
+
+    def test_sched_fires_until_inclusive(self):
+        from worklog.commands.views import _sched_fires
+        assert _sched_fires(None, "daily;until=2026-06-02", "2026-06-02") is True
+        assert _sched_fires(None, "daily;until=2026-06-02", "2026-06-03") is False
+        assert _sched_fires(None, "weekly:Mon;until=2026-05-04", "2026-05-04") is True   # a Monday
+        assert _sched_fires(None, "weekly:Mon;until=2026-05-03", "2026-05-04") is False
+
     def test_sched_clear(self, cli):
         cli("add", "t")
         cli("sched", "1", "2026-06-15")

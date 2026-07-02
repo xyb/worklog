@@ -338,11 +338,16 @@ def _day_json_data(con, target, day, items, sched_ids):
     }
 
 
-def _emit_day_header(con, day, target):
+def _emit_day_header(con, day, target, capped=None):
     """Render the text-mode day header: `#<id> <date> <weekday> · <nature>`, then the day's goal +
     recap(summary, with a staleness warning) + the ancestor week's & month's goals — each the latest
     typed log, with its [done/total] progress and structured target nodes. No-op body when there's
-    no day node (just the bare date line)."""
+    no day node (just the bare date line). `capped`: node ids whose forgotten clock was auto-closed
+    this run — surfaced as a leading warning."""
+    if capped:
+        from .state import _capped_clock_warning
+        for nid in capped:
+            out(_c(_capped_clock_warning(nid), "later"))
     wd = _cn_weekday(target)
     nature = _day_nature(con, target)
     head = target + (f" {wd}" if wd else "") + (f" · {nature}" if nature else "")
@@ -442,6 +447,16 @@ def cmd_day(args, con):
             die(f"invalid date '{args.date}' (use YYYY-MM-DD / today / yesterday / day-before-yesterday / tomorrow / day-after-tomorrow)")
     else:
         target = _tu.today()
+    # backstop: close any forgotten clock running >12h (wl day is the most-used view, so it's a
+    # natural place to catch a zombie timer) — capped, reported in the header. Only when viewing
+    # TODAY: looking at a past/future day is a pure historical read and must not mutate the live
+    # clock.
+    capped = []
+    if target == _tu.today():
+        from .state import _autocap_stale_clocks
+        capped = _autocap_stale_clocks(con)
+        if capped:
+            con.commit()
     day = time_node_by_period(con, "day", target)
 
     # an explicit --status filter (applied below via make_node_filter) must override the
@@ -455,7 +470,7 @@ def cmd_day(args, con):
         items = {nid: it for nid, it in items.items() if nf(nid)}
         if not items:
             def _render_empty_filter():
-                _emit_day_header(con, day, target)
+                _emit_day_header(con, day, target, capped)
                 out(_c(f"  (nothing matches the filter on {target})", "meta"))
             return TextRenderable(_day_json_data(con, target, day, {}, sched_ids), _render_empty_filter)
 
@@ -472,7 +487,7 @@ def cmd_day(args, con):
             _empty_msg = _c(f"  (no log progress for {target}, and nothing planned)", "meta")
 
         def _render_empty():
-            _emit_day_header(con, day, target)
+            _emit_day_header(con, day, target, capped)
             out(_empty_msg)
 
         return TextRenderable(_day_json_data(con, target, day, {}, sched_ids), _render_empty)
@@ -521,7 +536,7 @@ def cmd_day(args, con):
         line += f" · CLOCK {total_min}min ({total_min // 60}h{total_min % 60}m)"
 
     def _render():
-        _emit_day_header(con, day, target)
+        _emit_day_header(con, day, target, capped)
         _render_day_group(con, items, by=_by, sched_ids=sched_ids, log_tail=log_tail, full=_full, day=target)
         out("")
         out(_c(line, "meta"))
@@ -735,8 +750,10 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
     for nid, t in tasks.items():
         n = t["r"]
         is_habit = node_type(con, nid) == "habit"
-        # habit done today = has a structured check-in metric that day (not "any log")
-        done = is_habit and _has_checkin(con, nid, target)
+        # done today = a check-in metric that day (not "any log"), for a habit or a recurrence
+        # ACTIVE on `target`. Gating on active-recurring means a one-off tick (no --done) never
+        # renders [x], and a recurrence stopped before this day doesn't either.
+        done = (is_habit or _has_active_rrule(con, nid, target)) and _has_checkin(con, nid, target)
         mh = mh_plain = ""
         if is_habit:
             prog = _habit_month_progress(con, nid, target)
@@ -838,8 +855,9 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 n = it["node"]
                 logs = it["logs"]
                 nk_habit = node_type(con, nid) == "habit"
-                # habit done today = has a structured check-in metric that day (not "any log")
-                done = nk_habit and day and _has_checkin(con, nid, day)
+                # done today = a check-in metric that day, for a habit or a recurrence active that
+                # day; a one-off tick or a since-stopped recurrence never renders [x].
+                done = bool(day) and (nk_habit or _has_active_rrule(con, nid, day)) and _has_checkin(con, nid, day)
                 hint = hint_plain = ""
                 if not logs and n["status"] not in ("DONE", "CANCELED") and by != "plan":
                     # only "not-done" if the task is still open; a terminal-status task
@@ -920,6 +938,40 @@ def _habit_month_progress(con, nid, day):
     return done, expected
 
 
+def _split_until(rrule):
+    """Split a recurrence rule into (base_rule, until_date_or_None). A stopped recurrence encodes
+    its end as a `;until=YYYY-MM-DD` suffix on the rrule string (set by `wl sched stop`), so every
+    existing rrule consumer keeps working by stripping the suffix first. `until` is inclusive."""
+    if rrule and ";until=" in rrule:
+        base, _, until = rrule.partition(";until=")
+        return base, (until or None)
+    return rrule, None
+
+
+def _rrule_display(rrule):
+    """User-facing form of a (possibly stopped) rrule — the single source so every sched surface
+    (`wl show` / `wl sched ls` / sched write) renders a stopped rule the same clean way instead of
+    leaking the internal `;until=` suffix: `weekly:Wed` or `weekly:Wed (stopped 2026-06-30)`."""
+    base, until = _split_until(rrule)
+    return f"{base} (stopped {until})" if until else base
+
+
+def _rrule_active(rrule, today):
+    """Whether a recurrence is still live on `today` (YYYY-MM-DD): no `;until=`, or its inclusive
+    until >= today. Single source for 'active recurrence vs one stopped in the past', shared by the
+    done-warning / `wl show` last-check-in / `wl ls --not-checked-in` surfaces so they agree."""
+    _, until = _split_until(rrule)
+    return until is None or until >= today
+
+
+def _has_active_rrule(con, nid, on_date):
+    """True if the node has a recurrence live ON `on_date` — the 'actively recurring that day' test
+    for the `wl day` completion marker, so a recurrence stopped before that day doesn't render [x]
+    on it (keeps the day gate consistent with every other `_rrule_active` consumer)."""
+    return any(r["rrule"] and _rrule_active(r["rrule"], on_date)
+               for r in _db.query(con, "sched", cols="rrule", node_id=nid))
+
+
 def _sched_fires(on_date, rrule, target):
     """Whether this sched row fires on target (YYYY-MM-DD). Rules:
     - daily: every day
@@ -934,6 +986,9 @@ def _sched_fires(on_date, rrule, target):
     if on_date:
         return on_date == target
     if not rrule:
+        return False
+    rrule, until = _split_until(rrule)
+    if until and target > until:   # stopped recurrence: no fire after the (inclusive) end date
         return False
     rule = rrule.strip()
     if rule == "daily":

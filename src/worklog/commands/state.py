@@ -376,16 +376,23 @@ def cmd_log(args, con):
 
 @output_format
 def cmd_done(args, con):
+    from .views import _rrule_active, _rrule_display
     ids = _ids_list(args)
-    recurring = [(nid, r.rrule) for nid in ids
-                 for r in [Sched.query_one(con, node_id=nid, rrule__ne=None)]
-                 if r]
+    today = _tu.today()
+    # only warn for a still-ACTIVE recurrence — one stopped in the past no longer fires, so the
+    # "use wl tick for today's occurrence" advice would be misleading. Display via _rrule_display
+    # so the internal ;until= suffix never leaks.
+    recurring = []
+    for nid in ids:
+        active = [r.rrule for r in Sched.query(con, node_id=nid) if r.rrule and _rrule_active(r.rrule, today)]
+        if active:
+            recurring.append((nid, ", ".join(_rrule_display(r) for r in active)))
     inner = _bulk_status_change(con, args, "DONE", close=True)
 
     def _render():
-        for nid, rrule in recurring:
+        for nid, rules_disp in recurring:
             out(_c(
-                f"! #{nid} is recurring ({rrule}): `wl done` retires the whole task "
+                f"! #{nid} is recurring ({rules_disp}): `wl done` retires the whole task "
                 f"(shows done on all scheduled days). For just today's occurrence use `wl tick {nid}`.",
                 "planned"))
         inner.render()
@@ -480,6 +487,64 @@ def cmd_stop(args, con):
             out(f"✓ #{nid} stopped, elapsed {secs // 60} min")
 
     return TextRenderable(result, _render)
+
+
+# ponytail: a forgotten `wl start` would otherwise time forever (open clock, end_at NULL, its
+# time silently excluded from every day total). 12h is a sane "no single sitting runs this long"
+# backstop / warn threshold; tune here if real sessions ever exceed it.
+_STALE_CLOCK_HOURS = 12
+# below the auto-cap: an open clock this old is probably forgotten — warn (don't mutate) so you
+# can set the real end. ponytail: tune if you routinely run single sittings past this.
+_WARN_CLOCK_HOURS = 6
+
+
+def _capped_clock_warning(nid):
+    """Single source for the 'auto-closed a forgotten clock' warning, shared by `wl active` and
+    `wl day` so both report the same threshold + wording (and track `_STALE_CLOCK_HOURS`)."""
+    return (f"⚠ #{nid} ran >{_STALE_CLOCK_HOURS}h — auto-closed a forgotten clock (capped at "
+            f"{_STALE_CLOCK_HOURS}h). Fix the real end with wl stop {nid} --at \"HH:MM\" after "
+            f"reopening, or edit the clock.")
+
+
+def _autocap_stale_clocks(con, max_hours=_STALE_CLOCK_HOURS):
+    """Backstop for forgotten clocks: close any open clock running longer than max_hours, capping
+    its recorded duration at max_hours (end = start + max_hours) rather than losing the whole
+    session. Returns [node_id, ...] capped. Called opportunistically by wl active / wl day —
+    the natural moments you'd notice timing. No commit; caller commits."""
+    from datetime import datetime as _dt, timedelta as _td
+    now = _dt.fromisoformat(_tu.utc_now())
+    capped = []
+    for row in con.execute(f"SELECT id, node_id, start_at FROM clock WHERE end_at IS NULL AND {_db.ALIVE}").fetchall():
+        start = _dt.fromisoformat(row["start_at"])
+        if (now - start) > _td(hours=max_hours):
+            end = start + _td(hours=max_hours)
+            Clock.update(con, row["id"], {"end_at": end.strftime(_tu.FMT), "elapsed_sec": max_hours * 3600})
+            capped.append(row["node_id"])
+    return capped
+
+
+def _close_open_clocks(con, ids, at=None):
+    """Close any open clock (end_at IS NULL) on these nodes. Single source reused by
+    wait/done/cancel/tick --done so a terminal/suspend status never leaves a clock timing.
+    `at`: UTC ts for the stop time (defaults to now). Returns the count closed."""
+    now_s = _tu.utc_now()
+    closed = 0
+    for nid in ids:
+        row = Clock.query_one(con, node_id=nid, end_at=None, order="id DESC")
+        if not row:
+            continue
+        # a backdated close (`wl done/cancel --at`) earlier than the running clock's start is
+        # contradictory — you can't finish before you started timing. Reject it (same guard as
+        # `wl stop --at`) rather than invent an end time; otherwise close at `at` (valid backdate)
+        # or now. Compare as datetimes so a format variant can't skew a string compare.
+        if at and datetime.fromisoformat(at) < datetime.fromisoformat(row.start_at):
+            die(f"--at {at} is earlier than #{nid}'s running clock start ({row.start_at}); "
+                f"use a time at/after it, or `wl stop {nid}` first")
+        end_s = at or now_s
+        secs = max(60, int((datetime.fromisoformat(end_s) - datetime.fromisoformat(row.start_at)).total_seconds()))
+        Clock.update(con, row.id, {"end_at": end_s, "elapsed_sec": secs})
+        closed += 1
+    return closed
 
 
 @text_renderer("spent")
@@ -817,6 +882,7 @@ def cmd_tick(args, con):
         # structured "done today" signal (one per node per day) — not "a log exists"
         checkin_metric(con, log_id, nid, today)
         if args.done:
+            _close_open_clocks(con, [nid])  # --done is terminal → stop timing
             Node.update(con, nid, {"status": "DONE", "closed_at": _tu.utc_now()})
         result.append(TickResult(node_id=nid, log_id=log_id, done=bool(args.done)))
     con.commit()
@@ -835,13 +901,9 @@ def cmd_wait(args, con):
     If the task has an open clock, closes it (WAIT = suspended, no longer timing)."""
     ids = _ids_list(args)
     _check_ids_exist(con, ids)
+    # WAIT = suspended, no longer timing → close any open clock
+    _close_open_clocks(con, ids)
     for nid in ids:
-        # if there's an open clock, close it (WAIT = suspended, no longer timing)
-        row = Clock.query_one(con, node_id=nid, end_at=None, order="id DESC")
-        if row:
-            now_s = _tu.utc_now()
-            secs = max(60, int((datetime.fromisoformat(now_s) - datetime.fromisoformat(row.start_at)).total_seconds()))
-            Clock.update(con, row.id, {"end_at": now_s, "elapsed_sec": secs})
         Node.update(con, nid, {"status": "WAIT"})
         if args.note:
             _insert_log(con, nid, f"WAIT: {args.note}")
@@ -1136,6 +1198,10 @@ def cmd_active(args, con):
     """
     from datetime import datetime as _dt, date as _date
 
+    capped = _autocap_stale_clocks(con)   # backstop: close forgotten clocks running >12h
+    if capped:
+        con.commit()
+
     rows = con.execute(f"""
         SELECT c.node_id, c.start_at, n.title, n.status, n.priority
         FROM clock c JOIN node n ON c.node_id = n.id
@@ -1143,18 +1209,30 @@ def cmd_active(args, con):
         ORDER BY c.start_at DESC
     """).fetchall()
 
+    if capped:
+        _capped = capped
+        def _cap_note():
+            for nid in _capped:
+                out(_c(_capped_clock_warning(nid), "later"))
+        out_cap = _cap_note
+    else:
+        out_cap = None
+
     if not rows:
+        if out_cap:
+            return TextRenderable([], out_cap)
         return TextRenderable([], lambda: out(_c("(no active task right now; use wl start <id> to start timing, wl day for today's progress)", "meta")))
 
     brief = getattr(args, "brief", False)
     now = _dt.fromisoformat(_tu.utc_now())  # UTC, to match the UTC-stored start_at
     today = _tu.today()
+    today_start = _dt.fromisoformat(_tu.local_to_utc(f"{today} 00:00:00"))  # today's local midnight, in UTC
     full = _log_full(args)
     result = []
     render_rows = []
     for r in rows:
         started = _dt.fromisoformat(r["start_at"])
-        mins = int((now - started).total_seconds() / 60)
+        mins = int((now - started).total_seconds() / 60)  # full current session (for display + warning)
         result.append({"node_id": r["node_id"], "title": r["title"],
                        "status": r["status"], "priority": r["priority"],
                        "start_at": r["start_at"], "elapsed_min": mins})
@@ -1163,22 +1241,34 @@ def cmd_active(args, con):
                 f"SELECT COALESCE(SUM(elapsed_sec), 0) AS s FROM clock WHERE node_id = ? AND {_tu.local_day_sql('end_at')} = ? AND {_db.ALIVE}",
                 (r["node_id"], today),
             ).fetchone()["s"]
-            total_min = mins + int((done_sec or 0) / 60)
+            # clip the live session to today so a session started before midnight doesn't add
+            # its pre-midnight minutes to *today's* total
+            sess_today_min = max(0, int((now - max(started, today_start)).total_seconds() / 60))
+            total_min = sess_today_min + int((done_sec or 0) / 60)
+            crossed = sess_today_min < mins   # session started before today's midnight
             last = Log.query_one(con, node_id=r["node_id"], tag=None, order="id DESC")
             last_body = last.body if last else None
         else:
             total_min = None
+            crossed = False
             last_body = None
-        render_rows.append((r, mins, total_min, last_body))
+        render_rows.append((r, mins, total_min, last_body, crossed))
 
     def _render():
-        for r, mins, total_min, last_body in render_rows:
+        if out_cap:
+            out_cap()
+        for r, mins, total_min, last_body, crossed in render_rows:
             pri = _pri_marker(r["priority"]) + " "
             head_tail = "" if brief else " " + _c(f"({mins}min, since {_tu.utc_to_local(r['start_at'])[11:16]})", "meta")
             out(_c("⏱", "clock") + " " + _c(f"#{r['node_id']}", "id") + " " + pri + _c(r["title"]) + head_tail)
+            if mins >= _WARN_CLOCK_HOURS * 60:  # long-running open clock → likely forgotten
+                out("    " + _c(f"⚠ running {mins // 60}h{mins % 60}m — forgot to stop? wl stop {r['node_id']} --at \"HH:MM\" to set the real end", "later"))
             if brief:
                 continue
-            out("    " + _c(f"today's total {total_min}min ({total_min // 60}h{total_min % 60}m), includes current session", "meta"))
+            # when the session crossed midnight, only its post-midnight part counts toward today —
+            # say so, else the smaller "total" next to a bigger "since" reads as lost time
+            sess_note = "session's part today" if crossed else "includes current session"
+            out("    " + _c(f"today's total {total_min}min ({total_min // 60}h{total_min % 60}m), {sess_note}", "meta"))
             if last_body:
                 body_one = _truncate_log_body(last_body, indent_cols=_display_width("    latest log: "), full=full)
                 out("    " + _c(f"latest log: {body_one}", "meta"))
@@ -1210,6 +1300,12 @@ def _bulk_status_change(con, args, new_status, *, close=False, reopen=False, msg
             at_ts = _resolve_at_ts(args.at)
         except ValueError as e:
             die(f"{e}")
+
+    # terminal (done/cancel) → close any open clock so it doesn't keep timing after close. Done
+    # FIRST, before any write below, because it validates the backdated --at and may die() on a
+    # contradictory one — no --log/status write should land if the whole op is rejected.
+    if close:
+        _close_open_clocks(con, ids, at=at_ts)
 
     # --log: insert log first (use at_ts; default to NOW if no at)
     log_body = getattr(args, "log", None)

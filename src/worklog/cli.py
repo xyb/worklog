@@ -280,6 +280,8 @@ def _args_node_ls(p):
                    help="only items changed in the last N days (created / logged / closed)")
     p.add_argument("--unscheduled", action="store_true",
                    help="only items not in sched (use this for 'unscheduled', not --status)")
+    p.add_argument("--not-checked-in", type=int, metavar="N", default=None,
+                   help="only recurring items (have an rrule) not checked in within the last N days, or never")
     p.add_argument("--ids", type=int, nargs="+", metavar="id",
                    help="list specific ids directly, skipping filters (like shell ls file1 file2)")
     return p
@@ -1500,7 +1502,7 @@ For single habit check-in, use wl tick <id>.""")
     # `wl sched <id> <when>` / `wl sched <id> --clear` keep working (full when / --recur /
     # --clear / list-when-empty grammar via cmd_sched); `ls` lists, `rm` clears. `wl defer`
     # (status=LATER + rough hint) stays its own composite command.
-    sc = add_cmd(sub, "sched", cmd_sched_group, default_verb=("add", frozenset(("add", "ls", "rm"))),
+    sc = add_cmd(sub, "sched", cmd_sched_group, default_verb=("add", frozenset(("add", "ls", "rm", "stop"))),
         help="sched CRUD: add / ls / rm — wl sched 42 2026-06-15 schedules (default verb add); drives wl day 'planned'",
         description="Forward-planning CRUD — schedule a task to a day / recurring rule (drives wl day 'planned') — the metric-style entity group. `wl sched <id> <when>` is the add shortcut (the default verb) and keeps the full when / --recur / --clear / list-when-empty grammar. Distinct from `wl defer` (status=LATER + rough hint).",
         epilog="""\
@@ -1509,6 +1511,7 @@ Common examples:
   wl sched 42 --recur weekly:Mon,Fri   # recurring (daily / monthly:-1 / quarterly:1-15 / yearly:-1)
   wl sched 42                  # list this task's schedule
   wl sched 42 --clear          # clear all entries (= wl sched rm 42)
+  wl sched stop 42 2026-06-30  # end a recurrence (fires through that day, history kept)
 
 Distinct from `wl defer` (status LATER + rough hint). Create + schedule: wl add "..." --sched today.
 
@@ -1526,6 +1529,12 @@ More: `wl help sched` (the full recurring-rule grammar).""")
     _scls.add_argument("id", type=int)
     _scr = _scsub.add_parser("rm", parents=[output_parent], help="clear a node's schedule entries (= wl sched <id> --clear)")
     _scr.add_argument("id", type=int)
+    _scstop = _scsub.add_parser("stop", parents=[output_parent],
+        help="stop a recurrence: fires up to <date> (default today, inclusive), then no more — history kept",
+        description="Stop a recurring schedule: it keeps firing up to and INCLUDING <date> (default today), then stops. Past occurrences stay intact (unlike --clear, which erases the rule from history too). If the node has several recurrence rules, all are stopped unless --rule names one.")
+    _scstop.add_argument("id", type=int)
+    _scstop.add_argument("date", nargs="?", help="last day the recurrence fires (inclusive); default today — YYYY-MM-DD / today / a signed delta")
+    _scstop.add_argument("--rule", help="only stop the recurrence rule equal to this rrule (default: all of the node's rrules)")
 
     di = add_cmd(sub, "dateinfo", cmd_dateinfo,
         help="date metadata (holiday/vacation/working-day swap; shown in wl day header)",

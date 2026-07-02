@@ -255,6 +255,17 @@ def _has_checkin(con, node_id, day):
         (node_id, day),
     ).fetchone() is not None
 
+def _last_checkin(con, node_id):
+    """The most recent check-in date (YYYY-MM-DD local) for a node, or None if never checked in.
+    Read-time — the source of truth is the checkin metrics, never a cached prop, so deleting a
+    log (`wl unlog`) can never leave a stale 'last done' behind."""
+    row = con.execute(
+        f"SELECT MAX({_tu.local_day_sql('at')}) AS d FROM metric WHERE node_id = ? AND tag = 'checkin' AND {_db.ALIVE}",
+        (node_id,),
+    ).fetchone()
+    return row["d"] if row and row["d"] else None
+
+
 def _node_clock_min(con, nid, day=None):
     """Minutes spent on this node, auto-combined: structured clock intervals
     (sum elapsed_sec) union the ordinary-log timestamp span; takes the greater so a

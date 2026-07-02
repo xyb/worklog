@@ -10,7 +10,7 @@ from ..queries import _check_ids_exist
 from ..helpers import _resolve_concrete_date
 from ..render import _c, die, dispatch_group, out
 from .state import _ids_list
-from .views import _WEEKDAY_ABBR
+from .views import _WEEKDAY_ABBR, _split_until, _rrule_display
 from .output import output_format, TextRenderable, text_renderer
 
 
@@ -39,7 +39,8 @@ def _render_sched_query(result):
         if item["on_date"] is None and item["rrule"] is None:
             out(_c(f"#{nid} has no schedule", "meta"))
         else:
-            out("  " + _c(f"#{nid} @" + (item["on_date"] or item["rrule"]), "planned"))
+            disp = item["on_date"] or _rrule_display(item["rrule"])
+            out("  " + _c(f"#{nid} @" + disp, "planned"))
 
 
 @text_renderer("sched_write")
@@ -88,11 +89,21 @@ def cmd_sched(args, con):
         except ValueError as e:
             die(f"{e}")
         for nid in ids:
-            # idempotent: don't insert a duplicate (node_id, rrule) row
-            exists = Sched.exists(con, node_id=nid, rrule=rule)
-            ops.append({"type": "rrule", "node_id": nid, "rule": rule, "exists": exists})
-            if not exists:
+            # idempotent by BASE rule: any row whose base == this rule already covers it — including
+            # a stopped one (`base;until=DATE`). Consolidate ALL such rows to one clean live rule:
+            # reactivate the first (clear its until) and drop any duplicates, so re-adding a
+            # recurrence you'd stopped resumes it without leaving a stale/duplicate row behind.
+            matches = [r for r in Sched.query(con, node_id=nid) if r.rrule and _split_until(r.rrule)[0] == rule]
+            if not matches:
+                ops.append({"type": "rrule", "node_id": nid, "rule": rule, "exists": False})
                 Sched.insert(con, {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
+                continue
+            already = len(matches) == 1 and matches[0].rrule == rule
+            if matches[0].rrule != rule:
+                Sched.update(con, matches[0].id, {"rrule": rule})   # reactivate
+            for extra in matches[1:]:
+                Sched.delete(con, id=extra.id)                      # drop duplicate base rows
+            ops.append({"type": "rrule", "node_id": nid, "rule": rule, "exists": already})
         con.commit()
     if args.when:
         try:
@@ -122,7 +133,8 @@ def _render_sched_ls(result: SchedLsResult):
         out(_c(f"#{result.node_id} has no schedule", "meta"))
     else:
         for item in result.rows:
-            out("  " + _c(f"#{result.node_id} @" + (item.on_date or item.rrule), "planned"))
+            disp = item.on_date or _rrule_display(item.rrule)
+            out("  " + _c(f"#{result.node_id} @" + disp, "planned"))
 
 
 @output_format
@@ -155,14 +167,49 @@ def cmd_sched_rm(args, con):
     return TextRenderable({"node_id": args.id, "cleared": n}, cmd_name="sched_rm")
 
 
+@text_renderer("sched_stop")
+def _render_sched_stop(result):
+    for base in result["stopped"]:
+        out(_c(f"✓ #{result['node_id']} recurrence stopped: {base} (fires through {result['date']} inclusive, then no more)", "meta"))
+
+
+@output_format
+def cmd_sched_stop(args, con):
+    """Stop a recurrence: it fires up to and INCLUDING <date> (default today), then no more.
+    Past occurrences stay intact (unlike --clear/rm, which erase the rule from history). Encodes
+    an inclusive `;until=<date>` suffix on the rrule. Multiple rules → all, unless --rule names one."""
+    _check_ids_exist(con, [args.id])
+    try:
+        end = _resolve_concrete_date(args.date) if args.date else _tu.today()
+    except ValueError:
+        die(f"invalid date '{args.date}' — stop takes a concrete day (YYYY-MM-DD / today / +1 / -2w / …)")
+    # --rule may be pasted from output in either the internal `base;until=DATE` form or the display
+    # form `base (stopped DATE)` — normalize both down to the base before comparing.
+    want = _split_until((args.rule or "").split(" (stopped ")[0])[0] if args.rule else None
+    rows = [r for r in Sched.query(con, node_id=args.id) if r.rrule]
+    if not rows:
+        die(f"#{args.id} has no recurring schedule to stop")
+    stopped = []
+    for r in rows:
+        base, _ = _split_until(r.rrule)
+        if want and base != want:
+            continue
+        Sched.update(con, r.id, {"rrule": f"{base};until={end}"})
+        stopped.append(base)
+    if not stopped:
+        die(f"#{args.id} has no recurrence matching --rule {args.rule!r}")
+    con.commit()
+    return TextRenderable({"node_id": args.id, "date": end, "stopped": stopped}, cmd_name="sched_stop")
+
+
 def cmd_sched_group(args, con):
-    """Dispatch `wl sched <add|ls|rm>` (the metric-style entity group).
+    """Dispatch `wl sched <add|ls|rm|stop>` (the metric-style entity group).
     `add` is the default verb (`wl sched <id> <when>` == `wl sched add <id> <when>`) and
     keeps the full when / --recur / --clear / list-when-empty grammar (`cmd_sched`); `ls`
-    lists, `rm` clears. `wl defer` (status=LATER + rough hint) stays its own command."""
+    lists, `rm` clears, `stop` ends a recurrence keeping history. `wl defer` stays its own command."""
     return dispatch_group(args, con, "sched_sub",
-        {"add": cmd_sched, "ls": cmd_sched_ls, "rm": cmd_sched_rm},
-        usage="usage: wl sched <id> <when>  |  wl sched <add|ls|rm> … (see `wl sched --help`)")
+        {"add": cmd_sched, "ls": cmd_sched_ls, "rm": cmd_sched_rm, "stop": cmd_sched_stop},
+        usage="usage: wl sched <id> <when>  |  wl sched <add|ls|rm|stop> … (see `wl sched --help`)")
 
 
 def _norm_rrule(s):

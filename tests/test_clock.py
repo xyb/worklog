@@ -206,6 +206,108 @@ class TestClockTable:
         assert c["end_at"] is not None and c["elapsed_sec"] >= 60
         assert con.execute("SELECT status FROM node WHERE id=1").fetchone()["status"] == "WAIT"
 
+    def test_done_closes_open_clock(self, cli, tmp_db):
+        """done is terminal — an open clock must be closed, not left timing forever."""
+        cli("add", "t")
+        cli("start", "1")
+        cli("done", "1")
+        con = tmp_db.db_connect()
+        c = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
+        assert c["end_at"] is not None and c["elapsed_sec"] >= 60
+        assert con.execute("SELECT status FROM node WHERE id=1").fetchone()["status"] == "DONE"
+
+    def test_cancel_closes_open_clock(self, cli, tmp_db):
+        cli("add", "t")
+        cli("start", "1")
+        cli("cancel", "1")
+        con = tmp_db.db_connect()
+        c = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
+        assert c["end_at"] is not None and c["elapsed_sec"] >= 60
+
+    def test_tick_done_closes_open_clock(self, cli, tmp_db):
+        """`wl tick --done` is a separate terminal path — it must close the clock too."""
+        cli("add", "t")
+        cli("start", "1")
+        cli("tick", "1", "--done")
+        con = tmp_db.db_connect()
+        c = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
+        assert c["end_at"] is not None and c["elapsed_sec"] >= 60
+        assert con.execute("SELECT status FROM node WHERE id=1").fetchone()["status"] == "DONE"
+
+    def test_tick_without_done_leaves_clock_open(self, cli, tmp_db):
+        """a plain check-in (no --done) is not terminal — you're still working, clock stays open."""
+        cli("add", "t")
+        cli("start", "1")
+        cli("tick", "1")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT end_at FROM clock WHERE node_id=1").fetchone()["end_at"] is None
+
+    def test_active_warns_long_running(self, cli):
+        """a clock running many hours (but under the auto-cap) shows a 'forgot to stop?' warning
+        with a correction command."""
+        from datetime import datetime, timedelta
+        cli("add", "t")
+        start = (datetime.now() - timedelta(hours=7)).strftime("%Y-%m-%d %H:%M")
+        cli("start", "1", "--at", start)
+        _, out, _ = cli("active")
+        assert "forgot to stop" in out and "wl stop" in out
+
+    def test_active_autocaps_zombie_clock(self, cli, tmp_db):
+        """a clock running longer than the 12h backstop is auto-closed (capped at 12h) when
+        wl active runs, so a forgotten `wl start` never times forever."""
+        from datetime import datetime, timedelta
+        cli("add", "t")
+        start = (datetime.now() - timedelta(hours=30)).strftime("%Y-%m-%d %H:%M")
+        cli("start", "1", "--at", start)
+        cli("active")   # triggers the backstop
+        con = tmp_db.db_connect()
+        c = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
+        assert c["end_at"] is not None
+        assert c["elapsed_sec"] == 12 * 3600   # capped at 12h, not 30h
+
+    def test_day_autocaps_zombie_clock(self, cli, tmp_db):
+        """wl day (the most-used view) also triggers the forgotten-clock backstop."""
+        from datetime import datetime, timedelta
+        cli("add", "t")
+        start = (datetime.now() - timedelta(hours=30)).strftime("%Y-%m-%d %H:%M")
+        cli("start", "1", "--at", start)
+        cli("day")
+        con = tmp_db.db_connect()
+        c = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
+        assert c["end_at"] is not None and c["elapsed_sec"] == 12 * 3600
+
+    def test_done_at_valid_backdate_closes_the_clock_at_that_time(self, cli, tmp_db):
+        """`wl done --at` at/after the clock start closes the clock at that time (correct elapsed)."""
+        cli("add", "t")
+        cli("start", "1", "--at", "2026-06-01 09:00")
+        cli("done", "1", "--at", "2026-06-01 10:00")   # valid backdated stop
+        con = tmp_db.db_connect()
+        c = con.execute("SELECT end_at, elapsed_sec FROM clock WHERE node_id=1").fetchone()
+        assert c["end_at"] == "2026-06-01 02:00:00" and c["elapsed_sec"] == 3600   # 10:00 local = 02:00 UTC
+
+    def test_done_at_before_clock_start_is_rejected(self, cli, tmp_db):
+        """`wl done --at` earlier than the running clock's start is contradictory (can't finish
+        before you started timing) — rejected like `wl stop --at`, leaving the clock untouched."""
+        cli("add", "t")
+        cli("start", "1", "--at", "2026-06-01 10:00")
+        # --log too: the reject must happen before any write, so no stray log/status/clock change lands
+        code, _, err = cli("done", "1", "--at", "2026-06-01 09:00", "--log", "wrapping up")
+        assert code != 0 and "earlier" in err
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT end_at FROM clock WHERE node_id=1").fetchone()["end_at"] is None
+        assert con.execute("SELECT status FROM node WHERE id=1").fetchone()["status"] != "DONE"
+        assert con.execute("SELECT COUNT(*) FROM log WHERE body='wrapping up'").fetchone()[0] == 0
+
+    def test_day_past_date_does_not_autocap_live_clock(self, cli, tmp_db):
+        """viewing a PAST day is a pure historical read — it must not auto-close the live clock."""
+        from datetime import datetime, timedelta
+        cli("add", "t")
+        start = (datetime.now() - timedelta(hours=30)).strftime("%Y-%m-%d %H:%M")
+        cli("start", "1", "--at", start)
+        cli("day", "2020-01-01")   # historical view
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT end_at FROM clock WHERE node_id=1").fetchone()["end_at"] is None
+
     def test_no_clock_logs_written(self, cli, tmp_db):
         """start/stop no longer write CLOCK_IN/OUT logs (timing lives in the clock table)."""
         cli("add", "t")

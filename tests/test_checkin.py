@@ -83,6 +83,64 @@ class TestCheckin:
         _, show, _ = cli("show", "1")
         assert "TODO" in show
 
+    def test_recurring_task_marker_day_done_when_ticked(self, cli):
+        """a recurring TASK (not a habit) checked in that day also renders [x] — completion
+        marking is unified across all recurring items, not just type.habit."""
+        from datetime import date
+        today = date.today().isoformat()
+        cli("add", "weekly sync")          # bare task, not a habit
+        cli("sched", "1", "--recur", "daily")
+        _, no_log, _ = cli("day")
+        assert "[ ] #1" in no_log
+        cli("tick", "1")                   # check-in, no --done (stays recurring)
+        _, with_log, _ = cli("day")
+        assert "[x] #1" in with_log
+        # DB status unchanged (recurring, not permanently DONE)
+        _, show, _ = cli("show", "1")
+        assert "TODO" in show
+
+    def test_show_recurring_last_checkin(self, cli):
+        """wl show displays a recurring item's last check-in date (read-time, never a cached prop)."""
+        from datetime import date
+        cli("add", "daily thing")
+        cli("sched", "1", "--recur", "daily")
+        assert "last check-in: never" in cli("show", "1")[1]
+        cli("tick", "1")
+        assert f"last check-in: {date.today().isoformat()}" in cli("show", "1")[1]
+
+    def test_ls_not_checked_in_filters_recurring_by_checkin_age(self, cli):
+        """wl ls --not-checked-in N lists recurring items not checked in within N days (or never);
+        skips fresh ones and non-recurring ones."""
+        cli("add", "fresh")
+        cli("sched", "1", "--recur", "daily")
+        cli("tick", "1")                        # checked in today → excluded
+        cli("add", "stale")
+        cli("sched", "2", "--recur", "daily")   # never checked in → listed
+        cli("add", "oneoff")                    # not recurring → never matches
+        _, out, _ = cli("ls", "--not-checked-in", "7")
+        assert "#2" in out
+        assert "#1" not in out and "#3" not in out
+
+    def test_oneoff_tick_without_done_not_marked_x(self, cli):
+        """a plain one-off task (no rrule, not habit) ticked for a note (no --done) must NOT
+        render [x] — the done marker is gated on recurring items."""
+        from datetime import date
+        cli("add", "oneoff")
+        cli("sched", "1", date.today().isoformat())   # one-off (on_date), not recurring
+        cli("tick", "1")                                # quick note, still TODO
+        _, out, _ = cli("day")
+        assert "[ ] #1" in out and "[x] #1" not in out
+
+    def test_checkin_after_recurrence_stopped_not_marked_x(self, cli):
+        """a check-in on a day AFTER the recurrence was stopped must not render [x] — the
+        recurrence isn't active that day, so the day-marker gate treats it like a one-off tick."""
+        cli("add", "t")
+        cli("sched", "1", "--recur", "daily")
+        cli("sched", "stop", "1", "2026-06-30")   # stopped in the past (before today)
+        cli("tick", "1")                           # check-in today, after the stop
+        _, out, _ = cli("day")
+        assert "[x] #1" not in out
+
     def test_checkin_multi_select_default_mode(self, cli, monkeypatch):
         """default goes through multi-select (TTY): patch _multi_select_tty to return idx 0, simulating "tick the 1st"."""
         self._setup_habits(cli, 3)

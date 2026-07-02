@@ -21,6 +21,15 @@ Recurring rules (`--recur`; every cycle supports `-1` = its last day):
   quarterly:-1                the last day of each quarter (3/31, 6/30, …)
   yearly:03-21                March 21 every year (yearly:-1 = 12-31)
 
+Stopping a recurrence (`wl sched stop <id> [date]`): it fires up to and INCLUDING `date`
+(default today), then no more — past occurrences stay intact. This is different from
+`--clear`/`rm`, which erase the rule from history too. If the node has several recurrence
+rules, all stop unless `--rule <rrule>` names one. `wl show` then reads `recur weekly:Wed
+(stopped 2026-06-30)`.
+
+  wl sched stop 42                 # end the recurrence today
+  wl sched stop 42 2026-06-30      # end it on a specific day (inclusive)
+
 Difference from `wl defer`: `sched` is a precise commitment to a day (appears "planned");
 `wl defer <id> someday` is a loose backlog item (status LATER, no committed day). Create +
 schedule in one step with `wl add "..." --sched today`. See `wl help planning` for the rhythm.
