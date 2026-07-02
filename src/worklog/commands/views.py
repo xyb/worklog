@@ -275,7 +275,14 @@ def _emit_goal_targets(con, node_id, indent="     "):
         out(f"{indent}{n}. " + mk + " " + _c(f"#{r['id']}", "id") + " " + title)
 
 
-def _day_goals_dict(con, day):
+def _month_node_for_date(con, target):
+    """The month time-node that calendar-owns ``target`` (``YYYY-MM-DD``), resolved by
+    ``date.period`` — NOT by walking the day's week ancestry. A cross-month week (e.g. W27
+    hung under June) would otherwise surface June's Top5 for its July days (#1208)."""
+    return time_node_by_period(con, "month", target[:7])
+
+
+def _day_goals_dict(con, target, day):
     """The day-header meta as a dict (for `wl day -o json`): goal (+ goal_progress {done,total}),
     summary (+ summary_at), week_goal, month_goal. Only present keys are included."""
     if not day:
@@ -299,11 +306,11 @@ def _day_goals_dict(con, day):
         wg = _latest_typed_log(con, wk["id"], "goal")
         if wg and wg.body:
             d["week_goal"] = wg.body
-        mo = Node.get(con, wk["parent_id"]) if wk["parent_id"] else None
-        if mo and node_type(con, mo) == "month":
-            mg = _latest_typed_log(con, mo["id"], "goal")
-            if mg and mg.body:
-                d["month_goal"] = mg.body
+    mo = _month_node_for_date(con, target)
+    if mo:
+        mg = _latest_typed_log(con, mo["id"], "goal")
+        if mg and mg.body:
+            d["month_goal"] = mg.body
     return d
 
 
@@ -332,7 +339,7 @@ def _day_json_data(con, target, day, items, sched_ids):
         "node_id": day["id"] if day else None,
         # goal / goal_progress / summary / summary_at / week_goal / month_goal — flattened in
         # (only the present keys), no wrapper: these ARE the day node's reserved-tag logs.
-        **_day_goals_dict(con, day),
+        **_day_goals_dict(con, target, day),
         "tasks": tasks,
         "clock_min_total": int(clock_sec / 60),
     }
@@ -376,7 +383,7 @@ def _emit_day_header(con, day, target, capped=None):
             ).fetchone()[0]
             if newer:
                 out(_c(f"  > ⚠ {newer} change(s) after recap; consider rewriting via wl recap", "doing"))
-    # the week's and month's goal — same `goal` tag on the ancestor week / month node
+    # the week's goal — same `goal` tag on the ancestor week node
     wk = Node.get(con, day["parent_id"]) if day["parent_id"] else None
     if wk and node_type(con, wk) == "week":
         wg = _latest_typed_log(con, wk["id"], "goal")
@@ -384,13 +391,14 @@ def _emit_day_header(con, day, target, capped=None):
             out(_c(_header_blockquote(wg.body, _DAY_MARKERS["week"]), "meta")
                 + _c(_goal_progress(con, wk["id"], wg.body), "meta"))
             _emit_goal_targets(con, wk["id"])
-        mo = Node.get(con, wk["parent_id"]) if wk["parent_id"] else None
-        if mo and node_type(con, mo) == "month":
-            mg = _latest_typed_log(con, mo["id"], "goal")
-            if mg and mg.body:
-                out(_c(_header_blockquote(mg.body, _DAY_MARKERS["month"]), "meta")
-                    + _c(_goal_progress(con, mo["id"], mg.body), "meta"))
-                _emit_goal_targets(con, mo["id"])
+    # the month's goal — resolved by the day's own date period, not the week's ancestry (#1208)
+    mo = _month_node_for_date(con, target)
+    if mo:
+        mg = _latest_typed_log(con, mo["id"], "goal")
+        if mg and mg.body:
+            out(_c(_header_blockquote(mg.body, _DAY_MARKERS["month"]), "meta")
+                + _c(_goal_progress(con, mo["id"], mg.body), "meta"))
+            _emit_goal_targets(con, mo["id"])
 
 
 def _day_workitem_log_rows(con, target, inc_cancel, *, extra_cols="", order="log.node_id"):

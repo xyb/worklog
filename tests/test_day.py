@@ -134,15 +134,29 @@ class TestDayMetaRendering:
         assert "Recap" in out and "end-of-day review content" in out
 
     def test_day_renders_month_goal(self, cli):
-        from datetime import date
-        today = date.today().isoformat()
+        day = "2026-05-28"
         # month → week → day chain; the month's goal shows under "This month"
         cli("add", "2026-05", "--prop", "type.date=month", "--prop", "date.period=2026-05")                      # 1
         cli("add", "2026-W22", "--prop", "type.date=week", "--prop", "date.period=2026-W22", "--parent", "1")     # 2
-        cli("add", today, "--prop", "type.date=day", "--prop", f"date.period={today}", "--parent", "2")           # 3
+        cli("add", day, "--prop", "type.date=day", "--prop", f"date.period={day}", "--parent", "2")               # 3
         cli("set", "1", "goal", "month goal content")
-        _, out, _ = cli("day", today)
+        _, out, _ = cli("day", day)
         assert "This month" in out and "month goal content" in out
+
+    def test_day_month_goal_by_date_not_week_ancestry(self, cli):
+        # #1208: a cross-month week (W27 hung under June) must NOT surface June's Top5 for its
+        # July days — the month is resolved by the day's own date.period, not the week's parent.
+        cli("add", "2026-06", "--prop", "type.date=month", "--prop", "date.period=2026-06")                       # 1
+        cli("add", "2026-07", "--prop", "type.date=month", "--prop", "date.period=2026-07")                       # 2
+        cli("add", "2026-W27", "--prop", "type.date=week", "--prop", "date.period=2026-W27", "--parent", "1")      # 3
+        cli("add", "2026-07-01", "--prop", "type.date=day", "--prop", "date.period=2026-07-01", "--parent", "3")   # 4
+        cli("set", "1", "goal", "JUNE top5")
+        cli("set", "2", "goal", "JULY top5")
+        _, out, _ = cli("day", "2026-07-01")
+        assert "JULY top5" in out and "JUNE top5" not in out
+        import json
+        _, jout, _ = cli("day", "2026-07-01", "-o", "json")
+        assert json.loads(jout)["month_goal"] == "JULY top5"
 
     def test_day_renders_week_goal(self, cli):
         from datetime import date
@@ -283,16 +297,15 @@ class TestDayMetaMarkersAndGoalProgress:
         return today
 
     def test_distinct_markers(self, cli):
-        from datetime import date
-        today = date.today().isoformat()
+        day = "2026-05-04"
         cli("add", "2026-05", "--prop", "type.date=month", "--prop", "date.period=2026-05")                   # 1
-        cli("add", "2026-W01", "--prop", "type.date=week", "--prop", "date.period=2026-W01", "--parent", "1")  # 2
-        cli("add", today, "--prop", "type.date=day", "--prop", f"date.period={today}", "--parent", "2")        # 3
+        cli("add", "2026-W19", "--prop", "type.date=week", "--prop", "date.period=2026-W19", "--parent", "1")  # 2
+        cli("add", day, "--prop", "type.date=day", "--prop", f"date.period={day}", "--parent", "2")           # 3
         cli("set", "3", "goal", "G")
         cli("set", "3", "summary", "S")
         cli("set", "1", "goal", "T")     # month-level goal
         cli("set", "2", "goal", "O")     # week-level goal
-        _, out, _ = cli("day", today)
+        _, out, _ = cli("day", day)
         assert "🎯 G" in out          # today's goal
         assert "📝 Recap: S" in out   # summary distinct from goal
         assert "⭐ This month: T" in out
