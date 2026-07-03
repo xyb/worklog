@@ -227,10 +227,11 @@ def _goal_target_rows(con, node_id):
     return rows
 
 
-def _goal_counts(con, node_id, body):
+def _goal_counts(con, node_id, body, rows=None):
     """(done, total) for a goal's targets — the structured `goal` metrics if present, else the
-    `#id`/`WL#id` refs named in the prose (legacy fallback). done = settled (DONE/CANCELED)."""
-    rows = _goal_target_rows(con, node_id)
+    `#id`/`WL#id` refs named in the prose (legacy fallback). done = settled (DONE/CANCELED).
+    `rows`: pre-fetched `_goal_target_rows` to reuse (avoids a second lookup on shared paths)."""
+    rows = _goal_target_rows(con, node_id) if rows is None else rows
     if rows:
         done = sum(1 for r in rows if r["status"] in ("DONE", "CANCELED"))
         return done, len(rows)
@@ -250,21 +251,23 @@ def _goal_counts(con, node_id, body):
     return done, total
 
 
-def _goal_progress(con, node_id, body):
+def _goal_progress(con, node_id, body, rows=None):
     """Goal achievement as ` [done/total] <emoji>` from its targets (structured metrics, else
-    prose #ids). "" if no targets. ✅ all done · 🟡 partial · ⬜ none."""
-    done, total = _goal_counts(con, node_id, body)
+    prose #ids). "" if no targets. ✅ all done · 🟡 partial · ⬜ none.
+    `rows`: pre-fetched `_goal_target_rows` to reuse."""
+    done, total = _goal_counts(con, node_id, body, rows=rows)
     if not total:
         return ""
     emoji = "✅" if done == total else ("⬜" if done == 0 else "🟡")
     return f" [{done}/{total}] {emoji}"
 
 
-def _emit_goal_targets(con, node_id, indent="     "):
+def _emit_goal_targets(con, node_id, indent="     ", rows=None):
     """Print a goal's structured targets as a numbered, status-marked list (priority order):
     `<indent>1. [x] #630 title`. No-op if the goal has no structured targets. Shared by
-    `wl day` and `wl goal` so the two render identically."""
-    rows = _goal_target_rows(con, node_id)
+    `wl day` and `wl goal` so the two render identically.
+    `rows`: pre-fetched `_goal_target_rows` to reuse."""
+    rows = _goal_target_rows(con, node_id) if rows is None else rows
     for n, r in enumerate(rows, 1):
         mk_plain = _status_marker(r["status"])
         # budget the title against the ACTUAL plain prefix width (indent + "N. " + marker + #id),
@@ -293,9 +296,10 @@ def _emit_goal_block(con, node, marker):
     g = _latest_typed_log(con, node["id"], "goal")
     if not (g and g.body):
         return
+    rows = _goal_target_rows(con, node["id"])   # fetch once, reuse for progress + the target list
     out(_c(_header_blockquote(g.body, marker), "meta")
-        + _c(_goal_progress(con, node["id"], g.body), "meta"))
-    _emit_goal_targets(con, node["id"])
+        + _c(_goal_progress(con, node["id"], g.body, rows=rows), "meta"))
+    _emit_goal_targets(con, node["id"], rows=rows)
 
 
 def _emit_time_goal_header(con, level, period):

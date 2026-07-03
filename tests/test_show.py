@@ -23,6 +23,23 @@ class TestShow:
         assert "5/19 breakdown" in out
         assert "timeline / changes" in out  # logs upgraded to timeline
 
+    def test_show_renders_goal_dashboard(self, cli):
+        # any node carrying a goal (here a plain project, not a time node) gets the wl-day-style
+        # header: 🎯 marker + [done/total] + the structured target nodes, via _emit_goal_block.
+        cli("add", "ship it", "--para", "project")   # 1
+        cli("add", "part A", "--parent", "1")        # 2
+        cli("add", "part B", "--parent", "1")        # 3
+        cli("done", "2")
+        cli("goal", "set", "1", "deliver A and B", "2", "3")
+        _, out, _ = cli("show", "1")
+        assert "🎯 deliver A and B" in out and "[1/2]" in out
+        assert "#2 part A" in out and "#3 part B" in out
+
+    def test_show_no_goal_no_dashboard(self, cli):
+        cli("add", "plain task")
+        _, out, _ = cli("show", "1")
+        assert "🎯" not in out
+
     def test_show_timeline_marks_log_tag(self, cli):
         # a tagged log (reserved-tag goal/summary or custom) shows its tag in the timeline,
         # distinguishable from a plain untagged "✎ log"

@@ -69,6 +69,17 @@ class TestLogs:
         code, out, _ = cli("logs", "--since", "2020-01-01")
         assert "long ago" in out
 
+    def test_logs_period_flags_resolve_window(self, cli):
+        # --week/--month/--quarter/--year must resolve to a date range (they were silently
+        # ignored — cmd_logs read args.since directly and skipped _resolve_window).
+        cli("add", "a")
+        cli("log", "1", "q2 log", "--date", "2026-05-15")
+        cli("log", "1", "q3 log", "--date", "2026-08-15")
+        _, out, _ = cli("logs", "--quarter", "2026-Q2")
+        assert "q2 log" in out and "q3 log" not in out
+        _, oy, _ = cli("logs", "--year", "2020")
+        assert "q2 log" not in oy   # 2020 window excludes 2026 logs
+
 
 # --- edge cases / cascade ---
 

@@ -35,15 +35,19 @@ _WINDOW_HINTS = {"week": "YYYY-Www", "month": "YYYY-MM", "quarter": "YYYY-Qn", "
 
 
 def _normalize_period(level, period):
-    """Zero-pad a single-digit month / week (``2026-7`` → ``2026-07``, ``2026-W5`` → ``2026-W05``)
-    so the pre-canonical forms the old inline window parser accepted still resolve. Canonical
-    inputs pass through untouched, and a month string handed to ``--week`` (``2026-07``) stays
-    non-canonical, so the malformed-flag guard still rejects it."""
+    """Canonicalize a user-typed period so pre-canonical forms still resolve: zero-pad a
+    single-digit month / week (``2026-7`` → ``2026-07``, ``2026-W5`` → ``2026-W05``) and accept a
+    lowercase week / quarter marker (``2026-w5`` / ``2026-q2`` → ``2026-W05`` / ``2026-Q2``).
+    Canonical inputs pass through untouched, and a month string handed to ``--week`` (``2026-07``)
+    stays non-canonical, so the malformed-flag guard still rejects it."""
     import re as _re
     if level == "month":
         return _re.sub(r"^(\d{4})-(\d)$", r"\1-0\2", period)
     if level == "week":
-        return _re.sub(r"^(\d{4})-W(\d)$", r"\1-W0\2", period)
+        return _re.sub(r"^(\d{4})-[Ww](\d{1,2})$",
+                       lambda m: f"{m.group(1)}-W{int(m.group(2)):02d}", period)
+    if level == "quarter":
+        return _re.sub(r"^(\d{4})-[Qq]([1-4])$", r"\1-Q\2", period)
     return period
 
 
@@ -351,6 +355,9 @@ def _norm_sched(s):
         return None
     # relative words match by normalized key (connector-insensitive, lowercase); ISO/delta forms
     # below keep matching the original `s` (their '-' is structural, not a connector).
+    # ISO period markers are case-insensitive on input: 2026-q2 / 2026-w05 canonicalize to
+    # uppercase before the shape checks below (canonical storage stays upper).
+    s = _re.sub(r"^(\d{4}-)([wq])", lambda m: m.group(1) + m.group(2).upper(), s)
     nw = _norm_word(s)
     today = _tu.today_date()
     if nw in ("today", "今天"):

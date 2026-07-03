@@ -132,6 +132,16 @@ class TestSummaryWindow:
         _, b, _ = cli("summary", "--week", "2026-W05")
         assert a.splitlines()[0] == b.splitlines()[0] and "invalid" not in a
 
+    def test_lowercase_quarter_accepted(self, cli):
+        # the Q/W period markers are case-insensitive on input
+        _, out, _ = cli("summary", "--quarter", "2026-q2")
+        assert "2026-04-01 ~ 2026-06-30" in out
+
+    def test_lowercase_week_equals_uppercase(self, cli):
+        _, a, _ = cli("summary", "--week", "2026-w05")
+        _, b, _ = cli("summary", "--week", "2026-W05")
+        assert a.splitlines()[0] == b.splitlines()[0] and "invalid" not in a
+
 
 class TestSummaryGoalHeader:
     """summary shows the window's time-node goal as a wl-day-style dashboard header."""

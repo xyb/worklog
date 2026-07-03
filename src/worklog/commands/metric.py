@@ -289,7 +289,7 @@ def cmd_metric_ls(args, con):
         f"SELECT * FROM metric WHERE {' AND '.join(where)} ORDER BY {order}", params))
     data_rows = [Metric.from_row(r) for r in rows]
     filt = f" tag={args.tag}" if args.tag else ""
-    scope = "" if args.all else " in window (use --all / --week / --month)"
+    scope = "" if args.all else " in window (use --all / --week / --month / --quarter / --year)"
     subj = "no metrics" if glob else f"node #{node} has no metrics"
     empty_msg = f"{subj}{filt}{scope}"
     return TextRenderable(

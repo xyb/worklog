@@ -95,7 +95,10 @@ from .. import cli as _cli  # noqa: E402
 
 from .bulk import _VALID_FIND_FIELDS
 from .state import _ids_list
-from .views import _print_tree, _print_day_activity, _render_day_group, _scheduled_node_ids, _pinned_at
+from .views import (
+    _print_tree, _print_day_activity, _render_day_group, _scheduled_node_ids, _pinned_at,
+    _emit_time_goal_header, _emit_goal_block, _DAY_MARKERS,
+)
 
 def _node_to_dict(con, n):
     """Full structured form of a node + its relations — the `wl show -o json` payload. Stable
@@ -945,7 +948,6 @@ def _render_summary(con, args, b):
 
     # dashboard header: when the window names one time node (--week/--month/--quarter/--year),
     # show that node's goal + [done/total] + target nodes, aligning summary with the wl day header
-    from .views import _emit_time_goal_header  # local: avoids a views<->query import cycle
     _level, _period = _window_period(args)
     if _level:
         _emit_time_goal_header(con, _level, _period)
@@ -1211,16 +1213,21 @@ def cmd_logs(args, con):
             die(f"invalid --date '{args.date}' (use YYYY-MM-DD / today / yesterday)")
         where.append(f"{_tu.local_day_sql('logged_at')} = ?")
         params.append(args.date)
-    # default time window: when no id/date/since given, only the last N days (default 7)
+    # --week/--month/--quarter/--year resolve to a since/until range via the shared window helper
+    # (else they'd be silently ignored); --since/--until pass through; otherwise fall back below.
     since = args.since
+    until = getattr(args, "until", None)
+    if _window_period(args)[0]:
+        since, until = _resolve_window(args)
+    # default time window: when no id/date/window given, only the last N days (default 7)
     if not args.id and not args.date and not since:
         since = (_tu.today_date() - timedelta(days=getattr(args, "days", 7) or 7)).isoformat()
     if since:
         where.append(f"{_tu.local_day_sql('logged_at')} >= ?")
         params.append(since)
-    if getattr(args, "until", None):
+    if until:
         where.append(f"{_tu.local_day_sql('logged_at')} <= ?")
-        params.append(args.until)
+        params.append(until)
     where.append(f"log.{_db.ALIVE}")
     where.append(f"node.{_db.ALIVE}")
     grouped = getattr(args, "group", "none") == "day"
@@ -1318,6 +1325,10 @@ def _show_detail(con, args, n):
             # *_at are UTC instants -> render local; *_date / scheduled / deadline are literal dates
             v = _tu.utc_to_local(n[k]) if k in ("created_at", "closed_at") else n[k]
             out("  " + _c(f"{k:9s}", "meta") + " " + _c(v))
+    # a node's goal (any node — a day/week/month/year time node OR a project/task) gets the same
+    # dashboard treatment as the wl day header: 🎯 marker + [done/total] + structured target nodes.
+    # Single source `_emit_goal_block`; no-op when the node carries no goal.
+    _emit_goal_block(con, n, _DAY_MARKERS["goal"])
     if n["body"]:
         # align continuation lines under the value (prefix "  body:     " = 12 cols)
         blines = n["body"].split("\n")
