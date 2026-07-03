@@ -540,3 +540,36 @@ class TestAutoReindexConfig:
         from worklog import config
         monkeypatch.setenv("WORKLOG_AUTO_REINDEX", "1")
         assert config.auto_reindex_enabled() is True
+
+
+class TestSemanticExtraCoverage:
+    """Hybrid keyword side, incremental reindex modes, and the text-render hit path."""
+
+    def test_reindex_up_to_date_second_run(self, seeded):
+        seeded("reindex")
+        _, out, _ = seeded("reindex")
+        assert "up to date" in out
+
+    def test_reindex_incremental_after_new_node(self, seeded):
+        seeded("reindex")
+        seeded("add", "delta task")
+        _, out, _ = seeded("reindex")
+        assert "incremental" in out
+
+    def test_keyword_side_matches_body(self, cli, monkeypatch):
+        monkeypatch.setattr(emb, "embed", _fake_embed)
+        cli("add", "opaque title", "--body", "alpha lives in the body")
+        cli("reindex")
+        _, out, _ = cli("--color", "never", "query", "alpha")
+        assert "#1 " in out
+
+    def test_reindex_incremental_after_edit(self, seeded):
+        seeded("reindex")
+        seeded("node", "edit", "1", "--body", "changed content")   # marks node 1 dirty
+        _, out, _ = seeded("reindex")
+        assert "incremental" in out
+
+    def test_reindex_model_change_requires_full(self, seeded):
+        seeded("reindex", "--model", "model-a")
+        code, out, err = seeded("reindex", "--model", "model-b")   # model differs → must rebuild
+        assert code != 0 and "--full" in (out + err)
