@@ -135,7 +135,7 @@ The codebase has a small set of single-source helpers; new code must reuse them,
 - `_status_marker(status)` — status → `[ ]/[x]/[/]/...` marker. Never hard-code the marker elsewhere.
 - `_node_line(con, n, ...)` — the **only** node renderer. Any place listing nodes reuses it and inherits highlighting + search emphasis for free. Hand-rolling a node line is rejected in review.
 - `out()` / `_c(text, style)` — the single output pipe. Bare `print()` for renderable content is rejected; any fragment that might contain `[ ]` must go through `_c` so `rich.markup` doesn't eat it.
-- `_resolve_window(args)` — time-window flag resolution. Commands must not parse `--since` / `--until` / `--week` / `--month` themselves.
+- `_resolve_window(args)` — time-window flag resolution (`--since` / `--until` / `--week` / `--month` / `--quarter` / `--year`). Commands must not parse these themselves; gate "was a window given" on `_window_period(args)`, not a hand-listed flag tuple.
 - `_resolve_db_path(args)` — DB path resolution (`--db` flag > `$WORKLOG_DB` > XDG default). Mirrored by `__wl_db_path[_bash|_zsh]` helpers in the generated shell completion — keep them in sync.
 
 Same rule for documentation: install / dev / release info lives here, not duplicated in README. Sections in README that need this content link to it instead of restating it.

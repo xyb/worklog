@@ -277,27 +277,34 @@ def _emit_goal_targets(con, node_id, indent="     "):
 
 def _month_node_for_date(con, target):
     """The month time-node that calendar-owns ``target`` (``YYYY-MM-DD``), resolved by
-    ``date.period`` — NOT by walking the day's week ancestry. A cross-month week (e.g. W27
-    hung under June) would otherwise surface June's Top5 for its July days (#1208)."""
+    ``date.period`` — NOT by walking the day's week ancestry. A cross-month week (e.g. an ISO
+    week hung under June) would otherwise surface June's Top5 for its July spill-over days."""
     return time_node_by_period(con, "month", target[:7])
 
 
 _PERIOD_GOAL_MARKERS = {"week": "📅 ", "month": "⭐ ", "quarter": "🗓 ", "year": "🏆 "}
 
 
-def _emit_time_goal_header(con, level, period):
-    """The goal-dashboard header for a time node (its own goal + [done/total] + structured
-    target nodes) — the `wl day` header generalized to week/month/quarter/year. No-op when the
-    node or its goal is absent. Used by `wl summary --week/--month/--quarter/--year` (#1194)."""
-    node = time_node_by_period(con, level, period)
-    if not node:
-        return
+def _emit_goal_block(con, node, marker):
+    """Render one goal-header row for a node: its latest goal (blockquoted with `marker`) + the
+    `[done/total]` achievement + its structured target nodes. No-op when the node has no goal.
+    The single source for every goal row — the day header's day/week/month rows and the summary
+    period header all render through here, so a format tweak lands in one place."""
     g = _latest_typed_log(con, node["id"], "goal")
     if not (g and g.body):
         return
-    out(_c(_header_blockquote(g.body, _PERIOD_GOAL_MARKERS.get(level, "🎯 ")), "meta")
+    out(_c(_header_blockquote(g.body, marker), "meta")
         + _c(_goal_progress(con, node["id"], g.body), "meta"))
     _emit_goal_targets(con, node["id"])
+
+
+def _emit_time_goal_header(con, level, period):
+    """The goal-dashboard header for a time node (its own goal + [done/total] + structured target
+    nodes) — the `wl day` header generalized to week/month/quarter/year. No-op when the node or its
+    goal is absent. Used by `wl summary --week/--month/--quarter/--year`."""
+    node = time_node_by_period(con, level, period)
+    if node:
+        _emit_goal_block(con, node, _PERIOD_GOAL_MARKERS.get(level, "🎯 "))
 
 
 def _day_goals_dict(con, target, day):
@@ -381,12 +388,8 @@ def _emit_day_header(con, day, target, capped=None):
     out(nid + _c(head, "header"))
     if not day:
         return
-    g = _latest_typed_log(con, day["id"], "goal")
-    if g and g.body:
-        # goal line carries its [done/total] achievement, then its structured target nodes
-        out(_c(_header_blockquote(g.body, _DAY_MARKERS["goal"]), "meta")
-            + _c(_goal_progress(con, day["id"], g.body), "meta"))
-        _emit_goal_targets(con, day["id"])
+    # goal line carries its [done/total] achievement, then its structured target nodes
+    _emit_goal_block(con, day, _DAY_MARKERS["goal"])
     s = _latest_typed_log(con, day["id"], "summary")
     if s and s.body:
         at = s.logged_at
@@ -404,19 +407,12 @@ def _emit_day_header(con, day, target, capped=None):
     # the week's goal — same `goal` tag on the ancestor week node
     wk = Node.get(con, day["parent_id"]) if day["parent_id"] else None
     if wk and node_type(con, wk) == "week":
-        wg = _latest_typed_log(con, wk["id"], "goal")
-        if wg and wg.body:
-            out(_c(_header_blockquote(wg.body, _DAY_MARKERS["week"]), "meta")
-                + _c(_goal_progress(con, wk["id"], wg.body), "meta"))
-            _emit_goal_targets(con, wk["id"])
-    # the month's goal — resolved by the day's own date period, not the week's ancestry (#1208)
+        _emit_goal_block(con, wk, _DAY_MARKERS["week"])
+    # the month's goal — resolved by the day's own date period, not the week's ancestry (a
+    # cross-month week must not surface the previous month's goal for its spill-over days)
     mo = _month_node_for_date(con, target)
     if mo:
-        mg = _latest_typed_log(con, mo["id"], "goal")
-        if mg and mg.body:
-            out(_c(_header_blockquote(mg.body, _DAY_MARKERS["month"]), "meta")
-                + _c(_goal_progress(con, mo["id"], mg.body), "meta"))
-            _emit_goal_targets(con, mo["id"])
+        _emit_goal_block(con, mo, _DAY_MARKERS["month"])
 
 
 def _day_workitem_log_rows(con, target, inc_cancel, *, extra_cols="", order="log.node_id"):

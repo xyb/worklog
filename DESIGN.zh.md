@@ -131,8 +131,10 @@ DONE / DEFERRED / CANCELED   (已了结)
 | `--until YYYY-MM-DD` | 止（默认今天）|
 | `--week YYYY-Www` | ISO 周（覆盖 since/until）|
 | `--month YYYY-MM` | 整月（覆盖 since/until）|
+| `--quarter YYYY-Qn` | 自然季度（覆盖 since/until）|
+| `--year YYYY` | 整年（覆盖 since/until）|
 
-优先级：`week > month > since/until > 本周一~今天`。唯一来源 `_resolve_window(args)` → `(since, until)` 两个 `YYYY-MM-DD`。
+优先级：`week > month > quarter > year > since/until > 本周一~今天`。唯一来源 `_resolve_window(args)` → `(since, until)` 两个 `YYYY-MM-DD`；格式非法的 period 参数经 `node_types` period oracle 校验后 die 报清楚提示。指定某一粒度时，`wl summary` 顶部展示该时间节点的 goal 作为 dashboard 头。
 
 窗口判定统一：`since <= ts[:10] <= until`（日期字符串字典序 = 时间序）。
 

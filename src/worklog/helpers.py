@@ -31,16 +31,30 @@ def _status_marker(status):
     }.get(status, "[ ]")
 
 
-_WINDOW_HINTS = {"week": "YYYY-Www", "month": "YYYY-MM", "quarter": "YYYY-Qq", "year": "YYYY"}
+_WINDOW_HINTS = {"week": "YYYY-Www", "month": "YYYY-MM", "quarter": "YYYY-Qn", "year": "YYYY"}
+
+
+def _normalize_period(level, period):
+    """Zero-pad a single-digit month / week (``2026-7`` → ``2026-07``, ``2026-W5`` → ``2026-W05``)
+    so the pre-canonical forms the old inline window parser accepted still resolve. Canonical
+    inputs pass through untouched, and a month string handed to ``--week`` (``2026-07``) stays
+    non-canonical, so the malformed-flag guard still rejects it."""
+    import re as _re
+    if level == "month":
+        return _re.sub(r"^(\d{4})-(\d)$", r"\1-0\2", period)
+    if level == "week":
+        return _re.sub(r"^(\d{4})-W(\d)$", r"\1-W0\2", period)
+    return period
 
 
 def _window_period(args):
-    """The (level, period) a window flag names (e.g. ('month', '2026-07')), or (None, None)
-    for a bare `--since/--until` window that maps to no single time node."""
+    """The (level, canonical period) a window flag names (e.g. ``('month', '2026-07')``), or
+    ``(None, None)`` for a bare ``--since/--until`` window that maps to no single time node.
+    Single source of the flag-precedence order (week > month > quarter > year)."""
     for level in ("week", "month", "quarter", "year"):
         period = getattr(args, level, None)
         if period:
-            return level, period
+            return level, _normalize_period(level, period)
     return None, None
 
 
@@ -53,12 +67,11 @@ def _resolve_window(args):
     from .node_types import valid_period, span_of
     from .render import die
 
-    for level in ("week", "month", "quarter", "year"):
-        period = getattr(args, level, None)
-        if period:
-            if not valid_period(level, period):
-                die(f"invalid --{level} '{period}' (expected {_WINDOW_HINTS[level]})")
-            return span_of(level, period)
+    level, period = _window_period(args)
+    if level:
+        if not valid_period(level, period):
+            die(f"invalid --{level} '{getattr(args, level)}' (expected {_WINDOW_HINTS[level]})")
+        return span_of(level, period)
     today = _tu.today_date()
     since = getattr(args, "since", None) or (today - timedelta(days=today.weekday())).isoformat()
     until = getattr(args, "until", None) or today.isoformat()

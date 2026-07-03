@@ -182,3 +182,12 @@ class TestProjectsLimitWindow:
         assert "new" in out
         assert "old" not in out
 
+    def test_projects_window_year_gates(self, cli):
+        """--quarter/--year must gate the window too — cmd_projects used to check only
+        since/until/week/month, so --year alone was silently ignored (since=None)."""
+        cli("add", "old", "--para", "project")
+        cli("add", "t-old", "--parent", "1")
+        cli("log", "2", "old", "--date", "2020-01-01")
+        _, out, _ = cli("projects", "--year", "2099")
+        assert "old" not in out   # a 2099 window excludes the 2020 activity
+

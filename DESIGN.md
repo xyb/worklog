@@ -267,8 +267,10 @@ All "over a time range" commands (changes / summary, future `logs` etc.) share t
 | `--until YYYY-MM-DD` | end (default: today) |
 | `--week YYYY-Www` | ISO week (overrides since/until) |
 | `--month YYYY-MM` | full month (overrides since/until) |
+| `--quarter YYYY-Qn` | calendar quarter (overrides since/until) |
+| `--year YYYY` | full year (overrides since/until) |
 
-Priority: `week > month > since/until > current-Monday~today`. Single source `_resolve_window(args)` returns `(since, until)` as two `YYYY-MM-DD` strings.
+Priority: `week > month > quarter > year > since/until > current-Monday~today`. Single source `_resolve_window(args)` returns `(since, until)` as two `YYYY-MM-DD` strings; a malformed period flag dies with a clear hint (validated via the `node_types` period oracle). When one grain is named, `wl summary` leads with that time node's goal as a dashboard header.
 
 Range judgement is uniform: `since <= ts[:10] <= until` (date strings sort lexicographically = chronologically).
 

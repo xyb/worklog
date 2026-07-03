@@ -144,7 +144,7 @@ class TestDayMetaRendering:
         assert "This month" in out and "month goal content" in out
 
     def test_day_month_goal_by_date_not_week_ancestry(self, cli):
-        # #1208: a cross-month week (W27 hung under June) must NOT surface June's Top5 for its
+        # a cross-month week (W27 hung under June) must NOT surface June's Top5 for its
         # July days — the month is resolved by the day's own date.period, not the week's parent.
         cli("add", "2026-06", "--prop", "type.date=month", "--prop", "date.period=2026-06")                       # 1
         cli("add", "2026-07", "--prop", "type.date=month", "--prop", "date.period=2026-07")                       # 2

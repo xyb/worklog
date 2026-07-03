@@ -121,9 +121,20 @@ class TestSummaryWindow:
         _, out, _ = cli("summary", "--year", "2026")
         assert "2026-01-01 ~ 2026-12-31" in out
 
+    def test_single_digit_month_normalized(self, cli):
+        # the old inline parser accepted 2026-7; normalization keeps it working
+        _, out, _ = cli("summary", "--month", "2026-7")
+        assert "2026-07-01 ~ 2026-07-31" in out
+
+    def test_single_digit_week_equals_padded(self, cli):
+        # 2026-W5 (accepted by the old parser) resolves to the same window as 2026-W05
+        _, a, _ = cli("summary", "--week", "2026-W5")
+        _, b, _ = cli("summary", "--week", "2026-W05")
+        assert a.splitlines()[0] == b.splitlines()[0] and "invalid" not in a
+
 
 class TestSummaryGoalHeader:
-    """#1194: summary shows the window's time-node goal as a wl-day-style dashboard header."""
+    """summary shows the window's time-node goal as a wl-day-style dashboard header."""
 
     def test_month_goal_header(self, cli):
         cli("add", "2026-07", "--prop", "type.date=month", "--prop", "date.period=2026-07")  # 1

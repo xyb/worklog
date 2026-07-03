@@ -32,6 +32,7 @@ from ..helpers import (
     _resolve_concrete_date,
     _resolve_log_tail,
     _resolve_window,
+    _window_period,
     _sched_anchor,
     _sched_display,
     _sched_level,
@@ -622,9 +623,11 @@ def cmd_projects(args, con):
     brief or no --since: skip the "recent YYYY-MM-DD" segment. --since: only list projects with logs after that day."""
     inc_cancel = getattr(args, "show_canceled", False)
     brief = getattr(args, "brief", False)
-    # if any of --since/--week/--month is set, use _resolve_window to get since as cutoff;
-    # otherwise since=None (no filter). until has no meaning here (we only check "active after that day").
-    if any(getattr(args, k, None) for k in ("since", "until", "week", "month")):
+    # if any window flag (--since/--until or a period grain) is set, use _resolve_window to get
+    # since as cutoff; otherwise since=None (no filter). Gate on _window_period (the single source
+    # of the period grains) so a newly-added grain never silently slips through here. until has no
+    # meaning here (we only check "active after that day").
+    if getattr(args, "since", None) or getattr(args, "until", None) or _window_period(args)[0]:
         resolved_since, _ = _resolve_window(args)
         since = resolved_since
     else:
@@ -941,9 +944,8 @@ def _render_summary(con, args, b):
     out(_c(line))
 
     # dashboard header: when the window names one time node (--week/--month/--quarter/--year),
-    # show that node's goal + [done/total] + target nodes, aligning summary with wl day (#1194)
-    from ..helpers import _window_period
-    from .views import _emit_time_goal_header
+    # show that node's goal + [done/total] + target nodes, aligning summary with the wl day header
+    from .views import _emit_time_goal_header  # local: avoids a views<->query import cycle
     _level, _period = _window_period(args)
     if _level:
         _emit_time_goal_header(con, _level, _period)
