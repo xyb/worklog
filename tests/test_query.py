@@ -56,6 +56,12 @@ class TestQueryRanking:
         assert "#2 " not in out and "#3 " not in out  # beta/gamma cut by threshold
         assert "beta task" not in out and "gamma notes" not in out
 
+    def test_no_matches_renders_message(self, seeded):
+        seeded("reindex")
+        # a query that matches nothing (no shared keyword, high threshold) → the text render path
+        _, out, _ = seeded("--color", "never", "query", "zzz", "--threshold", "0.99")
+        assert "no matches for 'zzz'" in out
+
 
 class TestHitExplanation:
     """A semantic hit shows the single best-matching CHUNK as the reason — the exact

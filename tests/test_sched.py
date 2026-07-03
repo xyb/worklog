@@ -149,6 +149,9 @@ class TestFuzzySchedule:
         # ISO period markers are case-insensitive on input; canonical form stays uppercase
         assert wl._norm_sched("2026-q3") == "2026-Q3"
         assert wl._norm_sched("2026-w23") == "2026-W23"
+        # single-digit week zero-pads too, same as the window flags (no divergence between paths)
+        assert wl._norm_sched("2026-w5") == "2026-W05"
+        assert wl._norm_sched("2026-W5") == "2026-W05"
         assert wl._norm_sched("someday") == "someday"
         assert wl._norm_sched(None) is None
         assert wl._norm_sched("  ") is None

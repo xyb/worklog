@@ -97,7 +97,7 @@ from .bulk import _VALID_FIND_FIELDS
 from .state import _ids_list
 from .views import (
     _print_tree, _print_day_activity, _render_day_group, _scheduled_node_ids, _pinned_at,
-    _emit_time_goal_header, _emit_goal_block, _DAY_MARKERS,
+    _emit_time_goal_header, _emit_goal_block, _goal_target_rows, _DAY_MARKERS,
 )
 
 def _node_to_dict(con, n):
@@ -1215,9 +1215,11 @@ def cmd_logs(args, con):
         params.append(args.date)
     # --week/--month/--quarter/--year resolve to a since/until range via the shared window helper
     # (else they'd be silently ignored); --since/--until pass through; otherwise fall back below.
+    # A concrete --date is more specific than a period window, so it wins (don't AND a day-equality
+    # clause with a range that excludes it — that yields an unsatisfiable "no logs" for a real day).
     since = args.since
     until = getattr(args, "until", None)
-    if _window_period(args)[0]:
+    if not args.date and _window_period(args)[0]:
         since, until = _resolve_window(args)
     # default time window: when no id/date/window given, only the last N days (default 7)
     if not args.id and not args.date and not since:
@@ -1392,8 +1394,11 @@ def _show_detail(con, args, n):
     if any(r["rrule"] and _rrule_active(r["rrule"], _today) for r in sched_rows) or node_type(con, n) == "habit":
         last_ci = _last_checkin(con, args.id)
         out("  " + _c("last check-in:", "meta") + " " + _c(last_ci or "never", "planned"))
-    # children (direct only)
-    children = Node.query(con, parent_id=args.id, order="priority NULLS LAST, id")
+    # children (direct only) — minus any already shown above as goal targets (the goal block lists
+    # those in priority order with their status; don't render a child node twice)
+    target_ids = {r["id"] for r in _goal_target_rows(con, args.id)}
+    children = [c for c in Node.query(con, parent_id=args.id, order="priority NULLS LAST, id")
+                if c["id"] not in target_ids]
     if children:
         out("  " + _c(f"children ({len(children)}):", "meta"))
         for c in children:

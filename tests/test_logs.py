@@ -80,6 +80,14 @@ class TestLogs:
         _, oy, _ = cli("logs", "--year", "2020")
         assert "q2 log" not in oy   # 2020 window excludes 2026 logs
 
+    def test_logs_date_beats_period_window(self, cli):
+        # a concrete --date is more specific than a period window; the window must not AND a
+        # range onto the day-equality clause (that would make a real day report empty).
+        cli("add", "a")
+        cli("log", "1", "may log", "--date", "2026-05-15")
+        _, out, _ = cli("logs", "--date", "2026-05-15", "--month", "2026-06")
+        assert "may log" in out
+
 
 # --- edge cases / cascade ---
 

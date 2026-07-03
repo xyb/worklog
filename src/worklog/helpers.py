@@ -355,9 +355,10 @@ def _norm_sched(s):
         return None
     # relative words match by normalized key (connector-insensitive, lowercase); ISO/delta forms
     # below keep matching the original `s` (their '-' is structural, not a connector).
-    # ISO period markers are case-insensitive on input: 2026-q2 / 2026-w05 canonicalize to
-    # uppercase before the shape checks below (canonical storage stays upper).
-    s = _re.sub(r"^(\d{4}-)([wq])", lambda m: m.group(1) + m.group(2).upper(), s)
+    # ISO week/quarter markers are case-insensitive + single-digit-tolerant on input
+    # (2026-q2 / 2026-w5 → 2026-Q2 / 2026-W05) — same canonicalizer as the window flags, so the
+    # two entry points never diverge. Canonical storage stays uppercase / zero-padded.
+    s = _normalize_period("quarter", _normalize_period("week", s))
     nw = _norm_word(s)
     today = _tu.today_date()
     if nw in ("today", "今天"):

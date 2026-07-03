@@ -34,6 +34,9 @@ class TestShow:
         _, out, _ = cli("show", "1")
         assert "🎯 deliver A and B" in out and "[1/2]" in out
         assert "#2 part A" in out and "#3 part B" in out
+        # a goal target that is also a child is NOT rendered twice: it shows in the goal block,
+        # and the children section (here empty, both children are targets) doesn't repeat it
+        assert out.count("part A") == 1 and "children" not in out
 
     def test_show_no_goal_no_dashboard(self, cli):
         cli("add", "plain task")

@@ -201,3 +201,18 @@ class TestJSONFormatter:
         assert _render._active_error_formatter is JSONFormatter.format_error
         outer.teardown()
         assert _render._active_error_formatter is None
+
+
+class TestJsonDefault:
+    def test_dc_default_serializes_dataclass(self):
+        from dataclasses import dataclass
+        from worklog.commands.output import _dc_default
+        @dataclass
+        class P:
+            a: int
+        assert _dc_default(P(1)) == {"a": 1}
+
+    def test_dc_default_rejects_non_dataclass(self):
+        from worklog.commands.output import _dc_default
+        with pytest.raises(TypeError):
+            _dc_default(object())

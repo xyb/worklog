@@ -82,6 +82,19 @@ class TestStore:
         vs.upsert(store, [_chunk(2, [0.0, 1.0])])
         assert {r["node_id"] for r in vs.load(store)} == {1, 2}
 
+    def test_delete_nodes_evicts_by_id(self, store):
+        # incremental reindex evicts deleted nodes via delete_nodes; all their chunks go
+        vs.upsert(store, [_chunk(1, [1.0, 0.0], field="head"),
+                          _chunk(1, [0.0, 1.0], field="log"),
+                          _chunk(2, [1.0, 1.0])])
+        vs.delete_nodes(store, [1])
+        assert {r["node_id"] for r in vs.load(store)} == {2}
+
+    def test_delete_nodes_empty_is_noop(self, store):
+        vs.upsert(store, [_chunk(1, [1.0, 0.0])])
+        vs.delete_nodes(store, [])
+        assert len(vs.load(store)) == 1
+
 
 class TestLanceVersionDrift:
     def test_table_names_falls_back_to_old_api(self, tmp_path):
