@@ -203,6 +203,21 @@ class TestBacklinks:
         _, j, _ = cli("show", "1", "-o", "json")
         assert json.loads(j)["backrels"] == [2]
 
+    def test_goal_summary_rollcall_not_backrel(self, cli):
+        """A day's 今日目标 (goal) / 日终小结 (summary) lists in-progress #task ids in
+        passing — that roll-call isn't a substantive reference, so it must NOT backrel the
+        listed task to the day node. Regression: a day summary listing an in-progress
+        task id used to backrel that task to the day node."""
+        cli("add", "target")                 # #1
+        cli("goal", "today: advance #1")     # goal log on today's day node mentions #1
+        _, out, _ = cli("show", "1")
+        assert "=backrels" not in out
+        # a plain log mentioning #1 still backrels (substantive reference)
+        cli("add", "other")                  # #2
+        cli("log", "2", "actually blocked on #1")
+        _, out, _ = cli("show", "1")
+        assert "=backrels" in out and "#2" in out
+
 
 class TestRelationErrors:
     def test_unknown_type_rejected(self, cli):

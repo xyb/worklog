@@ -217,8 +217,11 @@ def _backrels(con, nid):
     pat = re.compile(rf"(?<![A-Za-z0-9])(?:WL)?#0*{nid}(?!\d)")
     found = set()
     like = f"%#{nid}%"
-    for src_id, body in _db.query(con, "log", cols="DISTINCT node_id, body", body__like=like):
-        if src_id != nid and pat.search(body or ""):
+    # skip goal/summary logs: a day's 今日目标 / 日终小结 (incl. `wl recap`, which rewrites
+    # the summary) lists a bunch of in-progress #task ids in passing — that roll-call isn't a
+    # substantive reference, so it shouldn't backrel every listed task to the day node.
+    for src_id, body, tag in _db.query(con, "log", cols="DISTINCT node_id, body, tag", body__like=like):
+        if src_id != nid and tag not in ("goal", "summary") and pat.search(body or ""):
             found.add(src_id)
     for src_id, body in _db.query(con, "node", cols="id, body", body__like=like):
         if src_id != nid and pat.search(body or ""):
