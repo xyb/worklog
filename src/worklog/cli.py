@@ -1040,8 +1040,9 @@ More: `wl help agent`.""")
                        help="flat list, no per-day grouping")
     _agsub.add_parser("rm", help="unbind the current session")
     _agctx = _agsub.add_parser("context", help="machine line `<id>\\t<title>` of the current session's binding (for hooks; empty if unbound)")
-    _agctx.add_argument("--hook", action="store_true",
-        help="emit a ready-to-print Claude Code UserPromptSubmit JSON payload instead (so a hook needs no jq)")
+    _agctx.add_argument("--hook", nargs="?", const="claude", choices=("claude", "cursor"),
+        help="emit hook JSON instead of a machine line: claude = UserPromptSubmit payload; "
+             "cursor = sessionStart env + optional additional_context (so a hook needs no jq)")
 
     us = add_cmd(sub, "unset", cmd_prop_rm,
         parents=[output_parent],

@@ -34,6 +34,12 @@ def _agent_metrics(tmp_db, nid):
 
 
 class TestAgent:
+    @pytest.fixture(autouse=True)
+    def _isolate_cursor_env(self, monkeypatch):
+        """Tests run inside Cursor set CURSOR_AGENT=1; isolate unless a test opts in."""
+        monkeypatch.delenv("CURSOR_AGENT", raising=False)
+        monkeypatch.delenv("CURSOR_CONVERSATION_ID", raising=False)
+
     def _sess(self, monkeypatch, sid="sess-aaa"):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", sid)
         monkeypatch.delenv("WL_SESSION_ID", raising=False)
@@ -115,6 +121,28 @@ class TestAgent:
         cli("add", "t")
         code, _, err = cli("agent", "1")
         assert code != 0 and "session id" in err
+
+    def test_cursor_conversation_id_used(self, cli, tmp_db, monkeypatch):
+        monkeypatch.delenv("WL_SESSION_ID", raising=False)
+        monkeypatch.delenv("CLAUDE_CODE_SESSION_ID", raising=False)
+        monkeypatch.setenv("CURSOR_CONVERSATION_ID", "cursor-sess-1")
+        monkeypatch.setenv("CURSOR_AGENT", "1")
+        cli("add", "t")
+        cli("agent", "1")
+        con = tmp_db.db_connect()
+        row = con.execute(
+            "SELECT key, value FROM prop WHERE node_id=1 AND deleted_at IS NULL"
+        ).fetchone()
+        assert row["key"] == "agent_session.cursor"
+        assert row["value"] == "cursor-sess-1"
+
+    def test_cursor_agent_default_when_cursor_agent_set(self, cli, tmp_db, monkeypatch):
+        monkeypatch.setenv("CURSOR_CONVERSATION_ID", "cursor-sess-2")
+        monkeypatch.setenv("CURSOR_AGENT", "1")
+        monkeypatch.delenv("WL_AGENT", raising=False)
+        cli("add", "t")
+        cli("agent", "1", "--record")
+        assert _agent_metrics(tmp_db, 1)[0]["value_text"] == "cursor"
 
     def test_wl_session_id_takes_priority(self, cli, tmp_db, monkeypatch):
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "env-id")
@@ -242,6 +270,21 @@ class TestAgent:
         assert payload["hookSpecificOutput"]["hookEventName"] == "UserPromptSubmit"
         ctx = payload["hookSpecificOutput"]["additionalContext"]
         assert "WL#1" in ctx and 'tricky "quote" task' in ctx
+
+    def test_context_hook_cursor_emits_session_start_json(self, cli, monkeypatch):
+        import json as _json
+        monkeypatch.setenv("WL_SESSION_ID", "cursor-sess-hook")
+        cli("add", "cursor task")
+        _, out, _ = cli("agent", "context", "--hook", "cursor")
+        payload = _json.loads(out)
+        assert payload["env"] == {"WL_SESSION_ID": "cursor-sess-hook", "WL_AGENT": "cursor"}
+        assert "additional_context" not in payload
+        cli("agent", "1")
+        _, out, _ = cli("agent", "context", "--hook", "cursor")
+        payload = _json.loads(out)
+        assert payload["env"]["WL_SESSION_ID"] == "cursor-sess-hook"
+        assert "WL#1" in payload["additional_context"]
+        assert "cursor task" in payload["additional_context"]
 
     def test_ls_default_groups_by_day(self, cli, monkeypatch):
         # default `wl agent ls` groups bindings into per-day sections (today / yesterday / date)
