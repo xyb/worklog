@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import re
 import sqlite3
 import sys
-from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -73,6 +71,14 @@ from ..graph import (
 )
 from ..node import create_node
 from .. import node_types as _nt
+from .agent_runtime import (
+    AGENT_HOOK_CHOICES,
+    AGENT_RUNTIMES,
+    runtime_by_name as _agent_runtime,
+    resolve_runtime_name as _resolve_runtime_name,
+    resolve_session_id as _resolve_session_id,
+    session_env_hints as _session_env_hints,
+)
 from .metric import attach_metric_specs, checkin_metric, _CARRIER_TYPE
 from ..render import (
     _PRI_STYLE,
@@ -1551,26 +1557,19 @@ def cmd_prop(args, con):
 # `agent_session.<app>` prop on that node (no new table). The prefix `agent_session.` finds a
 # node's bindings across apps; the suffix is the app (claude / cursor / …). CRUD:
 #   wl agent <id> (set) · wl agent (show current) · wl agent ls (list all) · wl agent rm (unbind).
-_AGENT_APP = "claude"                       # default agent runtime this CLI ships for
 _AGENT_PREFIX = "agent_session."            # cross-app prefix: prop key is agent_session.<agent>
-_AGENT_KEY = _AGENT_PREFIX + _AGENT_APP       # default key (agent_session.claude)
 _SESSION_METRIC_TAG = "agent_session"        # bind-history metric: the session id (value_text = sid); tag string mirrors the prop namespace
 _AGENT_LS_CAP = 12                            # `wl agent ls` shows the N most-recently-active bindings by default; --all (or plain/piped) shows every one
 _AGENT_METRIC_TAG = "agent"                  # bind-history metric: the runtime name (value_text = prop-key suffix, e.g. claude)
+_AGENT_RUNTIMES = AGENT_RUNTIMES             # compatibility alias used by tests/tools
 
 def _current_agent():
     """Which agent runtime drives this `wl` — recorded with the session so the bind history
     shows *what* worked the node (claude / cursor / codex / …), not just an opaque sid.
-    `$WL_AGENT` (a per-agent SessionStart hook can set it) wins; else `$CURSOR_AGENT=1` →
-    `cursor`; otherwise `claude`, the runtime this CLI ships for. Lowercased + trimmed so the
-    prop key / metric note stay tidy."""
-    import os
-    explicit = (os.environ.get("WL_AGENT") or "").strip().lower()
-    if explicit:
-        return explicit
-    if os.environ.get("CURSOR_AGENT") == "1":
-        return "cursor"
-    return _AGENT_APP
+    `$WL_AGENT` (a per-agent SessionStart hook can set it) wins; else the first registry
+    runtime whose env marker matches (e.g. Cursor sets `$CURSOR_AGENT=1`); otherwise `claude`,
+    the runtime this CLI ships for. Lowercased + trimmed so the prop key / metric note stay tidy."""
+    return _resolve_runtime_name()
 
 def _agent_key(agent):
     """Prop key for an agent's live binding: `agent_session.<agent>` (the cross-app convention)."""
@@ -1613,26 +1612,6 @@ def _agent_binding_message(con, sid):
     nid, _, title = line.partition("\t")
     return (f"📌 This session is bound to WL#{nid}: {title}. "
             f"Keep this session's work on it; prefer logging progress to WL#{nid}.")
-
-def _agent_hook_json(con, sid):
-    """The current binding as a Claude Code `UserPromptSubmit` hook payload (JSON), or "" if
-    unbound. Lets the shipped context hook emit valid JSON without `jq` — wl owns the escaping.
-    The message is intentionally short (the agent re-reads it); titles are escaped by json.dumps."""
-    msg = _agent_binding_message(con, sid)
-    if not msg:
-        return ""
-    return json.dumps({"hookSpecificOutput": {
-        "hookEventName": "UserPromptSubmit", "additionalContext": msg}}, ensure_ascii=False)
-
-def _agent_cursor_start_json(con, sid):
-    """Cursor `sessionStart` hook payload: session env + optional initial binding context."""
-    if not sid:
-        return ""
-    payload = {"env": {"WL_SESSION_ID": sid, "WL_AGENT": "cursor"}}
-    msg = _agent_binding_message(con, sid)
-    if msg:
-        payload["additional_context"] = msg
-    return json.dumps(payload, ensure_ascii=False)
 
 def _has_agent_history(con, nid, sid):
     """Whether the (node, session) bind is already in the history trail — dedup by the
@@ -1695,21 +1674,17 @@ def _agent_ls_row(it, idw, agw, sidlen, plain, indent=""):
     return indent + _c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + title
 
 def _current_session_id():
-    """Session id of the running agent shell. Prefer $WL_SESSION_ID (a SessionStart hook can
-    freeze the official session_id under this stable name), fall back to the (undocumented)
-    $CLAUDE_CODE_SESSION_ID or Cursor's $CURSOR_CONVERSATION_ID. None if none — callers fail
-    closed (GPT review)."""
-    import os
-    return (os.environ.get("WL_SESSION_ID")
-            or os.environ.get("CLAUDE_CODE_SESSION_ID")
-            or os.environ.get("CURSOR_CONVERSATION_ID")
-            or None)
+    """Session id of the running agent shell. Prefer $WL_SESSION_ID (a session-start hook can
+    freeze the official session id under this stable name), then fall back to each registry
+    runtime's own env var in order (claude's $CLAUDE_CODE_SESSION_ID, cursor's
+    $CURSOR_CONVERSATION_ID, …). None if none — callers fail closed (GPT review)."""
+    return _resolve_session_id()
 
 def _agent_need_sid():
     sid = _current_session_id()
     if not sid:
-        die("no session id ($WL_SESSION_ID / $CLAUDE_CODE_SESSION_ID / $CURSOR_CONVERSATION_ID) "
-            "— run inside an agent session")
+        envs = " / ".join(_session_env_hints())
+        die(f"no session id ({envs}) — run inside an agent session")
     return sid
 
 def _agent_set(args, con):
@@ -1810,15 +1785,15 @@ def _agent_rm(args, con):
 
 def _agent_context(args, con):
     # Machine output for integrations (the context hook): a `<node_id>\t<title>` line, or
-    # with --hook the ready-to-emit hook JSON (Claude UserPromptSubmit or Cursor sessionStart).
-    # Empty when unbound (Claude hook) or env-only (Cursor hook). Plain print (not out()) —
-    # consumed by scripts; title can contain Rich markup chars like [tag] that out() would mangle.
+    # with --hook <runtime> the ready-to-emit hook JSON in that runtime's shape (see the
+    # AgentRuntime registry — Claude UserPromptSubmit, Cursor sessionStart, …). Empty when
+    # there is nothing to emit. Plain print (not out()) — consumed by scripts; title can
+    # contain Rich markup chars like [tag] that out() would mangle.
     sid = _current_session_id()
     hook = getattr(args, "hook", None)
-    if hook == "cursor":
-        print(_agent_cursor_start_json(con, sid))  # noqa: hook/context output is intentionally machine-readable, not suppressed by out()
-    elif hook:
-        print(_agent_hook_json(con, sid))  # noqa: hook/context output is intentionally machine-readable, not suppressed by out()
+    if hook:
+        rt = _agent_runtime(hook)
+        print(rt.hook_json(sid, _agent_binding_message(con, sid)))  # noqa: hook/context output is intentionally machine-readable, not suppressed by out()
     else:
         print(_agent_context_line(con, sid))  # noqa: hook/context output is intentionally machine-readable, not suppressed by out()
 

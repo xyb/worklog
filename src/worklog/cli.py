@@ -1020,7 +1020,9 @@ Two stores, two jobs:
 Only the bind event is recorded — later logs don't each carry the session, so it costs one row
 per binding, not per write; rebinding the same pair doesn't duplicate it.
 
-Reads $WL_SESSION_ID / $CLAUDE_CODE_SESSION_ID for the session, $WL_AGENT for the runtime name.
+Session id: $WL_SESSION_ID, else the runtime's own env var ($CLAUDE_CODE_SESSION_ID /
+$CURSOR_CONVERSATION_ID). Runtime name: --agent, else $WL_AGENT, else auto-detected
+(e.g. Cursor sets $CURSOR_AGENT=1), else claude.
 
 More: `wl help agent`.""")
     _agsub = ag.add_subparsers(dest="agent_sub")
@@ -1029,7 +1031,7 @@ More: `wl help agent`.""")
     _ags.add_argument("--record", action=argparse.BooleanOptionalAction, default=True,
         help="append a one-off history log carrying an `agent_session` metric (session id) + an `agent` metric (runtime name), so `wl metric ls <id> --tag agent_session --all` recovers every session it was worked under (default on; `--no-record` for a pointer-only bind)")
     _ags.add_argument("--agent", default=None, metavar="NAME",
-        help="which agent runtime this is (claude / cursor / codex / …); recorded with the session so the history shows what worked the node. Default: $WL_AGENT, else 'claude'")
+        help="which agent runtime this is (claude / cursor / codex / …); recorded with the session so the history shows what worked the node. Default: $WL_AGENT, else auto-detected from the runtime's env marker, else 'claude'")
     _agls = _agsub.add_parser("ls", parents=[output_parent], help="list session→task bindings, most-recently-active first")
     _agls.add_argument("--all", action="store_true", help="show every binding (default elides older ones to avoid a screen-flood)")
     _agls.add_argument("--by", choices=["active", "bound"], default="active",
@@ -1040,9 +1042,10 @@ More: `wl help agent`.""")
                        help="flat list, no per-day grouping")
     _agsub.add_parser("rm", help="unbind the current session")
     _agctx = _agsub.add_parser("context", help="machine line `<id>\\t<title>` of the current session's binding (for hooks; empty if unbound)")
-    _agctx.add_argument("--hook", nargs="?", const="claude", choices=("claude", "cursor"),
-        help="emit hook JSON instead of a machine line: claude = UserPromptSubmit payload; "
-             "cursor = sessionStart env + optional additional_context (so a hook needs no jq)")
+    _agctx.add_argument("--hook", nargs="?", const="claude", choices=AGENT_HOOK_CHOICES,
+        help="emit hook JSON instead of a machine line, in that runtime's shape (so a hook needs "
+             "no jq): claude = UserPromptSubmit additionalContext payload; cursor = sessionStart "
+             "env + optional additional_context")
 
     us = add_cmd(sub, "unset", cmd_prop_rm,
         parents=[output_parent],
@@ -1816,6 +1819,7 @@ from .commands import (
     cmd_node_rm,
     cmd_node_reparent,
     cmd_agent,
+    AGENT_HOOK_CHOICES,
     cmd_prop,
     cmd_prop_rm,
     cmd_clock,

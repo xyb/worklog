@@ -31,6 +31,7 @@ from .state import (
     cmd_node_rm,
     cmd_node_reparent,
     cmd_agent,
+    AGENT_HOOK_CHOICES,
     cmd_prop,
     cmd_prop_ls,
     cmd_prop_rm,

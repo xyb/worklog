@@ -9,18 +9,30 @@ prop on the node — no new table.
 
   wl agent 42              # bind this session to task #42 (default verb: set)
   wl agent 42 --record     # bind + leave a permanent history mark on the node
-  wl agent 42 --agent codex # record a non-default runtime (else $WL_AGENT, else claude)
+  wl agent 42 --agent codex # record a non-default runtime (else $WL_AGENT, else auto-detect)
   wl agent                 # show what this session is bound to
   wl agent ls              # list all session→task bindings
   wl agent rm              # unbind this session
 
-The session id comes from `$WL_SESSION_ID` (preferred — a SessionStart hook can freeze the
-official session_id under this stable name) or the undocumented `$CLAUDE_CODE_SESSION_ID`; if
-neither is set, `wl agent` fails closed instead of guessing.
+## Supported runtimes (the AgentRuntime registry)
+
+Runtime-specific knowledge lives in ONE registry (`src/worklog/commands/agent_runtime.py`) —
+each supported tool declares its name, its session-id env var, the env marker identifying its
+shell, and its hook JSON shape. Currently registered:
+
+| runtime | session id from            | detected by        | hook payload (`--hook <name>`) |
+|---------|----------------------------|--------------------|--------------------------------|
+| claude  | `$CLAUDE_CODE_SESSION_ID`  | (the default)      | `UserPromptSubmit` additionalContext |
+| cursor  | `$CURSOR_CONVERSATION_ID`  | `$CURSOR_AGENT=1`  | `sessionStart` env + additional_context |
+
+**Session id**: `$WL_SESSION_ID` wins (a session-start hook can freeze the runtime's official
+session id under this stable name), else each registry runtime's own env var in order; if none
+is set, `wl agent` fails closed instead of guessing.
 
 **Which agent** is recorded too, so the history shows *what* worked the node, not just an opaque
-sid: `--agent NAME` wins, else `$WL_AGENT` (a per-agent SessionStart hook can set it), else
-`claude` (the runtime this CLI ships for). The name is the prop key suffix and the metric note.
+sid: `--agent NAME` wins, else `$WL_AGENT`, else the first registry runtime whose env marker
+matches (Cursor agent shells export `$CURSOR_AGENT=1`), else `claude` (the runtime this CLI
+ships for). The name is the prop key suffix and the metric value.
 
 One session maps to one node: rebinding moves the prop off the old node (under any agent key).
 Binding a node that another session already holds prints a conflict warning but still binds. The
@@ -53,31 +65,40 @@ reach for `--no-record` only for a throwaway pointer-only bind where the history
 
 ## Wiring it up: status line + context hook (optional)
 
-`wl agent` only stores the binding. Two small integrations make it *visible* (status bar
-`📌WL#<id>`) and *known to the agent* (injected each time the binding changes). Both ship with
-the worklog-cli skill under `integrations/` and depend only on `wl` + POSIX `sh`/`sed` — **no
-`jq`, no `sqlite3` CLI**:
+`wl agent` only stores the binding. Small integrations make it *visible* (status bar
+`📌WL#<id>`) and *known to the agent* (injected via the runtime's hook). All ship with the
+worklog-cli skill under `integrations/` and depend only on `wl` + POSIX `sh`/`sed` — **no `jq`,
+no `sqlite3` CLI**. They all read one query: `wl agent context` — the current session's binding
+as a machine line `<id>\t<title>` (empty if unbound), or with `--hook <runtime>` the ready-to-emit
+hook JSON in that runtime's shape (so the hook needs no `jq`; `wl` does the escaping).
 
-- `wl-session-context.sh` — a `UserPromptSubmit` hook.
-- `statusline-wl.sh` — a status-line segment printing ` 📌WL#<id>`.
+- `wl-session-context.sh` — Claude Code `UserPromptSubmit` hook (`--hook claude`).
+- `wl-cursor-session-start.sh` — Cursor `sessionStart` hook (`--hook cursor`).
+- `statusline-wl.sh` — a status-line segment printing ` 📌WL#<id>` (runtime-agnostic).
 
-The query they rely on is `wl agent context` — it prints the current session's binding as a
-machine line `<id>\t<title>` (empty if unbound), or with `--hook` the ready-to-emit
-`UserPromptSubmit` JSON (so the hook needs no `jq`; `wl` does the escaping).
-
-**Install the context hook:**
+**Claude Code — context hook.** Injects the binding on every prompt (re-injects only when it
+changes):
 
   mkdir -p ~/.claude/hooks
   cp <skill>/integrations/wl-session-context.sh ~/.claude/hooks/ && chmod +x ~/.claude/hooks/wl-session-context.sh
 
 then register it in `~/.claude/settings.json` under `hooks.UserPromptSubmit` (a `command` hook
-running `$HOME/.claude/hooks/wl-session-context.sh`). If `wl` isn't on the hook's PATH, set
-`WL_BIN` to the binary.
+running `$HOME/.claude/hooks/wl-session-context.sh`). It caches the binding per session under
+`$XDG_STATE_HOME/worklog/agent/<sid>` and injects only when it *changes*; `wl agent set` / `rm`
+drop that cache on every bind / rebind / unbind. On the common (cached) path it spawns nothing.
 
-**Why it stays cheap.** The hook caches the binding per session under `$XDG_STATE_HOME/worklog/
-agent/<sid>` and injects only when it *changes* (re-injecting an unchanged binding every prompt
-just burns tokens). `wl agent set` / `rm` delete that cache on every bind / rebind / unbind, so
-the next prompt re-fetches and re-injects. On the common (cached) path it spawns nothing.
+**Cursor — sessionStart hook.** Freezes `$WL_SESSION_ID` / `$WL_AGENT=cursor` for the session and
+injects any existing binding as initial context:
+
+  mkdir -p ~/.cursor/hooks
+  cp <skill>/integrations/wl-cursor-session-start.sh ~/.cursor/hooks/ && chmod +x ~/.cursor/hooks/wl-cursor-session-start.sh
+
+then register it in `~/.cursor/hooks.json` under `hooks.sessionStart` (a `command` hook running
+`./hooks/wl-cursor-session-start.sh`). Inside a Cursor agent shell `wl agent <id>` already works
+with no env setup — the hook just makes an *existing* binding known to a fresh session.
+
+If `wl` isn't on a hook's PATH, set `WL_BIN` to the binary.
 
 **Status line.** Pipe your status-line command's stdin JSON through `statusline-wl.sh`; it appends
-` 📌WL#<id>` by calling `wl agent context` (simple, dependency-light — no direct DB access).
+` 📌WL#<id>` by calling `wl agent context` (simple, dependency-light — no direct DB access). Works
+for any runtime whose status-line JSON carries a `session_id` (Claude Code, Cursor CLI).

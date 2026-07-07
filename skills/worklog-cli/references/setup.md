@@ -88,21 +88,25 @@ default.
 
 ## wl agent — status line + context hook (check & install)
 
-`wl agent <id>` binds the current AI session to a task. Two optional integrations make that
-binding **visible** (status bar `📌WL#<id>`) and **injected** into the agent's context each time
-it changes. Both ship with this skill under `integrations/` and depend only on `wl` (no jq, no
-sqlite CLI):
+`wl agent <id>` binds the current AI session to a task. Optional integrations make that binding
+**visible** (status bar `📌WL#<id>`) and **injected** into the agent's context. Supported runtimes
+live in `src/worklog/commands/agent_runtime.py` (`AgentRuntime` registry; `wl help agent`); each
+has its own hook script under `integrations/`. All depend only on `wl` (no jq, no sqlite CLI):
 
-- `integrations/wl-session-context.sh` — a `UserPromptSubmit` hook. Reads the binding via
-  `wl agent context --hook`, caches it per session, injects only when it changes.
-- `integrations/statusline-wl.sh` — a status-line segment printing ` 📌WL#<id>`.
+- `integrations/wl-session-context.sh` — Claude Code `UserPromptSubmit` hook. Reads the binding
+  via `wl agent context --hook claude`, caches it per session, injects only when it changes.
+- `integrations/wl-cursor-session-start.sh` — Cursor `sessionStart` hook. Freezes
+  `$WL_SESSION_ID` / `$WL_AGENT=cursor` and injects any existing binding (`--hook cursor`).
+- `integrations/statusline-wl.sh` — a runtime-agnostic status-line segment printing ` 📌WL#<id>`.
 
-**When the user asks to set this up (or asks why the binding isn't showing), check then install:**
+**When the user asks to set this up (or asks why the binding isn't showing), check then install
+the hook for their runtime:**
 
-1. **Check the hook**: is `~/.claude/hooks/wl-session-context.sh` present AND is it registered
-   under `hooks.UserPromptSubmit` in `~/.claude/settings.json`? (`grep -q wl-session-context
+### Claude Code
+1. **Check**: is `~/.claude/hooks/wl-session-context.sh` present AND registered under
+   `hooks.UserPromptSubmit` in `~/.claude/settings.json`? (`grep -q wl-session-context
    ~/.claude/settings.json`.)
-2. **Install the hook** if missing:
+2. **Install** if missing:
    ```fish
    mkdir -p ~/.claude/hooks
    cp <skill-dir>/integrations/wl-session-context.sh ~/.claude/hooks/ && chmod +x ~/.claude/hooks/wl-session-context.sh
@@ -110,9 +114,28 @@ sqlite CLI):
    then add a `hooks.UserPromptSubmit` entry running it to `~/.claude/settings.json` (a `command`
    hook with `"command": "$HOME/.claude/hooks/wl-session-context.sh"`). Edit the JSON with the
    user's confirmation.
-3. **Status line**: if the user wants the `📌WL#<id>` segment, copy `integrations/statusline-wl.sh`
-   to `~/.claude/` and have their status-line command pipe its stdin through it (it appends the
-   segment). If `wl` isn't on the hook/status-line PATH, set `WL_BIN` to the wl binary.
+
+### Cursor
+Inside a Cursor agent shell `wl agent <id>` already works with no env setup (it reads
+`$CURSOR_CONVERSATION_ID` / `$CURSOR_AGENT`). The hook only makes an *existing* binding known to a
+fresh session.
+1. **Check**: is `~/.cursor/hooks/wl-cursor-session-start.sh` present AND registered under
+   `hooks.sessionStart` in `~/.cursor/hooks.json`?
+2. **Install** if missing:
+   ```fish
+   mkdir -p ~/.cursor/hooks
+   cp <skill-dir>/integrations/wl-cursor-session-start.sh ~/.cursor/hooks/ && chmod +x ~/.cursor/hooks/wl-cursor-session-start.sh
+   ```
+   then add to `~/.cursor/hooks.json`:
+   ```json
+   { "version": 1, "hooks": { "sessionStart": [{ "command": "./hooks/wl-cursor-session-start.sh" }] } }
+   ```
+
+### Status line (any runtime)
+If the user wants the `📌WL#<id>` segment, copy `integrations/statusline-wl.sh` to their config
+dir and have their status-line command pipe its stdin through it (it appends the segment). Works
+for any runtime whose status-line JSON carries a `session_id`. If `wl` isn't on the
+hook/status-line PATH, set `WL_BIN` to the wl binary.
 
 `<skill-dir>` is wherever this skill is installed (e.g. `~/.claude/skills/worklog-cli/`). The
-human-facing walkthrough + the JSON snippet are in the shipped help topic too: `wl help agent`.
+human-facing walkthrough + JSON snippets are in the shipped help topic too: `wl help agent`.

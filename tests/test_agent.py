@@ -1,6 +1,8 @@
-"""Tests for `wl agent` — bind the current agent session to a node, stored as the
-`agent_session.claude` prop. CRUD: wl agent <id> / wl agent / wl agent ls / wl agent rm.
-The session id comes from $WL_SESSION_ID (preferred) or $CLAUDE_CODE_SESSION_ID."""
+"""Tests for `wl agent` — bind the current agent session to a node, stored as an
+`agent_session.<agent>` prop. CRUD: wl agent <id> / wl agent / wl agent ls / wl agent rm.
+The session id comes from $WL_SESSION_ID (preferred) or a runtime's own env var from the
+AgentRuntime registry ($CLAUDE_CODE_SESSION_ID / $CURSOR_CONVERSATION_ID); the runtime name
+from $WL_AGENT or the registry's env markers (e.g. $CURSOR_AGENT=1 → cursor)."""
 import sqlite3
 import pytest
 
@@ -121,6 +123,8 @@ class TestAgent:
         cli("add", "t")
         code, _, err = cli("agent", "1")
         assert code != 0 and "session id" in err
+        # the hint names every registry runtime's env var (registry-derived, not hardcoded)
+        assert "$CLAUDE_CODE_SESSION_ID" in err and "$CURSOR_CONVERSATION_ID" in err
 
     def test_cursor_conversation_id_used(self, cli, tmp_db, monkeypatch):
         monkeypatch.delenv("WL_SESSION_ID", raising=False)
@@ -285,6 +289,49 @@ class TestAgent:
         assert payload["env"]["WL_SESSION_ID"] == "cursor-sess-hook"
         assert "WL#1" in payload["additional_context"]
         assert "cursor task" in payload["additional_context"]
+
+    # --- AgentRuntime registry: adding a new tool = ONE registry entry ---
+
+    def test_registry_derives_hook_choices(self):
+        """`--hook` choices come from the registry, so a new runtime auto-registers its hook."""
+        from worklog.commands.state import _AGENT_RUNTIMES, AGENT_HOOK_CHOICES
+        assert AGENT_HOOK_CHOICES == tuple(rt.name for rt in _AGENT_RUNTIMES)
+        assert "claude" in AGENT_HOOK_CHOICES and "cursor" in AGENT_HOOK_CHOICES
+
+    def test_new_registry_entry_is_fully_wired(self, cli, tmp_db, monkeypatch):
+        """A hypothetical new runtime appended to the registry works end-to-end with no other
+        code change: env-marker detection, session-id resolution, prop key, and --hook JSON all
+        derive from the entry. This pins the 'one entry to add a tool' contract."""
+        import json as _json
+        from worklog.commands import state as _st
+        from worklog.commands import agent_runtime as _ar
+        from worklog.commands.agent_runtime import AgentRuntime
+
+        def _codex_hook(sid, binding_msg, rt):
+            return {"env": {"WL_SESSION_ID": sid, "WL_AGENT": rt.name}}
+
+        codex = AgentRuntime("codex", session_env="CODEX_SESSION_ID",
+                             marker_env="CODEX_AGENT", marker_value="1",
+                             hook_builder=_codex_hook)
+        monkeypatch.setattr(_ar, "AGENT_RUNTIMES", _ar.AGENT_RUNTIMES + (codex,))
+        monkeypatch.setattr(_st, "_AGENT_RUNTIMES", _ar.AGENT_RUNTIMES)
+        for var in ("WL_SESSION_ID", "WL_AGENT", "CLAUDE_CODE_SESSION_ID",
+                    "CURSOR_CONVERSATION_ID", "CURSOR_AGENT"):
+            monkeypatch.delenv(var, raising=False)
+        monkeypatch.setenv("CODEX_SESSION_ID", "codex-sess-1")
+        monkeypatch.setenv("CODEX_AGENT", "1")
+        # detection + session-id + prop key all flow from the registry entry
+        assert _st._current_agent() == "codex"
+        assert _st._current_session_id() == "codex-sess-1"
+        cli("add", "t")
+        cli("agent", "1")
+        con = tmp_db.db_connect()
+        row = con.execute(
+            "SELECT key, value FROM prop WHERE node_id=1 AND deleted_at IS NULL").fetchone()
+        assert row["key"] == "agent_session.codex" and row["value"] == "codex-sess-1"
+        # the entry's own hook payload renders via the generic hook_json path
+        payload = _json.loads(codex.hook_json("codex-sess-1", "bound"))
+        assert payload["env"]["WL_AGENT"] == "codex"
 
     def test_ls_default_groups_by_day(self, cli, monkeypatch):
         # default `wl agent ls` groups bindings into per-day sections (today / yesterday / date)
