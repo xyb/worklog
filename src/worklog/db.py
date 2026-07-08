@@ -19,6 +19,42 @@ import sqlite3
 from pathlib import Path
 
 
+def is_source_checkout() -> bool:
+    """True when worklog is imported from its own source tree (an editable / dev checkout), not an
+    installed copy — detected by repo markers (`.git` + `pyproject.toml`) at the checkout root two
+    levels above the package (`<root>/src/worklog/db.py` → `<root>`). A pip/uv wheel unpacked into
+    site-packages has no such markers → False; the prod uv-tool build is a *copy* of the source
+    (installed from a local dir), so it also returns False. Used to fail-closed a dev build that
+    would otherwise silently migrate/corrupt the real DB (the recurring 2026-07 incident: an
+    unreleased migration in the working tree auto-applied to the live worklog.db)."""
+    root = Path(__file__).resolve().parents[2]
+    return (root / ".git").is_dir() and (root / "pyproject.toml").is_file()
+
+
+def _guard_source_build_default_db(db_path: Path) -> None:
+    """Fail-closed seatbelt (called from `db_connect`, so EVERY command that opens the DB hits it —
+    including `wl migrate`): a dev/source build must never SILENTLY touch the real DB. When worklog
+    runs from its own checkout (`is_source_checkout()`) AND the resolved path is the DEFAULT prod DB
+    with no `$WORKLOG_DB` opt-in, abort before the file is created / opened / migrated — a working
+    tree carrying an unreleased migration would otherwise auto-apply it to the live worklog.db (the
+    2026-07 incident that corrupted real data 3× in a day). An installed build (prod uv-tool / wheel)
+    is not a source checkout → unaffected. Opt in with `$WORKLOG_DB` (even pointed at the prod path);
+    dev/testing should point it at a scratch DB."""
+    if not is_source_checkout() or os.environ.get("WORKLOG_DB"):
+        return
+    from .xdg import _xdg_data_home
+    default = (_xdg_data_home() / "worklog" / "worklog.db").resolve()
+    if db_path.resolve() != default:
+        return
+    root = Path(__file__).resolve().parents[2]
+    raise SystemExit(
+        f"✗ refusing to use the real worklog DB from a dev/source build ({root}).\n"
+        f"  Running the working tree against {default} risks auto-applying an unreleased migration\n"
+        f"  and corrupting your live data.\n"
+        f"  → for dev/testing: export WORKLOG_DB=/tmp/wl-dev.db   (a scratch DB)\n"
+        f"  → to really use the live DB: export WORKLOG_DB={default}")
+
+
 def _db_file_path(con: sqlite3.Connection):
     """The on-disk file backing the 'main' database, or None for an in-memory / temp DB."""
     for _seq, name, file in con.execute("PRAGMA database_list"):
@@ -80,6 +116,7 @@ def db_connect(db_path: Path) -> sqlite3.Connection:
     tables are decoupled and removal is soft (a `deleted_at` tombstone), so there's
     no cascade to enforce — the app keeps consistency (queries.soft_delete_*). The
     schema keeps its REFERENCES / ON DELETE clauses as documentation; they're inert."""
+    _guard_source_build_default_db(db_path)   # dev/source build never silently opens the real DB
     db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
