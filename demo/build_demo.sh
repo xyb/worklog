@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Build the wl demo recording end-to-end, in ONE shot:
 #   1. seed a de-identified demo "day" into the throwaway wlt test DB
-#   2. generate an asciinema .cast (bright-yellow # comments, fast pacing)
-#   3. convert it to a gif with agg
-#   4. force the last frame to hold 8s so the closing comments are readable
+#   2. generate an asciinema .cast (bright-yellow # comments, fast pacing); the closing
+#      frame carries an 8s hold event so the final comments stay readable (agg renders it)
+#   3. render to a gif with agg, then shrink it losslessly with gifsicle
+#      (-O3 frame-diff + one global 256-colour palette — keeps the font crisp)
 # Safe: only touches ~/.local/share/wl-test, never the real worklog DB.
-# Usage:  bash demo/build_demo.sh    then look at demo/wl_demo.gif
+# Deps: agg, gifsicle.  Usage: bash demo/build_demo.sh  →  demo/wl_demo.gif (git-ignored)
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -71,6 +72,11 @@ say("^ Nothing got lost, today never got derailed -")
 say("^ and tomorrow already has its focus. That's the whole point.")
 emit('\x1b[36m$ sleep 5 & exit\x1b[0m\n',0.3)
 emit("\r\n",1.0)
+# Hold the final frame ~8s so the closing comments are readable. Baked into the cast (a
+# no-op " \b" event 8s later) instead of a post-hoc Pillow re-save: agg renders it natively,
+# keeping agg's palette + frame-diff optimisation (the Pillow RGB round-trip bloated the gif).
+# 8s < agg's --idle-time-limit 15, so it isn't capped.
+emit(" \b",8.0)
 
 with open("wl_demo.cast","w") as f:
     f.write(json.dumps({"version":2,"width":88,"height":40})+"\n")
@@ -78,19 +84,12 @@ with open("wl_demo.cast","w") as f:
 print(f"[cast] {len(events)} events, {round(t[0],1)}s")
 PYEOF
 
-agg --font-size 15 --speed 1.0 --idle-time-limit 15 wl_demo.cast wl_demo.gif
-
-python3 <<'PYEOF'
-from PIL import Image
-p = "wl_demo.gif"
-im = Image.open(p)
-frames = []; durs = []
-for i in range(im.n_frames):
-    im.seek(i)
-    frames.append(im.convert("RGB").copy())
-    durs.append(im.info.get("duration", 100))
-durs[-1] = 8000  # hold the closing frame 8s so the comments are readable
-frames[0].save(p, save_all=True, append_images=frames[1:], duration=durs, loop=0)
-print(f"[gif]  {len(frames)} frames, last frame held {durs[-1]}ms")
-PYEOF
-echo "[done] demo/wl_demo.gif"
+RAW=/tmp/wl_demo_raw.$$.gif
+agg --font-size 15 --speed 1.0 --idle-time-limit 15 wl_demo.cast "$RAW"
+# Lossless -O3 frame-diff + a single global 256-colour palette (agg emits per-frame local
+# colormaps, which balloon the file). No --lossy: the size is driven by the distinct frames
+# (each command types new output), not by intra-frame compressibility, so lossy barely helps
+# while it does soften the anti-aliased text. ~40% smaller than agg's raw output, no visible loss.
+gifsicle -O3 --colors 256 "$RAW" -o wl_demo.gif
+rm -f "$RAW"
+echo "[done] demo/wl_demo.gif ($(du -h wl_demo.gif | cut -f1))"
