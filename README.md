@@ -59,6 +59,34 @@ wl recap "shipped it, copy still TBD"     # evening summary (bare = read back)
 wl day                                    # the whole day: plan, logs, what changed
 ```
 
+Real output, from the demo above:
+
+```
+#9 2026-07-10 Fri · workday
+  > 🎯 Send out the monthly report [1/1] ✅
+     1. [x] #3 Write the report summary
+  > 📝 Recap: Summary sent; started the AI tutorial; ran 3km (written at 07-10 00:37)
+  work
+    ▸ planned
+      [x] #3 [# ] Write the report summary
+        · Draft written, sent to the team
+  personal
+    ▸ planned
+      [ ] #4 [# ] Do the AI-agents tutorial
+
+  ── 2026-07-10: 1/1 tasks with progress · DONE 1 · planned·not-done 1
+```
+
+`wl tree --by project` groups the same data by project instead of by time:
+
+```
+▸ #1 [#A] Ship the monthly report  (1)
+[x] [# ] #3 Write the report summary
+▸ #2 [#A] Learn how AI agents work  (2)
+[ ] [# ] #4 Do the AI-agents tutorial
+[ ] [# ] #10 Build a tiny agent myself
+```
+
 ### Schedule and track status
 
 Assign tasks to dates and move them through a status machine.

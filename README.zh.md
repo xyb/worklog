@@ -86,6 +86,34 @@ wl done 1                                 # 完成
 wl day                                    # 今天的工作, 重新分组 + 统计
 ```
 
+下面是同一个 demo 的真实输出(与顶部 gif 同一份数据):
+
+```
+#9 2026-07-10 Fri · workday
+  > 🎯 Send out the monthly report [1/1] ✅
+     1. [x] #3 Write the report summary
+  > 📝 Recap: Summary sent; started the AI tutorial; ran 3km (written at 07-10 00:37)
+  work
+    ▸ planned
+      [x] #3 [# ] Write the report summary
+        · Draft written, sent to the team
+  personal
+    ▸ planned
+      [ ] #4 [# ] Do the AI-agents tutorial
+
+  ── 2026-07-10: 1/1 tasks with progress · DONE 1 · planned·not-done 1
+```
+
+`wl tree --by project` 按项目而不是按时间对同一份数据分组:
+
+```
+▸ #1 [#A] Ship the monthly report  (1)
+[x] [# ] #3 Write the report summary
+▸ #2 [#A] Learn how AI agents work  (2)
+[ ] [# ] #4 Do the AI-agents tutorial
+[ ] [# ] #10 Build a tiny agent myself
+```
+
 ## 命令
 
 更全的命令面 —— 每条命令也有 `wl <cmd> --help`,`wl help` 浏览主题文档:
