@@ -18,6 +18,14 @@ GENERIC_TAGS = {
 }
 
 
+# the hidden-by-default "terminal" statuses (DESIGN §28 "unified status filtering") — the
+# single source for every `status NOT IN (...)` / `status in (...)` check across the
+# codebase (list/agenda/projects visibility, `wl doctor`, relation `ready`/`waiting`).
+# DEFERRED is intentionally excluded: it renders with the LATER-style open marker and stays
+# visible by default, unlike DONE/CANCELED.
+TERMINAL_STATUSES = frozenset({"DONE", "CANCELED"})
+
+
 def _status_marker(status):
     return {
         None: "[ ]",

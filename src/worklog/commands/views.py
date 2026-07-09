@@ -34,6 +34,7 @@ from ..helpers import (
     _wrap_display,
     _display_width,
     GENERIC_TAGS,
+    TERMINAL_STATUSES,
 )
 from ..queries import (
     _check_ids_exist,
@@ -233,7 +234,7 @@ def _goal_counts(con, node_id, body, rows=None):
     `rows`: pre-fetched `_goal_target_rows` to reuse (avoids a second lookup on shared paths)."""
     rows = _goal_target_rows(con, node_id) if rows is None else rows
     if rows:
-        done = sum(1 for r in rows if r["status"] in ("DONE", "CANCELED"))
+        done = sum(1 for r in rows if r["status"] in TERMINAL_STATUSES)
         return done, len(rows)
     import re
     seen, total, done = set(), 0, 0
@@ -246,7 +247,7 @@ def _goal_counts(con, node_id, body, rows=None):
         if not n:
             continue
         total += 1
-        if (n["status"] or "TODO") in ("DONE", "CANCELED"):
+        if (n["status"] or "TODO") in TERMINAL_STATUSES:
             done += 1
     return done, total
 
@@ -532,7 +533,7 @@ def cmd_day(args, con):
     total = len(logged)
     planned_undone = sum(
         1 for nid in items
-        if not items[nid]["logs"] and items[nid]["node"]["status"] not in ("DONE", "CANCELED")
+        if not items[nid]["logs"] and items[nid]["node"]["status"] not in TERMINAL_STATUSES
     )
     parts = [f"{s} {stats[s]}" for s in ("DONE", "DOING", "TODO", "LATER", "WAIT", "DEFERRED", "CANCELED") if stats.get(s)]
     # CLOCK total: unfiltered = all clock for the day; filtered = only the shown items'
@@ -885,7 +886,7 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 # day; a one-off tick or a since-stopped recurrence never renders [x].
                 done = bool(day) and (nk_habit or _has_active_rrule(con, nid, day)) and _has_checkin(con, nid, day)
                 hint = hint_plain = ""
-                if not logs and n["status"] not in ("DONE", "CANCELED") and by != "plan":
+                if not logs and n["status"] not in TERMINAL_STATUSES and by != "plan":
                     # only "not-done" if the task is still open; a terminal-status task
                     # scheduled on a day with no logs is done, not pending (avoids the
                     # contradictory "[x] … «planned·not-done»"). Suppressed under `--by plan`

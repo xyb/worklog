@@ -41,7 +41,7 @@
 - **日 / 周 / 月视图** —— `wl day` / `tree` / `summary` 重建画面 + 统计。
 - **全文搜索** —— `wl find`,命中高亮。
 - **语义 + 混合检索** —— `wl query`:按语义(embedding)排序,再和关键词匹配(RRF)融合,改写过的说法和精确的名字都能浮出来;走任意 OpenAI 兼容的 embedding 服务。向量存在 LanceDB(可选 `semantic` extra),没有 LanceDB wheel 的平台自动降级到纯 Python 的 SQLite 后端 —— 见[语义检索后端](#语义检索后端)。
-- **任务关系** —— `wl relation` 给任务建关系(`split-from` / `split-into` / `related`),独立于父子树。
+- **任务关系** —— `wl relation` 给任务建关系(`block` 依赖 / `split` / `related`),独立于父子树;`block` 加边时查环,拒绝成环。
 - **机器可读输出** —— `show` / `ls` / `logs` / `day` / `tree` / `summary` / `projects` 上加 `-o json`,给脚本和 AI 用。
 - **Agent session 绑定** —— `wl agent` 把一个 AI session 绑到任务上(status line / hook 可以显示出来)。
 - **Vault 关联** —— `wl link` 到 Obsidian 文档(`[[wikilink]]`)。

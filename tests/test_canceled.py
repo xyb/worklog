@@ -4,6 +4,23 @@ import sqlite3
 import pytest
 
 
+class TestTerminalStatusConstant:
+    """The single source for 'which statuses are terminal' — TERMINAL_STATUSES in
+    helpers.py. Introduced to replace the ('DONE', 'CANCELED') tuple literal that was
+    duplicated across state.py/query.py/views.py (DRY)."""
+
+    def test_terminal_statuses_is_done_and_canceled(self):
+        from worklog.helpers import TERMINAL_STATUSES
+        assert TERMINAL_STATUSES == frozenset({"DONE", "CANCELED"})
+
+    def test_terminal_statuses_excludes_open_and_deferred(self):
+        # DEFERRED keeps the LATER-style open marker/behavior today (untouched by this
+        # constant) — only DONE/CANCELED are hidden-by-default terminal states.
+        from worklog.helpers import TERMINAL_STATUSES
+        for open_status in ("TODO", "DOING", "LATER", "WAIT", "DEFERRED", None):
+            assert open_status not in TERMINAL_STATUSES
+
+
 class TestCanceledFilter:
     """§28 unified status filtering: hides CANCELED by default; --show-canceled exposes it."""
 

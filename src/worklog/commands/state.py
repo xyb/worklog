@@ -39,6 +39,7 @@ from ..helpers import (
     _truncate_log_body,
     _display_width,
     GENERIC_TAGS,
+    TERMINAL_STATUSES,
 )
 from ..queries import (
     _check_ids_exist,
@@ -60,6 +61,7 @@ from ..queries import (
     _RESERVED_LOG_TAGS,
     _reserved_prop_hint,
     _RELATION_TYPES,
+    _immediate_txn,
 )
 from ..graph import (
     _collect_descendants,
@@ -68,6 +70,12 @@ from ..graph import (
     relation_view,
     _backrels,
     _apply_relation,
+    RelationCycleError,
+    _block_graph,
+    _reachable,
+    _status_map,
+    node_is_ready,
+    node_waiting_on,
 )
 from ..node import create_node
 from .. import node_types as _nt
@@ -119,6 +127,7 @@ def _find_similar_open(con, title, node_type):
     nt = _norm_title(title)
     if not nt:
         return []
+    terminal_ph = ", ".join("?" * len(TERMINAL_STATUSES))
     rows = [
         Node.from_row(r) for r in con.execute(
             # derived type IN ('task','project'): an explicit type.para=task/project,
@@ -129,7 +138,8 @@ def _find_similar_open(con, title, node_type):
             f" OR NOT EXISTS(SELECT 1 FROM prop WHERE node_id=n.id AND key LIKE 'type.%' AND {_db.ALIVE})) "
             # project status is NULL (DESIGN §40); NULL NOT IN (...) is NULL, not TRUE, so
             # guard explicitly or projects would never match.
-            f"AND (n.status IS NULL OR n.status NOT IN ('DONE','CANCELED')) AND n.{_db.ALIVE} ORDER BY id"
+            f"AND (n.status IS NULL OR n.status NOT IN ({terminal_ph})) AND n.{_db.ALIVE} ORDER BY id",
+            tuple(TERMINAL_STATUSES),
         )
     ]
     hits = []
@@ -168,8 +178,10 @@ def _add_link(con, node_id, args):
 
 
 def _add_relations(con, node_id, args):
-    """`wl add --relation` (repeatable): write task↔task relation(s) on both sides at creation.
-    Returns the ` + N relation(s)` hint, or '' when none."""
+    """`wl add --relation` (repeatable): write task↔task relation(s) — SINGLE-WRITE, only
+    on the newly created node — at creation. Returns the ` + N relation(s)` hint, or ''
+    when none. A `block` spec that would close a dependency cycle dies with a clear
+    message (same check as `wl relation`, see `graph._apply_relation`)."""
     rel_specs = getattr(args, "relation", None)
     if not rel_specs:
         return ""
@@ -177,7 +189,10 @@ def _add_relations(con, node_id, args):
     for spec in rel_specs:
         rtype, ids = _parse_relation_spec(spec)
         _check_ids_exist(con, ids)
-        rel_n += len(_apply_relation(con, node_id, rtype, ids))
+        try:
+            rel_n += len(_apply_relation(con, node_id, rtype, ids))
+        except RelationCycleError as e:
+            die(str(e))
     return f" + {rel_n} relation(s)" if rel_n else ""
 
 
@@ -664,8 +679,8 @@ def _print_relations(con, nid):
 
 
 def _norm_relation_type(rtype):
-    """Normalize a relation type token (`split_from` / `SPLIT-FROM` → `split-from`),
-    exiting with a clear message on an unknown type. Single source for cmd_relation +
+    """Normalize a relation type token (`SPLIT` / `Related` → `split` / `related`),
+    exiting with a clear message on an unknown type. Single source for cmd_relation_set +
     the `wl add --relation` spec parser."""
     rt = (rtype or "").strip().lower().replace("_", "-")
     if rt not in _RELATION_TYPES:
@@ -675,10 +690,10 @@ def _norm_relation_type(rtype):
 
 def _parse_relation_spec(spec):
     """Parse a `wl add --relation` spec string '<type> <id> [<id>…]' → (rtype, [ids]).
-    e.g. 'split-from 42' or 'related 42 43'."""
+    e.g. 'split 42' or 'related 42 43'."""
     parts = (spec or "").split()
     if len(parts) < 2:
-        die(f"--relation '{spec}': need '<type> <id>' (e.g. 'split-from 42' / 'related 42 43')")
+        die(f"--relation '{spec}': need '<type> <id>' (e.g. 'split 42' / 'related 42 43')")
     rtype = _norm_relation_type(parts[0])
     ids = []
     for tok in parts[1:]:
@@ -689,14 +704,34 @@ def _parse_relation_spec(spec):
     return rtype, ids
 
 
-@output_format
 def cmd_relation(args, con):
+    """Dispatch `wl relation <set|ready|deps|unclaimed|claim|unclaim>` (the metric-style
+    entity group). `set` is the default verb — the legacy CRUD/list form
+    (`wl relation <id> …` == `wl relation set <id> …`) keeps working unchanged; the other
+    four are the query (`ready`/`deps`/`unclaimed`) and claim (`claim`/`unclaim`)
+    subcommands added alongside it."""
+    return dispatch_group(args, con, "relation_sub", {
+        "set": cmd_relation_set,
+        "ready": cmd_relation_ready,
+        "deps": cmd_relation_deps,
+        "unclaimed": cmd_relation_unclaimed,
+        "claim": cmd_relation_claim,
+        "unclaim": cmd_relation_unclaim,
+    }, usage="usage: wl relation <id> [<type> <other…>] [--rm]  |  "
+             "wl relation <set|ready|deps|unclaimed|claim|unclaim> … (see `wl relation --help`)")
+
+
+@output_format
+def cmd_relation_set(args, con):
     """Record / list task↔task relations (relation.* props). `wl relation <id>` lists a
-    node's relations; `wl relation <id> <type> <other…>` adds them — writing BOTH sides
-    (split-from also sets the other node's split-into, related is symmetric); `--rm`
-    removes from both sides. Types: split-from / split-into / related. Distinct from
-    ancestors (parent/child hierarchy) — these express derivation / association (this task
-    was split out of / into / relates to that one)."""
+    node's relations; `wl relation <id> <type> <other…>` adds them — SINGLE-WRITE, only on
+    `<id>` (the reverse is derived, never stored); `--rm` removes it. Types: block / split
+    / related. Distinct from ancestors (parent/child hierarchy) — these express
+    derivation / association / dependency (this task blocks / was split out of / relates
+    to that one). Adding a `block` edge that would close a dependency cycle dies with a
+    clear message instead of writing (see `graph._apply_relation`). The default verb of
+    the `wl relation` entity group (see `cmd_relation`) — reachable bare (the legacy form)
+    or as `wl relation set …`."""
     _require_node(con, args.id)
     rtype = getattr(args, "rtype", None)
     others_raw = list(args.others or [])
@@ -720,7 +755,10 @@ def cmd_relation(args, con):
     _check_ids_exist(con, others)
     rm = getattr(args, "rm", False)
     self_refs = [o for o in others if o == args.id]
-    done = _apply_relation(con, args.id, rtype, others, rm=rm)
+    try:
+        done = _apply_relation(con, args.id, rtype, others, rm=rm)
+    except RelationCycleError as e:
+        die(str(e))
     con.commit()
     result = relation_view(con, args.id)
     verb = "removed" if rm else "set"
@@ -732,6 +770,256 @@ def cmd_relation(args, con):
             out(_c("✓", "done") + " " + _c(f"#{args.id}", "id") + f" {rtype} {verb}: "
                 + _c(", ".join(f"#{o}" for o in done)))
         _print_relations(con, args.id)
+
+    return TextRenderable(result, _render)
+
+
+def _block_graph_status(con, blocks, blocked_by, *extra_ids):
+    """Batch status map covering every id in the block graph (either end of any `block`
+    edge) plus any extra anchor ids the caller needs (e.g. `ready`'s anchor, which may
+    have zero block relations of its own). One query for the whole command."""
+    ids = set(blocks) | set(blocked_by)
+    ids.update(extra_ids)
+    return _status_map(con, ids)
+
+
+@output_format
+def cmd_relation_ready(args, con):
+    """`wl relation ready <id> [--chain]` — frontier query: whether `<id>` itself is ready
+    to work on right now, plus which of its BLOCK-GRAPH downstream (what `<id>`
+    transitively blocks — NOT its tree children) have become fully unblocked (considering
+    ALL of their own blockers, not just `<id>`). `--chain` also lists the full upstream
+    chain (everything that transitively blocks `<id>`) for lineage context. Requires an
+    anchor id — not a global scan (most nodes carry no block relation at all; a global
+    ready list would drown the few that matter in noise). Typical flow: `wl done <id>` →
+    `wl relation ready <id>` to see what just opened up."""
+    nid = args.id
+    _require_node(con, nid)
+    anchor_node = Node.get(con, nid)
+    blocks, blocked_by = _block_graph(con)
+    downstream_ids = _reachable(blocks, nid)
+    chain = bool(getattr(args, "chain", False))
+    upstream_ids = _reachable(blocked_by, nid) if chain else []
+    status_of = _block_graph_status(con, blocks, blocked_by, nid, *downstream_ids, *upstream_ids)
+    anchor = {
+        "id": nid, "title": anchor_node.title, "status": anchor_node.status,
+        "ready": node_is_ready(nid, blocked_by, status_of),
+        "waiting_on": node_waiting_on(nid, blocked_by, status_of),
+    }
+    id_to_node = {n.id: n for n in Node.gets(con, downstream_ids + upstream_ids) if n}
+    unlocked = [{"id": d, "title": id_to_node[d].title, "status": id_to_node[d].status}
+                for d in downstream_ids if d in id_to_node and node_is_ready(d, blocked_by, status_of)]
+    result = {"anchor": anchor, "unlocked": unlocked}
+    if chain:
+        result["chain"] = [{"id": u, "title": id_to_node[u].title, "status": id_to_node[u].status}
+                            for u in upstream_ids if u in id_to_node]
+
+    def _render():
+        state = _c("ready", "done") if anchor["ready"] else \
+            _c("waiting on " + ", ".join(f"#{w}" for w in anchor["waiting_on"]), "later")
+        out(_c(f"#{nid}", "id") + " " + anchor["title"] + "  " + state)
+        if unlocked:
+            out(_c("unlocked:", "meta"))
+            for u in unlocked:
+                out("  " + _c(f"#{u['id']}", "id") + " " + u["title"])
+        elif downstream_ids:
+            out(_c("(downstream tasks exist but none are ready yet)", "meta"))
+        if chain:
+            if result["chain"]:
+                out(_c("upstream chain:", "meta"))
+                for c in result["chain"]:
+                    mark = "✓" if c["status"] in TERMINAL_STATUSES else "…"
+                    out(f"  {mark} " + _c(f"#{c['id']}", "id") + " " + c["title"])
+            else:
+                out(_c("(no upstream chain)", "meta"))
+
+    return TextRenderable(result, _render)
+
+
+@output_format
+def cmd_relation_deps(args, con):
+    """`wl relation deps [<root>]` — the full (cascaded) block-dependency graph: `<root>`
+    (if given) + everything it transitively blocks, else every node that participates in
+    at least one `block` edge (global, but NOT literally every node — most carry no block
+    relation at all). Each entry: id, title, status, what it directly blocks, and whether
+    it's ready right now. Unlike `wl show`'s direct-layer-only `=blocked-by`, this
+    cascades the whole chain — the "load a dependency map" query for wayfinder."""
+    root = getattr(args, "root", None)
+    blocks, blocked_by = _block_graph(con)
+    if root is not None:
+        _require_node(con, root)
+        ids = [root] + _reachable(blocks, root)
+    else:
+        ids = sorted(set(blocks) | set(blocked_by))
+    status_of = _block_graph_status(con, blocks, blocked_by, *ids)
+    id_to_node = {n.id: n for n in Node.gets(con, ids) if n}
+    nodes = []
+    for nid in ids:
+        n = id_to_node.get(nid)
+        if not n:
+            continue
+        nodes.append({
+            "id": nid, "title": n.title, "status": n.status,
+            "blocks": sorted(blocks.get(nid, ())),
+            "ready": node_is_ready(nid, blocked_by, status_of),
+        })
+    result = {"root": root, "nodes": nodes}
+
+    def _render():
+        if not nodes:
+            out(_c(f"(no block relations{f' under #{root}' if root else ''})", "meta"))
+            return
+        for n in nodes:
+            state = _c("ready", "done") if n["ready"] else _c("blocked", "later")
+            tail = "  → blocks " + ", ".join(f"#{b}" for b in n["blocks"]) if n["blocks"] else ""
+            out(_c(f"#{n['id']}", "id") + " " + n["title"] + f"  [{state}]" + tail)
+
+    return TextRenderable(result, _render)
+
+
+@output_format
+def cmd_relation_unclaimed(args, con):
+    """`wl relation unclaimed [<root>]` — open (non-terminal) tickets with no active claim
+    (never claimed, or a claim gone stale — `_STALE_CLAIM_HOURS`), scoped to `<root>`'s
+    TREE subtree (project/area descendants — this is a backlog-under-a-project query, NOT
+    the block graph, unlike `ready`/`deps`) if given, else global. Intersect with `ready`
+    for wayfinder's frontier: ready ∩ unclaimed."""
+    root = getattr(args, "root", None)
+    if root is not None:
+        _require_node(con, root)
+        ids = [root] + _collect_descendants(con, root)
+        candidates = [n for n in Node.gets(con, ids) if n]
+    else:
+        candidates = Node.query(con)
+    claimed_by_map = {r.node_id: r.value for r in Prop.query(con, key="claimed_by")}
+    claimed_at_map = {r.node_id: r.value for r in Prop.query(con, key="claimed_at")}
+    result = []
+    for n in candidates:
+        if n.status in TERMINAL_STATUSES:
+            continue
+        prior = claimed_by_map.get(n.id)
+        if prior and not _claim_is_stale(claimed_at_map.get(n.id)):
+            continue   # actively (freshly) claimed — not in the unclaimed pool
+        result.append({"id": n.id, "title": n.title, "status": n.status})
+
+    def _render():
+        if not result:
+            out(_c(f"(no unclaimed open tickets{f' under #{root}' if root else ''})", "meta"))
+            return
+        for r in result:
+            out(_c(f"#{r['id']}", "id") + " " + r["title"])
+
+    return TextRenderable(result, _render)
+
+
+# --- claim / unclaim: orthogonal to block/ready — "who's working it", not
+# "can it be worked". `claimed_by` (free string identity) / `claimed_at` (UTC ISO
+# timestamp) are plain UDA props (not relation.* — a claim isn't a task↔task edge), so
+# they show up in `wl show`'s normal props: block with no extra rendering needed.
+_STALE_CLAIM_HOURS = 24   # a claim this old is treated as abandoned — reclaimable/releasable
+                          # by anyone, no --force needed (tune here if real usage differs)
+
+
+def _claim_identity(args):
+    """Resolve "who is claiming/releasing" — `--as IDENTITY` (a free string: a human name,
+    a custom label) if given, else `<agent>:<session id>` the same way `wl agent` derives
+    it (so a claim and an agent-session bind naturally use the same identity). Dies asking
+    for `--as` when run outside any known agent session and none was given — claim always
+    needs SOME identity to write (unlike unclaim, which only needs one for the ownership
+    check, and skips it entirely for --force / an already-stale claim)."""
+    explicit = getattr(args, "claimed_as", None)
+    if explicit and explicit.strip():
+        return explicit.strip()
+    sid = _current_session_id()
+    if not sid:
+        envs = " / ".join(_session_env_hints())
+        die(f"no session id ({envs}) and no --as given — run inside an agent session or pass --as <identity>")
+    return f"{_current_agent()}:{sid}"
+
+
+def _claim_is_stale(claimed_at, max_hours=_STALE_CLAIM_HOURS):
+    """Whether a `claimed_at` timestamp is old enough to treat the claim as abandoned.
+    Missing/unparseable timestamps count as stale (fail open — never let a garbled
+    timestamp permanently wedge a claim)."""
+    if not claimed_at:
+        return True
+    try:
+        ts = datetime.fromisoformat(claimed_at)
+    except ValueError:
+        return True
+    return (datetime.fromisoformat(_tu.utc_now()) - ts) > timedelta(hours=max_hours)
+
+
+@output_format
+def cmd_relation_claim(args, con):
+    """`wl relation claim <id> [--as IDENTITY]` — exclusive claim: writes `claimed_by` +
+    `claimed_at` if the ticket is unclaimed or its claim has gone stale (older than
+    `_STALE_CLAIM_HOURS`, 24h by default); dies if it's held by someone else and still
+    fresh. Re-claiming under your own identity is a no-op that just refreshes
+    `claimed_at` (a heartbeat)."""
+    nid = args.id
+    _require_node(con, nid)
+    identity = _claim_identity(args)
+    # Hold the write lock across the read-check-write so a concurrent claimer can't slip in
+    # between (else two sessions both read "unclaimed" and both win — see _immediate_txn).
+    with _immediate_txn(con):
+        cur_by = Prop.query_one(con, node_id=nid, key="claimed_by")
+        cur_at = Prop.query_one(con, node_id=nid, key="claimed_at")
+        prior = cur_by.value if cur_by else None
+        prior_at = cur_at.value if cur_at else None
+        stale_reclaim = False
+        if prior and prior != identity:
+            if not _claim_is_stale(prior_at):
+                die(f"#{nid} already claimed by {prior} (since {prior_at or '?'}) — wait, or "
+                    f"`wl relation unclaim {nid} --force` to override")
+            stale_reclaim = True
+        same_identity_refresh = prior == identity and prior is not None
+        now = _tu.utc_now()
+        _upsert_prop(con, nid, "claimed_by", identity)
+        _upsert_prop(con, nid, "claimed_at", now)
+    result = {"node_id": nid, "claimed_by": identity, "claimed_at": now}
+
+    def _render():
+        if stale_reclaim:
+            out(_c("✓", "done") + " " + _c(f"#{nid}", "id")
+                + f" claimed by {identity} (previous claim by {prior} was stale — reclaimed)")
+        elif same_identity_refresh:
+            out(_c(f"(#{nid} already claimed by you — refreshed)", "meta"))
+        else:
+            out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + f" claimed by {identity}")
+
+    return TextRenderable(result, _render)
+
+
+@output_format
+def cmd_relation_unclaim(args, con):
+    """`wl relation unclaim <id> [--as IDENTITY] [--force]` — release a claim, clearing
+    `claimed_by`/`claimed_at`. Releasing an already-unclaimed ticket is a friendly no-op
+    (not an error — the desired end state already holds). Refuses to release someone
+    else's still-fresh claim unless `--force`; a stale claim can be released by anyone,
+    no `--force` needed, and never even resolves an identity (nothing to compare)."""
+    nid = args.id
+    _require_node(con, nid)
+    # Same write-lock hold as claim: a concurrent claim/unclaim can't interleave the check-then-clear.
+    with _immediate_txn(con):
+        cur_by = Prop.query_one(con, node_id=nid, key="claimed_by")
+        if not cur_by or not cur_by.value:
+            result = {"node_id": nid, "released": False}
+            return TextRenderable(result, lambda: out(_c(f"(#{nid} wasn't claimed)", "meta")))
+        prior = cur_by.value
+        cur_at = Prop.query_one(con, node_id=nid, key="claimed_at")
+        force = getattr(args, "force", False)
+        stale = _claim_is_stale(cur_at.value if cur_at else None)
+        if not force and not stale:
+            identity = _claim_identity(args)
+            if prior != identity:
+                die(f"#{nid} is claimed by {prior}, not you ({identity}) — pass --force to override")
+        Prop.delete(con, node_id=nid, key="claimed_by")
+        Prop.delete(con, node_id=nid, key="claimed_at")
+    result = {"node_id": nid, "released": True, "was_claimed_by": prior}
+
+    def _render():
+        out(_c("✓", "done") + " " + _c(f"#{nid}", "id") + f" unclaimed (was {prior})")
 
     return TextRenderable(result, _render)
 

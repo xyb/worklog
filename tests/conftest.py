@@ -29,6 +29,25 @@ def _never_touch_real_db(tmp_path_factory):
     yield
 
 
+@pytest.fixture(autouse=True)
+def _isolate_session_env(monkeypatch):
+    """Hermetic session identity: scrub every env var `resolve_session_id` / runtime detection
+    reads, so the outer shell's real WL_SESSION_ID / CLAUDE_CODE_SESSION_ID (present when pytest
+    runs inside a bound agent session) can't leak in and override a test's own monkeypatched
+    value. WL_SESSION_ID has the HIGHEST priority, so an un-scrubbed real one silently shadows a
+    test that only sets CLAUDE_CODE_SESSION_ID (that exact leak once flaked test_json_output's
+    agent tests). Names come from the AGENT_RUNTIMES registry — no hardcoded list to drift when a
+    new runtime is added. A test that wants an identity sets it explicitly after this runs."""
+    from worklog.commands.agent_runtime import AGENT_RUNTIMES
+    names = {"WL_SESSION_ID", "WL_AGENT"}
+    for rt in AGENT_RUNTIMES:
+        names.add(rt.session_env)
+        if rt.marker_env:
+            names.add(rt.marker_env)
+    for name in names:
+        monkeypatch.delenv(name, raising=False)
+
+
 @pytest.fixture
 def tmp_db(tmp_path, monkeypatch):
     """One temp DB per test; cleaned automatically when the test ends."""

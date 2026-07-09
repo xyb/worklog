@@ -25,7 +25,7 @@ Common uses:
   wl active -o json                  # [{node_id,title,status,start_at,elapsed_min}] or []
   wl goal -o json                    # {body,logged_at} or null
   wl recap -o json                   # {body,logged_at} or null
-  wl relation 42 -o json             # {split-from:[…],split-into:[…],related:[…]}
+  wl relation 42 -o json             # {block:[…],split:[…],related:[…],blocked_by:[…],split_from:[…]}
   wl log show 282 -o json            # {id,node_id,tag,body,logged_at}
   wl clock ls 42 -o json             # [{id,start_at,end_at,elapsed_sec}]
   wl agent ls -o json                # [{id,agent,sid,title,act,bound}]

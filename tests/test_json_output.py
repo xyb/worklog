@@ -416,7 +416,7 @@ class TestRelationJson:
     def test_read_empty(self, cli):
         cli("add", "task")
         d = _j(cli, "relation", "1", "-o", "json")
-        assert d == {"split-from": [], "split-into": [], "related": []}
+        assert d == {"block": [], "split": [], "related": [], "blocked_by": [], "split_from": []}
 
     def test_read_with_relation(self, cli):
         cli("add", "a")
@@ -428,7 +428,7 @@ class TestRelationJson:
     def test_prefix_syntax(self, cli):
         cli("add", "task")
         d = _j(cli, "-o", "json", "relation", "1")
-        assert "split-from" in d and "related" in d
+        assert "split_from" in d and "related" in d
 
 
 class TestRecapJson:

@@ -14,7 +14,7 @@ A local CLI worklog and task tracker backed by SQLite. Add tasks, log what you d
 
 - **Everything in one place.** Time (year → month → week → day) and projects (area → task) share the same tree and the same id space. No switching between apps.
 - **A daily rhythm that sticks.** Set a goal in the morning, log as you go, recap at night. `wl day` replays the whole day with stats.
-- **Structured and queryable.** Every item carries status, priority, tags, props, and relations. Filter with `wl ls`, trace task splits with `wl relation`, search by meaning with `wl query`.
+- **Structured and queryable.** Every item carries status, priority, tags, props, and relations. Filter with `wl ls`, track dependencies/splits with `wl relation` (`block` / `split` / `related`), search by meaning with `wl query`.
 - **AI-ready out of the box.** Every command outputs plain text or `-o json`. There's a bundled [Claude Code skill](skills/worklog-cli/SKILL.md) so an AI assistant can drive it directly.
 - **Local and transparent.** One SQLite file, no daemon, no account. You own the data.
 

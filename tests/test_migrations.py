@@ -479,6 +479,48 @@ class TestMigration0007UTC:
         assert con.execute("SELECT logged_at FROM log WHERE body='bare-date'").fetchone()[0] == "2026-06-01"
 
 
+class TestMigration0013RelationSplitRename:
+    """0013: relation.split_into -> relation.split (rename); relation.split_from dropped
+    (now redundant — the view derives it). `related` needs no migration."""
+
+    def _replay_0013(self, tmp_db, con):
+        import pathlib
+        mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0013_relation_split_rename.sql"
+        con.executescript(mig.read_text())
+        con.commit()
+
+    def test_split_into_renamed_to_split(self, cli, tmp_db):
+        cli("add", "a")   # #1
+        cli("add", "b")   # #2
+        con = tmp_db.db_connect()
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'relation.split_into', '2')")
+        con.commit()
+        self._replay_0013(tmp_db, con)
+        row = con.execute("SELECT value FROM prop WHERE node_id=1 AND key='relation.split'").fetchone()
+        assert row and row["value"] == "2"
+        assert con.execute("SELECT 1 FROM prop WHERE key='relation.split_into'").fetchone() is None
+
+    def test_split_from_dropped(self, cli, tmp_db):
+        cli("add", "a")   # #1
+        cli("add", "b")   # #2
+        con = tmp_db.db_connect()
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'relation.split_into', '2')")
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (2, 'relation.split_from', '1')")
+        con.commit()
+        self._replay_0013(tmp_db, con)
+        assert con.execute("SELECT 1 FROM prop WHERE key='relation.split_from'").fetchone() is None
+
+    def test_related_untouched(self, cli, tmp_db):
+        cli("add", "a")   # #1
+        cli("add", "b")   # #2
+        con = tmp_db.db_connect()
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (1, 'relation.related', '2')")
+        con.commit()
+        self._replay_0013(tmp_db, con)
+        row = con.execute("SELECT value FROM prop WHERE node_id=1 AND key='relation.related'").fetchone()
+        assert row and row["value"] == "2"
+
+
 class TestDbHelpers:
     """Edge paths in worklog.db: in-memory connections, missing dirs, non-numeric files."""
 

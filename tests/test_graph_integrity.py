@@ -1,8 +1,9 @@
 """Graph integrity checks (`check_integrity` / `wl doctor`). FK enforcement is OFF, so nothing
 in the DB prevents the inconsistencies a foreign key would: dangling parent_id, parent cycles,
-orphaned spoke rows, relation.* refs to dead nodes, and one-sided relations. These tests build
-each broken shape via raw SQL (bypassing every write guard, simulating legacy/corrupt data) and
-assert the checker reports it with the right kind + node."""
+orphaned spoke rows, and relation.* refs to dead nodes. These tests build each broken shape via
+raw SQL (bypassing every write guard, simulating legacy/corrupt data) and assert the checker
+reports it with the right kind + node. (One-sided relation.* edges are NOT checked — every
+relation type is single-write by design, the reverse is derived, never stored.)"""
 import pytest
 
 from worklog.graph import check_integrity
@@ -34,9 +35,8 @@ class TestCleanGraph:
         # a valid spoke (log on a live node)
         con.execute("INSERT INTO log (node_id, logged_at, body) VALUES (?,?,?)",
                     (1, "2026-06-06 00:00:00", "note"))
-        # a symmetric relation: 1 split_into 2  <->  2 split_from 1
-        con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (1, "relation.split_into", "2"))
-        con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (2, "relation.split_from", "1"))
+        # a one-sided relation edge — the norm now, not dirt (single-write by design)
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (1, "relation.split", "2"))
         con.commit()
         assert check_integrity(con) == []
 
@@ -101,44 +101,33 @@ class TestDeadRelation:
         con = _con(tmp_db)
         _node(con, 1)
         con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)",
-                    (1, "relation.split_into", "999"))   # 999 doesn't exist
+                    (1, "relation.split", "999"))   # 999 doesn't exist
         con.commit()
         issues = check_integrity(con)
         assert "dead_relation" in _kinds(issues)
         assert any(i.node_id == 1 for i in _of_kind(issues, "dead_relation"))
 
 
-class TestAsymmetricRelation:
-    def test_one_sided_split(self, tmp_db):
+class TestOneSidedRelationIsClean:
+    """Every relation type is single-write by design (the reverse is derived, never stored),
+    so a one-sided edge is the norm, not dirt — there's no asymmetric_relation check."""
+
+    def test_one_sided_split_reports_nothing(self, tmp_db):
         con = _con(tmp_db)
         _node(con, 1)
         _node(con, 2)
-        # 1 says split_into 2, but 2 has no matching split_from 1
-        con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (1, "relation.split_into", "2"))
+        con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (1, "relation.split", "2"))
         con.commit()
-        issues = check_integrity(con)
-        assert "asymmetric_relation" in _kinds(issues)
+        assert check_integrity(con) == []
 
-    def test_symmetric_related_is_clean(self, tmp_db):
-        con = _con(tmp_db)
-        _node(con, 1)
-        _node(con, 2)
-        con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (1, "relation.related", "2"))
-        con.execute("INSERT INTO prop (node_id, key, value) VALUES (?,?,?)", (2, "relation.related", "1"))
-        con.commit()
-        assert "asymmetric_relation" not in _kinds(check_integrity(con))
-
-    def test_dead_owner_relation_prop_is_only_orphan_not_asymmetric(self, tmp_db):
-        """A relation prop whose OWNER node is missing/deleted (an orphan prop the cascade missed)
-        is reported by orphan_spoke. It must NOT *also* be flagged asymmetric — the root cause is
-        the dead owner (fix = drop the orphan prop), not a missing back-edge on the live node."""
+    def test_dead_owner_relation_prop_is_orphan_spoke(self, tmp_db):
+        """A relation prop whose OWNER node is missing/deleted (an orphan prop the cascade
+        missed) is reported by orphan_spoke."""
         con = _con(tmp_db)
         _node(con, 1)   # live; owner node #2 never existed
         con.execute("INSERT INTO prop (node_id, key, value) VALUES (2, 'relation.related', '1')")
         con.commit()
-        kinds = _kinds(check_integrity(con))
-        assert "orphan_spoke" in kinds            # the dead-owner prop is caught here
-        assert "asymmetric_relation" not in kinds  # and NOT spuriously flagged asymmetric
+        assert "orphan_spoke" in _kinds(check_integrity(con))
 
 
 class TestSelfRelation:
@@ -151,8 +140,7 @@ class TestSelfRelation:
         con.commit()
         kinds = _kinds(check_integrity(con))
         assert "self_relation" in kinds
-        # a self-ref must not be misclassified as dead (it's live) or asymmetric
-        assert "dead_relation" not in kinds and "asymmetric_relation" not in kinds
+        assert "dead_relation" not in kinds  # a self-ref must not be misclassified as dead (it's live)
 
 
 class TestBareTimestamp:

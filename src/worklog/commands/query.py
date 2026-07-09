@@ -42,6 +42,7 @@ from ..helpers import (
     _truncate_log_body,
     _display_width,
     GENERIC_TAGS,
+    TERMINAL_STATUSES,
 )
 from ..queries import (
     _check_ids_exist,
@@ -67,6 +68,7 @@ from ..graph import (
     _project_members,
     relation_view,
     _backrels,
+    node_ready_view,
 )
 from ..render import (
     _PRI_STYLE,
@@ -117,7 +119,10 @@ def _node_to_dict(con, n):
     # relation.* props surface under "relations" (resolved bidirectionally), not in props
     nv.props = {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)
                 if r["key"] not in _RELATION_KEY_LABEL}
-    nv.relations = {k.replace("-", "_"): v for k, v in relation_view(con, nid).items()}
+    nv.relations = relation_view(con, nid)
+    ready_view = node_ready_view(con, nid)   # None unless nid touches a `block` edge
+    if ready_view is not None:
+        nv.relations["ready"], nv.relations["waiting"] = ready_view
     nv.backrels = _backrels(con, nid)   # node ids whose text references this node
     nv.links = [r.vault_doc for r in Link.query(con, node_id=nid)]
     nv.schedule = {
@@ -580,7 +585,7 @@ def cmd_agenda(args, con):
         # an explicit --status filter (handled by nf) overrides the default DONE/CANCELED
         # hide — otherwise `agenda --status DONE` would drop everything it just selected.
         if (not show_all and not getattr(args, "status", None)
-                and n["status"] in ("DONE", "CANCELED")
+                and n["status"] in TERMINAL_STATUSES
                 and not (inc_cancel and n["status"] == "CANCELED")):
             continue
         level = _sched_level(val)
@@ -910,7 +915,7 @@ def _summary_buckets(con, args):
     # pending (window-relevant): planned / doing / added-in-window and not done
     pending = [
         n for n in nodes
-        if (n["status"] or "TODO") not in ("DONE", "CANCELED")
+        if (n["status"] or "TODO") not in TERMINAL_STATUSES
         and (_has_tag(con, n["id"], "planned") or n["status"] == "DOING" or inw(n["created_at"]))
     ]
     return {"since": since, "until": until, "nodes": nodes, "done": done,
@@ -1345,7 +1350,8 @@ def _show_detail(con, args, n):
     props = [r for r in _db.query(con, "prop", cols="key, value", node_id=args.id)
              if r["key"] not in _RELATION_KEY_LABEL]
     rel_lines = render._relations_lines(con, relation_view(con, args.id),
-                                        backrels=_backrels(con, args.id), indent=4)
+                                        backrels=_backrels(con, args.id), indent=4,
+                                        ready_view=node_ready_view(con, args.id))
     if props or rel_lines:
         out("  " + _c("props:", "meta"))
         for r in props:

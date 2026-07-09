@@ -7,6 +7,7 @@ helpers.py and the command handlers in cli.py.
 """
 from __future__ import annotations
 
+import contextlib
 import sqlite3
 import sys
 from . import timeutil as _tu
@@ -366,6 +367,33 @@ def _reserved_prop_hint(key):
     return _RESERVED_PROP_KEYS.get((key or "").strip().lower())
 
 
+@contextlib.contextmanager
+def _immediate_txn(con, *, busy_ms=5000):
+    """Run a read-modify-write while holding SQLite's write lock, so a concurrent process can't
+    interleave. `BEGIN IMMEDIATE` grabs the RESERVED lock UP FRONT (before the SELECT), so two
+    callers racing the same check-then-set serialize: the loser blocks until the winner commits,
+    then re-reads and sees the committed state. Without it, both SELECTs (deferred isolation takes
+    no lock on a read) see the old state and the second write silently clobbers the first — the
+    exact hole that let two sessions both `claim` one ticket. `busy_ms` bounds the wait so the loser
+    reads-then-decides rather than erroring with 'database is locked'. Commits on success, rolls
+    back on any exception (including a `die()`/SystemExit from inside the block). Mirrors the
+    isolation_level dance the migration runner uses — Python's sqlite3 won't issue BEGIN under its
+    default managed mode."""
+    prev = con.isolation_level
+    con.isolation_level = None
+    con.execute(f"PRAGMA busy_timeout = {int(busy_ms)}")
+    try:
+        con.execute("BEGIN IMMEDIATE")
+        yield
+        con.execute("COMMIT")
+    except BaseException:
+        if con.in_transaction:
+            con.execute("ROLLBACK")
+        raise
+    finally:
+        con.isolation_level = prev
+
+
 def _upsert_prop(con, nid, key, value):
     """Unified prop UPSERT (no commit; caller controls the transaction). Batch-friendly.
     `_set_prop` is the commit version for single daily operations. Rejects reserved node-field
@@ -385,30 +413,42 @@ def _upsert_prop(con, nid, key, value):
 
 
 # --- task↔task relations (relation.* props) ---------------------------------
-# Relations between tasks (split-from / split-into / related) are stored as
-# `relation.<type>` UDA props whose value is a comma-separated id list. Unlike
-# ancestors (the parent/child hierarchy) they express derivation / association
-# *across* the tree: this task was split out of / split into / relates to that one.
-# `split-from` ↔ `split-into` are inverses; `related` is symmetric. `wl relation`
-# writes BOTH sides; the view below ALSO derives the reverse from other nodes' props,
-# so even a hand-set one-sided prop still renders bidirectionally.
+# Relations between tasks (block / split / related) are stored as `relation.<type>` UDA
+# props whose value is a comma-separated id list. Unlike ancestors (the parent/child
+# hierarchy) they express derivation / association / dependency *across* the tree: this
+# task blocks that one / was split out of that one / relates to that one. Each type is
+# SINGLE-WRITE — `wl relation A <type> B` writes ONLY on A — the reverse is NEVER
+# written, only derived at read time by `graph.relation_view`, so it can never go stale.
+# `block` and `split` each get their own derived-reverse label (`=blocked-by` /
+# `=split-from`); `related`'s does not — a one-sided `related` edge folds into
+# `=backrels` (`graph._backrels`) instead, since "A related me" and "text mentions me"
+# are the same kind of inbound, machine-derived fact. `wl relation A related B` and a
+# separate `wl relation B related A` are two independent edges (neither implies or
+# dedupes the other) — that is what makes `related` "symmetric in meaning" despite
+# single-write. `block` is the only type checked for cycles at write time
+# (`graph._block_cycle_check`) — it is a real dependency DAG (a cycle would mean two
+# tasks each waiting on the other, forever unready); `split` is a loose lineage marker
+# with no logic riding on it, and `related` is symmetric, so neither is worth the check
+# (see graph.py's cycle-check docstring for the full reasoning).
 _RELATION_TYPES = {
-    # type arg -> (own key on this node, inverse key written on the other node)
-    "split-from": ("relation.split_from", "relation.split_into"),
-    "split-into": ("relation.split_into", "relation.split_from"),
-    "related":    ("relation.related",    "relation.related"),
+    # type arg -> own prop key (the only key ever written)
+    "block":   "relation.block",
+    "split":   "relation.split",
+    "related": "relation.related",
 }
-# own prop key -> display label (also fixes display order)
+# own prop key -> type name (display order + the "is this a relation.* key" test used to
+# exclude relation props from the generic props block)
 _RELATION_KEY_LABEL = {
-    "relation.split_from": "split-from",
-    "relation.split_into": "split-into",
-    "relation.related":    "related",
+    "relation.block":   "block",
+    "relation.split":   "split",
+    "relation.related": "related",
 }
-# the other node's key -> the label it implies FOR nid (A.split_from ∋ nid ⇒ nid.split-into ∋ A)
-_RELATION_REVERSE_LABEL = {
-    "relation.split_from": "split-into",
-    "relation.split_into": "split-from",
-    "relation.related":    "related",
+# own prop key -> the DERIVED label shown on the node(s) it points at (computed by
+# graph.relation_view, never itself stored). No entry for relation.related: its reverse
+# is folded into `=backrels` instead (graph._backrels), not a dedicated label.
+_RELATION_DERIVED_LABEL = {
+    "relation.block": "blocked_by",
+    "relation.split": "split_from",
 }
 
 

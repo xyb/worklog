@@ -407,27 +407,38 @@ def _node_line(con, n, *, indent="", done=False, show_type=True, tags=False, pla
             t = f":{':'.join(tl)}:"; tail += "  " + _c(t, "tag"); tail_plain += "  " + t
     return _hang_wrap(prefix, prefix_cols, n["title"], hl=hl, tail=tail, tail_cols=_display_width(tail_plain))
 
-_RELATION_LABEL_W = 11  # widest label is "split-into:"; keeps the type column aligned
+_RELATION_LABEL_W = 12  # widest label is "=blocked-by:" / "=split-from:" (12 cols); keeps the type column aligned
+# own (stored) relation types, plain label, no `=` — rendered first, in this order
+_OWN_RELATION_TYPES = ("block", "split", "related")
+# derived (computed, never stored) reverse views — `=` prefix + italic/dim, rendered after
+# the stored ones. No entry for `related`'s reverse: it folds into `=backrels` instead.
+_DERIVED_RELATION_LABELS = {"blocked_by": "=blocked-by", "split_from": "=split-from"}
 
 
-def _relations_lines(con, rel, backrels=None, indent=2):
+def _relations_lines(con, rel, backrels=None, indent=2, ready_view=None):
     """Render a node's connections under a `relation:` sub-block (named for the `relation.*`
     prop namespace they're stored in — in `wl show` this nests under `props:`, since relations
-    ARE props, just with their own richer display). First the STORED relation.* props
-    (split-from / split-into / related), each node-per-line with title (width-aware via
-    `_hang_wrap`). Then, set apart, the `=backrels` row: ids of other nodes whose text references
-    this one (inbound). Those are MACHINE-DERIVED (computed by scanning text, not a stored prop),
-    so the row is marked with a leading `=` + italic/dim. `indent` = column of the `relation:`
-    header (rows sit at indent+2). Returns [] when there are neither. Shared by `wl relation` / `wl show`."""
+    ARE props, just with their own richer display). First the STORED relation.* props (block /
+    split / related), each node-per-line with title (width-aware via `_hang_wrap`). Then the
+    DERIVED reverse rows (`=blocked-by` / `=split-from`) and `=backrels` (text mentions +
+    one-sided `related` edges) — none of these are a stored prop, so each is marked with a
+    leading `=` + italic/dim to set it apart from the real, stored relations above. Finally, if
+    `ready_view` is given (a `(ready, waiting)` pair from `graph.node_ready_view`),
+    two more computed rows: `=ready` (bool) and `=waiting` (the direct blockers still open —
+    empty when ready). `ready_view=None` (the node has no block edge at all) omits both rows
+    entirely, same as any other empty section. `indent` = column of the `relation:` header (rows
+    sit at indent+2). Returns [] when there's nothing to show. Shared by `wl relation` /
+    `wl show` (only `wl show` passes `ready_view` — see its call site)."""
     from .models import Node
     backrels = backrels or []
-    if not any(rel.values()) and not backrels:
+    if not any(rel.values()) and not backrels and ready_view is None:
         return []
     pad, rowpad = " " * indent, " " * (indent + 2)
-    all_rel_ids = [i for t in ("split-from", "split-into", "related") for i in (rel.get(t) or [])]
+    all_rel_ids = [i for t in _OWN_RELATION_TYPES for i in (rel.get(t) or [])]
+    all_rel_ids += [i for t in _DERIVED_RELATION_LABELS for i in (rel.get(t) or [])]
     node_cache = {n.id: n for n in Node.gets(con, all_rel_ids) if n}
     lines = [pad + _c("relation:", "meta")]
-    for t in ("split-from", "split-into", "related"):
+    for t in _OWN_RELATION_TYPES:
         for k, i in enumerate(rel.get(t) or []):
             n = node_cache.get(i)
             title = n["title"] if n else "?"
@@ -437,11 +448,27 @@ def _relations_lines(con, rel, backrels=None, indent=2):
             prefix_cols = _display_width(rowpad + label + " " + nid + " ")
             # title is auxiliary (the #id is the reference) — dim it grey
             lines.append(_hang_wrap(prefix, prefix_cols, title, style="meta"))
+    for t, derived_label in _DERIVED_RELATION_LABELS.items():
+        for k, i in enumerate(rel.get(t) or []):
+            n = node_cache.get(i)
+            title = n["title"] if n else "?"
+            label = f"{derived_label + ':':{_RELATION_LABEL_W}}" if k == 0 else " " * _RELATION_LABEL_W
+            nid = f"#{i}"
+            prefix = rowpad + _c(label, "derived") + " " + _c(nid, "id") + " "
+            prefix_cols = _display_width(rowpad + label + " " + nid + " ")
+            lines.append(_hang_wrap(prefix, prefix_cols, title, style="derived"))
     if backrels:
         # leading '=' + italic/dim marks this as a derived (computed) row, not a stored prop
         label = f"{'=backrels':{_RELATION_LABEL_W}}"
         lines.append(rowpad + _c(label, "derived") + " "
                      + " ".join(_c(f"#{i}", "id") for i in backrels))
+    if ready_view is not None:
+        ready, waiting = ready_view
+        label = f"{'=ready:':{_RELATION_LABEL_W}}"
+        lines.append(rowpad + _c(label, "derived") + " " + _c(str(ready).lower(), "derived"))
+        label = f"{'=waiting:':{_RELATION_LABEL_W}}"
+        tail = " ".join(_c(f"#{i}", "id") for i in waiting) if waiting else _c("(none)", "derived")
+        lines.append(rowpad + _c(label, "derived") + " " + tail)
     return lines
 
 

@@ -258,8 +258,8 @@ def _args_node_add(p):
     p.add_argument("--at", help="timestamp for --log + (if --done) closed_at (HH:MM / YYYY-MM-DD [HH:MM[:SS]])")
     p.add_argument("--link", help="also attach a vault doc (no .md suffix, same semantics as wl link)")
     p.add_argument("--relation", action="append", metavar="'<type> <id>…'",
-                   help="relate the new node to existing one(s), writing both sides (repeatable); "
-                        "type = split-from / split-into / related: --relation 'split-from 42' / --relation 'related 42 43'")
+                   help="relate the new node to existing one(s), single-write (repeatable); "
+                        "type = block / split / related: --relation 'block 42' / --relation 'split 42' / --relation 'related 42 43'")
     p.add_argument("--metric", action="append", metavar="'tag [value] [unit]'",
                    help="attach a structured datapoint (repeatable); reuses the --log carrier or makes one: "
                         "--metric 'glucose 5.4 mmol/L' / --metric checkin")
@@ -726,7 +726,7 @@ Common examples:
   wl add "review the PR" -p B -t work --sched today    # priority, tag, plan for today
   wl add "Website revamp" --para project -p A -t work  # a project (→ e.g. #42); --para = the type.para role
   wl add "draft the homepage copy" --parent 42         # nest a task under it
-  wl add "split out of the big task" --relation 'split-from 42'   # relate to an existing node at creation (both sides)
+  wl add "epic: revamp billing" --relation 'split 42'  # this new node splits out existing #42
   wl add "fixed the login bug" -p B --log "root cause: …" --done --at 14:30   # create + log + close
   wl add "[meetlog] 09:30 tech sync" --prop type.meetlog --parent <day_id>    # a meeting note
 
@@ -937,28 +937,110 @@ them all). No-op with a notice if that link wasn't present.""")
     _args_link(ul)
 
     rel = add_cmd(sub, "relation", cmd_relation,
+        default_verb=("set", frozenset(("set", "ready", "deps", "unclaimed", "claim", "unclaim"))),
         parents=[output_parent],
-        help="task↔task relations: split-from / split-into / related (writes both sides)",
-        description="Record or list relations between tasks — split-from / split-into / related — stored as relation.* props (comma-separated id lists). Distinct from ancestors (the parent/child hierarchy): relations express derivation / association across the tree. Adding writes BOTH sides (split-from on A also sets split-into on B; related is symmetric); the view also derives the reverse from other nodes, so it always reads bidirectionally.",
+        help="task↔task relations: block / split / related, + ready/deps/unclaimed/claim/unclaim",
+        description="Record or list relations between tasks — block / split / related — stored as relation.* props (comma-separated id lists). Distinct from ancestors (the parent/child hierarchy): relations express derivation / association / dependency across the tree. Adding is SINGLE-WRITE — `wl relation A block B` writes only on A — the reverse (`=blocked-by` / `=split-from`, or for `related` a one-sided edge folded into `=backrels`) is derived at read time, never stored, so it can't go stale. `block` edges are checked for cycles at write time — a would-be cycle is rejected, not written. `set` is the default verb (the legacy CRUD/list form below); `ready` / `deps` / `unclaimed` / `claim` / `unclaim` are the dependency-query and claim subcommands.",
         epilog="""\
-Common examples:
-  wl relation 42                        # list #42's relations
-  wl relation 42 split-from 17          # #42 was split out of #17 (sets #17 split-into 42 too)
-  wl relation 17 split-into 42 43       # #17 split into #42 and #43
-  wl relation 42 related 7 9            # #42 relates to #7 and #9 (symmetric)
+Common examples (the default `set` verb — CRUD/list, `wl relation set` can be omitted):
+  wl relation 17                        # list #17's relations
+  wl relation 5 block 8                 # #5 blocks #8 (#8 can't start until #5 is done)
+  wl relation 17 split 42 43            # #17 split into #42 and #43 (stored on #17 only)
+  wl relation 42 related 7 9            # #42 relates to #7 and #9
   wl relation 42 7 9                    # same — `related` is the default type
-  wl relation 42 split-from 17 --rm     # remove that relation (both sides)
+  wl relation 5 block 8 --rm            # remove that relation
 
-Types: split-from / split-into (inverses) · related (symmetric, the default).
+Types: block (this task blocks the given one(s), a dependency — cycles are rejected) ·
+split (this task split out the given one(s)) · related (the default, no direction).
+Reverse views (`=blocked-by`, `=split-from`, `=backrels`) show up on the OTHER side
+automatically — there's no command to write them directly.
+
+Claim a ticket so parallel sessions don't collide:
+  wl relation claim 42                  # claim #42 (as <agent>:<session id>)
+  wl relation unclaim 42                # release it
+
+Other verbs: `ready` / `deps` / `unclaimed` — see `wl relation <verb> -h`.
 
 More: `wl help relation`.""")
-    rel.add_argument("id", type=int, help="the node whose relations to set / list")
-    rel.add_argument("rtype", nargs="?",
-        type=lambda s: s.replace("_", "-").lower(),   # accept split_from / SPLIT-FROM too
-        help="relation type (split-from / split-into / related); omit the type word and `related` is assumed")
-    rel.add_argument("others", nargs="*", metavar="other_id",
+    _relsub = rel.add_subparsers(dest="relation_sub")
+    _rels = _relsub.add_parser("set", parents=[output_parent],
+        help="add / list / remove a relation (the default verb, reachable bare)",
+        description="Record or list relations between tasks — block / split / related. The default verb of `wl relation` (reachable bare, e.g. `wl relation 17 split 42`; see `wl relation -h`).")
+    _rels.add_argument("id", type=int, help="the node whose relations to set / list")
+    _rels.add_argument("rtype", nargs="?",
+        type=lambda s: s.replace("_", "-").lower(),   # accept SPLIT / Related too
+        help="relation type (block / split / related); omit the type word and `related` is assumed")
+    _rels.add_argument("others", nargs="*", metavar="other_id",
         help="the related node id(s)")
-    rel.add_argument("--rm", action="store_true", help="remove the relation (from both sides)")
+    _rels.add_argument("--rm", action="store_true", help="remove the relation")
+
+    _relr = _relsub.add_parser("ready", parents=[output_parent],
+        help="frontier: <id> + its block-graph downstream tasks now unblocked",
+        description="Frontier query for an anchor node: whether `<id>` itself is ready right now, plus any of its BLOCK-GRAPH downstream (what it transitively blocks, not tree children) that just became fully unblocked — the wayfinder next-ticket query. Requires an anchor id (not a global scan; most nodes carry no block relation at all).",
+        epilog="""\
+Common examples:
+  wl relation ready 5                   # is #5 ready? what does it unblock downstream?
+  wl relation ready 5 --chain           # + the full upstream chain (everything blocking #5)
+
+Typical flow: wl done 5  then  wl relation ready 5  to see what just opened up.
+
+More: `wl help relation`.""")
+    _relr.add_argument("id", type=int, help="anchor node id (required — not a global scan)")
+    _relr.add_argument("--chain", action="store_true", help="also include the full upstream dependency chain")
+
+    _reld = _relsub.add_parser("deps", parents=[output_parent],
+        help="full (cascaded) dependency graph, optionally scoped to <root>",
+        description="The full `block` dependency graph — cascaded (unlike `wl show`'s direct-layer-only `=blocked-by`/`=waiting`): `<root>` (if given) + everything it transitively blocks, else every node that participates in at least one `block` edge (global, but not literally every node).",
+        epilog="""\
+Common examples:
+  wl relation deps 42        # #42 + everything it transitively blocks + ready/blocked
+  wl relation deps           # the whole block graph (every node with a block relation)
+  wl relation deps -o json   # machine-readable — the "load a dependency map" query
+
+More: `wl help relation`.""")
+    _reld.add_argument("root", type=int, nargs="?", help="restrict to this subtree (default: global)")
+
+    _relu = _relsub.add_parser("unclaimed", parents=[output_parent],
+        help="open tickets with no active claim, optionally scoped to <root>",
+        description="Open tickets (status not done/canceled) with no active `claimed_by` (never claimed, or a claim gone stale — see `wl relation claim -h`), optionally scoped to `<root>`'s TREE subtree (a project/area's descendants — not the block graph); global if omitted. Intersect with `ready` for wayfinder's frontier: ready ∩ unclaimed.",
+        epilog="""\
+Common examples:
+  wl relation unclaimed 42   # open, unclaimed tickets under project/area #42
+  wl relation unclaimed      # every open, unclaimed ticket
+
+More: `wl help relation`.""")
+    _relu.add_argument("root", type=int, nargs="?", help="restrict to this subtree (default: global)")
+
+    _relc = _relsub.add_parser("claim", parents=[output_parent],
+        help="exclusively claim a ticket (fails if held by another, still-fresh claim)",
+        description="Exclusively claim a ticket: writes `claimed_by`/`claimed_at` if unclaimed or the existing claim has gone stale (>24h); dies if held by someone else and still fresh. Orthogonal to `block`/`ready` — claim is about who's working a ticket, not whether it can be worked at all.",
+        epilog="""\
+Common examples:
+  wl relation claim 42                  # claim #42 as <agent>:<session id> (like wl agent)
+  wl relation claim 42 --as alice       # claim under a custom free-string identity
+  wl relation claim 42                  # claiming again under the same identity just refreshes it
+
+Fails if #42 is already claimed by someone else and that claim is still fresh (<24h);
+a stale claim (>24h) can be taken over by anyone, no flag needed.
+
+More: `wl help relation`.""")
+    _relc.add_argument("id", type=int, help="the node to claim")
+    _relc.add_argument("--as", dest="claimed_as", metavar="IDENTITY",
+        help="claim under this free-string identity instead of the auto-detected <agent>:<session id>")
+
+    _relx = _relsub.add_parser("unclaim", parents=[output_parent],
+        help="release a claimed ticket back to the pool",
+        description="Release a claim: clears `claimed_by`/`claimed_at`, returning the ticket to the unclaimed pool. A no-op (not an error) if it wasn't claimed. Refuses to release someone else's still-fresh claim unless --force; a stale claim (>24h) releases freely.",
+        epilog="""\
+Common examples:
+  wl relation unclaim 42                # release your own claim on #42
+  wl relation unclaim 42 --force        # release someone else's claim too
+
+More: `wl help relation`.""")
+    _relx.add_argument("id", type=int, help="the node to release")
+    _relx.add_argument("--as", dest="claimed_as", metavar="IDENTITY",
+        help="check ownership under this free-string identity instead of <agent>:<session id>")
+    _relx.add_argument("--force", action="store_true", help="release even if claimed by someone else")
 
     se = add_cmd(sub, "set", cmd_set,
         parents=[output_parent],
@@ -1811,6 +1893,12 @@ from .commands import (
     cmd_link,
     cmd_unlink,
     cmd_relation,
+    cmd_relation_set,
+    cmd_relation_ready,
+    cmd_relation_deps,
+    cmd_relation_unclaimed,
+    cmd_relation_claim,
+    cmd_relation_unclaim,
     cmd_set,
     cmd_tag,
     cmd_tag_group,
