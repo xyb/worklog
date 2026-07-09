@@ -6,12 +6,15 @@ key passed as None/`""` instead of omitted would silently shift a subcommand's h
 `wl --help` + per-subcommand `wl <cmd> -h` are all snapshotted here; the wider test suite asserts
 behaviour, this asserts the help bytes don't drift.
 
-The snapshot is normalised across Python versions (argparse renamed the `optional arguments:`
-section header to `options:` in 3.10), so one golden file serves the whole 3.9–3.14 CI matrix.
+The snapshot is normalised for the `optional arguments:` → `options:` header rename (3.9 vs
+3.10+). The byte-identical comparison is pinned to argparse's pre-3.13 help LAYOUT: 3.13 stopped
+repeating an optional's metavar ("-o X, --output X" → "-o, --output X") and shifted the help-column
+alignment, which no normalisation cleans up cleanly. So the byte guard runs only on Python < 3.13
+(see `_BYTE_STABLE`); the structural command-set check runs on every version. Regenerate on a
+< 3.13 interpreter.
 
 Regenerate intentionally (pins every input the test pins — width 100, color OFF regardless of TTY,
-plain console, no user aliases — and writes through `_norm` so the file is one canonical form
-regardless of interpreter):
+plain console, no user aliases — and writes through `_norm` so the header is canonical):
 
     uv run python -c "import json,os,argparse; os.environ['COLUMNS']='120'; os.environ['NO_COLOR']='1'; \
         from worklog import cli; from tests.test_cli_help_golden import _norm; \
@@ -23,6 +26,7 @@ regardless of interpreter):
 import argparse
 import json
 import pathlib
+import sys
 
 import pytest
 
@@ -30,10 +34,18 @@ from worklog import cli, render
 
 GOLDEN = pathlib.Path(__file__).parent / "golden" / "cli_help.json"
 
+# The byte-identical snapshot is pinned to argparse's pre-3.13 help layout. Python 3.13 stopped
+# repeating the metavar for an optional with both a short and long form ("-o X, --output X" →
+# "-o, --output X", gh-103372), which also cascades into the help-column alignment — differences
+# no string normalisation cleans up without becoming a fragile whack-a-mole. So the byte guard runs
+# only where the layout matches the golden (< 3.13); on 3.13+ the structural command-set check below
+# still runs (that's what actually catches a command dropped/renamed by the registry migration).
+_BYTE_STABLE = sys.version_info < (3, 13)
+
 
 def _norm(text):
     """Canonicalise the one argparse section header that differs by Python version (3.9 emits
-    `optional arguments:`, 3.10+ emits `options:`), so the golden is version-independent."""
+    `optional arguments:`, 3.10-3.12 emit `options:`), so the golden matches across that range."""
     return text.replace("\noptional arguments:\n", "\noptions:\n")
 
 
@@ -68,10 +80,14 @@ def _deterministic_help(monkeypatch):
 def test_command_help_matches_golden(_deterministic_help):
     current = _current_helps()
     golden = {k: _norm(v) for k, v in json.loads(GOLDEN.read_text()).items()}
-    # same command set (catches a command dropped / renamed / orphaned by the migration)
+    # same command set (catches a command dropped / renamed / orphaned by the migration) — on EVERY
+    # Python version, since it's layout-independent
     assert set(current) == set(golden), (
         f"command set changed — added {set(current) - set(golden)}, "
         f"removed {set(golden) - set(current)}")
+    if not _BYTE_STABLE:
+        pytest.skip(f"byte-identical help pinned to argparse < 3.13 layout; "
+                    f"{sys.version_info.major}.{sys.version_info.minor} renders it differently")
     # and byte-identical help for each (after the version-header normalisation)
     drifted = [name for name in golden if current[name] != golden[name]]
     assert not drifted, f"help text drifted for: {drifted} (regenerate golden only if intended)"
