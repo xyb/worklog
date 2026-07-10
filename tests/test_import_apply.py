@@ -247,6 +247,38 @@ class TestApply:
         props = {r["key"]: r["value"] for r in con.execute("SELECT key,value FROM prop WHERE node_id=1 AND deleted_at IS NULL")}
         assert props == {"b": "2"}
 
+    def test_apply_set_relation_via_prop(self, cli, tmp_db):
+        # Relations are `relation.*` props, so apply's `prop k=v` field-op is the declarative
+        # path for a dependency edge — the AI can express "block" without a dedicated op, and the
+        # reverse (`=blocked-by`) still derives at read time. (Capability matrix, wl safety net.)
+        from worklog.graph import relation_view
+        cli("add", "upstream")    # 1
+        cli("add", "downstream")  # 2
+        self._apply(cli, "~ #1\n  prop relation.block=2\n")
+        con = tmp_db.db_connect()
+        assert 2 in relation_view(con, 1)["block"]
+        assert 1 in relation_view(con, 2)["blocked_by"]
+
+    def test_apply_plus_log_does_not_set_a_goal(self, cli, tmp_db):
+        # Boundary/footgun guard: `+log` writes a PLAIN log, it can NOT set a reserved-tag
+        # goal/summary — "goal: ..." lands in the body, today's goal is unchanged. A writer must
+        # use `wl goal set`; apply has no goal op. Pins the limit so it can't silently change.
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  +log goal: ship it today\n")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM log WHERE tag='goal' AND deleted_at IS NULL").fetchone()[0] == 0
+        assert con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0] >= 1
+
+    def test_apply_scheduled_sets_rough_column_not_precise_sched(self, cli, tmp_db):
+        # Boundary: `scheduled` writes node.scheduled_date (the rough hint), NOT a precise
+        # Sched-table row — for a day-precise plan / recurrence use `wl sched`. Documents that
+        # apply covers the rough schedule only.
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  scheduled 2026-08-01\n")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT scheduled_date FROM node WHERE id=1").fetchone()["scheduled_date"] is not None
+        assert con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1").fetchone()[0] == 0
+
     def test_apply_move_parent(self, cli, tmp_db):
         cli("add", "p1", "--para", "project")  # 1
         cli("add", "p2", "--para", "project")  # 2

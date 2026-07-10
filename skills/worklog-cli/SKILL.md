@@ -123,6 +123,12 @@ calls**: `wl import <file|->` (JSON, deep nesting) or `wl apply <file|->` (wl-di
 `wl` output). Always `--dry-run` first. Full format, the update (`~`) safety rule, and the
 typical day-handling workflow → `references/bulk.md`.
 
+**`wl apply` capability surface (test-guaranteed — the AI's declarative CRUD; `tests/test_import_apply.py`):**
+- **Create** — `+ [marker] [#P] title :tags:` (2-space indent nests under the line above); rich fields via `@prop k=v` / `@link doc` / `@log text`.
+- **Update** — `~ #id` then indented field-ops: `status` / `priority` / `title` / `parent N` (reparent, cycle-checked) / `scheduled` / `deadline` / `+tag` / `-tag` / `+link` / `-link` / `prop k=v` / `-prop`. Only declared fields change. **Relations go through `prop`** — `prop relation.block=N` (also `relation.split` / `relation.related`); the reverse (`=blocked-by` etc.) derives at read time.
+- **Delete** — `- #id` (soft; cascades the subtree). Whole diff is validated first (bad refs/cycles/unknown fields abort before any write), then applied in one transaction.
+- **NOT expressible via apply — use the direct command:** goal / summary (`wl goal set` / `wl recap` — a `+log goal: …` is a *plain* log, NOT the goal), precise sched + recurrence (`wl sched` — apply's `scheduled` only sets the rough `scheduled_date`), metric datapoints (`wl metric` / `wl log --metric`, or `wl import` JSON), clock (`wl start` / `stop`), editing/deleting a *specific existing* log (`wl relog` / `wl unlog`).
+
 ## What NOT to do
 
 - **⚠️ Verify an id is a `wl` node before any mutating command.** A bare `#NNN` collides with the harness TaskList / session / Linear / PR id spaces — `wl show <id>` first, or you mutate the wrong node.
