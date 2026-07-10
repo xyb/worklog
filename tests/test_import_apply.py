@@ -350,6 +350,24 @@ class TestApply:
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1 AND deleted_at IS NULL").fetchone()[0] == 0
 
+    def test_apply_date_label_set_and_clear(self, cli, tmp_db):
+        # top-level `@date <date> <label>` writes the date_meta table (declarative `wl dateinfo`);
+        # it hangs off no node — the table is keyed by date. A `-` label clears it.
+        self._apply(cli, "@date 2026-10-01 National Day\n")
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT label FROM date_meta WHERE date='2026-10-01' "
+                          "AND deleted_at IS NULL").fetchone()
+        assert row is not None and row["label"] == "National Day"
+        self._apply(cli, "@date 2026-10-01 -\n")
+        assert con.execute("SELECT COUNT(*) FROM date_meta WHERE date='2026-10-01' "
+                           "AND deleted_at IS NULL").fetchone()[0] == 0
+
+    def test_apply_date_invalid_rejected_before_write(self, cli, tmp_db):
+        code, _, err = self._apply(cli, "@date notadate Holiday\n")
+        assert code != 0 and "invalid @date" in err
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM date_meta").fetchone()[0] == 0
+
     def _one_log_id(self, tmp_db):
         con = tmp_db.db_connect()
         return con.execute("SELECT id FROM log WHERE deleted_at IS NULL ORDER BY id LIMIT 1").fetchone()["id"]

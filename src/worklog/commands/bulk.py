@@ -13,7 +13,7 @@ from pathlib import Path
 from .. import render
 from .. import db_table as _db
 from .. import timeutil as _tu
-from ..models import Clock, Log, Node, Prop, Sched, Tag
+from ..models import Clock, DateMeta, Log, Node, Prop, Sched, Tag
 from ..node import create_node
 from ..helpers import (
     _apply_top_limit,
@@ -157,6 +157,12 @@ def _apply_validate(con, ops):
     errors = []
     for o in ops:
         pfx, ln = o["op"], o["lineno"]
+        if pfx == "@date":
+            try:
+                _resolve_concrete_date(o["date"])
+            except ValueError:
+                errors.append(f"line {ln}: invalid @date '{o['date']}' (YYYY-MM-DD / today / tomorrow / +1)")
+            continue
         if o.get("target") == "log":
             # `~ #L<id>` / `- #L<id>` — a LOG target: only body/retag/at apply, and the log must exist
             if Log.get(con, o["id"]) is None:
@@ -214,6 +220,9 @@ def _apply_plan(ops):
     plan = []
     for o in ops:
         pfx = o["op"]
+        if pfx == "@date":
+            plan.append(f"@date {o['date']}: " + (("clear" if o["label"] in ("", "-") else o["label"])))
+            continue
         if pfx == "~":
             ch = ", ".join(_fieldop_desc(a, fld, v) for _, (a, fld, v) in o["fieldops"])
             tgt = f"#L{o['id']}" if o.get("target") == "log" else f"#{o['id']}"
@@ -238,6 +247,15 @@ def _apply_execute(con, ops):
     try:
         for o in ops:
             pfx = o["op"]
+            if pfx == "@date":
+                # date labels live in `date_meta`, keyed by date, not hung off a node
+                d = _resolve_concrete_date(o["date"])
+                if o["label"] in ("", "-"):
+                    counts["delete"] += DateMeta.delete(con, date=d)
+                else:
+                    DateMeta.upsert(con, {"date": d, "label": o["label"]})
+                    counts["update"] += 1
+                continue
             if pfx == "~":
                 _exec_update(con, o)
                 counts["update"] += 1
@@ -523,6 +541,13 @@ def _parse_wld(text):
             # indented but not a valid field-op: if it looks like a node line (has marker), drop through as new node (ending ~); else error
             if not re.match(r"^[+\- ]?\s*\[", s):
                 raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop/goal/summary/+metric/sched/recur/-sched/spent/body; on `~ #L<id>`: body/retag/at)")
+        # top-level @date: not attached to a node — the date_meta table is keyed by date
+        m = re.match(r"^\s*@date\s+(\S+)\s*(.*)$", raw)
+        if m:
+            ops.append({"op": "@date", "date": m.group(1), "label": m.group(2).strip(),
+                        "lineno": lineno})
+            cur_update = None
+            continue
         # @ sub-line (rich fields of a +/-/anchor node)
         m = re.match(r"^[+\- ]?\s*@(log|link|prop|metric)\s+(.*)$", raw)
         if m:

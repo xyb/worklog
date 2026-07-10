@@ -22,6 +22,8 @@ wl prints, so you can edit a listing and feed it back.
     body fixed content    #   … its body (wl relog), retag goal (wl retag), at 14:30
   - #L282                 # delete (soft) that one log (wl unlog)
 
+  @date 2026-10-01 National Day   # a date label (wl dateinfo); a `-` label clears it
+
   + [ ] new health task   # add, with a datapoint at creation:
     @metric glucose 5.4 mmol/L
 
