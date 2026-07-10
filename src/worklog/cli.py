@@ -375,7 +375,7 @@ _HELP_FAMILY = {
     "set": "prop", "unset": "prop", "unlink": "link", "relog": "log", "unlog": "log", "retag": "log",
     "cancel": "done", "reopen": "done", "ancestors": "focus", "descendants": "focus",
     "date": "dateinfo",
-    "themes": "admin", "init": "admin", "config": "admin", "migrate": "admin", "doctor": "admin",
+    "themes": "admin", "init": "admin", "demo": "admin", "config": "admin", "migrate": "admin", "doctor": "admin",
     "print-completion": "admin",
     "tags": "tag", "props": "prop", "metrics": "metric",   # the cross-node "list all" lists
 }
@@ -715,6 +715,18 @@ DB path resolution:
   3. $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
 
 Config (aliases.ini) lives at $XDG_CONFIG_HOME/worklog/aliases.ini (default ~/.config/worklog/aliases.ini).""")
+
+    add_cmd(sub, "demo", cmd_demo,
+        parents=[output_parent],
+        help="seed a sample 'a day with wl' dataset — EMPTY database only",
+        description="Seed a small demo dataset (two projects, today's tasks, a goal, a log, a recap, tomorrow's focus) so you can explore a populated db right away. Runs ONLY on a completely empty database and refuses otherwise, so it can never touch real data — point $WORKLOG_DB at a throwaway db first.",
+        epilog="""\
+Explore a populated db without hand-building one:
+
+  WORKLOG_DB=/tmp/wl-demo.db wl demo    # seed a throwaway db
+  WORKLOG_DB=/tmp/wl-demo.db wl day     # then look around: day / tree / show
+
+Refuses to run if the database already has any node (it must never scribble on real data).""")
 
     a = add_cmd(sub, "add", cmd_add,
         parents=[output_parent],
@@ -1881,6 +1893,7 @@ from .commands import (
     cmd_migrate,
     cmd_doctor,
     cmd_init,
+    cmd_demo,
     cmd_config,
     cmd_add,
     cmd_log,

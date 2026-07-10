@@ -10,7 +10,8 @@ import sys
 from pathlib import Path
 
 from .. import render
-from ..render import _c, out, _resolve_theme, THEMES
+from .. import db_table as _db
+from ..render import _c, out, die, _resolve_theme, THEMES
 from ..xdg import (_resolve_db_path, _resolve_aliases_path, _resolve_config_path,
                    _xdg_data_home, _xdg_config_home)
 from .output import output_format, TextRenderable, text_renderer
@@ -95,6 +96,59 @@ def _render_migrate(result):
 def cmd_init(args, con):
     _cli.db_init(con)
     out(_c(f"✓ DB initialized: {_resolve_db_path(args)}", "done"))
+
+
+@output_format
+def cmd_demo(args, con):
+    """Seed a small "a day with wl" dataset — two projects, today's scheduled tasks, a goal, a log,
+    a done, a parked idea, an evening recap, and tomorrow's focus — so a newcomer can explore a
+    populated db (`wl day`, `wl tree`, `wl show`) right away. Runs ONLY on a completely EMPTY
+    database, so it can never scribble on real data: point $WORKLOG_DB at a throwaway db first.
+    Drives the real command handlers step by step (add / goal / log / done / recap), so the result
+    is built exactly the way a user would build it by hand — the same story demo/build_demo.sh
+    records for the README gif."""
+    live = con.execute(f"SELECT COUNT(*) FROM node WHERE {_db.ALIVE}").fetchone()[0]
+    if live:
+        die(f"`wl demo` only runs on an EMPTY database (found {live} live node(s)) — it seeds "
+            f"sample data and must never touch real data. Point $WORKLOG_DB at a throwaway db, "
+            f"e.g. `WORKLOG_DB=/tmp/wl-demo.db wl demo`.")
+    from datetime import timedelta
+    from .. import timeutil as _tu
+    from .timenodes import _ensure_day
+
+    parser = _cli.build_parser()
+
+    def run(*argv):
+        # Reuse the REAL handler for each step, so the demo db is exactly what a user would build by
+        # hand (no duplicated add/goal/sched logic to drift). Output is suppressed while seeding.
+        a = parser.parse_args(list(argv))
+        render.set_suppress_output(True)
+        try:
+            _cli.HANDLERS[a.cmd](a, con)
+        finally:
+            render.set_suppress_output(False)
+
+    def last_id():   # single-threaded seed on a fresh db → MAX(id) is the node we just created
+        return con.execute(f"SELECT MAX(id) FROM node WHERE {_db.ALIVE}").fetchone()[0]
+
+    run("add", "Ship the monthly report", "--para", "project", "-p", "A", "-t", "work"); rep = last_id()
+    run("add", "Learn how AI agents work", "--para", "project", "-p", "A", "-t", "personal"); ai = last_id()
+    run("add", "Write the report summary", "--parent", str(rep), "--sched", "today", "-t", "work"); summ = last_id()
+    run("add", "Do the AI-agents tutorial", "--parent", str(ai), "--sched", "today", "-t", "personal")
+    run("goal", "today", "Send out the monthly report", str(summ))
+    run("log", str(summ), "Draft written, sent to the team")
+    run("done", str(summ))
+    run("add", "Build a tiny agent myself", "--parent", str(ai), "--sched", "+3d", "-t", "personal")
+    run("recap", "Summary sent; started the AI tutorial; ran 3km")
+    tom = _ensure_day(con, _tu.today_date() + timedelta(days=1))
+    run("goal", "set", str(tom), "Get the report signed off")
+    con.commit()
+
+    total = con.execute(f"SELECT COUNT(*) FROM node WHERE {_db.ALIVE}").fetchone()[0]
+    return TextRenderable(
+        {"seeded": total, "focus_task": summ},
+        lambda: out(_c(f"✓ seeded a demo day — {total} nodes. ", "done")
+                    + _c(f"Try `wl day`, `wl tree`, `wl show {summ}`.", "meta")))
 
 
 @output_format
