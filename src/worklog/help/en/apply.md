@@ -12,6 +12,8 @@ wl prints, so you can edit a listing and feed it back.
     +tag urgent           #   add/remove a tag, +link / -link, prop k=v, parent N
     goal ship it today    #   set the node's goal / summary (reserved-tag log; wl goal / wl recap)
     +metric steps 5000 count  #  a metric datapoint (tag [value] [unit]); bare tag = a marker
+    sched tomorrow        #   plan it on a day (sched row = "planned"); recur weekly:Mon,Fri
+    -sched                #   clear every schedule row
   - #43                   # delete (soft) node #43
 
   + [ ] new health task   # add, with a datapoint at creation:

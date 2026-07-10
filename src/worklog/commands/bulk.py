@@ -13,7 +13,7 @@ from pathlib import Path
 from .. import render
 from .. import db_table as _db
 from .. import timeutil as _tu
-from ..models import Log, Node, Prop, Tag
+from ..models import Log, Node, Prop, Sched, Tag
 from ..node import create_node
 from ..helpers import (
     _apply_top_limit,
@@ -436,6 +436,14 @@ def _parse_fieldop(s):
         spec = _parse_metric_spec(m.group(1))
         if spec:
             return ("add", "metric", spec)
+    if s.strip() == "-sched":
+        return ("remove", "sched", None)
+    m = re.match(r"^sched\s+(.+)$", s)
+    if m:
+        return ("set", "sched", m.group(1).strip())
+    m = re.match(r"^recur\s+(.+)$", s)
+    if m:
+        return ("set", "recur", m.group(1).strip())
     m = re.match(r"^-prop\s+(\S+)$", s)
     if m:
         return ("remove", "prop", m.group(1))
@@ -475,7 +483,7 @@ def _parse_wld(text):
                 continue
             # indented but not a valid field-op: if it looks like a node line (has marker), drop through as new node (ending ~); else error
             if not re.match(r"^[+\- ]?\s*\[", s):
-                raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop/goal/summary/+metric)")
+                raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop/goal/summary/+metric/sched/recur/-sched)")
         # @ sub-line (rich fields of a +/-/anchor node)
         m = re.match(r"^[+\- ]?\s*@(log|link|prop|metric)\s+(.*)$", raw)
         if m:
@@ -544,6 +552,18 @@ def _validate_fieldop(con, lineno, action, field, value, errs):
             _norm_sched(value)
         except ValueError as e:
             errs.append(f"line {lineno}: {e}")
+    elif field == "sched" and action == "set":
+        try:
+            _resolve_concrete_date(value)
+        except ValueError:
+            errs.append(f"line {lineno}: invalid sched date '{value}' "
+                        "(YYYY-MM-DD / today / tomorrow / +1 / -2w / next-week / next-month)")
+    elif field == "recur" and action == "set":
+        from .sched import _norm_rrule
+        try:
+            _norm_rrule(value)
+        except ValueError as e:
+            errs.append(f"line {lineno}: {e}")
 
 def _exec_update(con, o):
     """Execute ~ field operations: only touches explicitly-declared fields; never touches anything not declared."""
@@ -577,6 +597,20 @@ def _exec_update(con, o):
             _set_typed_log(con, nid, field, value)
         elif field == "metric":
             _apply_add_metric(con, nid, value)
+        elif field == "sched":
+            # PRECISE schedule: a `sched`-table row (what `wl day` calls "planned"), distinct from
+            # the rough `scheduled` node column. Idempotent per (node, date), like `wl sched`.
+            if action == "remove":
+                Sched.delete(con, node_id=nid)
+            else:
+                d = _resolve_concrete_date(value)
+                if not Sched.exists(con, node_id=nid, on_date=d):
+                    Sched.insert(con, {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
+        elif field == "recur":
+            from .sched import _norm_rrule
+            rule = _norm_rrule(value)   # validated already; normalises daily/weekly:Mon,Fri/…
+            if not any(r.rrule == rule for r in Sched.query(con, node_id=nid)):
+                Sched.insert(con, {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
         elif field == "link":
             if action == "add":
                 _upsert_link(con, nid, value)
@@ -594,6 +628,8 @@ def _exec_update(con, o):
 def _fieldop_desc(action, field, value):
     if field == "metric":
         return f"+metric {value.get('tag')}"
+    if field == "sched" and action == "remove":
+        return "-sched"
     if action == "clear":
         return f"{field}=cleared"
     if action == "add":

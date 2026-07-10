@@ -315,13 +315,49 @@ class TestApply:
         assert row["tag"] == "glucose" and row["value_num"] == 5.4 and row["unit"] == "mmol/L"
 
     def test_apply_scheduled_sets_rough_column_not_precise_sched(self, cli, tmp_db):
-        # Boundary: `scheduled` writes node.scheduled_date (the rough hint), NOT a precise
-        # Sched-table row — for a day-precise plan / recurrence use `wl sched`. Documents that
-        # apply covers the rough schedule only.
+        # The two schedule field-ops are distinct: `scheduled` writes the ROUGH node.scheduled_date
+        # hint and no sched-table row; `sched` (below) writes the PRECISE row that makes `wl day`
+        # call the task "planned". Pinned so the pair can't silently merge.
         cli("add", "t")
         self._apply(cli, "~ #1\n  scheduled 2026-08-01\n")
         con = tmp_db.db_connect()
         assert con.execute("SELECT scheduled_date FROM node WHERE id=1").fetchone()["scheduled_date"] is not None
+        assert con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1").fetchone()[0] == 0
+
+    def test_apply_sched_field_op_writes_precise_row(self, cli, tmp_db):
+        # `sched <date>` — the declarative `wl sched`: a real sched-table row (idempotent per date).
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  sched 2026-08-01\n")
+        self._apply(cli, "~ #1\n  sched 2026-08-01\n")   # idempotent — still one row
+        con = tmp_db.db_connect()
+        rows = con.execute("SELECT on_date FROM sched WHERE node_id=1 AND deleted_at IS NULL").fetchall()
+        assert len(rows) == 1 and rows[0]["on_date"] == "2026-08-01"
+
+    def test_apply_recur_field_op(self, cli, tmp_db):
+        # `recur <rule>` — the declarative `wl sched --recur`: a normalised rrule row.
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  recur weekly:Mon,Fri\n")
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT rrule FROM sched WHERE node_id=1 AND rrule IS NOT NULL "
+                          "AND deleted_at IS NULL").fetchone()
+        assert row is not None and "weekly" in row["rrule"]
+
+    def test_apply_sched_clear(self, cli, tmp_db):
+        # `-sched` clears every schedule row for the node (declarative `wl sched --clear`).
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  sched 2026-08-01\n")
+        self._apply(cli, "~ #1\n  -sched\n")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1 AND deleted_at IS NULL").fetchone()[0] == 0
+
+    def test_apply_sched_and_recur_invalid_rejected_before_write(self, cli, tmp_db):
+        # Whole-diff validation: a bad date / rule aborts before ANY write (no partial apply).
+        cli("add", "t")
+        code, _, err = self._apply(cli, "~ #1\n  sched notadate\n")
+        assert code != 0 and "invalid sched date" in err
+        code, _, err = self._apply(cli, "~ #1\n  recur bogus\n")
+        assert code != 0 and "recurrence" in err
+        con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1").fetchone()[0] == 0
 
     def test_apply_move_parent(self, cli, tmp_db):
