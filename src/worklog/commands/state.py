@@ -39,6 +39,7 @@ from ..helpers import (
     _truncate_log_body,
     _display_width,
     _parse_duration_mins,
+    _resolve_log_at,
     GENERIC_TAGS,
     TERMINAL_STATUSES,
 )
@@ -52,6 +53,8 @@ from ..queries import (
     _node_tags,
     _status_filter_sql,
     _upsert_prop,
+    _insert_clock_span,
+    _norm_log_tag,
     node_type,
     node_type_from_props,
     sync_time_node_dates,
@@ -591,12 +594,7 @@ def cmd_spent(args, con):
         end_ts = _resolve_at_ts(getattr(args, "at", None))
     except ValueError as e:
         die(f"{e}")
-    end_dt = datetime.fromisoformat(end_ts)
-    from datetime import timedelta as _td
-    start_dt = end_dt - _td(minutes=mins)
-    start_ts = start_dt.strftime("%Y-%m-%d %H:%M:%S")
-    cid = Clock.insert(con, {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
-                            "elapsed_sec": mins * 60})
+    cid = _insert_clock_span(con, nid, mins, end_ts)
     con.commit()
     r = Clock.get(con, cid)
     return TextRenderable(
@@ -1336,31 +1334,10 @@ def cmd_relog(args, con):
     new_ts = None
     at = args.at
     if at:
-        from datetime import datetime as _dt
-        at = at.strip()
-        # the user enters --at in LOCAL time; derive the original's local wall-clock so
-        # an HH:MM-only edit keeps the same local day, then convert the result back to UTC
-        orig_local = _tu.utc_to_local(row.logged_at)
-        orig_date = orig_local[:10]
         try:
-            if _re.fullmatch(r"\d{2}:\d{2}", at):
-                _dt.strptime(at, "%H:%M")  # validate HH/MM range
-                local_ts = f"{orig_date} {at}:00"
-            elif _re.fullmatch(r"\d{4}-\d{2}-\d{2}", at):
-                _dt.strptime(at, "%Y-%m-%d")
-                orig_time = orig_local[11:] or "00:00:00"
-                local_ts = f"{at} {orig_time}"
-            elif _re.fullmatch(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?", at):
-                ts = at.replace("T", " ")
-                if len(ts) == 16:
-                    ts += ":00"
-                _dt.strptime(ts, "%Y-%m-%d %H:%M:%S")
-                local_ts = ts
-            else:
-                raise ValueError("format")
-            new_ts = _tu.local_to_utc(local_ts)
+            new_ts = _resolve_log_at(row.logged_at, at)
         except ValueError:
-            die(f"invalid --at '{at}': supported formats: HH:MM / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
+            die(f"invalid --at '{at.strip()}': supported formats: HH:MM / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
 
     if new_body is None and new_ts is None:
         # nothing given -> open EDITOR to edit body
@@ -1452,7 +1429,7 @@ def cmd_retag(args, con):
     if row is None:
         die(f"no log #L{args.log_id}")
     raw = (args.tag or "").strip()
-    new = None if raw.lower() in ("", "-", "note", "none") else raw
+    new = _norm_log_tag(raw)
     Log.update(con, args.log_id, {"tag": new})
     con.commit()
     result = RetagResult(log_id=args.log_id, tag=new)

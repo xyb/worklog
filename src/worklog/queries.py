@@ -394,6 +394,23 @@ def _immediate_txn(con, *, busy_ms=5000):
         con.isolation_level = prev
 
 
+def _insert_clock_span(con, nid, mins, end_ts):
+    """Record a COMPLETED clock of `mins` minutes ending at `end_ts` (a UTC instant) — the start is
+    derived, `elapsed_sec` stored. Returns the clock id. No commit. Single source for `wl spent` and
+    apply's `spent` field-op, so the two entry points can't build the span differently."""
+    from datetime import datetime as _dt, timedelta as _td
+    start_ts = (_dt.fromisoformat(end_ts) - _td(minutes=mins)).strftime(_tu.FMT)
+    return Clock.insert(con, {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
+                              "elapsed_sec": mins * 60})
+
+
+def _norm_log_tag(raw):
+    """Normalise a log `tag` token: `-` / `note` / `none` / empty all mean "a plain note" (NULL).
+    Single source for `wl retag` and apply's `retag` field-op."""
+    raw = (raw or "").strip()
+    return None if raw.lower() in ("", "-", "note", "none") else raw
+
+
 def _upsert_prop(con, nid, key, value):
     """Unified prop UPSERT (no commit; caller controls the transaction). Batch-friendly.
     `_set_prop` is the commit version for single daily operations. Rejects reserved node-field

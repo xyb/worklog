@@ -58,6 +58,24 @@ def _render_sched_write(result):
                 out(_c(f"✓ #{op['node_id']} scheduled to {op['date']}", "meta"))
 
 
+def _upsert_rrule(con, nid, rule):
+    """Idempotent rrule write, keyed by BASE rule: any row whose base == `rule` already covers it —
+    including a stopped one (`base;until=DATE`). Consolidate ALL such rows to one clean live rule:
+    reactivate the first (clear its until) and drop duplicates, so re-adding a recurrence you'd
+    stopped resumes it without leaving a stale/duplicate row behind. Returns True if it already
+    existed unchanged. Single source for `wl sched --recur` and apply's `recur` field-op. No commit."""
+    matches = [r for r in Sched.query(con, node_id=nid) if r.rrule and _split_until(r.rrule)[0] == rule]
+    if not matches:
+        Sched.insert(con, {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
+        return False
+    already = len(matches) == 1 and matches[0].rrule == rule
+    if matches[0].rrule != rule:
+        Sched.update(con, matches[0].id, {"rrule": rule})   # reactivate
+    for extra in matches[1:]:
+        Sched.delete(con, id=extra.id)                      # drop duplicate base rows
+    return already
+
+
 @output_format
 def cmd_sched(args, con):
     """Forward planning: schedule a task to a specific day / recurrence. A scheduled task appears as 'planned' in wl day even with no log.
@@ -89,20 +107,7 @@ def cmd_sched(args, con):
         except ValueError as e:
             die(f"{e}")
         for nid in ids:
-            # idempotent by BASE rule: any row whose base == this rule already covers it — including
-            # a stopped one (`base;until=DATE`). Consolidate ALL such rows to one clean live rule:
-            # reactivate the first (clear its until) and drop any duplicates, so re-adding a
-            # recurrence you'd stopped resumes it without leaving a stale/duplicate row behind.
-            matches = [r for r in Sched.query(con, node_id=nid) if r.rrule and _split_until(r.rrule)[0] == rule]
-            if not matches:
-                ops.append({"type": "rrule", "node_id": nid, "rule": rule, "exists": False})
-                Sched.insert(con, {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
-                continue
-            already = len(matches) == 1 and matches[0].rrule == rule
-            if matches[0].rrule != rule:
-                Sched.update(con, matches[0].id, {"rrule": rule})   # reactivate
-            for extra in matches[1:]:
-                Sched.delete(con, id=extra.id)                      # drop duplicate base rows
+            already = _upsert_rrule(con, nid, rule)
             ops.append({"type": "rrule", "node_id": nid, "rule": rule, "exists": already})
         con.commit()
     if args.when:

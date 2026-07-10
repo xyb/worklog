@@ -350,6 +350,73 @@ class TestApply:
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1 AND deleted_at IS NULL").fetchone()[0] == 0
 
+    # --- regressions for the #L-target / reuse defects found in review ---
+
+    def test_apply_delete_node_is_not_hijacked_by_an_L_token_in_the_line(self, cli, tmp_db):
+        # `#L<n>` only names a log when it is the line's FIRST token. A GitHub permalink (or any
+        # `#L42` in trailing text) must not turn a node delete into a log delete (was: data loss).
+        cli("add", "doomed")           # node 1 — the intended delete target, no logs of its own
+        cli("add", "unrelated")        # node 2
+        cli("log", "2", "a log")       # log 1, on the UNRELATED node
+        self._apply(cli, "- #1 (superseded by https://github.com/o/r/blob/main/f.py#L1)\n")
+        con = tmp_db.db_connect()
+        # the node went (so the node path ran), and the unrelated log #L1 was NOT touched
+        assert con.execute("SELECT deleted_at FROM node WHERE id=1").fetchone()["deleted_at"] is not None
+        assert con.execute("SELECT deleted_at FROM log WHERE id=1").fetchone()["deleted_at"] is None
+        assert con.execute("SELECT deleted_at FROM node WHERE id=2").fetchone()["deleted_at"] is None
+
+    def test_apply_update_node_is_not_hijacked_by_a_lowercase_l_token(self, cli, tmp_db):
+        # `#l10n` in a title must not be read as log #L10 (case-sensitive + anchored).
+        cli("add", "old title")        # node 1
+        self._apply(cli, "~ #1 fix #l10n rendering\n")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT title FROM node WHERE id=1").fetchone()["title"] == "fix #l10n rendering"
+
+    def test_apply_log_at_keeps_the_logs_own_date(self, cli, tmp_db):
+        # a bare HH:MM re-times the log within ITS OWN local day — never moves it to today
+        # (parity with `wl relog --at`, which both now share via helpers._resolve_log_at).
+        from worklog import timeutil as _tu
+        cli("add", "t")
+        cli("log", "1", "backfilled", "-d", "2026-06-01")
+        con = tmp_db.db_connect()
+        lid = con.execute("SELECT id FROM log WHERE node_id=1 AND deleted_at IS NULL").fetchone()["id"]
+        self._apply(cli, f"~ #L{lid}\n  at 09:30\n")
+        ts = con.execute("SELECT logged_at FROM log WHERE id=?", (lid,)).fetchone()["logged_at"]
+        assert _tu.local_day_of(ts) == "2026-06-01"
+        assert _tu.utc_to_local(ts)[11:16] == "09:30"
+
+    def test_apply_recur_resumes_a_stopped_rule_instead_of_duplicating(self, cli, tmp_db):
+        # idempotent by BASE rule (like `wl sched --recur`): re-adding `daily` over a stopped
+        # `daily;until=…` reactivates that row rather than leaving a stale duplicate behind.
+        cli("add", "t")
+        cli("sched", "1", "--recur", "daily")
+        cli("sched", "stop", "1")
+        self._apply(cli, "~ #1\n  recur daily\n")
+        con = tmp_db.db_connect()
+        rows = con.execute("SELECT rrule FROM sched WHERE node_id=1 AND rrule IS NOT NULL "
+                           "AND deleted_at IS NULL").fetchall()
+        assert len(rows) == 1 and rows[0]["rrule"] == "daily"
+
+    def test_apply_body_dash_clears_a_node_body_and_is_rejected_on_a_log(self, cli, tmp_db):
+        # `-` clears, matching every other settable field; a log body can't be cleared (delete it).
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  body some text\n")
+        self._apply(cli, "~ #1\n  body -\n")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT body FROM node WHERE id=1").fetchone()["body"] is None
+        cli("log", "1", "a log")
+        lid = con.execute("SELECT id FROM log WHERE node_id=1 AND deleted_at IS NULL").fetchone()["id"]
+        code, _, err = self._apply(cli, f"~ #L{lid}\n  body -\n")
+        assert code != 0 and "cannot be cleared" in err
+
+    def test_apply_metric_unit_matches_the_command_tokenizer(self, cli, tmp_db):
+        # apply and `wl metric` share one spec tokenizer, so a trailing word can't drift into the unit
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  +metric glucose 5.4 mmol/L extra\n")
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT unit FROM metric WHERE node_id=1 AND deleted_at IS NULL").fetchone()
+        assert row["unit"] == "mmol/L"
+
     def test_apply_date_label_set_and_clear(self, cli, tmp_db):
         # top-level `@date <date> <label>` writes the date_meta table (declarative `wl dateinfo`);
         # it hangs off no node — the table is keyed by date. A `-` label clears it.

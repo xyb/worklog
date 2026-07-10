@@ -26,6 +26,36 @@ GENERIC_TAGS = {
 TERMINAL_STATUSES = frozenset({"DONE", "CANCELED"})
 
 
+def _resolve_log_at(orig_logged_at, at):
+    """Resolve an `--at` token against an EXISTING log's timestamp -> a UTC instant. `HH:MM` keeps the
+    log's ORIGINAL local day; `YYYY-MM-DD` keeps its original local time; a full
+    `YYYY-MM-DD HH:MM[:SS]` replaces both. The user types local time. Raises ValueError on a bad token.
+
+    Single source for `wl relog --at` and apply's `at` field-op: a bare `HH:MM` must never silently
+    move a backdated log to today, which a today-anchored resolver (`_resolve_at_ts`) would do."""
+    import re as _re
+    from datetime import datetime as _dt
+    from . import timeutil as _tu
+    at = (at or "").strip()
+    orig_local = _tu.utc_to_local(orig_logged_at)
+    orig_date = orig_local[:10]
+    if _re.fullmatch(r"\d{2}:\d{2}", at):
+        _dt.strptime(at, "%H:%M")                      # validate HH/MM range
+        local_ts = f"{orig_date} {at}:00"
+    elif _re.fullmatch(r"\d{4}-\d{2}-\d{2}", at):
+        _dt.strptime(at, "%Y-%m-%d")
+        local_ts = f"{at} {orig_local[11:] or '00:00:00'}"
+    elif _re.fullmatch(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?", at):
+        ts = at.replace("T", " ")
+        if len(ts) == 16:
+            ts += ":00"
+        _dt.strptime(ts, "%Y-%m-%d %H:%M:%S")
+        local_ts = ts
+    else:
+        raise ValueError(f"invalid at '{at}': supported formats: HH:MM / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
+    return _tu.local_to_utc(local_ts)
+
+
 def _parse_duration_mins(s):
     """Parse a duration token -> whole minutes: `90` / `90m` / `1h30m` / `2h`. Raises ValueError on a
     bad token or a non-positive result. Single source for `wl spent` and the apply `spent` field-op."""

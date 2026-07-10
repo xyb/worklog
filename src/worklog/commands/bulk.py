@@ -7,13 +7,12 @@ import os
 import re
 import sqlite3
 import sys
-from datetime import datetime, timedelta
 from pathlib import Path
 
 from .. import render
 from .. import db_table as _db
 from .. import timeutil as _tu
-from ..models import Clock, DateMeta, Log, Node, Prop, Sched, Tag
+from ..models import DateMeta, Log, Node, Prop, Sched, Tag
 from ..node import create_node
 from ..helpers import (
     _apply_top_limit,
@@ -23,6 +22,7 @@ from ..helpers import (
     _norm_sched,
     _parse_duration_mins,
     _resolve_at_ts,
+    _resolve_log_at,
     _resolve_concrete_date,
     _resolve_log_tail,
     _resolve_window,
@@ -50,13 +50,15 @@ from ..queries import (
     _upsert_link,
     _delete_link,
     _set_typed_log,
+    _insert_clock_span,
+    _norm_log_tag,
 )
 from ..graph import (
     _collect_descendants,
     soft_delete_log,
     soft_delete_node,
 )
-from .metric import import_metric, _CARRIER_TYPE
+from .metric import import_metric, _CARRIER_TYPE, _parse_metric_spec as _metric_parse_spec
 from .output import output_format, TextRenderable, text_renderer
 from ..render import (
     _PRI_STYLE,
@@ -170,13 +172,17 @@ def _apply_validate(con, ops):
             if pfx == "~":
                 if not o["fieldops"]:
                     errors.append(f"line {ln}: ~ #L{o['id']} has no field operations")
+                row = Log.get(con, o["id"])
                 for floln, (action, field, value) in o["fieldops"]:
                     if field not in ("body", "retag", "at"):
                         errors.append(f"line {floln}: '{field}' is not a log field-op "
                                       "(allowed on `~ #L<id>`: body / retag / at)")
-                    elif field == "at":
+                    elif field == "body" and action == "clear":
+                        errors.append(f"line {floln}: a log body cannot be cleared — "
+                                      f"use `- #L{o['id']}` to delete the log")
+                    elif field == "at" and row is not None:
                         try:
-                            _resolve_at_ts(value)
+                            _resolve_log_at(row.logged_at, value)
                         except ValueError as e:
                             errors.append(f"line {floln}: {e}")
             continue
@@ -370,12 +376,7 @@ def _import_node(con, spec, parent_id, ref_map, dry, counters):
                     import_metric(con, log_id, nid, mspec, default_at=log_at)
         # node-level metrics → a dedicated carrier log (1 carrier → N datapoints, e.g. a CGM import)
         if spec.get("metrics"):
-            log_id = Log.insert(con, {
-                "node_id": nid, "logged_at": _tu.utc_now(), "body": "", "tag": _CARRIER_TYPE,
-            })
-            for mspec in spec["metrics"]:
-                import_metric(con, log_id, nid, mspec)
-            counters["metric"] = counters.get("metric", 0) + len(spec["metrics"])
+            counters["metric"] = counters.get("metric", 0) + _add_node_metrics(con, nid, spec["metrics"])
 
     if spec.get("ref"):
         ref_map[spec["ref"]] = nid
@@ -478,7 +479,7 @@ def _parse_fieldop(s):
         return ("set", m.group(1), m.group(2).strip())
     m = re.match(r"^\+metric\s+(.+)$", s)
     if m:
-        spec = _parse_metric_spec(m.group(1))
+        spec = _metric_spec(m.group(1))
         if spec:
             return ("add", "metric", spec)
     if s.strip() == "-sched":
@@ -494,7 +495,8 @@ def _parse_fieldop(s):
         return ("set", "spent", m.group(1).strip())
     m = re.match(r"^body\s+(.+)$", s)
     if m:
-        return ("set", "body", m.group(1).strip())
+        v = m.group(1).strip()
+        return ("clear", "body", None) if v == "-" else ("set", "body", v)
     m = re.match(r"^retag\s*(.*)$", s)
     if m:
         return ("set", "retag", m.group(1).strip())
@@ -571,7 +573,7 @@ def _parse_wld(text):
         if not body.strip():
             continue
         if prefix == "~":
-            lidm = re.search(r"#L(\d+)", body, re.IGNORECASE)
+            lidm = re.match(r"#L(\d+)(?![0-9A-Za-z])", body)   # anchored: the target must BE the line's first token
             if lidm:   # a LOG target: `~ #L42` + body/retag/at field-ops
                 op = {"op": "~", "target": "log", "id": int(lidm.group(1)),
                       "fieldops": [], "lineno": lineno}
@@ -597,7 +599,7 @@ def _parse_wld(text):
             continue
         cur_update = None  # +/-/anchor line ends ~ context
         depth = len(spaces) // 2
-        lidm = re.search(r"#L(\d+)", body, re.IGNORECASE)
+        lidm = re.match(r"#L(\d+)(?![0-9A-Za-z])", body)   # anchored: the target must BE the line's first token
         if lidm and prefix == "-":   # delete ONE log, not a node subtree
             ops.append({"op": "-", "target": "log", "id": int(lidm.group(1)),
                         "fields": {}, "subs": [], "depth": depth, "lineno": lineno})
@@ -658,9 +660,9 @@ def _exec_update(con, o):
                 Log.update(con, nid, {"body": value})
             elif field == "retag":
                 # same clearing vocabulary as `wl retag`: -/note/none/empty -> a plain note
-                Log.update(con, nid, {"tag": None if value.lower() in ("", "-", "note", "none") else value})
+                Log.update(con, nid, {"tag": _norm_log_tag(value)})
             elif field == "at":
-                Log.update(con, nid, {"logged_at": _resolve_at_ts(value)})
+                Log.update(con, nid, {"logged_at": _resolve_log_at(Log.get(con, nid).logged_at, value)})
         return
     for _, (action, field, value) in o["fieldops"]:
         if field in _SET_COL:
@@ -690,7 +692,7 @@ def _exec_update(con, o):
             # (same as the command), so `goals=None`.
             _set_typed_log(con, nid, field, value)
         elif field == "metric":
-            _apply_add_metric(con, nid, value)
+            _add_node_metrics(con, nid, [value])
         elif field == "sched":
             # PRECISE schedule: a `sched`-table row (what `wl day` calls "planned"), distinct from
             # the rough `scheduled` node column. Idempotent per (node, date), like `wl sched`.
@@ -701,18 +703,12 @@ def _exec_update(con, o):
                 if not Sched.exists(con, node_id=nid, on_date=d):
                     Sched.insert(con, {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
         elif field == "recur":
-            from .sched import _norm_rrule
-            rule = _norm_rrule(value)   # validated already; normalises daily/weekly:Mon,Fri/…
-            if not any(r.rrule == rule for r in Sched.query(con, node_id=nid)):
-                Sched.insert(con, {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
+            from .sched import _norm_rrule, _upsert_rrule
+            _upsert_rrule(con, nid, _norm_rrule(value))   # idempotent by BASE rule; resumes a stopped one
         elif field == "spent":
             # a COMPLETED clock ending now — the declarative `wl spent`. `start`/`stop` stay
             # command-only: "start a timer now" is imperative state, not something a diff describes.
-            mins = _parse_duration_mins(value)
-            end_ts = _tu.utc_now()
-            start_ts = (datetime.fromisoformat(end_ts) - timedelta(minutes=mins)).strftime("%Y-%m-%d %H:%M:%S")
-            Clock.insert(con, {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
-                               "elapsed_sec": mins * 60})
+            _insert_clock_span(con, nid, _parse_duration_mins(value), _tu.utc_now())
         elif field == "link":
             if action == "add":
                 _upsert_link(con, nid, value)
@@ -742,25 +738,31 @@ def _fieldop_desc(action, field, value):
         return f"prop {value[0]}={value[1]}"
     return f"{field}->{value}"
 
-def _parse_metric_spec(s):
-    """`'tag [value] [unit]'` -> a metric datapoint spec `{tag, value?, unit?}`; None if no tag.
-    Shared by the `+metric` field-op and the `@metric` add sub-line."""
-    parts = (s or "").split()
-    if not parts:
+def _metric_spec(s):
+    """Build an `import_metric` spec dict from a `tag [value] [unit]` string, tokenised by the SAME
+    parser `wl metric` / `wl log --metric` use — so a stored unit can never diverge between the
+    command and the wl-diff entry point. None when there is no tag."""
+    if not (s or "").split():
         return None
-    spec = {"tag": parts[0]}
-    if len(parts) >= 2:
-        spec["value"] = parts[1]
-    if len(parts) >= 3:
-        spec["unit"] = " ".join(parts[2:])
+    tag, value, unit = _metric_parse_spec(s)
+    spec = {"tag": tag}
+    if value is not None:
+        spec["value"] = value
+    if unit is not None:
+        spec["unit"] = unit
     return spec
 
 
-def _apply_add_metric(con, nid, mspec):
-    """Add one node-level metric datapoint: a carrier log (`tag=_CARRIER_TYPE`) + the datapoint on
-    it — the exact shape `_import_node`'s node-level metrics use, so `wl metric` sees it the same."""
+def _add_node_metrics(con, nid, specs):
+    """One carrier log (`tag=_CARRIER_TYPE`) carrying N node-level datapoints — the single shape both
+    bulk-import and apply's `+metric` / `@metric` write. Returns the datapoint count. No commit."""
+    specs = list(specs or [])
+    if not specs:
+        return 0
     log_id = Log.insert(con, {"node_id": nid, "logged_at": _tu.utc_now(), "body": "", "tag": _CARRIER_TYPE})
-    import_metric(con, log_id, nid, mspec)
+    for mspec in specs:
+        import_metric(con, log_id, nid, mspec)
+    return len(specs)
 
 
 def _apply_sub(con, nid, directive, val):
@@ -769,9 +771,9 @@ def _apply_sub(con, nid, directive, val):
     elif directive == "link":
         _upsert_link(con, nid, val)
     elif directive == "metric":
-        spec = _parse_metric_spec(val)
+        spec = _metric_spec(val)
         if spec:
-            _apply_add_metric(con, nid, spec)
+            _add_node_metrics(con, nid, [spec])
     elif directive == "prop":
         if "=" in val:
             k, v = val.split("=", 1)
