@@ -346,11 +346,16 @@ class TestShortFlags:
     """single-letter short flags for high-frequency args (-d/--date, -n/--note)."""
 
     def test_log_dash_d_date(self, cli, tmp_db):
+        from worklog import timeutil as _tu
         cli("add", "t")
         cli("log", "1", "backfilled", "-d", "2026-06-01")
         con = tmp_db.db_connect()
         row = con.execute("SELECT logged_at FROM log WHERE node_id=1 AND deleted_at IS NULL").fetchone()
-        assert row[0].startswith("2026-06-01")
+        # `-d` anchors the log to the given LOCAL day. Assert the LOCAL day, not the raw UTC
+        # prefix — the stored instant is `2026-06-01 <local-now>` in UTC, which is the PREVIOUS
+        # UTC date for the tz-offset window around local midnight (the exact off-by-a-day that
+        # timeutil.local_day_of exists to avoid). The old `startswith` flaked there.
+        assert _tu.local_day_of(row[0]) == "2026-06-01"
 
     def test_logs_dash_d_date(self, cli):
         cli("add", "t")
