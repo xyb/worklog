@@ -260,14 +260,32 @@ class TestApply:
         assert 1 in relation_view(con, 2)["blocked_by"]
 
     def test_apply_plus_log_does_not_set_a_goal(self, cli, tmp_db):
-        # Boundary/footgun guard: `+log` writes a PLAIN log, it can NOT set a reserved-tag
-        # goal/summary — "goal: ..." lands in the body, today's goal is unchanged. A writer must
-        # use `wl goal set`; apply has no goal op. Pins the limit so it can't silently change.
+        # Footgun guard: `+log` writes a PLAIN log — it does NOT set a reserved-tag goal, even if
+        # the text starts "goal:". The declarative goal op is the dedicated `goal` field-op below;
+        # `+log goal: …` is just a note, so a writer isn't fooled into thinking it set the goal.
         cli("add", "t")
         self._apply(cli, "~ #1\n  +log goal: ship it today\n")
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM log WHERE tag='goal' AND deleted_at IS NULL").fetchone()[0] == 0
         assert con.execute("SELECT COUNT(*) FROM log WHERE deleted_at IS NULL").fetchone()[0] >= 1
+
+    def test_apply_goal_field_op(self, cli, tmp_db):
+        # `goal <text>` field-op — the declarative form of `wl goal set`: a reserved-tag `goal` log.
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  goal ship the report today\n")
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT body FROM log WHERE node_id=1 AND tag='goal' AND deleted_at IS NULL "
+                          "ORDER BY id DESC LIMIT 1").fetchone()
+        assert row is not None and row["body"] == "ship the report today"
+
+    def test_apply_summary_field_op(self, cli, tmp_db):
+        # `summary <text>` field-op — the declarative form of `wl recap`: a reserved-tag `summary` log.
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  summary shipped it, copy still TBD\n")
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT body FROM log WHERE node_id=1 AND tag='summary' AND deleted_at IS NULL "
+                          "ORDER BY id DESC LIMIT 1").fetchone()
+        assert row is not None and row["body"] == "shipped it, copy still TBD"
 
     def test_apply_scheduled_sets_rough_column_not_precise_sched(self, cli, tmp_db):
         # Boundary: `scheduled` writes node.scheduled_date (the rough hint), NOT a precise

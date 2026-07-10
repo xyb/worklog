@@ -48,6 +48,7 @@ from ..queries import (
     DATE_SYNC_KEYS,
     _upsert_link,
     _delete_link,
+    _set_typed_log,
 )
 from ..graph import (
     _collect_descendants,
@@ -427,6 +428,9 @@ def _parse_fieldop(s):
     m = re.match(r"^\+log\s+(.+)$", s)
     if m:
         return ("add", "log", m.group(1).strip())
+    m = re.match(r"^(goal|summary)\s+(.+)$", s)
+    if m:
+        return ("set", m.group(1), m.group(2).strip())
     m = re.match(r"^-prop\s+(\S+)$", s)
     if m:
         return ("remove", "prop", m.group(1))
@@ -466,7 +470,7 @@ def _parse_wld(text):
                 continue
             # indented but not a valid field-op: if it looks like a node line (has marker), drop through as new node (ending ~); else error
             if not re.match(r"^[+\- ]?\s*\[", s):
-                raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop)")
+                raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop/goal/summary)")
         # @ sub-line (rich fields of a +/-/anchor node)
         m = re.match(r"^[+\- ]?\s*@(log|link|prop)\s+(.*)$", raw)
         if m:
@@ -561,6 +565,11 @@ def _exec_update(con, o):
                 Tag.delete(con, node_id=nid, tag=value)
         elif field == "log":
             _insert_log(con, nid, value)
+        elif field in ("goal", "summary"):
+            # reserved-tag log (history-preserving, latest = current) — the declarative form of
+            # `wl goal set` / `wl recap`. Structured goal targets aren't parsed from the prose here
+            # (same as the command), so `goals=None`.
+            _set_typed_log(con, nid, field, value)
         elif field == "link":
             if action == "add":
                 _upsert_link(con, nid, value)

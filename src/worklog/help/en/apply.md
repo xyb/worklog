@@ -10,6 +10,7 @@ wl prints, so you can edit a listing and feed it back.
   ~ #42                   # update node #42 …
     status DONE           #   … its fields (indented field-ops)
     +tag urgent           #   add/remove a tag, +link / -link, prop k=v, parent N
+    goal ship it today    #   set the node's goal / summary (reserved-tag log; wl goal / wl recap)
   - #43                   # delete (soft) node #43
 
   wl apply changes.wld            # apply  ·  --dry-run to preview

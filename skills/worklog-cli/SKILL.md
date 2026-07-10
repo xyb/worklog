@@ -125,9 +125,15 @@ typical day-handling workflow → `references/bulk.md`.
 
 **`wl apply` capability surface (test-guaranteed — the AI's declarative CRUD; `tests/test_import_apply.py`):**
 - **Create** — `+ [marker] [#P] title :tags:` (2-space indent nests under the line above); rich fields via `@prop k=v` / `@link doc` / `@log text`.
-- **Update** — `~ #id` then indented field-ops: `status` / `priority` / `title` / `parent N` (reparent, cycle-checked) / `scheduled` / `deadline` / `+tag` / `-tag` / `+link` / `-link` / `prop k=v` / `-prop`. Only declared fields change. **Relations go through `prop`** — `prop relation.block=N` (also `relation.split` / `relation.related`); the reverse (`=blocked-by` etc.) derives at read time.
+- **Update** — `~ #id` then indented field-ops: `status` / `priority` / `title` / `parent N` (reparent, cycle-checked) / `scheduled` / `deadline` / `+tag` / `-tag` / `+link` / `-link` / `prop k=v` / `-prop` / `goal <text>` / `summary <text>`. Only declared fields change. **Relations go through `prop`** — `prop relation.block=N` (also `relation.split` / `relation.related`); the reverse (`=blocked-by` etc.) derives at read time. `goal`/`summary` write the reserved-tag log (declarative `wl goal set` / `wl recap`).
 - **Delete** — `- #id` (soft; cascades the subtree). Whole diff is validated first (bad refs/cycles/unknown fields abort before any write), then applied in one transaction.
-- **NOT expressible via apply — use the direct command:** goal / summary (`wl goal set` / `wl recap` — a `+log goal: …` is a *plain* log, NOT the goal), precise sched + recurrence (`wl sched` — apply's `scheduled` only sets the rough `scheduled_date`), metric datapoints (`wl metric` / `wl log --metric`, or `wl import` JSON), clock (`wl start` / `stop`), editing/deleting a *specific existing* log (`wl relog` / `wl unlog`).
+
+**Scope of apply = the `node` table + its `tag` / `link` / `prop` rows + appended `log`s.** Anything stored as a node prop is reachable via `prop k=v` — including relations (`relation.*`), a claim (`claimed_by`), and an agent binding (`agent_session.*`). The *other* spoke tables are **NOT** in the wl-diff model — for these, call the command directly:
+- **metric** datapoints / check-ins → `wl metric` / `wl log --metric` / `wl tick` (or `wl import` JSON, which does carry metrics)
+- **clock** → `wl start` / `wl stop` / `wl spent`
+- **precise schedule + recurrence** → `wl sched` (apply's `scheduled` only sets the rough `scheduled_date` column, no `sched`-table row / rrule)
+- **date labels** (holidays / vacation) → `wl dateinfo` (a separate `date_meta` table)
+- **editing / deleting a specific existing log** → `wl relog` / `wl unlog` / `wl retag` (apply's `+log` only *appends*)
 
 ## What NOT to do
 
