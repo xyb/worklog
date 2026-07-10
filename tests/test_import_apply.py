@@ -287,6 +287,33 @@ class TestApply:
                           "ORDER BY id DESC LIMIT 1").fetchone()
         assert row is not None and row["body"] == "shipped it, copy still TBD"
 
+    def test_apply_metric_field_op(self, cli, tmp_db):
+        # `+metric tag [value] [unit]` field-op — a node-level metric datapoint (carrier log + point),
+        # the declarative form of `wl metric add` / `wl log --metric`.
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  +metric steps 5000 count\n")
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT tag, value_num, unit FROM metric WHERE node_id=1 AND deleted_at IS NULL "
+                          "ORDER BY id DESC LIMIT 1").fetchone()
+        assert row["tag"] == "steps" and row["value_num"] == 5000 and row["unit"] == "count"
+
+    def test_apply_metric_marker_no_value(self, cli, tmp_db):
+        # a bare `+metric checkin` (no value) is a marker datapoint — like `wl tick` / `wl checkin`.
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  +metric checkin\n")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM metric WHERE node_id=1 AND tag='checkin' "
+                           "AND deleted_at IS NULL").fetchone()[0] == 1
+
+    def test_apply_add_node_with_metric_sub(self, cli, tmp_db):
+        # `@metric` sub-line on a `+` add — a new node can carry a datapoint at creation.
+        self._apply(cli, "+ [ ] health check\n  @metric glucose 5.4 mmol/L\n")
+        con = tmp_db.db_connect()
+        nid = con.execute("SELECT id FROM node WHERE title='health check' AND deleted_at IS NULL").fetchone()["id"]
+        row = con.execute("SELECT tag, value_num, unit FROM metric WHERE node_id=? AND deleted_at IS NULL",
+                          (nid,)).fetchone()
+        assert row["tag"] == "glucose" and row["value_num"] == 5.4 and row["unit"] == "mmol/L"
+
     def test_apply_scheduled_sets_rough_column_not_precise_sched(self, cli, tmp_db):
         # Boundary: `scheduled` writes node.scheduled_date (the rough hint), NOT a precise
         # Sched-table row — for a day-precise plan / recurrence use `wl sched`. Documents that

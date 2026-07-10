@@ -431,6 +431,11 @@ def _parse_fieldop(s):
     m = re.match(r"^(goal|summary)\s+(.+)$", s)
     if m:
         return ("set", m.group(1), m.group(2).strip())
+    m = re.match(r"^\+metric\s+(.+)$", s)
+    if m:
+        spec = _parse_metric_spec(m.group(1))
+        if spec:
+            return ("add", "metric", spec)
     m = re.match(r"^-prop\s+(\S+)$", s)
     if m:
         return ("remove", "prop", m.group(1))
@@ -470,9 +475,9 @@ def _parse_wld(text):
                 continue
             # indented but not a valid field-op: if it looks like a node line (has marker), drop through as new node (ending ~); else error
             if not re.match(r"^[+\- ]?\s*\[", s):
-                raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop/goal/summary)")
+                raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop/goal/summary/+metric)")
         # @ sub-line (rich fields of a +/-/anchor node)
-        m = re.match(r"^[+\- ]?\s*@(log|link|prop)\s+(.*)$", raw)
+        m = re.match(r"^[+\- ]?\s*@(log|link|prop|metric)\s+(.*)$", raw)
         if m:
             if not ops or ops[-1]["op"] == "~":
                 raise ValueError(f"line {lineno}: @{m.group(1)} has no preceding +/anchor node to attach to")
@@ -570,6 +575,8 @@ def _exec_update(con, o):
             # `wl goal set` / `wl recap`. Structured goal targets aren't parsed from the prose here
             # (same as the command), so `goals=None`.
             _set_typed_log(con, nid, field, value)
+        elif field == "metric":
+            _apply_add_metric(con, nid, value)
         elif field == "link":
             if action == "add":
                 _upsert_link(con, nid, value)
@@ -585,6 +592,8 @@ def _exec_update(con, o):
                 Prop.delete(con, node_id=nid, key=value)
 
 def _fieldop_desc(action, field, value):
+    if field == "metric":
+        return f"+metric {value.get('tag')}"
     if action == "clear":
         return f"{field}=cleared"
     if action == "add":
@@ -595,11 +604,36 @@ def _fieldop_desc(action, field, value):
         return f"prop {value[0]}={value[1]}"
     return f"{field}->{value}"
 
+def _parse_metric_spec(s):
+    """`'tag [value] [unit]'` -> a metric datapoint spec `{tag, value?, unit?}`; None if no tag.
+    Shared by the `+metric` field-op and the `@metric` add sub-line."""
+    parts = (s or "").split()
+    if not parts:
+        return None
+    spec = {"tag": parts[0]}
+    if len(parts) >= 2:
+        spec["value"] = parts[1]
+    if len(parts) >= 3:
+        spec["unit"] = " ".join(parts[2:])
+    return spec
+
+
+def _apply_add_metric(con, nid, mspec):
+    """Add one node-level metric datapoint: a carrier log (`tag=_CARRIER_TYPE`) + the datapoint on
+    it — the exact shape `_import_node`'s node-level metrics use, so `wl metric` sees it the same."""
+    log_id = Log.insert(con, {"node_id": nid, "logged_at": _tu.utc_now(), "body": "", "tag": _CARRIER_TYPE})
+    import_metric(con, log_id, nid, mspec)
+
+
 def _apply_sub(con, nid, directive, val):
     if directive == "log":
         _insert_log(con, nid, val)
     elif directive == "link":
         _upsert_link(con, nid, val)
+    elif directive == "metric":
+        spec = _parse_metric_spec(val)
+        if spec:
+            _apply_add_metric(con, nid, spec)
     elif directive == "prop":
         if "=" in val:
             k, v = val.split("=", 1)
