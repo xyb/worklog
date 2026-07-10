@@ -350,6 +350,55 @@ class TestApply:
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1 AND deleted_at IS NULL").fetchone()[0] == 0
 
+    def _one_log_id(self, tmp_db):
+        con = tmp_db.db_connect()
+        return con.execute("SELECT id FROM log WHERE deleted_at IS NULL ORDER BY id LIMIT 1").fetchone()["id"]
+
+    def test_apply_log_target_body_rewrites_the_log(self, cli, tmp_db):
+        # `~ #L<id>` with `body <text>` — the declarative `wl relog`.
+        cli("add", "t")
+        cli("log", "1", "original")
+        lid = self._one_log_id(tmp_db)
+        self._apply(cli, f"~ #L{lid}\n  body corrected content\n")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT body FROM log WHERE id=?", (lid,)).fetchone()["body"] == "corrected content"
+
+    def test_apply_log_target_retag_and_clear(self, cli, tmp_db):
+        # `retag <tag>` — the declarative `wl retag`; `note`/`none`/`-`/empty clears back to a plain note.
+        cli("add", "t")
+        cli("log", "1", "x")
+        lid = self._one_log_id(tmp_db)
+        self._apply(cli, f"~ #L{lid}\n  retag goal\n")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT tag FROM log WHERE id=?", (lid,)).fetchone()["tag"] == "goal"
+        self._apply(cli, f"~ #L{lid}\n  retag note\n")
+        assert con.execute("SELECT tag FROM log WHERE id=?", (lid,)).fetchone()["tag"] is None
+
+    def test_apply_delete_log_target(self, cli, tmp_db):
+        # `- #L<id>` deletes ONE log (declarative `wl unlog`), not a node subtree.
+        cli("add", "t")
+        cli("log", "1", "x")
+        lid = self._one_log_id(tmp_db)
+        self._apply(cli, f"- #L{lid}\n")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT deleted_at FROM log WHERE id=?", (lid,)).fetchone()["deleted_at"] is not None
+        assert con.execute("SELECT COUNT(*) FROM node WHERE id=1 AND deleted_at IS NULL").fetchone()[0] == 1
+
+    def test_apply_node_body_field_op(self, cli, tmp_db):
+        # `body <text>` on a NODE target sets node.body (the column wl-diff previously couldn't reach).
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  body some node body\n")
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT body FROM node WHERE id=1").fetchone()["body"] == "some node body"
+
+    def test_apply_log_target_validation(self, cli, tmp_db):
+        # a missing log, and a log-only field-op used on a node, both fail whole-diff validation
+        cli("add", "t")
+        code, _, err = self._apply(cli, "~ #L9999\n  body x\n")
+        assert code != 0 and "no log #L9999" in err
+        code, _, err = self._apply(cli, "~ #1\n  retag goal\n")
+        assert code != 0 and "only applies to a log target" in err
+
     def test_apply_spent_field_op_records_a_clock(self, cli, tmp_db):
         # `spent <duration>` — a COMPLETED clock ending now (declarative `wl spent`); `90` / `1h30m`.
         # Live `start`/`stop` stay command-only: a timer running "now" is imperative state.

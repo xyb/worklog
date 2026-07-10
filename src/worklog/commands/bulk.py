@@ -53,6 +53,7 @@ from ..queries import (
 )
 from ..graph import (
     _collect_descendants,
+    soft_delete_log,
     soft_delete_node,
 )
 from .metric import import_metric, _CARRIER_TYPE
@@ -156,6 +157,23 @@ def _apply_validate(con, ops):
     errors = []
     for o in ops:
         pfx, ln = o["op"], o["lineno"]
+        if o.get("target") == "log":
+            # `~ #L<id>` / `- #L<id>` — a LOG target: only body/retag/at apply, and the log must exist
+            if Log.get(con, o["id"]) is None:
+                errors.append(f"line {ln}: no log #L{o['id']}")
+            if pfx == "~":
+                if not o["fieldops"]:
+                    errors.append(f"line {ln}: ~ #L{o['id']} has no field operations")
+                for floln, (action, field, value) in o["fieldops"]:
+                    if field not in ("body", "retag", "at"):
+                        errors.append(f"line {floln}: '{field}' is not a log field-op "
+                                      "(allowed on `~ #L<id>`: body / retag / at)")
+                    elif field == "at":
+                        try:
+                            _resolve_at_ts(value)
+                        except ValueError as e:
+                            errors.append(f"line {floln}: {e}")
+            continue
         if pfx == "~":
             if not _node_exists(con, o["id"]):
                 errors.append(f"line {ln}: #{o['id']} does not exist")
@@ -198,13 +216,17 @@ def _apply_plan(ops):
         pfx = o["op"]
         if pfx == "~":
             ch = ", ".join(_fieldop_desc(a, fld, v) for _, (a, fld, v) in o["fieldops"])
-            plan.append(f"~ #{o['id']}: {ch}")
+            tgt = f"#L{o['id']}" if o.get("target") == "log" else f"#{o['id']}"
+            plan.append(f"~ {tgt}: {ch}")
         elif pfx == "+":
             f = o["fields"]
             sub = f" (+{len(o['subs'])} sub-items)" if o["subs"] else ""
             plan.append(f"+ {f['title']}" + (f" @depth{o['depth']}" if o["depth"] else "") + sub)
         elif pfx == "-":
-            plan.append(f"- #{o['fields']['id']} (cascades subtree)")
+            if o.get("target") == "log":
+                plan.append(f"- #L{o['id']} (log)")
+            else:
+                plan.append(f"- #{o['fields']['id']} (cascades subtree)")
     return plan
 
 
@@ -223,6 +245,10 @@ def _apply_execute(con, ops):
             f, depth = o["fields"], o["depth"]
             if pfx == " ":
                 stack[depth] = f["id"]
+                continue
+            if pfx == "-" and o.get("target") == "log":
+                soft_delete_log(con, o["id"])   # + its metrics (spoke cascade)
+                counts["delete"] += 1
                 continue
             if pfx == "-":
                 # recursive subtree soft-delete: tombstone the node + each
@@ -448,6 +474,15 @@ def _parse_fieldop(s):
     m = re.match(r"^spent\s+(\S+)$", s)
     if m:
         return ("set", "spent", m.group(1).strip())
+    m = re.match(r"^body\s+(.+)$", s)
+    if m:
+        return ("set", "body", m.group(1).strip())
+    m = re.match(r"^retag\s*(.*)$", s)
+    if m:
+        return ("set", "retag", m.group(1).strip())
+    m = re.match(r"^at\s+(.+)$", s)
+    if m:
+        return ("set", "at", m.group(1).strip())
     m = re.match(r"^-prop\s+(\S+)$", s)
     if m:
         return ("remove", "prop", m.group(1))
@@ -487,7 +522,7 @@ def _parse_wld(text):
                 continue
             # indented but not a valid field-op: if it looks like a node line (has marker), drop through as new node (ending ~); else error
             if not re.match(r"^[+\- ]?\s*\[", s):
-                raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop/goal/summary/+metric/sched/recur/-sched/spent)")
+                raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop/goal/summary/+metric/sched/recur/-sched/spent/body; on `~ #L<id>`: body/retag/at)")
         # @ sub-line (rich fields of a +/-/anchor node)
         m = re.match(r"^[+\- ]?\s*@(log|link|prop|metric)\s+(.*)$", raw)
         if m:
@@ -511,6 +546,13 @@ def _parse_wld(text):
         if not body.strip():
             continue
         if prefix == "~":
+            lidm = re.search(r"#L(\d+)", body, re.IGNORECASE)
+            if lidm:   # a LOG target: `~ #L42` + body/retag/at field-ops
+                op = {"op": "~", "target": "log", "id": int(lidm.group(1)),
+                      "fieldops": [], "lineno": lineno}
+                ops.append(op)
+                cur_update = op
+                continue
             idm = re.search(r"#(\d+)", body)
             if not idm:
                 raise ValueError(f"line {lineno}: '~' requires #id (e.g. '~ #14' or single-line '~ [x] #14')")
@@ -524,12 +566,17 @@ def _parse_wld(text):
                 inline.append((lineno, ("set", "priority", f["priority"])))
             if f.get("title"):
                 inline.append((lineno, ("set", "title", f["title"])))
-            op = {"op": "~", "id": nid, "fieldops": inline, "lineno": lineno}
+            op = {"op": "~", "target": "node", "id": nid, "fieldops": inline, "lineno": lineno}
             ops.append(op)
             cur_update = op  # may still accept subsequent indented field-ops (mix of single-line shorthand + complex ops)
             continue
         cur_update = None  # +/-/anchor line ends ~ context
         depth = len(spaces) // 2
+        lidm = re.search(r"#L(\d+)", body, re.IGNORECASE)
+        if lidm and prefix == "-":   # delete ONE log, not a node subtree
+            ops.append({"op": "-", "target": "log", "id": int(lidm.group(1)),
+                        "fields": {}, "subs": [], "depth": depth, "lineno": lineno})
+            continue
         fields = _parse_node_line(body)
         if not fields["title"] and prefix != "-":
             raise ValueError(f"line {lineno}: missing title")
@@ -538,7 +585,7 @@ def _parse_wld(text):
 
 
 _STATUSES = {"TODO", "DOING", "LATER", "WAIT", "DONE", "DEFERRED", "CANCELED"}
-_SET_COL = {"status": "status", "priority": "priority", "title": "title",
+_SET_COL = {"status": "status", "priority": "priority", "title": "title", "body": "body",
             "parent": "parent_id", "scheduled": "scheduled_date", "deadline": "deadline_date"}
 
 def _validate_fieldop(con, lineno, action, field, value, errs):
@@ -573,10 +620,23 @@ def _validate_fieldop(con, lineno, action, field, value, errs):
             _parse_duration_mins(value)
         except ValueError as e:
             errs.append(f"line {lineno}: {e}")
+    elif field in ("retag", "at"):
+        errs.append(f"line {lineno}: '{field}' only applies to a log target (`~ #L<id>`)")
 
 def _exec_update(con, o):
     """Execute ~ field operations: only touches explicitly-declared fields; never touches anything not declared."""
     nid = o["id"]
+    if o.get("target") == "log":
+        # declarative `wl relog` / `wl retag` on one existing log
+        for _, (action, field, value) in o["fieldops"]:
+            if field == "body":
+                Log.update(con, nid, {"body": value})
+            elif field == "retag":
+                # same clearing vocabulary as `wl retag`: -/note/none/empty -> a plain note
+                Log.update(con, nid, {"tag": None if value.lower() in ("", "-", "note", "none") else value})
+            elif field == "at":
+                Log.update(con, nid, {"logged_at": _resolve_at_ts(value)})
+        return
     for _, (action, field, value) in o["fieldops"]:
         if field in _SET_COL:
             col = _SET_COL[field]

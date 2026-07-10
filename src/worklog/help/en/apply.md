@@ -15,7 +15,12 @@ wl prints, so you can edit a listing and feed it back.
     sched tomorrow        #   plan it on a day (sched row = "planned"); recur weekly:Mon,Fri
     -sched                #   clear every schedule row
     spent 1h30m           #   record a completed clock (90 / 90m / 1h30m)
+    body free text        #   set the node's body
   - #43                   # delete (soft) node #43
+
+  ~ #L282                 # a LOG target (note the L): rewrite one existing log
+    body fixed content    #   … its body (wl relog), retag goal (wl retag), at 14:30
+  - #L282                 # delete (soft) that one log (wl unlog)
 
   + [ ] new health task   # add, with a datapoint at creation:
     @metric glucose 5.4 mmol/L
