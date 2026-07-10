@@ -13,7 +13,7 @@ from pathlib import Path
 from .. import render
 from .. import db_table as _db
 from .. import timeutil as _tu
-from ..models import Log, Node, Prop, Sched, Tag
+from ..models import Clock, Log, Node, Prop, Sched, Tag
 from ..node import create_node
 from ..helpers import (
     _apply_top_limit,
@@ -21,6 +21,7 @@ from ..helpers import (
     _is_brief,
     _log_full,
     _norm_sched,
+    _parse_duration_mins,
     _resolve_at_ts,
     _resolve_concrete_date,
     _resolve_log_tail,
@@ -444,6 +445,9 @@ def _parse_fieldop(s):
     m = re.match(r"^recur\s+(.+)$", s)
     if m:
         return ("set", "recur", m.group(1).strip())
+    m = re.match(r"^spent\s+(\S+)$", s)
+    if m:
+        return ("set", "spent", m.group(1).strip())
     m = re.match(r"^-prop\s+(\S+)$", s)
     if m:
         return ("remove", "prop", m.group(1))
@@ -483,7 +487,7 @@ def _parse_wld(text):
                 continue
             # indented but not a valid field-op: if it looks like a node line (has marker), drop through as new node (ending ~); else error
             if not re.match(r"^[+\- ]?\s*\[", s):
-                raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop/goal/summary/+metric/sched/recur/-sched)")
+                raise ValueError(f"line {lineno}: unparseable field-op '{s}' under '~' (allowed: status/priority/title/parent/scheduled/deadline/±tag/+log/±link/prop/-prop/goal/summary/+metric/sched/recur/-sched/spent)")
         # @ sub-line (rich fields of a +/-/anchor node)
         m = re.match(r"^[+\- ]?\s*@(log|link|prop|metric)\s+(.*)$", raw)
         if m:
@@ -564,6 +568,11 @@ def _validate_fieldop(con, lineno, action, field, value, errs):
             _norm_rrule(value)
         except ValueError as e:
             errs.append(f"line {lineno}: {e}")
+    elif field == "spent" and action == "set":
+        try:
+            _parse_duration_mins(value)
+        except ValueError as e:
+            errs.append(f"line {lineno}: {e}")
 
 def _exec_update(con, o):
     """Execute ~ field operations: only touches explicitly-declared fields; never touches anything not declared."""
@@ -611,6 +620,14 @@ def _exec_update(con, o):
             rule = _norm_rrule(value)   # validated already; normalises daily/weekly:Mon,Fri/…
             if not any(r.rrule == rule for r in Sched.query(con, node_id=nid)):
                 Sched.insert(con, {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
+        elif field == "spent":
+            # a COMPLETED clock ending now — the declarative `wl spent`. `start`/`stop` stay
+            # command-only: "start a timer now" is imperative state, not something a diff describes.
+            mins = _parse_duration_mins(value)
+            end_ts = _tu.utc_now()
+            start_ts = (datetime.fromisoformat(end_ts) - timedelta(minutes=mins)).strftime("%Y-%m-%d %H:%M:%S")
+            Clock.insert(con, {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
+                               "elapsed_sec": mins * 60})
         elif field == "link":
             if action == "add":
                 _upsert_link(con, nid, value)

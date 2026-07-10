@@ -14,6 +14,7 @@ wl prints, so you can edit a listing and feed it back.
     +metric steps 5000 count  #  a metric datapoint (tag [value] [unit]); bare tag = a marker
     sched tomorrow        #   plan it on a day (sched row = "planned"); recur weekly:Mon,Fri
     -sched                #   clear every schedule row
+    spent 1h30m           #   record a completed clock (90 / 90m / 1h30m)
   - #43                   # delete (soft) node #43
 
   + [ ] new health task   # add, with a datapoint at creation:

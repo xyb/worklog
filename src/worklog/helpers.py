@@ -26,6 +26,23 @@ GENERIC_TAGS = {
 TERMINAL_STATUSES = frozenset({"DONE", "CANCELED"})
 
 
+def _parse_duration_mins(s):
+    """Parse a duration token -> whole minutes: `90` / `90m` / `1h30m` / `2h`. Raises ValueError on a
+    bad token or a non-positive result. Single source for `wl spent` and the apply `spent` field-op."""
+    import re
+    t = (s or "").strip().lower()
+    m = re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m)?", t)
+    if m and (m.group(1) or m.group(2)):
+        mins = int(m.group(1) or 0) * 60 + int(m.group(2) or 0)
+    elif re.fullmatch(r"\d+", t):
+        mins = int(t)
+    else:
+        raise ValueError(f"invalid duration '{t}': supported formats: 90 / 90m / 1h30m / 2h")
+    if mins <= 0:
+        raise ValueError("duration must be > 0")
+    return mins
+
+
 def _status_marker(status):
     return {
         None: "[ ]",

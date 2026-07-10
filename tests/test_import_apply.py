@@ -350,6 +350,22 @@ class TestApply:
         con = tmp_db.db_connect()
         assert con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1 AND deleted_at IS NULL").fetchone()[0] == 0
 
+    def test_apply_spent_field_op_records_a_clock(self, cli, tmp_db):
+        # `spent <duration>` — a COMPLETED clock ending now (declarative `wl spent`); `90` / `1h30m`.
+        # Live `start`/`stop` stay command-only: a timer running "now" is imperative state.
+        cli("add", "t")
+        self._apply(cli, "~ #1\n  spent 1h30m\n")
+        con = tmp_db.db_connect()
+        row = con.execute("SELECT elapsed_sec FROM clock WHERE node_id=1 AND deleted_at IS NULL").fetchone()
+        assert row["elapsed_sec"] == 90 * 60
+
+    def test_apply_spent_invalid_duration_rejected_before_write(self, cli, tmp_db):
+        cli("add", "t")
+        code, _, err = self._apply(cli, "~ #1\n  spent bogus\n")
+        assert code != 0 and "duration" in err
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT COUNT(*) FROM clock WHERE node_id=1").fetchone()[0] == 0
+
     def test_apply_sched_and_recur_invalid_rejected_before_write(self, cli, tmp_db):
         # Whole-diff validation: a bad date / rule aborts before ANY write (no partial apply).
         cli("add", "t")

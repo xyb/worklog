@@ -38,6 +38,7 @@ from ..helpers import (
     _term_width,
     _truncate_log_body,
     _display_width,
+    _parse_duration_mins,
     GENERIC_TAGS,
     TERMINAL_STATUSES,
 )
@@ -580,21 +581,12 @@ def cmd_spent(args, con):
     wl spent <id> 45 --at 14:30  specify end time (start = at - 45m, end = at)
     wl spent <id> 1h30m          supports 1h / 30m / 1h30m
     """
-    import re as _re
     nid = args.id
     _require_node(con, nid)
-    # parse duration: 1h30m / 90m / 90 (bare number = minutes)
-    s = args.duration.strip().lower()
-    mins = 0
-    m = _re.fullmatch(r"(?:(\d+)h)?(?:(\d+)m)?", s)
-    if m and (m.group(1) or m.group(2)):
-        mins = int(m.group(1) or 0) * 60 + int(m.group(2) or 0)
-    elif _re.fullmatch(r"\d+", s):
-        mins = int(s)
-    else:
-        die(f"invalid duration '{s}': supported formats: 90 / 90m / 1h30m / 2h")
-    if mins <= 0:
-        die("duration must be > 0")
+    try:
+        mins = _parse_duration_mins(args.duration)
+    except ValueError as e:
+        die(str(e))
     try:
         end_ts = _resolve_at_ts(getattr(args, "at", None))
     except ValueError as e:
