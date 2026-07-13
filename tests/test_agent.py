@@ -570,3 +570,69 @@ class TestAgentGaps:
         cli("start", "1")
         rows = json.loads(cli("agent", "gaps", "-o", "json")[1])
         assert [r["id"] for r in rows] == [1] and rows[0]["reason"] == "DOING"
+
+
+class TestAgentReviewRegressions:
+    """Defects caught by review of the gaps/activity feature — each pinned so it can't come back."""
+
+    def _sess(self, monkeypatch, sid="sess-rev"):
+        monkeypatch.setenv("WL_SESSION_ID", sid)
+        monkeypatch.setenv("WL_AGENT", "claude")
+
+    def test_stale_threshold_uses_local_days_not_utc(self, cli, monkeypatch):
+        # cutoff and activity must both be LOCAL days; deriving the cutoff from the UTC date shifts
+        # the badge by a day for the hours the local date runs ahead of (or behind) UTC
+        monkeypatch.setenv("WORKLOG_TZ", "+08:00")
+        self._sess(monkeypatch)
+        cli("add", "quiet task")
+        cli("agent", "1")
+        cli("log", "1", "old", "-d", "-4d")            # 4 local days ago, --stale-days default 3
+        _, out, _ = cli("agent", "ls")
+        assert "💤" in out                              # age 4d > 3d ⇒ the badge MUST fire
+
+    def test_age_survives_legacy_date_only_stamp(self, cli, tmp_db, monkeypatch):
+        # migrated DBs still carry date-only `logged_at`; the age must not degrade to "—" on exactly
+        # the oldest (= stalest) rows
+        self._sess(monkeypatch)
+        cli("add", "legacy task")
+        cli("agent", "1")
+        cli("log", "1", "old work")
+        con = tmp_db.db_connect()
+        con.execute("UPDATE log SET logged_at='2026-06-20' WHERE node_id=1 AND tag IS NULL")
+        con.commit()
+        _, out, _ = cli("agent", "ls")
+        assert "—" not in out and "d" in out
+
+    def test_fresh_binding_on_dormant_task_still_listed(self, cli, monkeypatch):
+        # the bind doesn't count as ACTIVITY (no 💤 lie), but it must still sort/group the row to
+        # today — else the session you just bound falls below the row cap and disappears
+        self._sess(monkeypatch, "sess-new")
+        for i in range(14):
+            cli("add", f"other {i}")
+        for i in range(1, 14):                          # 13 other bindings, all logged today
+            monkeypatch.setenv("WL_SESSION_ID", f"s{i}")
+            cli("agent", str(i)); cli("log", str(i), "work")
+        cli("add", "dormant backlog task")              # #15, no logs at all
+        monkeypatch.setenv("WL_SESSION_ID", "sess-new")
+        cli("agent", "15")
+        _, out, _ = cli("agent", "ls")                  # default cap = 12 rows
+        assert "#15" in out                             # the session I'm on must be visible
+
+    def test_gaps_sorted_by_priority_not_by_id(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "low-pri goal target", "-p", "C")    # #1
+        cli("add", "the P0 in flight", "-p", "A")       # #2
+        cli("start", "2")
+        cli("goal", "ship it", "1")
+        _, out, _ = cli("agent", "gaps")
+        lines = [ln for ln in out.splitlines() if "#" in ln and "⚠" not in ln]
+        assert "#2" in lines[0] and "#1" in lines[1]    # the P0 outranks a lower-pri smaller id
+
+    def test_doing_p0_project_is_not_a_gap(self, cli, monkeypatch):
+        # a container stays DOING while anything under it lives, and is pushed via its children —
+        # a session binds to a task, not to the bucket it sits in
+        self._sess(monkeypatch)
+        cli("add", "Platform migration", "--para", "project", "-p", "A")
+        cli("start", "1")
+        _, out, _ = cli("agent", "gaps")
+        assert "#1" not in out

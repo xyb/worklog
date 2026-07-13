@@ -1921,12 +1921,18 @@ _STALE = "💤"          # only the ANOMALY gets a marker; a healthy row wears n
 
 def _age_short(ts):
     """Compact "how long ago" for a UTC stamp: 40m / 5h / 12d. Coarse on purpose — the exact minute
-    of the last log is noise here; the order of magnitude is the whole signal."""
+    of the last log is noise here; the order of magnitude is the whole signal. Legacy date-only
+    stamps (`2026-06-20`, still present in migrated DBs) parse as that day's midnight rather than
+    degrading to `—`; the stalest rows are exactly the old ones, so they must keep their number."""
     if not ts:
         return "—"
-    try:
-        then = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
-    except ValueError:
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            then = datetime.strptime(ts[:19] if len(ts) >= 19 else ts[:10], fmt)
+            break
+        except ValueError:
+            continue
+    else:
         return "—"
     mins = max(0, int((datetime.strptime(_tu.utc_now()[:19], "%Y-%m-%d %H:%M:%S") - then).total_seconds() // 60))
     if mins < 60:
@@ -2009,13 +2015,16 @@ def _agent_set(args, con):
 def _is_stale(act, stale_days):
     """Has this node gone quiet? True when its latest log/update (`act`, a UTC stamp) is older than
     `stale_days` days. The bound session may well still be open — what this measures is whether the
-    WORK moved, which is the thing worth knowing."""
+    WORK moved, which is the thing worth knowing.
+
+    Both sides of the comparison are LOCAL days: `_tu.today()` for the cutoff, `local_day_of(act)`
+    for the activity. Deriving the cutoff from the UTC date instead would shift the threshold by a
+    day for the hours when the local date runs ahead of (or behind) UTC."""
     if not act:
         return True
-    cutoff = _tu.utc_now()[:10]
     from datetime import date, timedelta
-    cutoff = (date.fromisoformat(cutoff) - timedelta(days=stale_days)).isoformat()
-    return _tu.utc_to_local(act)[:10] < cutoff
+    cutoff = (_tu.today_date() - timedelta(days=stale_days)).isoformat()
+    return _tu.local_day_of(act) < cutoff
 
 
 @output_format
@@ -2048,7 +2057,11 @@ def _agent_ls(args, con):
                       "sid": sid, "title": title, "act": act, "bound": bound,
                       "stale": _is_stale(act, stale_days)})
     by = getattr(args, "by", "active")
-    keyf = (lambda it: it["bound"] or it["act"]) if by == "bound" else (lambda it: it["act"])
+    # Sorting/grouping takes the LATER of the two stamps, so a session bound to a long-dormant task
+    # still sorts to today and survives the row cap — otherwise the binding you just made would fall
+    # below the fold, under an ancient date header. The 💤 column keeps telling the truth about the
+    # work regardless: `stale` is computed from `act` alone, which never counts the bind.
+    keyf = (lambda it: it["bound"] or it["act"]) if by == "bound" else (lambda it: max(it["act"], it["bound"]))
     items.sort(key=keyf, reverse=True)                 # most-recent (by chosen axis) first
     plain = render.is_plain()
     # plain/piped or --all → show all (a script needs the lot); else elide older to avoid flood
@@ -2099,13 +2112,18 @@ def _gap_candidates(con):
     is in flight today. That reading sweeps in nearly every open P0 — including calendar-only nodes
     (a weekly sync) that will never have a session — and an alert that always fires is no alert."""
     from .views import _goal_target_rows, _has_active_rrule
-    from ..queries import time_node_by_period, node_type
+    from ..queries import time_node_by_period, node_type, node_props
     gaps = {}
     for n in Node.query(con, priority="A", status="DOING"):
         # A recurring item is NOT "claimed in flight": `wl tick` never moves the status, so a habit
         # sits at DOING forever. Its "am I keeping up" signal is the check-in, not a bound session —
         # it would otherwise be flagged as unattended every single day.
         if node_type(con, n.id) == "habit" or _has_active_rrule(con, n.id, _tu.today()):
+            continue
+        # Nor is a CONTAINER (a project / area): it stays DOING for as long as anything under it is
+        # live, and it's pushed through its children — a session binds to a task, not to the bucket
+        # the task sits in. Flagging it would fire every day for months.
+        if node_props(con, n.id).get(_nt.K_PARA) in ("project", "area"):
             continue
         gaps[n.id] = "DOING"
     day = time_node_by_period(con, "day", _tu.today())
@@ -2130,7 +2148,10 @@ def _agent_gaps(args, con):
         if n:
             rows.append({"id": nid, "title": n.title, "priority": n.priority,
                          "status": n.status or "TODO", "reason": reason})
-    rows.sort(key=lambda r: (r["reason"] != "P0", r["id"]))    # P0 first, then today's goal targets
+    # priority first (the DOING P0s are the headline), then id — the Python twin of the project's
+    # `_ORDER_BY_PRI_ID` (priority ASC, NULLS LAST, id). NOT sorted by reason: a low-priority goal
+    # target must not outrank an in-flight P0 just because its node id happens to be smaller.
+    rows.sort(key=lambda r: (r["priority"] is None, r["priority"] or "", r["id"]))
 
     def _render():
         if not rows:

@@ -276,3 +276,18 @@ class TestRecurringGoalTargets:
         dd = json.loads(cli("day", "-o", "json")[1])
         assert dd["goal_progress"] == {"done": 1, "total": 1}
         assert dd["goal_targets"][0]["status"] == "TODO" and dd["goal_targets"][0]["done"] is True
+
+    def test_stopping_a_recurrence_does_not_unsettle_a_past_checkin(self, cli):
+        # `wl sched stop` writes `;until=<today>`. Recurrence-liveness is judged at the period's
+        # START, so retiring a finished drive must NOT retroactively erase an achievement the
+        # period already recorded — the past is a fact, it can't change when the future does.
+        cli("add", "standup drive")                          # #1
+        cli("sched", "1", "--recur", "daily")
+        cli("tick", "1")
+        month = date.today().strftime("%Y-%m")
+        cli("add", month, "--prop", "type.date=month")       # #2, the month time node
+        cli("goal", "set", "2", "keep the drive going")
+        cli("goal", "set", "2", "--ids", "1")
+        assert "[x] #1" in cli("goal", "ls", "2")[1]         # settled by the check-in
+        cli("sched", "stop", "1")                            # drive retired today
+        assert "[x] #1" in cli("goal", "ls", "2")[1]         # still settled — the tick happened

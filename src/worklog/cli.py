@@ -1142,7 +1142,7 @@ More: `wl help agent`.""")
                        help=f"days without a log before a binding counts as 💤 stale (default {AGENT_STALE_DAYS})")
     _aggaps = _agsub.add_parser("gaps", parents=[output_parent],
         help="the reverse view: important work (a P0, or a target of today's goal) with NO session bound",
-        description="List the work that should have a session pushing it but doesn't — every unsettled P0 plus every still-open target of today's goal, minus everything already bound. `wl agent ls` only shows what IS bound, so it can never surface a task nobody is on; this is the risk list.")
+        description="List the work that should have a session pushing it but doesn't — every DOING P0 (declared in flight, nothing on it) plus every still-open target of today's goal, minus everything already bound. Recurring items and containers (project/area) are excluded: a habit never leaves DOING and is kept up by check-ins, and a project is pushed through its children. A merely-open P0 is NOT a gap — priority is a standing ranking, not a claim of being in flight. `wl agent ls` only shows what IS bound, so it can never surface a task nobody is on; this is the risk list.")
     _aggaps.epilog = """\
 Common examples:
   wl agent gaps           # what important thing has nobody on it?

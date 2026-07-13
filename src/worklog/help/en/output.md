@@ -28,7 +28,9 @@ Common uses:
   wl relation 42 -o json             # {block:[…],split:[…],related:[…],blocked_by:[…],split_from:[…]}
   wl log show 282 -o json            # {id,node_id,tag,body,logged_at}
   wl clock ls 42 -o json             # [{id,start_at,end_at,elapsed_sec}]
-  wl agent ls -o json                # [{id,agent,sid,title,act,bound}]
+  wl agent ls -o json                # [{id,agent,sid,title,act,bound,stale}] (act = last real
+                                     #   work on the node; the bind itself doesn't count)
+  wl agent gaps -o json              # [{id,title,priority,status,reason}] reason: DOING|goal
   wl date ls -o json                 # [{date,label}]
   wl sched ls -o json                # [{node_id,title,scheduled_date,recur}]
   wl changes --month 2026-06 -o json # per-project change lists

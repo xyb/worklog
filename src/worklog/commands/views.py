@@ -233,14 +233,33 @@ def _goal_period(con, node_id):
         return (None, None)
 
 
+def _is_recurring_on(con, nid, on_date):
+    """Is this node a recurring item as of `on_date` — a habit, or a recurrence still live that day?
+    THE single test for "does the check-in channel apply to this node", shared by `wl day`'s task
+    bucket and the goal-target verdict, so the two can never disagree about what counts as done."""
+    return node_type(con, nid) == "habit" or _has_active_rrule(con, nid, on_date)
+
+
+def _recurring_done(con, nid, day):
+    """Did this recurring item get done on `day`? A check-in that day, for a node that is recurring
+    THAT day. The single source for `wl day`'s `[x]` on a habit / recurring task — a one-off tick
+    (no recurrence) never renders done, nor does a recurrence already stopped before `day`."""
+    return _is_recurring_on(con, nid, day) and _has_checkin(con, nid, day)
+
+
 def _target_settled(con, nid, status, start, end):
     """Is one goal target disposed of, for a goal covering `[start, end]`?
 
     A one-off task settles via its status (DONE / CANCELED). A RECURRING one never can — `wl done`
     would retire the whole recurrence, so `wl tick` leaves the status at TODO and records a
     check-in instead. So for a habit / an active recurrence, the check-ins ARE the record: settled
-    = checked in inside the goal's period. Same signal `wl day` already renders as `[x]`, so the
-    goal header and the task bucket can't disagree.
+    = checked in inside the goal's period. Same signal `wl day` already renders as `[x]`
+    (`_recurring_done`), so the goal header and the task bucket can't disagree.
+
+    Recurrence-liveness is tested at the period's START, not its end: `wl sched stop` writes
+    `;until=<today>`, so testing at the end would make retiring a finished drive retroactively
+    un-settle a target you already checked in for — the period's achievement is a fact about the
+    past and must not change when the future does.
 
     Deliberately coarse: ONE check-in anywhere in the period settles it, so a *daily* habit set as
     a *week* goal reads done after a single day. Count fired-vs-checked-in occurrences (as
@@ -249,7 +268,7 @@ def _target_settled(con, nid, status, start, end):
         return True
     if not start:                       # goal on a non-time node — status is all we have
         return False
-    if not (node_type(con, nid) == "habit" or _has_active_rrule(con, nid, end)):
+    if not _is_recurring_on(con, nid, start):
         return False
     return _has_checkin_between(con, nid, start, end)
 
@@ -820,10 +839,7 @@ def _print_day_activity(con, day_node, depth, max_depth, *, include_canceled=Fal
     for nid, t in tasks.items():
         n = t["r"]
         is_habit = node_type(con, nid) == "habit"
-        # done today = a check-in metric that day (not "any log"), for a habit or a recurrence
-        # ACTIVE on `target`. Gating on active-recurring means a one-off tick (no --done) never
-        # renders [x], and a recurrence stopped before this day doesn't either.
-        done = (is_habit or _has_active_rrule(con, nid, target)) and _has_checkin(con, nid, target)
+        done = _recurring_done(con, nid, target)
         mh = mh_plain = ""
         if is_habit:
             prog = _habit_month_progress(con, nid, target)
@@ -925,9 +941,7 @@ def _render_day_group(con, items, by="plan", sched_ids=frozenset(), log_tail=Non
                 n = it["node"]
                 logs = it["logs"]
                 nk_habit = node_type(con, nid) == "habit"
-                # done today = a check-in metric that day, for a habit or a recurrence active that
-                # day; a one-off tick or a since-stopped recurrence never renders [x].
-                done = bool(day) and (nk_habit or _has_active_rrule(con, nid, day)) and _has_checkin(con, nid, day)
+                done = bool(day) and _recurring_done(con, nid, day)
                 hint = hint_plain = ""
                 if not logs and n["status"] not in TERMINAL_STATUSES and by != "plan":
                     # only "not-done" if the task is still open; a terminal-status task
