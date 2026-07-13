@@ -30,6 +30,10 @@ nudges you to link some — `wl goal set <node> --ids <id…>` — so every goal
 
 **Achievement tracking**: if the goal text names task ids (`#12`, or `WL#12`), `wl day` resolves
 them and appends ` [done/total]` with a status emoji — `✅` all done, `🟡` partial, `⬜` none.
+A one-off target counts as done once it's DONE or CANCELED. A **recurring** target never gets
+there (`wl done` would retire the whole recurrence), so it counts as done when it has a check-in
+inside the goal's period — `wl tick 42` on the day of a day goal, anywhere in the week of a week
+goal. Same signal that already marks it `[x]` in the day's task list.
 
 The morning counterpart to `wl recap` (evening). `wl day` shows the day's goal + recap, plus the
 week's and month's goal, each header line with its own marker (🎯 goal · 📝 recap · 📅 this week ·

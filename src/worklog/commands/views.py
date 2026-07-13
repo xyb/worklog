@@ -11,6 +11,7 @@ from pathlib import Path
 from .. import render
 from .. import timeutil as _tu
 from .. import db_table as _db
+from .. import node_types as _nt
 from ..models import DateMeta, Node
 from ..node_schema import node_view as _node_view, type_facet as _type_facet, CORE as _CORE
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
@@ -49,6 +50,7 @@ from ..queries import (
     make_node_filter,
     nodes_with_tag,
     _has_checkin,
+    _has_checkin_between,
     _latest_typed_log,
     _log_goals,
     _insert_log,
@@ -217,26 +219,66 @@ def _header_blockquote(body, marker, indent="  "):
     return "\n".join(lines)
 
 
+def _goal_period(con, node_id):
+    """The calendar span (start, end) of the node a goal hangs on — its time level + period
+    (`wl goal` is normally set on a day / week / month node). (None, None) for a non-time node
+    (or `lifetime`), which has no period to judge a recurring target against."""
+    props = node_props(con, node_id)
+    level, period = props.get(_nt.K_DATE), props.get(_nt.K_PERIOD)
+    if not level or not period:
+        return (None, None)
+    try:
+        return _nt.span_of(level, period)
+    except ValueError:
+        return (None, None)
+
+
+def _target_settled(con, nid, status, start, end):
+    """Is one goal target disposed of, for a goal covering `[start, end]`?
+
+    A one-off task settles via its status (DONE / CANCELED). A RECURRING one never can — `wl done`
+    would retire the whole recurrence, so `wl tick` leaves the status at TODO and records a
+    check-in instead. So for a habit / an active recurrence, the check-ins ARE the record: settled
+    = checked in inside the goal's period. Same signal `wl day` already renders as `[x]`, so the
+    goal header and the task bucket can't disagree.
+
+    Deliberately coarse: ONE check-in anywhere in the period settles it, so a *daily* habit set as
+    a *week* goal reads done after a single day. Count fired-vs-checked-in occurrences (as
+    `_habit_month_progress` does) if that ever matters — for a day goal the two rules coincide."""
+    if (status or "TODO") in TERMINAL_STATUSES:
+        return True
+    if not start:                       # goal on a non-time node — status is all we have
+        return False
+    if not (node_type(con, nid) == "habit" or _has_active_rrule(con, nid, end)):
+        return False
+    return _has_checkin_between(con, nid, start, end)
+
+
 def _goal_target_rows(con, node_id):
-    """The resolved structured target nodes of a node's current goal — [{id,title,status}] in
+    """The resolved structured target nodes of a node's current goal — [{id,title,status,done}] in
     priority order (the `goal` metrics on its latest goal log). [] if the goal has no targets.
-    The single source for showing a goal's targets across `wl day` / `wl goal` / `-o json`."""
+    `done` is the settled verdict (see `_target_settled`) — NOT just a terminal status, since a
+    recurring target settles by check-in. The single source for showing a goal's targets across
+    `wl day` / `wl goal` / `-o json`."""
+    start, end = _goal_period(con, node_id)
     rows = []
     for n in Node.gets(con, _log_goals(con, node_id)):
         if n:
-            rows.append({"id": n["id"], "title": n["title"], "status": n["status"] or "TODO"})
+            status = n["status"] or "TODO"
+            rows.append({"id": n["id"], "title": n["title"], "status": status,
+                         "done": _target_settled(con, n["id"], status, start, end)})
     return rows
 
 
 def _goal_counts(con, node_id, body, rows=None):
     """(done, total) for a goal's targets — the structured `goal` metrics if present, else the
-    `#id`/`WL#id` refs named in the prose (legacy fallback). done = settled (DONE/CANCELED).
+    `#id`/`WL#id` refs named in the prose (legacy fallback). done = settled (`_target_settled`).
     `rows`: pre-fetched `_goal_target_rows` to reuse (avoids a second lookup on shared paths)."""
     rows = _goal_target_rows(con, node_id) if rows is None else rows
     if rows:
-        done = sum(1 for r in rows if r["status"] in TERMINAL_STATUSES)
-        return done, len(rows)
+        return sum(1 for r in rows if r["done"]), len(rows)
     import re
+    start, end = _goal_period(con, node_id)
     seen, total, done = set(), 0, 0
     for m in re.findall(r"(?:WL)?#(\d+)", body or ""):
         nid = int(m)
@@ -247,7 +289,7 @@ def _goal_counts(con, node_id, body, rows=None):
         if not n:
             continue
         total += 1
-        if (n["status"] or "TODO") in TERMINAL_STATUSES:
+        if _target_settled(con, nid, n["status"], start, end):
             done += 1
     return done, total
 
@@ -270,12 +312,13 @@ def _emit_goal_targets(con, node_id, indent="     ", rows=None):
     `rows`: pre-fetched `_goal_target_rows` to reuse."""
     rows = _goal_target_rows(con, node_id) if rows is None else rows
     for n, r in enumerate(rows, 1):
-        mk_plain = _status_marker(r["status"])
+        # a settled recurring target keeps its TODO status but reads as [x] — same as `wl day`
+        mk_plain = "[x]" if r["done"] and r["status"] not in TERMINAL_STATUSES else _status_marker(r["status"])
         # budget the title against the ACTUAL plain prefix width (indent + "N. " + marker + #id),
         # so the truncated line fits the terminal on ONE line (no soft-wrap to a flush-left tail)
         prefix_plain = f"{indent}{n}. {mk_plain} #{r['id']} "
         title = _truncate_log_body(r["title"], indent_cols=_display_width(prefix_plain), full=False)
-        mk = _c(mk_plain, _STATUS_STYLE.get(r["status"], "todo"))
+        mk = _c(mk_plain, "done" if mk_plain == "[x]" else _STATUS_STYLE.get(r["status"], "todo"))
         out(f"{indent}{n}. " + mk + " " + _c(f"#{r['id']}", "id") + " " + title)
 
 

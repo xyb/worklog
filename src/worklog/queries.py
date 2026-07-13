@@ -247,14 +247,21 @@ def _log_goals(con, node_id):
     return [int(r.value_num) for r in Metric.query(con, log_id=row.id, tag=_GOAL_METRIC, order="id") if r.value_num is not None]
 
 
+def _has_checkin_between(con, node_id, start, end):
+    """True if the node has a check-in metric on any day in ``[start, end]`` (YYYY-MM-DD,
+    inclusive). The period-level 'done' signal — a day is just the start == end case."""
+    return con.execute(
+        f"SELECT 1 FROM metric WHERE node_id = ? AND tag = 'checkin' AND {_db.ALIVE} "
+        f"AND {_tu.local_day_sql('at')} BETWEEN ? AND ? LIMIT 1",
+        (node_id, start, end),
+    ).fetchone() is not None
+
+
 def _has_checkin(con, node_id, day):
     """True if the node has a check-in metric on the given day (YYYY-MM-DD).
     This is the structured 'done today' signal (G1) — replaces the old, too-loose
     'did any log exist that day' heuristic, so a stray note no longer counts as done."""
-    return con.execute(
-        f"SELECT 1 FROM metric WHERE node_id = ? AND tag = 'checkin' AND {_tu.local_day_sql('at')} = ? AND {_db.ALIVE} LIMIT 1",
-        (node_id, day),
-    ).fetchone() is not None
+    return _has_checkin_between(con, node_id, day, day)
 
 def _last_checkin(con, node_id):
     """The most recent check-in date (YYYY-MM-DD local) for a node, or None if never checked in.

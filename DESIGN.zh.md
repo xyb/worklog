@@ -442,7 +442,7 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
 
 2026-05-29 拍板（vault §八 4/5）：
 
-- **wl day 顶部的 goal / summary**（2026-05-29 起为 prop，后演进，**以下为现状**）：`goal`（前瞻，任意层级）和 `summary`（日终）是节点上保留 tag 的 **log**（历史保留，非 prop）——day 写 goal/summary，week/month 写 goal（同一个 `goal` tag，靠 node type 区分层级；旧的 `overview`/`top5` 已并入 goal）。`wl goal`/`wl recap`/`wl goal set <node>` 写，goal 可带结构化目标 node id（`goal` metric，顺序=优先级）。`wl day` 顶部按 `> 🎯 / > 📝 Recap / > 📅 This week / > ⭐ This month` blockquote 渲染 + 编号带状态的目标列表 + `[done/total]`。
+- **wl day 顶部的 goal / summary**（2026-05-29 起为 prop，后演进，**以下为现状**）：`goal`（前瞻，任意层级）和 `summary`（日终）是节点上保留 tag 的 **log**（历史保留，非 prop）——day 写 goal/summary，week/month 写 goal（同一个 `goal` tag，靠 node type 区分层级；旧的 `overview`/`top5` 已并入 goal）。`wl goal`/`wl recap`/`wl goal set <node>` 写，goal 可带结构化目标 node id（`goal` metric，顺序=优先级）。`wl day` 顶部按 `> 🎯 / > 📝 Recap / > 📅 This week / > ⭐ This month` blockquote 渲染 + 编号带状态的目标列表 + `[done/total]`。**目标算不算完成（`_target_settled`）：看 status 或看 checkin**——一次性任务是 DONE/CANCELED 终态；循环目标（habit，或在该 goal 周期内生效的 rrule）永远到不了终态（`wl done` 会退役整条循环，所以 `wl tick` 只记 checkin、status 留在 TODO），改判它在 goal 所在节点的日历跨度（`_goal_period` → `span_of(level, period)`：day goal 就是当天，week goal 就是那个 ISO 周）内有没有 checkin，有就渲染 `[x]`。这和 `wl day` 任务桶里判 `[x]` 用的是同一个信号，两处不会打架。goal 挂在非时间节点上时没有跨度，只能读 status。
 - **日期上下文 → 专门 `date_meta` 表**：`(date PRIMARY KEY, label)`。`label` = 节日/休假/调休/节气（劳动节假期 / 调休上班 / 小满 / 年假 …）。**不依赖 day 节点**，可全年预导入假期表 + 自定义。
   - **周X 自动算**（`_cn_weekday`，不存储），`date_meta` 只存非自动信息。
   - `wl day` 头部 = `<date> <周X>[ · <label>]`（`_date_label` 查表）。day 节点标题统一存**纯日期** `YYYY-MM-DD`（周X/节日不进标题，避免与自动算/查表重复）。

@@ -208,3 +208,71 @@ class TestGoalSetTargets:
         cli("add", "d", "--prop", "type.date=day")           # #1
         code, _, err = cli("goal", "set", "1", "some text", "--ids", "1")
         assert code != 0 and "not both" in err
+
+
+class TestRecurringGoalTargets:
+    """A recurring target settles by CHECK-IN, not status: `wl tick` leaves the status at TODO
+    (`wl done` would retire the whole recurrence), so reading status alone left every recurring
+    target stuck at [ ] forever. The goal period bounds which check-ins count."""
+
+    def test_ticked_recurring_target_counts_as_done(self, cli, tmp_db):
+        cli("add", "weekly plan")                            # #1
+        cli("sched", "1", "--recur", "daily")
+        cli("goal", "run the weekly plan", "1")
+        cli("tick", "1")                                     # check-in, status stays TODO
+        con = tmp_db.db_connect()
+        assert con.execute("SELECT status FROM node WHERE id=1").fetchone()["status"] == "TODO"
+        _, g, _ = cli("goal")
+        assert "[1/1] ✅" in g and "[x] " in g
+        _, d, _ = cli("day")
+        assert "1. [x] #1" in d
+
+    def test_unticked_recurring_target_stays_open(self, cli):
+        cli("add", "weekly plan")                            # #1
+        cli("sched", "1", "--recur", "daily")
+        cli("goal", "run the weekly plan", "1")
+        _, g, _ = cli("goal")
+        assert "[0/1] ⬜" in g and "1. [ ] #1" in g
+
+    def test_checkin_outside_the_goal_period_does_not_count(self, cli):
+        # a check-in on another day is not today's delivery
+        cli("add", "weekly plan")                            # #1
+        cli("sched", "1", "--recur", "daily")
+        cli("goal", "run the weekly plan", "1")
+        cli("metric", "add", "1", "checkin", "--at", "-7d")  # last week's check-in
+        _, g, _ = cli("goal")
+        assert "[0/1] ⬜" in g
+
+    def test_week_goal_counts_a_checkin_anywhere_in_the_week(self, cli):
+        cli("add", "weekly plan")                            # #1
+        cli("sched", "1", "--recur", "weekly:Mon")
+        cli("tick", "1")
+        week = date.today().strftime("%G-W%V")
+        cli("add", week, "--prop", "type.date=week")         # #2, the week time node
+        cli("goal", "set", "2", "keep the weekly plan going")
+        cli("goal", "set", "2", "--ids", "1")
+        _, g, _ = cli("goal", "ls", "2")
+        assert "[x] #1" in g                                 # the Mon tick settles the week goal
+
+    def test_one_off_target_still_reads_status(self, cli):
+        # a plain task has no recurrence: a check-in must NOT settle it — only DONE/CANCELED do
+        cli("add", "a")          # #1
+        cli("add", "b")          # #2
+        cli("goal", "ship A and B", "1", "2")
+        cli("tick", "1")                                     # log + check-in, but still TODO
+        _, g, _ = cli("goal")
+        assert "[0/2] ⬜" in g
+        cli("done", "1")
+        cli("cancel", "2")
+        _, g, _ = cli("goal")
+        assert "[2/2] ✅" in g
+
+    def test_recurring_target_done_in_json(self, cli):
+        import json
+        cli("add", "weekly plan")                            # #1
+        cli("sched", "1", "--recur", "daily")
+        cli("goal", "run it", "1")
+        cli("tick", "1")
+        dd = json.loads(cli("day", "-o", "json")[1])
+        assert dd["goal_progress"] == {"done": 1, "total": 1}
+        assert dd["goal_targets"][0]["status"] == "TODO" and dd["goal_targets"][0]["done"] is True
