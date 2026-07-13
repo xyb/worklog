@@ -12,7 +12,25 @@ prop on the node — no new table.
   wl agent 42 --agent codex # record a non-default runtime (else $WL_AGENT, else auto-detect)
   wl agent                 # show what this session is bound to
   wl agent ls              # list all session→task bindings
+  wl agent gaps            # important work that has NO session on it
   wl agent rm              # unbind this session
+
+## Is everything important actually being pushed?
+
+Two views, forward and reverse. `wl agent ls` answers "what is being worked, and is it moving?"
+Each row carries how long ago the node was last logged on (`52m` / `3d`), and a 💤 once that
+passes `--stale-days` (default 3) — the session is bound but the work has stopped. The bind
+itself doesn't count as activity, so a freshly-bound node that nobody has touched still reads
+stale. `--no-activity` drops the column.
+
+`wl agent gaps` is the reverse and the one that catches the thing you'd miss: work that *should*
+have a session on it but doesn't. Two sources — a still-open target of **today's goal** (what you
+said you'd deliver today), and a **DOING P0** (you declared you're on it; nothing is). Recurring
+items are excluded from the DOING side: a habit never leaves DOING (`wl tick` doesn't move the
+status), and it's kept up by checking in, not by a session.
+
+Standing open P0s are deliberately NOT gaps. Priority is a ranking, not a claim that a thing is
+in flight — counting them makes the list fire every day, which is the same as never firing.
 
 ## Supported runtimes (the AgentRuntime registry)
 

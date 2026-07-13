@@ -1817,6 +1817,7 @@ def cmd_prop(args, con):
 _AGENT_PREFIX = "agent_session."            # cross-app prefix: prop key is agent_session.<agent>
 _SESSION_METRIC_TAG = "agent_session"        # bind-history metric: the session id (value_text = sid); tag string mirrors the prop namespace
 _AGENT_LS_CAP = 12                            # `wl agent ls` shows the N most-recently-active bindings by default; --all (or plain/piped) shows every one
+AGENT_STALE_DAYS = 3                          # `wl agent ls`: days with no log on the node before the binding reads 💤 stale (--stale-days overrides)
 _AGENT_METRIC_TAG = "agent"                  # bind-history metric: the runtime name (value_text = prop-key suffix, e.g. claude)
 _AGENT_RUNTIMES = AGENT_RUNTIMES             # compatibility alias used by tests/tools
 
@@ -1915,20 +1916,53 @@ def _short(s, n=50):
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def _agent_ls_row(it, idw, agw, sidlen, plain, indent=""):
+_STALE = "💤"          # only the ANOMALY gets a marker; a healthy row wears no badge
+
+
+def _age_short(ts):
+    """Compact "how long ago" for a UTC stamp: 40m / 5h / 12d. Coarse on purpose — the exact minute
+    of the last log is noise here; the order of magnitude is the whole signal."""
+    if not ts:
+        return "—"
+    try:
+        then = datetime.strptime(ts[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return "—"
+    mins = max(0, int((datetime.strptime(_tu.utc_now()[:19], "%Y-%m-%d %H:%M:%S") - then).total_seconds() // 60))
+    if mins < 60:
+        return f"{mins}m"
+    if mins < 60 * 24:
+        return f"{mins // 60}h"
+    return f"{mins // (60 * 24)}d"
+
+
+def _stale_marker(it, show):
+    """The trailing activity column for one `wl agent ls` row: how long since the node was last
+    logged on (`12d`), plus 💤 when that exceeds `--stale-days` — the session is bound but the work
+    isn't moving. "" when off. Derived at render time; a *time-varying* signal must never become a
+    stored tag, or it's wrong the moment the clock ticks."""
+    if not show:
+        return ""
+    return f"  {_age_short(it['act'])}" + (f" {_STALE}" if it["stale"] else "")
+
+
+def _agent_ls_row(it, idw, agw, sidlen, plain, indent="", activity=True):
     """Format one `wl agent ls` row. plain → full sid + full title (no truncation); else the full
     sid when it fits (shrunk to `sidlen` with … when tight) + title truncated to one line. `indent`
     prefixes the row (e.g. under a day-group header) and is counted in the title's width budget."""
     idstr = f"#{it['id']}".ljust(idw)
     ag = (it["agent"] + ":").ljust(agw + 1)
+    mark = _stale_marker(it, activity)
     if plain:
-        return f"{indent}{idstr} ← {ag}{it['sid']} · {it['title']}"
+        return f"{indent}{idstr} ← {ag}{it['sid']} · {it['title']}{mark}"
     sid = it["sid"]
     sid_show = sid if len(sid) <= sidlen else sid[: sidlen - 1] + "…"
     seg = f"{ag}{sid_show}"
     prefix_plain = f"{indent}{idstr} ← {seg} · "
-    title = _truncate_log_body(it["title"], indent_cols=_display_width(prefix_plain), full=False)
-    return indent + _c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + title
+    # the marker rides at the end of the title line, so it eats into the title's width budget
+    title = _truncate_log_body(it["title"], indent_cols=_display_width(prefix_plain) + _display_width(mark),
+                               full=False)
+    return indent + _c(idstr, "id") + " ← " + _c(seg, "meta") + " · " + title + _c(mark, "meta")
 
 def _current_session_id():
     """Session id of the running agent shell. Prefer $WL_SESSION_ID (a session-start hook can
@@ -1972,8 +2006,21 @@ def _agent_set(args, con):
     out(line)
     return
 
+def _is_stale(act, stale_days):
+    """Has this node gone quiet? True when its latest log/update (`act`, a UTC stamp) is older than
+    `stale_days` days. The bound session may well still be open — what this measures is whether the
+    WORK moved, which is the thing worth knowing."""
+    if not act:
+        return True
+    cutoff = _tu.utc_now()[:10]
+    from datetime import date, timedelta
+    cutoff = (date.fromisoformat(cutoff) - timedelta(days=stale_days)).isoformat()
+    return _tu.utc_to_local(act)[:10] < cutoff
+
+
 @output_format
 def _agent_ls(args, con):
+    stale_days = getattr(args, "stale_days", AGENT_STALE_DAYS)
     rows = _db.query(con, "prop", cols="node_id, key, value", key__like=_AGENT_PREFIX + "%")
     if not rows:
         return TextRenderable([], lambda: out(_c("(no session bindings)", "meta")))
@@ -1984,7 +2031,13 @@ def _agent_ls(args, con):
         nid, sid = r["node_id"], r["value"]
         node = Node.get(con, nid)
         title = node.title if node else "(deleted)"
-        last = _db.query_one(con, "log", cols="MAX(logged_at) AS m", node_id=nid)
+        # latest REAL work on the node. The bind itself writes a history log, so counting every log
+        # would make a freshly-bound node look active forever — exactly the thing this view exists
+        # to disprove. Exclude the bind-history carriers; a check-in / metric log still counts.
+        last = con.execute(
+            "SELECT MAX(l.logged_at) AS m FROM log l WHERE l.node_id = ? AND NOT EXISTS("
+            "  SELECT 1 FROM metric mt WHERE mt.log_id = l.id AND mt.tag = ?"
+            f") AND l.{_db.ALIVE}", (nid, _SESSION_METRIC_TAG)).fetchone()
         act = (last["m"] if last else None) or (node.created_at if node else "") or ""
         bl = con.execute(
             "SELECT MAX(l.logged_at) AS m FROM log l JOIN metric mt ON mt.log_id = l.id "
@@ -1992,7 +2045,8 @@ def _agent_ls(args, con):
             (nid, _SESSION_METRIC_TAG, sid)).fetchone()
         bound = (bl["m"] if bl else None) or ""
         items.append({"id": nid, "agent": r["key"][len(_AGENT_PREFIX):],
-                      "sid": sid, "title": title, "act": act, "bound": bound})
+                      "sid": sid, "title": title, "act": act, "bound": bound,
+                      "stale": _is_stale(act, stale_days)})
     by = getattr(args, "by", "active")
     keyf = (lambda it: it["bound"] or it["act"]) if by == "bound" else (lambda it: it["act"])
     items.sort(key=keyf, reverse=True)                 # most-recent (by chosen axis) first
@@ -2010,6 +2064,7 @@ def _agent_ls(args, con):
     if idw + 3 + (agw + 1) + 3 + sidlen + MIN_TITLE > W:
         sidlen = max(8, W - (idw + 3 + (agw + 1) + 3) - MIN_TITLE)
     group = getattr(args, "group", False)
+    activity = getattr(args, "activity", True)
 
     def _render():
         if group:
@@ -2023,14 +2078,71 @@ def _agent_ls(args, con):
                     cur = day
                     lbl = day + (" (today)" if day == today else " (yesterday)" if day == yday else "")
                     out(_c(lbl, "planned"))
-                out(_agent_ls_row(it, idw, agw, sidlen, plain, indent="  "))
+                out(_agent_ls_row(it, idw, agw, sidlen, plain, indent="  ", activity=activity))
         else:
             for it in shown:
-                out(_agent_ls_row(it, idw, agw, sidlen, plain))
+                out(_agent_ls_row(it, idw, agw, sidlen, plain, activity=activity))
         if hidden > 0:
             out(_c(f"  … +{hidden} older — wl agent ls --all", "meta"))
 
     return TextRenderable(items, _render)
+
+def _gap_candidates(con):
+    """The work that OUGHT to have a session pushing it, as {nid: reason}:
+
+      * `goal` — a still-open target of today's goal: what you said you'd deliver TODAY. Settled
+        ones drop out (`_target_settled`), so a recurring target already ticked today isn't flagged.
+      * `DOING` — a P0 you've declared you're actively working. Claiming to be on it while nothing
+        is pushing it is the real risk signal.
+
+    Deliberately NOT "every open P0": priority is a standing ranking, not a statement that a thing
+    is in flight today. That reading sweeps in nearly every open P0 — including calendar-only nodes
+    (a weekly sync) that will never have a session — and an alert that always fires is no alert."""
+    from .views import _goal_target_rows, _has_active_rrule
+    from ..queries import time_node_by_period, node_type
+    gaps = {}
+    for n in Node.query(con, priority="A", status="DOING"):
+        # A recurring item is NOT "claimed in flight": `wl tick` never moves the status, so a habit
+        # sits at DOING forever. Its "am I keeping up" signal is the check-in, not a bound session —
+        # it would otherwise be flagged as unattended every single day.
+        if node_type(con, n.id) == "habit" or _has_active_rrule(con, n.id, _tu.today()):
+            continue
+        gaps[n.id] = "DOING"
+    day = time_node_by_period(con, "day", _tu.today())
+    if day:
+        for r in _goal_target_rows(con, day["id"]):
+            if not r["done"]:
+                gaps[r["id"]] = "goal"     # today's delivery wins the label when a node is both
+    return gaps
+
+
+@output_format
+def _agent_gaps(args, con):
+    """`wl agent gaps` — the reverse of `wl agent ls`: important work with NO session bound to it.
+    The risk list ("is everything that matters actually being pushed?"), which the forward listing
+    can't answer: it only ever shows what IS bound."""
+    bound = {r["node_id"] for r in _db.query(con, "prop", cols="node_id", key__like=_AGENT_PREFIX + "%")}
+    rows = []
+    for nid, reason in _gap_candidates(con).items():
+        if nid in bound:
+            continue
+        n = Node.get(con, nid)
+        if n:
+            rows.append({"id": nid, "title": n.title, "priority": n.priority,
+                         "status": n.status or "TODO", "reason": reason})
+    rows.sort(key=lambda r: (r["reason"] != "P0", r["id"]))    # P0 first, then today's goal targets
+
+    def _render():
+        if not rows:
+            out(_c("✓ no gaps — every P0 / today's goal target has a session on it", "done"))
+            return
+        out(_c(f"⚠ important but no session pushing it ({len(rows)}):", "later"))
+        for r in rows:
+            n = Node.get(con, r["id"])
+            out(_node_line(con, n, indent="  ") + _c(f"  ({r['reason']})", "meta"))
+
+    return TextRenderable(rows, _render)
+
 
 def _agent_rm(args, con):
     sid = _agent_need_sid()
@@ -2091,7 +2203,8 @@ def cmd_agent(args, con):
     wl agent <id> = set · wl agent = show current · wl agent ls = list all · wl agent rm = unbind."""
     # set/ls/rm/context dispatch like every other entity group; bare `wl agent` → show
     return dispatch_group(args, con, "agent_sub",
-        {"set": _agent_set, "ls": _agent_ls, "rm": _agent_rm, "context": _agent_context},
+        {"set": _agent_set, "ls": _agent_ls, "gaps": _agent_gaps, "rm": _agent_rm,
+         "context": _agent_context},
         default=_agent_show)
 
 # --- clock entity group: ls / edit / rm (create = start/stop/spent) ---

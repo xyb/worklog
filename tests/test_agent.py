@@ -366,6 +366,7 @@ class TestAgent:
         cli("add", "a"); cli("add", "b")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s1"); cli("agent", "1")
         monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "s2"); cli("agent", "2")
+        cli("log", "1", "work on a"); cli("log", "2", "work on b")   # real work — a bind alone isn't activity
         con = tmp_db.db_connect()   # backdate ALL of each node's logs to control latest-activity
         con.execute("UPDATE log SET logged_at='2026-06-05 10:00:00' WHERE node_id=1")
         con.execute("UPDATE log SET logged_at='2026-06-10 10:00:00' WHERE node_id=2")
@@ -431,3 +432,141 @@ class TestAgentLsEmpty:
     def test_agent_ls_no_bindings(self, cli):
         _, out, _ = cli("agent", "ls")
         assert "no session bindings" in out
+
+
+class TestAgentActivity:
+    """`wl agent ls` derives an activity column from the node's latest log — how long ago it was
+    worked (12d), plus 💤 when that exceeds --stale-days. Derived at read time, never stored."""
+
+    def _sess(self, monkeypatch, sid="sess-act"):
+        monkeypatch.setenv("WL_SESSION_ID", sid)
+        monkeypatch.setenv("WL_AGENT", "claude")
+
+    def test_fresh_binding_shows_age_and_no_badge(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "a")
+        cli("agent", "1")
+        cli("log", "1", "working on it")
+        _, out, _ = cli("agent", "ls")
+        assert "0m" in out and "💤" not in out      # just worked → age, no anomaly badge
+
+    def test_stale_binding_gets_the_badge(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "a")
+        cli("agent", "1")
+        cli("log", "1", "old work", "-d", "-10d")
+        _, out, _ = cli("agent", "ls")
+        assert "💤" in out and "10d" in out
+
+    def test_stale_days_threshold_is_tunable(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "a")
+        cli("agent", "1")
+        cli("log", "1", "two days ago", "-d", "-2d")
+        assert "💤" not in cli("agent", "ls")[1]                      # default 3d → not yet stale
+        assert "💤" in cli("agent", "ls", "--stale-days", "1")[1]     # 1d → stale
+
+    def test_no_activity_flag_hides_the_column(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "a")
+        cli("agent", "1")
+        cli("log", "1", "old", "-d", "-10d")
+        _, out, _ = cli("agent", "ls", "--no-activity")
+        assert "💤" not in out and "10d" not in out and "#1" in out
+
+    def test_activity_in_json(self, cli, monkeypatch):
+        import json
+        self._sess(monkeypatch)
+        cli("add", "a")
+        cli("agent", "1")
+        cli("log", "1", "fresh")
+        rows = json.loads(cli("agent", "ls", "-o", "json")[1])
+        assert rows[0]["stale"] is False
+
+
+class TestAgentGaps:
+    """`wl agent gaps` — the reverse view: work that SHOULD have a session pushing it (a DOING P0,
+    or a still-open target of today's goal) but has no binding. The risk list."""
+
+    def _sess(self, monkeypatch, sid="sess-gap"):
+        monkeypatch.setenv("WL_SESSION_ID", sid)
+        monkeypatch.setenv("WL_AGENT", "claude")
+
+    def test_unbound_doing_p0_is_a_gap(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "big thing", "-p", "A")
+        cli("start", "1")                        # DOING = "I'm on this" — but nothing is
+        _, out, _ = cli("agent", "gaps")
+        assert "#1" in out and "big thing" in out
+
+    def test_bound_doing_p0_is_not_a_gap(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "big thing", "-p", "A")
+        cli("start", "1")
+        cli("agent", "1")
+        _, out, _ = cli("agent", "gaps")
+        assert "#1" not in out
+
+    def test_idle_p0_is_not_a_gap(self, cli, monkeypatch):
+        # a standing P0 you are NOT claiming to work on: a ranking, not work in flight.
+        # Counting these sweeps in nearly every open P0, i.e. an alert that always fires.
+        self._sess(monkeypatch)
+        cli("add", "big thing", "-p", "A")
+        _, out, _ = cli("agent", "gaps")
+        assert "#1" not in out
+
+    def test_done_p0_is_not_a_gap(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "big thing", "-p", "A")
+        cli("start", "1")
+        cli("done", "1")
+        _, out, _ = cli("agent", "gaps")
+        assert "#1" not in out
+
+    def test_recurring_doing_p0_is_not_a_gap(self, cli, monkeypatch):
+        # a habit sits at DOING forever (wl tick never moves the status) — it is kept up by
+        # checking in, not by a session, so it must not be flagged as unattended every day
+        self._sess(monkeypatch)
+        cli("add", "morning check", "-p", "A")
+        cli("sched", "1", "--recur", "daily")
+        cli("start", "1")
+        _, out, _ = cli("agent", "gaps")
+        assert "#1" not in out
+
+    def test_low_priority_doing_is_not_a_gap(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "small thing", "-p", "C")
+        cli("start", "1")
+        _, out, _ = cli("agent", "gaps")
+        assert "#1" not in out
+
+    def test_todays_goal_target_is_a_gap_even_at_low_priority(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "small but today", "-p", "C")
+        cli("goal", "ship it", "1")
+        _, out, _ = cli("agent", "gaps")
+        assert "#1" in out
+
+    def test_settled_goal_target_is_not_a_gap(self, cli, monkeypatch):
+        # a recurring target already ticked today needs no session — it's delivered
+        self._sess(monkeypatch)
+        cli("add", "daily habit")
+        cli("sched", "1", "--recur", "daily")
+        cli("goal", "keep it up", "1")
+        cli("tick", "1")
+        _, out, _ = cli("agent", "gaps")
+        assert "#1" not in out
+
+    def test_no_gaps_says_so(self, cli, monkeypatch):
+        self._sess(monkeypatch)
+        cli("add", "small thing", "-p", "C")
+        _, out, _ = cli("agent", "gaps")
+        assert "no gaps" in out.lower()
+
+    def test_gaps_json(self, cli, monkeypatch):
+        import json
+        self._sess(monkeypatch)
+        cli("add", "big thing", "-p", "A")
+        cli("start", "1")
+        rows = json.loads(cli("agent", "gaps", "-o", "json")[1])
+        assert [r["id"] for r in rows] == [1] and rows[0]["reason"] == "DOING"

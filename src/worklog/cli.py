@@ -1090,7 +1090,7 @@ More: `wl help prop`.""")
     _args_prop_rm(_prsub.add_parser("rm", parents=[output_parent], help="remove a prop (= wl unset)",
         description="Remove a UDA prop (soft-delete the row). Also: the top-level shortcut `wl unset`."))
 
-    ag = add_cmd(sub, "agent", cmd_agent, default_verb=("set", frozenset(("set", "ls", "rm", "context"))),
+    ag = add_cmd(sub, "agent", cmd_agent, default_verb=("set", frozenset(("set", "ls", "gaps", "rm", "context"))),
         parents=[output_parent],
         help="bind the current AI agent session to a task: wl agent <id> (set) / wl agent (show) / wl agent ls / wl agent rm",
         description="Bind the current AI agent session to a node so the agent knows which task it's on and the status line / hook context can surface it. Stored as an `agent_session.<agent>` prop on the node (agent = claude / cursor / codex / …, from $WL_AGENT or --agent, default claude) — no new table. `wl agent <id>` is the set shortcut (default verb).",
@@ -1134,6 +1134,19 @@ More: `wl help agent`.""")
                        help="group into per-day sections by the --by axis (DEFAULT on)")
     _agls.add_argument("--flat", "--no-group", dest="group", action="store_false",
                        help="flat list, no per-day grouping")
+    _agls.add_argument("--activity", action=argparse.BooleanOptionalAction, default=True,
+                       help="show how long since each node was last worked (52m / 3d), plus 💤 once that "
+                            "exceeds --stale-days — the session is bound but the work isn't moving "
+                            "(default on; --no-activity hides the column)")
+    _agls.add_argument("--stale-days", type=int, default=AGENT_STALE_DAYS, metavar="N",
+                       help=f"days without a log before a binding counts as 💤 stale (default {AGENT_STALE_DAYS})")
+    _aggaps = _agsub.add_parser("gaps", parents=[output_parent],
+        help="the reverse view: important work (a P0, or a target of today's goal) with NO session bound",
+        description="List the work that should have a session pushing it but doesn't — every unsettled P0 plus every still-open target of today's goal, minus everything already bound. `wl agent ls` only shows what IS bound, so it can never surface a task nobody is on; this is the risk list.")
+    _aggaps.epilog = """\
+Common examples:
+  wl agent gaps           # what important thing has nobody on it?
+  wl agent gaps -o json   # machine-readable (id / title / priority / status / reason)"""
     _agsub.add_parser("rm", help="unbind the current session")
     _agctx = _agsub.add_parser("context", help="machine line `<id>\\t<title>` of the current session's binding (for hooks; empty if unbound)")
     _agctx.add_argument("--hook", nargs="?", const="claude", choices=AGENT_HOOK_CHOICES,
@@ -1921,6 +1934,7 @@ from .commands import (
     cmd_node_reparent,
     cmd_agent,
     AGENT_HOOK_CHOICES,
+    AGENT_STALE_DAYS,
     cmd_prop,
     cmd_prop_rm,
     cmd_clock,
