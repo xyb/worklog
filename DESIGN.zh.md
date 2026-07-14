@@ -379,6 +379,22 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
 
 加输出 / 改配色时，`_init_console` / `_detect_bg_is_dark` / `_resolve_theme` / `THEMES`(+`_THEME_KEYS`) / `_c` / `_hl` / `out` / `_node_line` / `cmd_themes` 跟本节同步；新增带方括号的输出务必走 `_c`。
 
+## 20.5 时间与时区：`timeutil` 是唯一入口
+
+`timeutil` 是**唯一**能碰时钟和时区的模块——由 `tests/test_time_lint.py` 强制，不靠 review 把关。其它模块一律不许：
+
+- 调 `datetime.now()` / `date.today()` 读时钟 → 走 `utc_now` / `local_now` / `today` / `today_date` / `now_dt`（它们认 `$WORKLOG_TZ`）
+- 对存储的时间戳调 `datetime.strptime` / `datetime.fromisoformat` → 走 `parse_ts`，以及建立在它之上的 `elapsed_sec` / `age_min` / `shift_ts` / `days_ago` / `days_ahead`；用户输入的 `--at` 走 `local_input_to_utc`（锚点可以是「现在」，也可以是某条已有 log 自己的时间戳——所以裸 `HH:MM` 不会把一条补记的旧 log 悄悄拽到今天）
+
+每一份手搓拷贝都是一次「拿 UTC 值跟本地值比」的新机会。两种 bug 在 lint 存在之前都真的发生过：一个 stale 判定用 UTC 日期算 cutoff、却拿本地日期去比（在本地日期领先 UTC 的那几个小时里差一天）；一个年龄格式化手搓 `%Y-%m-%d %H:%M:%S`，于是恰好在最老的那批 legacy date-only 行上返回 `—`——而那正是最该显示天数的行。两个都是 review 抓出来的，不是测试抓出来的，所以这条规则要有测试兜底。
+
+两个关键语义：
+
+- `parse_ts` 把 date-only 的时间戳读成那天的**本地**午夜——跟 `local_day_sql` 的 CASE 同一条规则，所以 SQL 和 Python 不可能对「这条老记录属于哪天」产生分歧
+- `elapsed_sec` 刻意**带符号**：负数意味着结束早于开始（`wl clock edit --end`），那是调用方必须**拒绝**的用户错误。取下限是调用方自己的策略（`max(60, …)` 是时钟的最小计费分钟）；一个替调用方钳位的原语只会把错误吞掉
+
+仍然允许：`date.fromisoformat(s)` 校验纯日历日期（不涉及时区）、对已经是本地的 date 做 `timedelta` 算术。
+
 ## 21. log 历史日期（迁移用）
 
 迁移历史 worklog 时，log 的 `logged_at` 要落在**当时发生那天**，不是导入今天，否则时间线全堆在导入日、失真。统一走 `_insert_log(con, nid, entry)`：

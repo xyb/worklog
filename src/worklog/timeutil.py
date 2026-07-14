@@ -118,6 +118,111 @@ def local_day_of(utc_str: str) -> str:
     return utc_to_local(utc_str)[:10]
 
 
+# ── parsing + arithmetic on stored instants ──────────────────────────────────
+# Everything that reads a stored `*_at` stamp back into a datetime, or asks "how long
+# ago / how long between", goes through these. Hand-rolling `datetime.strptime` at the
+# call site is what produced a UTC-cutoff-vs-local-date comparison and a crash on legacy
+# date-only stamps; `test_time_lint.py` now fails the build if a module reintroduces one.
+
+def parse_ts(ts):
+    """A stored instant -> naive UTC `datetime`, or None when it can't be read.
+
+    Accepts the canonical `YYYY-MM-DD HH:MM:SS`, an ISO `T` separator, and the **legacy
+    date-only** `YYYY-MM-DD` that older DBs still carry (pre-`wl log --date` logs, the
+    0003-backfilled checkin `metric.at`). A date-only value is a literal *local* date, so
+    it reads as that day's local midnight — the same rule `local_day_sql`'s CASE applies,
+    so SQL and Python can't disagree about which day an old row belongs to."""
+    if not ts:
+        return None
+    s = str(ts).strip().replace("T", " ")
+    if len(s) >= 19:
+        try:
+            return datetime.strptime(s[:19], FMT)
+        except ValueError:
+            return None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return datetime.strptime(local_to_utc(s + " 00:00:00"), FMT)
+    return None
+
+
+def now_dt() -> datetime:
+    """"Now" as a naive UTC `datetime` — the counterpart of `parse_ts`, so a difference
+    between them is always UTC-vs-UTC."""
+    return datetime.strptime(utc_now(), FMT)
+
+
+def elapsed_sec(start_ts, end_ts=None):
+    """SIGNED whole seconds from `start_ts` to `end_ts` (default: now). None when either stamp
+    can't be read.
+
+    Deliberately not clamped: a negative span is meaningful — it means an end lands before its
+    start, which is a user error (`wl clock edit --end` before `--start`) that the caller must
+    REJECT, not silently round up to zero. Flooring is a policy the call site owns (`max(60, …)`
+    for a clock's minimum billable minute); a primitive that clamps would hide the error."""
+    a, b = parse_ts(start_ts), (parse_ts(end_ts) if end_ts else now_dt())
+    if a is None or b is None:
+        return None
+    return int((b - a).total_seconds())
+
+
+def age_min(ts) -> int | None:
+    """Whole minutes since `ts`, or None when it can't be read (callers render a placeholder).
+    Clamped at 0: a stamp in the future is a clock skew, not negative age."""
+    secs = elapsed_sec(ts)
+    return None if secs is None else max(0, secs) // 60
+
+
+def shift_ts(ts, *, minutes: int = 0) -> str:
+    """`ts` moved by `minutes` (may be negative), back as a UTC storage string."""
+    base = parse_ts(ts) or now_dt()
+    return (base + timedelta(minutes=minutes)).strftime(FMT)
+
+
+_AT_HHMM = re.compile(r"\d{2}:\d{2}")
+_AT_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_AT_FULL = re.compile(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?")
+
+
+def local_input_to_utc(at: str, *, anchor_local: str, label: str = "at") -> str:
+    """Resolve a user-typed `--at` token -> a UTC storage string. The user always types LOCAL time,
+    and may type only part of it; `anchor_local` (a local `YYYY-MM-DD HH:MM:SS`) supplies the rest:
+
+      `HH:MM`                  -> keeps the anchor's DAY, replaces the time
+      `YYYY-MM-DD`             -> keeps the anchor's TIME, replaces the day
+      `YYYY-MM-DD HH:MM[:SS]`  -> replaces both
+
+    The anchor is what distinguishes the two uses: an existing log's own timestamp (so a bare
+    `HH:MM` on a backdated log can't silently yank it to today) versus `local_now()` for a fresh
+    entry. Validates ranges (rejects `25:00`, month 13); raises ValueError on a bad token —
+    `label` names the offending input in that message (`at` for a field-op, `--at` for the flag)."""
+    at = (at or "").strip()
+    if _AT_HHMM.fullmatch(at):
+        datetime.strptime(at, "%H:%M")                        # range-check HH/MM
+        return local_to_utc(f"{anchor_local[:10]} {at}:00")
+    if _AT_DATE.fullmatch(at):
+        datetime.strptime(at, "%Y-%m-%d")                     # range-check the calendar date
+        return local_to_utc(f"{at} {anchor_local[11:] or '00:00:00'}")
+    if _AT_FULL.fullmatch(at):
+        ts = at.replace("T", " ")
+        if len(ts) == 16:
+            ts += ":00"
+        datetime.strptime(ts, FMT)                            # range-check both halves
+        return local_to_utc(ts)
+    raise ValueError(f"invalid {label} '{at}': supported formats: HH:MM / YYYY-MM-DD / YYYY-MM-DD HH:MM[:SS]")
+
+
+def days_ago(n: int) -> str:
+    """The local calendar date `n` days before today (`YYYY-MM-DD`). The single source for
+    every "cutoff N days back" — both sides of such a comparison must be LOCAL days, which
+    is exactly what a hand-rolled UTC-derived cutoff got wrong."""
+    return (today_date() - timedelta(days=n)).isoformat()
+
+
+def days_ahead(n: int) -> str:
+    """The local calendar date `n` days after today (`YYYY-MM-DD`)."""
+    return (today_date() + timedelta(days=n)).isoformat()
+
+
 def tz_sql_modifier() -> str:
     """The modifier to pass to SQLite `datetime(col, ?)` so a UTC-stored column
     renders in local time for day-grouping: `'localtime'` when following the

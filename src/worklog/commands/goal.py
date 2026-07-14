@@ -145,14 +145,14 @@ def cmd_summary_prop(args, con):
     """`wl recap` — read/write a day's end-of-day summary (default today; --date for a past day).
     Stored as a tag=summary log; each write appends a new log (history kept), and the log's
     own logged_at is the 'written at' time used to detect changes added after the recap."""
-    from datetime import datetime as _dt
+    from datetime import date as _date
     target = getattr(args, "date", None)
     if target:
         try:
             iso = _resolve_concrete_date(target)
         except ValueError as e:
             die(f"bad --date '{target}': {e}")
-        d = _dt.strptime(iso, "%Y-%m-%d").date()
+        d = _date.fromisoformat(iso)
         label = iso
     else:
         d = _tu.today_date()

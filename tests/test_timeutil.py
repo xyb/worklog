@@ -4,6 +4,7 @@ All tests pin $WORKLOG_TZ to a fixed offset so they're reproducible regardless
 of the CI/host timezone.
 """
 import re
+from datetime import datetime
 
 import pytest
 
@@ -134,3 +135,61 @@ class TestTzSqlModifier:
     def test_garbage_env_falls_back_to_localtime(self, monkeypatch):
         monkeypatch.setenv("WORKLOG_TZ", "Asia/Shanghai")
         assert tu.tz_sql_modifier() == "localtime"
+
+
+class TestParseTs:
+    """`parse_ts` is the ONE reader of a stored instant — every hand-rolled strptime is banned
+    by test_time_lint, so this is where the format contract is pinned."""
+
+    def test_canonical_stamp(self):
+        assert tu.parse_ts("2026-07-14 09:30:00") == datetime(2026, 7, 14, 9, 30, 0)
+
+    def test_iso_t_separator(self):
+        assert tu.parse_ts("2026-07-14T09:30:00") == datetime(2026, 7, 14, 9, 30, 0)
+
+    def test_legacy_date_only_is_a_local_date(self, monkeypatch):
+        # older DBs carry bare `YYYY-MM-DD` logged_at / metric.at. It's a literal LOCAL date, so it
+        # reads as that day's local midnight — same rule local_day_sql's CASE applies, so SQL and
+        # Python can't disagree about which day an old row belongs to. (Hand-parsing it as UTC was
+        # a real crash: the age column degraded to "—" on exactly the oldest rows.)
+        monkeypatch.setenv("WORKLOG_TZ", "+08:00")
+        assert tu.parse_ts("2026-06-20") == datetime(2026, 6, 19, 16, 0, 0)   # 00:00 +08 = 16:00Z prev day
+
+    def test_unparseable_is_none_not_a_crash(self):
+        assert tu.parse_ts("not a timestamp") is None
+        assert tu.parse_ts("") is None
+        assert tu.parse_ts(None) is None
+
+
+class TestElapsedAndAge:
+    def test_elapsed_is_signed_so_end_before_start_is_detectable(self):
+        # a clamped primitive would hide `wl clock edit --end` landing before --start
+        assert tu.elapsed_sec("2026-07-14 10:00:00", "2026-07-14 09:00:00") == -3600
+        assert tu.elapsed_sec("2026-07-14 09:00:00", "2026-07-14 10:00:00") == 3600
+
+    def test_elapsed_unparseable_is_none(self):
+        assert tu.elapsed_sec("garbage", "2026-07-14 10:00:00") is None
+
+    def test_age_min_clamps_a_future_stamp_to_zero(self):
+        assert tu.age_min(tu.shift_ts(tu.utc_now(), minutes=30)) == 0   # clock skew, not negative age
+
+    def test_age_min_unparseable_is_none(self):
+        assert tu.age_min("garbage") is None
+
+    def test_shift_ts_roundtrips(self):
+        assert tu.shift_ts("2026-07-14 10:00:00", minutes=-90) == "2026-07-14 08:30:00"
+
+
+class TestDaysAgoFollowsLocalZone:
+    def test_cutoff_is_a_local_day_not_a_utc_one(self, monkeypatch):
+        # the staleness bug: a UTC-derived cutoff compared against a local activity date is off by
+        # a day for the hours the local date leads UTC. days_ago() must agree with today().
+        monkeypatch.setenv("WORKLOG_TZ", "+08:00")
+        from datetime import date, timedelta
+        assert tu.days_ago(3) == (date.fromisoformat(tu.today()) - timedelta(days=3)).isoformat()
+        assert tu.days_ago(0) == tu.today()
+
+    def test_days_ahead(self, monkeypatch):
+        monkeypatch.setenv("WORKLOG_TZ", "-05:00")
+        from datetime import date, timedelta
+        assert tu.days_ahead(2) == (date.fromisoformat(tu.today()) + timedelta(days=2)).isoformat()

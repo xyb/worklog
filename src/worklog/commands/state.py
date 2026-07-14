@@ -495,11 +495,9 @@ def cmd_stop(args, con):
         row = Clock.query_one(con, node_id=nid, end_at=None, order="id DESC")
         if not row:
             die(f"no open clock for #{nid}")
-        started = datetime.fromisoformat(row.start_at)
-        stopped = datetime.fromisoformat(stop_ts)
-        if stopped < started:
+        if _tu.parse_ts(stop_ts) < _tu.parse_ts(row.start_at):
             die(f"--at {stop_ts} is earlier than the clock start {row.start_at} (#{nid})")
-        secs = max(60, int((stopped - started).total_seconds()))  # floor at 1 min
+        secs = max(60, _tu.elapsed_sec(row.start_at, stop_ts))    # floor at 1 min
         Clock.update(con, row.id, {"end_at": stop_ts, "elapsed_sec": secs})
         stop_lines.append((nid, secs))
     con.commit()
@@ -536,14 +534,11 @@ def _autocap_stale_clocks(con, max_hours=_STALE_CLOCK_HOURS):
     its recorded duration at max_hours (end = start + max_hours) rather than losing the whole
     session. Returns [node_id, ...] capped. Called opportunistically by wl active / wl day —
     the natural moments you'd notice timing. No commit; caller commits."""
-    from datetime import datetime as _dt, timedelta as _td
-    now = _dt.fromisoformat(_tu.utc_now())
     capped = []
     for row in con.execute(f"SELECT id, node_id, start_at FROM clock WHERE end_at IS NULL AND {_db.ALIVE}").fetchall():
-        start = _dt.fromisoformat(row["start_at"])
-        if (now - start) > _td(hours=max_hours):
-            end = start + _td(hours=max_hours)
-            Clock.update(con, row["id"], {"end_at": end.strftime(_tu.FMT), "elapsed_sec": max_hours * 3600})
+        if (_tu.elapsed_sec(row["start_at"]) or 0) > max_hours * 3600:
+            end = _tu.shift_ts(row["start_at"], minutes=max_hours * 60)
+            Clock.update(con, row["id"], {"end_at": end, "elapsed_sec": max_hours * 3600})
             capped.append(row["node_id"])
     return capped
 
@@ -562,11 +557,11 @@ def _close_open_clocks(con, ids, at=None):
         # contradictory — you can't finish before you started timing. Reject it (same guard as
         # `wl stop --at`) rather than invent an end time; otherwise close at `at` (valid backdate)
         # or now. Compare as datetimes so a format variant can't skew a string compare.
-        if at and datetime.fromisoformat(at) < datetime.fromisoformat(row.start_at):
+        if at and _tu.parse_ts(at) < _tu.parse_ts(row.start_at):
             die(f"--at {at} is earlier than #{nid}'s running clock start ({row.start_at}); "
                 f"use a time at/after it, or `wl stop {nid}` first")
         end_s = at or now_s
-        secs = max(60, int((datetime.fromisoformat(end_s) - datetime.fromisoformat(row.start_at)).total_seconds()))
+        secs = max(60, _tu.elapsed_sec(row.start_at, end_s))
         Clock.update(con, row.id, {"end_at": end_s, "elapsed_sec": secs})
         closed += 1
     return closed
@@ -933,11 +928,9 @@ def _claim_is_stale(claimed_at, max_hours=_STALE_CLAIM_HOURS):
     timestamp permanently wedge a claim)."""
     if not claimed_at:
         return True
-    try:
-        ts = datetime.fromisoformat(claimed_at)
-    except ValueError:
+    if _tu.parse_ts(claimed_at) is None:
         return True
-    return (datetime.fromisoformat(_tu.utc_now()) - ts) > timedelta(hours=max_hours)
+    return (_tu.elapsed_sec(claimed_at) or 0) > max_hours * 3600
 
 
 @output_format
@@ -1487,15 +1480,14 @@ def cmd_active(args, con):
         return TextRenderable([], lambda: out(_c("(no active task right now; use wl start <id> to start timing, wl day for today's progress)", "meta")))
 
     brief = getattr(args, "brief", False)
-    now = _dt.fromisoformat(_tu.utc_now())  # UTC, to match the UTC-stored start_at
     today = _tu.today()
-    today_start = _dt.fromisoformat(_tu.local_to_utc(f"{today} 00:00:00"))  # today's local midnight, in UTC
+    today_start = _tu.parse_ts(_tu.local_to_utc(f"{today} 00:00:00"))  # today's local midnight, in UTC
     full = _log_full(args)
     result = []
     render_rows = []
     for r in rows:
-        started = _dt.fromisoformat(r["start_at"])
-        mins = int((now - started).total_seconds() / 60)  # full current session (for display + warning)
+        started = _tu.parse_ts(r["start_at"])
+        mins = _tu.elapsed_sec(r["start_at"]) // 60      # full current session (for display + warning)
         result.append({"node_id": r["node_id"], "title": r["title"],
                        "status": r["status"], "priority": r["priority"],
                        "start_at": r["start_at"], "elapsed_min": mins})
@@ -1506,7 +1498,7 @@ def cmd_active(args, con):
             ).fetchone()["s"]
             # clip the live session to today so a session started before midnight doesn't add
             # its pre-midnight minutes to *today's* total
-            sess_today_min = max(0, int((now - max(started, today_start)).total_seconds() / 60))
+            sess_today_min = max(0, int((_tu.now_dt() - max(started, today_start)).total_seconds() / 60))
             total_min = sess_today_min + int((done_sec or 0) / 60)
             crossed = sess_today_min < mins   # session started before today's midnight
             last = Log.query_one(con, node_id=r["node_id"], tag=None, order="id DESC")
@@ -1924,17 +1916,9 @@ def _age_short(ts):
     of the last log is noise here; the order of magnitude is the whole signal. Legacy date-only
     stamps (`2026-06-20`, still present in migrated DBs) parse as that day's midnight rather than
     degrading to `—`; the stalest rows are exactly the old ones, so they must keep their number."""
-    if not ts:
+    mins = _tu.age_min(ts)
+    if mins is None:
         return "—"
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            then = datetime.strptime(ts[:19] if len(ts) >= 19 else ts[:10], fmt)
-            break
-        except ValueError:
-            continue
-    else:
-        return "—"
-    mins = max(0, int((datetime.strptime(_tu.utc_now()[:19], "%Y-%m-%d %H:%M:%S") - then).total_seconds() // 60))
     if mins < 60:
         return f"{mins}m"
     if mins < 60 * 24:
@@ -2280,11 +2264,7 @@ def cmd_clock_edit(args, con):
         die("nothing to edit (give --start / --end)")
     # recompute elapsed from the resulting start/end when both are present
     if start_at and end_at:
-        from datetime import datetime
-        try:
-            secs = int((datetime.fromisoformat(end_at) - datetime.fromisoformat(start_at)).total_seconds())
-        except (ValueError, TypeError):
-            secs = None
+        secs = _tu.elapsed_sec(start_at, end_at)     # signed: negative = end before start (rejected below)
         if secs is not None and secs < 0:
             die(f"end {end_at} is before start {start_at}")
         if secs is not None:

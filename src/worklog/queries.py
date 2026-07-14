@@ -308,13 +308,7 @@ def _node_clock_min(con, nid, day=None):
         rows = _db.query(con, "log", cols="DISTINCT logged_at", node_id=nid, tag=None, order="logged_at")
     span = 0
     if len(rows) >= 2:
-        try:
-            from datetime import datetime
-            first = datetime.fromisoformat(rows[0]["logged_at"])
-            last = datetime.fromisoformat(rows[-1]["logged_at"])
-            span = max(0, int((last - first).total_seconds() / 60))
-        except (ValueError, TypeError):
-            pass
+        span = max(0, _tu.elapsed_sec(rows[0]["logged_at"], rows[-1]["logged_at"]) or 0) // 60
 
     return max(clock, span)
 
@@ -405,8 +399,7 @@ def _insert_clock_span(con, nid, mins, end_ts):
     """Record a COMPLETED clock of `mins` minutes ending at `end_ts` (a UTC instant) — the start is
     derived, `elapsed_sec` stored. Returns the clock id. No commit. Single source for `wl spent` and
     apply's `spent` field-op, so the two entry points can't build the span differently."""
-    from datetime import datetime as _dt, timedelta as _td
-    start_ts = (_dt.fromisoformat(end_ts) - _td(minutes=mins)).strftime(_tu.FMT)
+    start_ts = _tu.shift_ts(end_ts, minutes=-mins)
     return Clock.insert(con, {"node_id": nid, "start_at": start_ts, "end_at": end_ts,
                               "elapsed_sec": mins * 60})
 
