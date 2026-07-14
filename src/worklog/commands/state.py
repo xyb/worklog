@@ -2001,14 +2001,16 @@ def _is_stale(act, stale_days):
     `stale_days` days. The bound session may well still be open — what this measures is whether the
     WORK moved, which is the thing worth knowing.
 
-    Both sides of the comparison are LOCAL days: `_tu.today()` for the cutoff, `local_day_of(act)`
-    for the activity. Deriving the cutoff from the UTC date instead would shift the threshold by a
-    day for the hours when the local date runs ahead of (or behind) UTC."""
-    if not act:
+    Both sides of the comparison are LOCAL days (`_tu.days_ago` for the cutoff, `local_day_of` for
+    the activity). Deriving the cutoff from the UTC date instead would shift the threshold by a day
+    for the hours when the local date runs ahead of (or behind) UTC.
+
+    An unreadable stamp counts as stale, not as fresh. It has to be decided by *parsing*, not by
+    comparing strings: a garbage value sorts above any real date (`'not-a-time' > '2026-07-11'`),
+    so a string compare would quietly report the most broken row as the most recently worked."""
+    if _tu.parse_ts(act) is None:
         return True
-    from datetime import date, timedelta
-    cutoff = (_tu.today_date() - timedelta(days=stale_days)).isoformat()
-    return _tu.local_day_of(act) < cutoff
+    return _tu.local_day_of(act) < _tu.days_ago(stale_days)
 
 
 @output_format

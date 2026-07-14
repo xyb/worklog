@@ -291,3 +291,16 @@ class TestRecurringGoalTargets:
         assert "[x] #1" in cli("goal", "ls", "2")[1]         # settled by the check-in
         cli("sched", "stop", "1")                            # drive retired today
         assert "[x] #1" in cli("goal", "ls", "2")[1]         # still settled — the tick happened
+
+    def test_goal_on_a_time_node_with_no_period_falls_back_to_status(self, cli):
+        # a time node carrying a level but no usable period has no span, so a recurring target can
+        # only be judged by its status. It must degrade quietly, not raise out of a render path.
+        cli("add", "habit")                                   # #1
+        cli("sched", "1", "--recur", "daily")
+        cli("tick", "1")                                      # a check-in exists...
+        cli("add", "a level-only day node")                   # #2
+        cli("set", "2", "type.date", "day")                   # ...but the node has no date.period
+        cli("goal", "set", "2", "keep it up")
+        cli("goal", "set", "2", "--ids", "1")
+        code, out, _ = cli("goal", "ls", "2")
+        assert code == 0 and "[ ] #1" in out                  # no period ⇒ status only ⇒ open

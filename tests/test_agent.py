@@ -636,3 +636,72 @@ class TestAgentReviewRegressions:
         cli("start", "1")
         _, out, _ = cli("agent", "gaps")
         assert "#1" not in out
+
+
+class TestAgentActivityEdges:
+    """Branches of the activity column that the happy path never reaches."""
+
+    def _sess(self, monkeypatch, sid="sess-edge"):
+        monkeypatch.setenv("WL_SESSION_ID", sid)
+        monkeypatch.setenv("WL_AGENT", "claude")
+
+    def test_age_renders_hours(self, cli, tmp_db, monkeypatch):
+        # the h branch: between an hour and a day. Backdating by --date only moves whole days,
+        # so the hour band is only reachable by stamping the log directly.
+        self._sess(monkeypatch)
+        cli("add", "a")
+        cli("agent", "1")
+        cli("log", "1", "worked earlier")
+        con = tmp_db.db_connect()
+        from worklog import timeutil as tu
+        con.execute("UPDATE log SET logged_at=? WHERE node_id=1 AND tag IS NULL",
+                    (tu.shift_ts(tu.utc_now(), minutes=-150),))    # 2h30m ago
+        con.commit()
+        _, out, _ = cli("agent", "ls")
+        assert "2h" in out and "💤" not in out
+
+    def test_age_placeholder_when_stamp_is_unreadable(self, cli, tmp_db, monkeypatch):
+        # a corrupt/unreadable stamp must render a placeholder, not crash the whole listing
+        self._sess(monkeypatch)
+        cli("add", "a")
+        cli("agent", "1")
+        cli("log", "1", "x")
+        con = tmp_db.db_connect()
+        con.execute("UPDATE log SET logged_at='not-a-timestamp' WHERE node_id=1 AND tag IS NULL")
+        con.execute("UPDATE node SET created_at='not-a-timestamp' WHERE id=1")
+        con.commit()
+        code, out, _ = cli("agent", "ls")
+        assert code == 0 and "—" in out and "💤" in out      # unknown age ⇒ treated as stale
+
+    def test_gaps_skips_a_deleted_target(self, cli, tmp_db, monkeypatch):
+        # a goal target that was since deleted must not crash or show as a phantom gap
+        self._sess(monkeypatch)
+        cli("add", "will vanish")          # #1
+        cli("goal", "ship it", "1")
+        con = tmp_db.db_connect()
+        con.execute("UPDATE node SET deleted_at='2026-01-01 00:00:00' WHERE id=1")
+        con.commit()
+        code, out, _ = cli("agent", "gaps")
+        assert code == 0 and "#1" not in out
+
+
+class TestAgentShowStyled:
+    """The bare `wl agent` (show current binding) STYLED path. Tests run plain by default, so the
+    interactive branch — which shrinks a long session id to keep room for the title — is never
+    otherwise exercised, and a rendering error there would only ever be seen by a real user."""
+
+    def test_show_styled_keeps_full_sid_when_it_fits(self, cli, monkeypatch):
+        monkeypatch.setenv("WL_SESSION_ID", "sess-short")
+        monkeypatch.setenv("WL_AGENT", "claude")
+        cli("add", "a task")
+        cli("agent", "1")
+        code, out, _ = cli("--color", "always", "agent")
+        assert code == 0 and "#1" in out and "sess-short" in out
+
+    def test_show_styled_shrinks_a_long_sid_on_a_narrow_terminal(self, cli, monkeypatch):
+        monkeypatch.setenv("WL_SESSION_ID", "a-really-long-session-id-0123456789abcdef")
+        monkeypatch.setenv("WL_AGENT", "claude")
+        cli("add", "a task with a title long enough to crowd the line")
+        cli("agent", "1")
+        code, out, _ = cli("--color", "always", "--width", "40", "agent")
+        assert code == 0 and "…" in out          # sid (or title) truncated to fit

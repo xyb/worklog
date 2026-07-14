@@ -225,12 +225,13 @@ def _goal_period(con, node_id):
     (or `lifetime`), which has no period to judge a recurring target against."""
     props = node_props(con, node_id)
     level, period = props.get(_nt.K_DATE), props.get(_nt.K_PERIOD)
-    if not level or not period:
+    # `valid_period` is the same predicate the write side uses (via `date_props_for`), so this
+    # can't disagree with what was allowed to be stored — cheaper and clearer than catching
+    # span_of's ValueError, and it means a level/period mismatch degrades to "no period" rather
+    # than raising out of a render path.
+    if not level or not period or not _nt.valid_period(level, period):
         return (None, None)
-    try:
-        return _nt.span_of(level, period)
-    except ValueError:
-        return (None, None)
+    return _nt.span_of(level, period)
 
 
 def _is_recurring_on(con, nid, on_date):

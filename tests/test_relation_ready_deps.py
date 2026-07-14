@@ -197,3 +197,39 @@ class TestUnclaimed:
     def test_root_requires_existing_node(self, cli):
         code, _, err = cli("relation", "unclaimed", "999")
         assert code != 0
+
+
+class TestReadyChainRendering:
+    """The TEXT rendering of `wl relation ready` — the unlocked list, the nothing-unlocked note,
+    and the --chain upstream trail. The JSON contract is covered above; these are the lines a
+    user actually reads, and they had no test."""
+
+    def test_ready_lists_what_it_unlocked(self, cli):
+        cli("add", "blocker")            # #1
+        cli("add", "downstream")         # #2
+        cli("relation", "1", "block", "2")
+        cli("done", "1")                 # #1 settled → #2 becomes ready
+        code, out, _ = cli("relation", "ready", "1")
+        assert code == 0 and "unlocked:" in out and "#2" in out and "downstream" in out
+
+    def test_ready_says_when_downstream_exists_but_none_are_ready(self, cli):
+        cli("add", "blocker A")          # #1
+        cli("add", "blocker B")          # #2
+        cli("add", "downstream")         # #3, blocked by BOTH
+        cli("relation", "1", "block", "3")
+        cli("relation", "2", "block", "3")
+        cli("done", "1")                 # only one blocker cleared → #3 still waiting
+        code, out, _ = cli("relation", "ready", "1")
+        assert code == 0 and "none are ready yet" in out
+
+    def test_chain_shows_the_upstream_trail_with_done_marks(self, cli):
+        cli("add", "first")              # #1
+        cli("add", "second")             # #2
+        cli("add", "third")              # #3
+        cli("relation", "1", "block", "2")
+        cli("relation", "2", "block", "3")
+        cli("done", "1")
+        code, out, _ = cli("relation", "ready", "3", "--chain")
+        assert code == 0 and "upstream chain:" in out
+        assert "✓" in out and "#1" in out        # settled upstream marked done
+        assert "…" in out and "#2" in out        # still-open upstream marked pending
