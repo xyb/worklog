@@ -168,7 +168,7 @@ DONE / DEFERRED / CANCELED   (已了结)
 1. **结构子任务**：`task.parent_id == project.id`
 2. **共享语义 tag**：task 跟 project 共享至少一个非通用 tag
 
-⚠️ 已知特点：共享 tag 关联有歧义（一个 `gaming` tag 对应多个 gaming 项目 → task 出现在多个项目下）。**未来精确化方向**：加 `prop["project"]` 显式指定唯一归属，`_project_members` 优先用 prop，回退到 tag。改这个 helper 影响 tree --by project / projects / changes / summary 四处，要一起验。
+⚠️ 已知特点：共享 tag 关联有歧义（一个 `reporting` tag 对应多个 reporting 项目 → task 出现在多个项目下）。**未来精确化方向**：加 `prop["project"]` 显式指定唯一归属，`_project_members` 优先用 prop，回退到 tag。改这个 helper 影响 tree --by project / projects / changes / summary 四处，要一起验。
 
 ## 11. 通用维度 tag（`GENERIC_TAGS`）
 
@@ -271,7 +271,7 @@ marker → status：`[ ]`TODO `[x]`DONE `[/]`DOING `[>]`LATER `[?]`WAIT `[-]`CAN
 
 ```
   #2 [project] 业务聚合          ← 锚: 定位 #2 作父, 不改
-+   [x] [#A] 登录修复 :gaming:P0:
++   [x] [#A] 登录修复 :reporting:P0:
 +     @log 根因 configmap 错指源桶
 - #44 血糖记录                    ← 删 #44 (含子树级联)
 ```

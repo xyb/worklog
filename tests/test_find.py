@@ -7,49 +7,49 @@ ESC = "["  # ANSI escape prefix
 
 class TestFind:
     def _seed(self, cli):
-        cli("add", "gaming project", "--para", "project", "-t", "gaming,work")  # 1
+        cli("add", "reporting project", "--para", "project", "-t", "reporting,work")  # 1
         cli("add", "other task")                             # 2
-        cli("log", "2", "this log mentions the gaming keyword")
+        cli("log", "2", "this log mentions the reporting keyword")
         cli("add", "with prop")                              # 3
-        cli("set", "3", "owner", "gaming-team")
+        cli("set", "3", "owner", "reporting-team")
         cli("add", "with link")                              # 4
-        cli("link", "4", "gaming doc")
+        cli("link", "4", "reporting doc")
 
     def test_find_title(self, cli):
         self._seed(cli)
-        code, out, _ = cli("find", "gaming")
+        code, out, _ = cli("find", "reporting")
         assert code == 0
         # title hit highlighted (plain uses *…*), title field marked
-        assert "*gaming* project" in out and "title" in out
+        assert "*reporting* project" in out and "title" in out
 
     def test_find_in_log(self, cli):
         self._seed(cli)
-        code, out, _ = cli("find", "gaming")
+        code, out, _ = cli("find", "reporting")
         assert "other task" in out  # matched via log
         line = [l for l in out.split("\n") if "other task" in l][0]
         assert "log" in line
 
     def test_find_in_prop(self, cli):
         self._seed(cli)
-        code, out, _ = cli("find", "gaming-team")
+        code, out, _ = cli("find", "reporting-team")
         assert "with prop" in out
 
     def test_find_in_link(self, cli):
         self._seed(cli)
-        code, out, _ = cli("find", "gaming doc", "--in", "link")
+        code, out, _ = cli("find", "reporting doc", "--in", "link")
         assert "with link" in out
 
     def test_find_in_restricts(self, cli):
         self._seed(cli)
-        # only search title; gaming inside log should not match #2
-        code, out, _ = cli("find", "gaming", "--in", "title")
-        assert "*gaming* project" in out
+        # only search title; reporting inside log should not match #2
+        code, out, _ = cli("find", "reporting", "--in", "title")
+        assert "*reporting* project" in out
         assert "other task" not in out
 
     def test_find_para_filter(self, cli):
         self._seed(cli)
-        code, out, _ = cli("find", "gaming", "--para", "project")
-        assert "*gaming* project" in out
+        code, out, _ = cli("find", "reporting", "--para", "project")
+        assert "*reporting* project" in out
         assert "other task" not in out
 
     def test_find_no_match(self, cli):
@@ -71,20 +71,20 @@ class TestFind:
     def test_find_expands_log_hit(self, cli):
         """match in log -> indented expansion of the matched fragment with *…* around the keyword"""
         self._seed(cli)
-        code, out, _ = cli("find", "gaming")
+        code, out, _ = cli("find", "reporting")
         # #2 matched via log, should expand log content
         assert "log: " in out
-        assert "*gaming*" in out
+        assert "*reporting*" in out
 
     def test_find_expands_link_and_prop(self, cli):
         self._seed(cli)
-        code, out, _ = cli("find", "gaming-team")
+        code, out, _ = cli("find", "reporting-team")
         # prop hit content is shown AND the matched term is hit-marked (plain mode → *…*)
-        assert "prop: owner=*gaming-team*" in out
+        assert "prop: owner=*reporting-team*" in out
 
     def test_find_title_hit_not_expanded(self, cli):
         """match only in title (already in the row) -> no extra body/log expansion"""
-        cli("add", "pure title hit gaming")
+        cli("add", "pure title hit reporting")
         code, out, _ = cli("find", "pure title hit")
         # no log:/body:/tag: expansion lines (title is already on the node row)
         assert "log: " not in out and "body: " not in out

@@ -6,10 +6,10 @@ import pytest
 class TestFocus:
     def _seed(self, cli):
         cli("add", "2026-05", "--prop", "type.date=month")                     # 1
-        cli("add", "data-viz", "--para", "project", "-t", "gaming", "--parent", "1")  # 2
-        cli("add", "login fix", "-t", "gaming,work,P0", "--parent", "1")     # 3
-        cli("add", "decision meeting", "--prop", "type.meetlog=true", "-t", "gaming,work,P0,strategy", "--parent", "1")  # 4
-        cli("add", "digest system", "-t", "gaming,followup", "--parent", "4")    # 5 (meeting subtask)
+        cli("add", "dashboard", "--para", "project", "-t", "reporting", "--parent", "1")  # 2
+        cli("add", "login fix", "-t", "reporting,work,P0", "--parent", "1")     # 3
+        cli("add", "decision meeting", "--prop", "type.meetlog=true", "-t", "reporting,work,P0,strategy", "--parent", "1")  # 4
+        cli("add", "digest system", "-t", "reporting,followup", "--parent", "4")    # 5 (meeting subtask)
         cli("add", "unrelated task", "-t", "biz_agg,work", "--parent", "1")       # 6
 
     def test_focus_shows_upstream_self_downstream(self, cli):
@@ -21,12 +21,12 @@ class TestFocus:
         assert "downstream" in out and "digest system" in out
 
     def test_focus_related_excludes_generic_tags(self, cli):
-        """#4 tag = gaming/work/P0/strategy → related matches only on gaming, not flooded by work/P0"""
+        """#4 tag = reporting/work/P0/strategy → related matches only on reporting, not flooded by work/P0"""
         self._seed(cli)
         code, out, _ = cli("focus", "4", "--related")
-        # gaming-related #2 #3 should appear
-        assert "data-viz" in out or "login fix" in out
-        # unrelated task #6 (biz_agg/work) should not mix in — it only shares work(generic), not gaming
+        # reporting-related #2 #3 should appear
+        assert "dashboard" in out or "login fix" in out
+        # unrelated task #6 (biz_agg/work) should not mix in — it only shares work(generic), not reporting
         rel_section = out.split("related")[-1] if "related" in out else ""
         assert "unrelated task" not in rel_section
 

@@ -17,20 +17,85 @@ prop on the node — no new table.
 
 ## Is everything important actually being pushed?
 
-Two views, forward and reverse. `wl agent ls` answers "what is being worked, and is it moving?"
-Each row carries how long ago the node was last logged on (`52m` / `3d`), and a 💤 once that
-passes `--stale-days` (default 3) — the session is bound but the work has stopped. The bind
-itself doesn't count as activity, so a freshly-bound node that nobody has touched still reads
-stale. `--no-activity` drops the column.
+Once each real task has a session bound to it, wl can answer a question no task list can:
+**is every important thing actually being worked, and is it still moving?** Two views, forward
+and reverse.
 
-`wl agent gaps` is the reverse and the one that catches the thing you'd miss: work that *should*
-have a session on it but doesn't. Two sources — a still-open target of **today's goal** (what you
-said you'd deliver today), and a **DOING P0** (you declared you're on it; nothing is). Recurring
-items are excluded from the DOING side: a habit never leaves DOING (`wl tick` doesn't move the
-status), and it's kept up by checking in, not by a session.
+### `wl agent ls` — what is bound, and is it moving?
 
-Standing open P0s are deliberately NOT gaps. Priority is a ranking, not a claim that a thing is
-in flight — counting them makes the list fire every day, which is the same as never firing.
+    $ wl agent ls
+    2026-07-14 (today)
+      #42 ← claude:d93867f4-… · write the Q3 report  13m
+      #57 ← claude:534ca427-… · redesign the settings page  2h
+      #57 ← cursor:9a76d245-… · redesign the settings page  2h
+    2026-07-09
+      #31 ← claude:ac5dd474-… · migrate the old exports  4d 💤
+      #19 ← claude:1691636b-… · rename the legacy fields  4d 💤
+
+The trailing column is **how long since the node was last worked** — its newest log, coarse
+(`40m` / `5h` / `12d`). A 💤 lands once that passes `--stale-days` (default 3): the session is
+bound, but nothing has moved in days. That's the signal — a tab you opened and forgot.
+
+The **bind itself doesn't count as work**. Binding writes a history log, and if that counted,
+every freshly-bound node would look active forever — exactly the claim the view exists to test.
+So a session bound to a task you then never touched still reads stale, which is the honest answer.
+(The row still sorts and groups under today, so the session you just bound never falls off the
+bottom of the list.)
+
+    wl agent ls                  # default: by day, most-recently-worked first
+    wl agent ls --stale-days 1   # stricter: 💤 anything untouched since yesterday
+    wl agent ls --no-activity    # drop the age column
+    wl agent ls --all            # every binding (default elides older ones)
+    wl agent ls --by bound       # sort by bind time, not by last work
+    wl agent ls --flat           # no per-day grouping
+    wl agent ls -o json          # [{id,agent,sid,title,act,bound,stale}]
+
+### `wl agent gaps` — what has NOBODY on it?
+
+The listing above can only ever show what IS bound, so by construction it cannot surface the
+task nobody is on. That's the reverse view, and it's the one that catches what you'd miss:
+
+    $ wl agent gaps
+    ⚠ important but no session pushing it (3):
+      [/] [#A] #12 rebuild the ingest pipeline [40h12m]  (DOING)
+      [/] [#A] #63 investigate the queue backlog  (DOING)
+      [ ] [#B] #71 today's third deliverable  (goal)
+
+Two things qualify, and the `(reason)` says which:
+
+- **`goal`** — a still-open target of **today's goal**: what you said this morning you'd deliver
+  today. Settled targets drop out, including a recurring one you already ticked (see `wl help goal`).
+- **`DOING`** — a **P0 you declared you're working on**. Claiming to be on it while nothing is
+  pushing it is the actual risk signal.
+
+Highest priority first, so the in-flight P0s are what you read at the top.
+
+Three exclusions, each learned the hard way from a real database:
+
+- **A merely-open P0 is NOT a gap.** Priority is a standing ranking, not a claim that a thing is
+  in flight today. Counting every open P0 sweeps in nearly all of them at once — and an alert
+  that fires every day is one you learn to ignore.
+- **Recurring items are excluded** from the DOING side. A habit never leaves DOING, because
+  `wl tick` doesn't move the status (`wl done` would retire the whole recurrence). It's kept up
+  by checking in, not by a session — flagging it would warn you every single day, forever.
+- **Containers (project / area) are excluded.** A project stays DOING for as long as anything
+  under it is alive, and it's pushed through its children — a session binds to a task, not to the
+  bucket the task sits in.
+
+### Using it day to day
+
+Morning, after `wl goal` sets today's targets — ask what's uncovered, and open a session for
+each thing that matters:
+
+    wl agent gaps            # → today's targets with nobody on them
+    wl agent 71              # (in the new session/tab) claim one
+
+End of day, or any time the tabs have piled up — find the ones that stalled:
+
+    wl agent ls --stale-days 1   # 💤 = bound but untouched — close it, or push it
+
+The pair is the whole loop: `gaps` says what needs a session, `ls` says which sessions stopped
+delivering. Neither needs you to remember which tab was doing what.
 
 ## Supported runtimes (the AgentRuntime registry)
 
@@ -38,10 +103,10 @@ Runtime-specific knowledge lives in ONE registry (`src/worklog/commands/agent_ru
 each supported tool declares its name, its session-id env var, the env marker identifying its
 shell, and its hook JSON shape. Currently registered:
 
-| runtime | session id from            | detected by        | hook payload (`--hook <name>`) |
-|---------|----------------------------|--------------------|--------------------------------|
-| claude  | `$CLAUDE_CODE_SESSION_ID`  | (the default)      | `UserPromptSubmit` additionalContext |
-| cursor  | `$CURSOR_CONVERSATION_ID`  | `$CURSOR_AGENT=1`  | `sessionStart` env + additional_context |
+- **claude** — session id from `$CLAUDE_CODE_SESSION_ID`; the default runtime when nothing else
+  matches; `--hook claude` emits a `UserPromptSubmit` additionalContext payload.
+- **cursor** — session id from `$CURSOR_CONVERSATION_ID`; detected by `$CURSOR_AGENT=1`;
+  `--hook cursor` emits a `sessionStart` env + additional_context payload.
 
 **Session id**: `$WL_SESSION_ID` wins (a session-start hook can freeze the runtime's official
 session id under this stable name), else each registry runtime's own env var in order; if none

@@ -8,7 +8,7 @@ calls.** `--dry-run` first, then apply/import once. Two formats:
 ```fish
 echo '{
   "add": [
-    {"ref":"p","title":"data-viz","props":{"type.para":"project"},"priority":"A","tags":["work","viz"],
+    {"ref":"p","title":"dashboard","props":{"type.para":"project"},"priority":"A","tags":["work","viz"],
      "children":[{"title":"login fix","priority":"A","status":"DONE","tags":["P0"],"logs":["root cause..."]}]},
     {"title":"digestive system","parent_ref":"p","tags":["viz"]}
   ],

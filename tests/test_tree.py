@@ -68,10 +68,10 @@ class TestTreeRoot:
 class TestTreeBy:
     def _seed(self, cli):
         cli("add", "2026-05", "--prop", "type.date=month")                                          # 1
-        cli("add", "data-viz", "--para", "project", "-t", "gaming,work", "--parent", "1")  # 2
+        cli("add", "dashboard", "--para", "project", "-t", "reporting,work", "--parent", "1")  # 2
         cli("add", "investment", "--para", "project", "-t", "invest,personal", "--parent", "1")          # 3
-        cli("add", "login fix", "-t", "gaming,work,P0", "--parent", "1")           # 4
-        cli("add", "ingest pipeline", "-t", "gaming,work", "--parent", "1")        # 5
+        cli("add", "login fix", "-t", "reporting,work,P0", "--parent", "1")           # 4
+        cli("add", "ingest pipeline", "-t", "reporting,work", "--parent", "1")        # 5
         cli("add", "reconcile", "-t", "invest,personal", "--parent", "1")           # 6
         cli("add", "structural child", "--parent", "2")                                 # 7 (under project #2)
         cli("add", "morning check", "-t", "work,P0", "--parent", "1")                      # 8 (no project tag = orphan)
@@ -80,7 +80,7 @@ class TestTreeBy:
         self._seed(cli)
         code, out, _ = cli("tree", "--by", "tag")
         assert code == 0
-        assert "#gaming" in out
+        assert "#reporting" in out
         assert "#invest" in out
         # generic tags are not used as group headers
         assert "#work" not in out and "#P0" not in out
@@ -88,12 +88,12 @@ class TestTreeBy:
     def test_by_project_groups_by_shared_tag(self, cli):
         self._seed(cli)
         code, out, _ = cli("tree", "--by", "project")
-        # gaming-data-viz section should contain login fix + ingest pipeline (shared gaming tag)
-        gaming_section = out.split("investment")[0]
-        assert "login fix" in gaming_section
-        assert "ingest pipeline" in gaming_section
+        # reporting-dashboard section should contain login fix + ingest pipeline (shared reporting tag)
+        reporting_section = out.split("investment")[0]
+        assert "login fix" in reporting_section
+        assert "ingest pipeline" in reporting_section
         # structural child (parent=project) also counts
-        assert "structural child" in gaming_section
+        assert "structural child" in reporting_section
 
     def test_by_project_orphans(self, cli):
         self._seed(cli)

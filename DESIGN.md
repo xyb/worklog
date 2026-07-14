@@ -305,7 +305,7 @@ A task is "in" a project if any of:
 1. **Structural child**: `task.parent_id == project.id`
 2. **Shared semantic tag**: task and project share at least one non-generic tag
 
-⚠️ Known caveat: shared-tag association is ambiguous (one `gaming` tag matches multiple gaming projects → tasks show up under multiple). **Future precision direction**: add `prop["project"]` for explicit single ownership; `_project_members` prefers prop, falls back to tag. Changing this helper affects `tree --by project` / `projects` / `changes` / `summary` — verify all four together.
+⚠️ Known caveat: shared-tag association is ambiguous (one `reporting` tag matches multiple reporting projects → tasks show up under multiple). **Future precision direction**: add `prop["project"]` for explicit single ownership; `_project_members` prefers prop, falls back to tag. Changing this helper affects `tree --by project` / `projects` / `changes` / `summary` — verify all four together.
 
 ## 11. Generic dimension tags (`GENERIC_TAGS`)
 
@@ -407,7 +407,7 @@ marker → status: `[ ]`=TODO, `[x]`=DONE, `[/]`=DOING, `[>]`=LATER, `[?]`=WAIT,
 
 ```
   #2 [project] Aggregation        ← anchor: locate #2 as parent, don't modify
-+   [x] [#A] login fix :gaming:P0:
++   [x] [#A] login fix :reporting:P0:
 +     @log root cause: configmap pointed to wrong bucket
 - #44 glucose log                  ← delete #44 (recurses into subtree)
 ```

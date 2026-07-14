@@ -580,3 +580,27 @@ class TestRenderBody:
         out = self._render("# Title\nplain body line", capsys)
         assert "Title" in out and "plain body line" in out
         assert "#" not in out  # ATX heading marker stripped
+
+
+class TestHelpTopicRenderableMarkdown:
+    """Help topics render as reflowed terminal text, and the renderer supports only a subset of
+    Markdown. Anything outside that subset is silently mangled rather than rejected, so the
+    constraint has to be a test — both of these shipped once and were caught by eye, not by CI."""
+
+    def _topic_lines(self):
+        for p in sorted((HELP_DIR / FALLBACK_LANG).glob("*.md")):
+            for i, line in enumerate(p.read_text().splitlines(), 1):
+                yield p.name, i, line
+
+    def test_no_markdown_tables(self):
+        """The renderer has no table support: `| a | b |` comes out as literal pipes. Use a bullet
+        list (see agent.md's runtime list, which used to be a table)."""
+        bad = [f"{n}:{i}: {ln.strip()[:50]}" for n, i, ln in self._topic_lines()
+               if ln.lstrip().startswith("|")]
+        assert not bad, "help topics can't render Markdown tables — use a bullet list:\n  " + "\n  ".join(bad)
+
+    def test_no_html_comments(self):
+        """An HTML comment is NOT stripped — it prints verbatim to the user. Put the aside in
+        prose, or leave it in the source code instead."""
+        bad = [f"{n}:{i}: {ln.strip()[:50]}" for n, i, ln in self._topic_lines() if "<!--" in ln]
+        assert not bad, "HTML comments leak into rendered help output:\n  " + "\n  ".join(bad)
