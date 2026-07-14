@@ -47,7 +47,26 @@ uv run pytest tests/test_add.py::TestAdd::test_add_task -v --no-cov
 # coverage gate already lives in pytest.ini (--cov-fail-under=95); `make cov`
 # just re-runs `make test` with term-missing output for inspection.
 make cov
+
+# more/fewer workers than the default (cores - 2)
+WORKERS=4 make test
 ```
+
+### Why the test workers are called `wl-pytest`
+
+`make test` runs the suite through `scripts/run-tests.sh`, which launches pytest via a hardlink
+to the interpreter named `wl-pytest`, and uses `cores - 2` workers. Two reasons: a screenful of
+anonymous `Python` processes pinning every core is indistinguishable from a runaway program, and
+leaving two cores free keeps the machine usable while the suite runs.
+
+macOS names a process after the *filename of the binary it exec'd* (`p_comm`), not after
+`argv[0]`, so `exec -a` and argv rewrites are invisible to Activity Monitor, and a *symlink*
+resolves back to the original name. A hardlink is what works — which is also why `make sync`
+pins the venv to a **uv-managed** Python: a framework build (python.org / Homebrew /
+CommandLineTools) re-execs itself into `Python.app` and clobbers the name. On a framework venv
+the script says so and falls back to running unnamed; nothing breaks.
+
+CI is untouched by any of this — it calls `uv run pytest` directly and reads `pytest.ini`.
 
 Run `wl` against a throwaway DB without touching `~/.local/share/worklog/worklog.db`:
 

@@ -7,6 +7,9 @@ PYTHON      := $(UV) run python
 PYTEST      := $(UV) run pytest
 PROJ_DIR    := $(shell pwd)
 GIT         := /usr/bin/git
+# Dev interpreter, pinned on purpose: the golden --help byte comparison only runs on
+# Python < 3.13 (argparse changed its layout), so developing on 3.13+ would silently skip it.
+DEV_PY      := 3.9
 
 # Resolve the DB path — matches worklog.cli._resolve_db_path:
 # $WORKLOG_DB env, else $XDG_DATA_HOME/worklog/worklog.db (default ~/.local/share/worklog/worklog.db)
@@ -21,18 +24,21 @@ help:                ## show this help
 
 # ── dev ──
 
+# A uv-MANAGED (standalone) interpreter, not the system/framework one: a framework Python
+# re-execs itself into Python.app and so cannot keep a custom process name — see
+# scripts/run-tests.sh. Only affects the local venv; CI calls `uv run pytest` directly.
 sync:                ## uv sync (runtime + dev deps from pyproject.toml + uv.lock)
-	@$(UV) sync --all-groups
+	@UV_PYTHON_PREFERENCE=only-managed $(UV) sync --all-groups --python $(DEV_PY)
 	@echo "✓ .venv synced from pyproject.toml + uv.lock"
 
-test:                ## run pytest (parallel + cov + 95% gate, reads pytest.ini)
-	@$(PYTEST)
+test:                ## run pytest (parallel + cov + 95% gate; workers show as wl-pytest)
+	@./scripts/run-tests.sh
 
 test-v:              ## run pytest verbose (no parallel, useful for debug output)
 	@$(PYTEST) -v -p no:xdist --no-cov
 
 test-fast:           ## run pytest only (no cov, no gate; quick dev feedback)
-	@$(PYTEST) --no-cov -n auto
+	@./scripts/run-tests.sh --no-cov
 
 cov:                 ## detailed coverage report (term-missing, includes 95% gate)
 	@$(PYTEST)
