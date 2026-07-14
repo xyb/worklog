@@ -3,8 +3,12 @@
 The session id comes from $WL_SESSION_ID (preferred) or a runtime's own env var from the
 AgentRuntime registry ($CLAUDE_CODE_SESSION_ID / $CURSOR_CONVERSATION_ID); the runtime name
 from $WL_AGENT or the registry's env markers (e.g. $CURSOR_AGENT=1 → cursor)."""
+import argparse
 import sqlite3
 import pytest
+
+from worklog import render
+from worklog.commands.agent_runtime import apply_auto_brief
 
 KEY = "agent_session.claude"
 
@@ -705,3 +709,86 @@ class TestAgentShowStyled:
         cli("agent", "1")
         code, out, _ = cli("--color", "always", "--width", "40", "agent")
         assert code == 0 and "…" in out          # sid (or title) truncated to fit
+
+
+class TestAutoBrief:
+    """Inside an agent session, overview commands default to brief (-q) output.
+
+    Brief always drops *something* — that is how it saves tokens — so the flip is announced on
+    stdout and reversible with --no-brief. Commands whose dropped content IS the reason you ran them
+    (show's timeline, logs' bodies) are deliberately not in the whitelist."""
+
+    # conftest's _isolate_session_env already scrubs every runtime env var: a test here is a
+    # human shell until it opts into a session identity.
+
+    def _args(self, cmd="day", **kw):
+        return argparse.Namespace(**{"cmd": cmd, "brief": False, "no_brief": False, **kw})
+
+    def test_flips_brief_on_in_an_agent_session(self, monkeypatch, capsys):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-aaa")
+        args = self._args("day")
+        assert apply_auto_brief(args) is True
+        assert args.brief is True
+        assert "--no-brief" in capsys.readouterr().out      # the flip is announced, not silent
+
+    def test_human_shell_is_untouched(self, capsys):
+        args = self._args("day")
+        assert apply_auto_brief(args) is False
+        assert args.brief is False
+        assert capsys.readouterr().out == ""
+
+    @pytest.mark.parametrize("cmd", ["day", "ls", "projects", "active", "summary"])
+    def test_whitelisted_overview_commands(self, cmd, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-aaa")
+        args = self._args(cmd)
+        assert apply_auto_brief(args) is True
+
+    @pytest.mark.parametrize("cmd", ["show", "logs", "find", "log", "add"])
+    def test_commands_whose_detail_is_the_point_are_excluded(self, cmd, monkeypatch):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-aaa")
+        args = self._args(cmd)
+        assert apply_auto_brief(args) is False
+        assert args.brief is False
+
+    def test_no_brief_opts_back_out(self, monkeypatch, capsys):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-aaa")
+        args = self._args("day", no_brief=True)
+        assert apply_auto_brief(args) is False
+        assert args.brief is False
+        assert capsys.readouterr().out == ""           # no hint: nothing was flipped
+
+    def test_explicit_q_needs_no_hint(self, monkeypatch, capsys):
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-aaa")
+        args = self._args("day", brief=True)
+        assert apply_auto_brief(args) is False         # already brief; nothing to flip
+        assert args.brief is True
+        assert capsys.readouterr().out == ""
+
+    def test_hint_never_corrupts_json_output(self, monkeypatch, capsys):
+        """-o json suppresses out(); the hint must ride that same switch or it breaks parsing."""
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-aaa")
+        render.set_suppress_output(True)
+        try:
+            args = self._args("day")
+            assert apply_auto_brief(args) is True and args.brief is True
+        finally:
+            render.set_suppress_output(False)
+        assert capsys.readouterr().out == ""
+
+    def test_cursor_session_counts_too(self, monkeypatch):
+        monkeypatch.setenv("CURSOR_AGENT", "1")
+        monkeypatch.setenv("CURSOR_CONVERSATION_ID", "conv-1")
+        args = self._args("projects")
+        assert apply_auto_brief(args) is True
+
+    def test_end_to_end_through_the_cli(self, cli, monkeypatch):
+        """The real path: a bound agent session runs `wl day` and gets brief output + the hint."""
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-aaa")
+        cli("add", "a task")
+        cli("log", "1", "a log body that brief mode drops")
+        code, out_full, _ = cli("--no-brief", "day")
+        code2, out_brief, _ = cli("day")
+        assert code == 0 and code2 == 0
+        assert "a log body that brief mode drops" in out_full
+        assert "a log body that brief mode drops" not in out_brief
+        assert "--no-brief" in out_brief                   # tells the agent what it is missing

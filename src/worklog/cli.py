@@ -98,6 +98,7 @@ from .helpers import (
     _sched_sort_key,
     _sched_display,
 )
+from .commands.agent_runtime import apply_auto_brief
 
 DB_PATH = _resolve_db_path()
 ALIASES_PATH = _resolve_aliases_path()
@@ -364,7 +365,7 @@ _DEFAULT_VERB_ENTITIES = {}
 # global flags that consume the next token as their value (skip it when locating the subcommand)
 _GLOBAL_VALUE_FLAGS = frozenset(("--db", "--color", "--theme", "--log-format", "--width", "--title", "-o", "--output"))
 # global store_true flags (no value token)
-_GLOBAL_BOOL_FLAGS = frozenset(("-q", "--brief", "--show-canceled"))
+_GLOBAL_BOOL_FLAGS = frozenset(("-q", "--brief", "--no-brief", "--show-canceled"))
 _HOIST_VALUE_FLAGS = _GLOBAL_VALUE_FLAGS - frozenset(("--title",))
 
 # commands without a same-named help topic → the topic that covers them (a family guide or
@@ -588,6 +589,8 @@ Good to know:
                    help="long node title: wrap (multi-line, hang-indented under the title; default) / clip (one line, truncate with …); also reads $WORKLOG_TITLE")
     p.add_argument("-q", "--brief", action="store_true",
                    help="brief output: skip log body/timeline/detail in every command, token-saving for AI")
+    p.add_argument("--no-brief", action="store_true",
+                   help="never brief: opt back out of the auto -q that agent sessions get on day/ls/projects/active/summary")
     p.add_argument("-o", "--output", choices=["text", "json"], default="text",
                    help="output format: text (default) or json (machine-readable); place before or after the verb — wl -o json ls / wl ls -o json. See: wl help output")
     p.add_argument("--log-format", choices=["oneline", "full"], default="oneline",
@@ -649,6 +652,8 @@ Good to know:
             # clobber a value already set on the global parser.
             pp.add_argument("-q", "--brief", action="store_true", default=argparse.SUPPRESS,
                             help="brief output (same as the global -q; accepted after the subcommand too)")
+            pp.add_argument("--no-brief", action="store_true", default=argparse.SUPPRESS,
+                            help="never brief (same as the global --no-brief; accepted after the subcommand too)")
             # auto-link --help to the wl help topic (DESIGN §25 slimming policy): prefer a
             # same-named topic, else the family topic this command belongs to (_HELP_FAMILY),
             # so every command's --help points somewhere useful. Skipped if the epilog already
@@ -2075,6 +2080,8 @@ def main():  # pragma: no cover -- argparse entry; tests invoke HANDLERS[cmd] di
         _init_console(args.color, args.theme)
         _set_width_cap(_resolve_width_cap(getattr(args, "width", None)))
         _set_title_mode(_resolve_title_mode(getattr(args, "title", None)))
+        # after the formatter is set up, so -o json suppresses the hint like any other out()
+        apply_auto_brief(args)
         # config / help are read-only and side-effect free — don't create the DB just to
         # print paths or render a help topic (a newcomer may run `wl help` before `wl init`).
         if args.cmd in ("config", "help"):

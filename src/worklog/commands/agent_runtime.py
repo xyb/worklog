@@ -10,6 +10,8 @@ import os
 from dataclasses import dataclass
 from typing import Callable, Dict, Optional
 
+from ..render import out, _c
+
 
 HookBuilder = Callable[[str, str, "AgentRuntime"], Optional[Dict]]
 
@@ -103,3 +105,30 @@ def resolve_session_id(environ: dict[str, str] | None = None) -> str | None:
 def session_env_hints() -> list[str]:
     """Human-readable env-variable hints for fail-closed errors."""
     return ["$WL_SESSION_ID"] + [f"${rt.session_env}" for rt in AGENT_RUNTIMES]
+
+
+# --- auto-brief: overview commands default to -q inside an agent session -------------------
+# Whitelisted by measured savings vs what brief throws away (a real ~1400-node DB):
+#   summary 93% · active 53% · projects 30% · day 22% · ls 17%
+# Excluded on purpose: `show` (brief drops the timeline — the reason you ran it), `logs`
+# (drops the log body — likewise), `find` / `tree` / `focus` (brief is a no-op there anyway).
+AUTO_BRIEF_CMDS = frozenset(("day", "ls", "projects", "active", "summary"))
+AUTO_BRIEF_HINT = "(agent session: auto -q; --no-brief for the dropped detail)"
+
+
+def apply_auto_brief(args, environ: dict[str, str] | None = None) -> bool:
+    """Turn on brief output for an overview command running inside an agent session.
+
+    Brief always drops *something* — that is how it saves tokens — so the flip is announced
+    rather than silent: an agent that needs what was dropped can re-run with --no-brief. Returns
+    whether the flip happened. Explicit -q or --no-brief both mean the caller already decided.
+    """
+    if getattr(args, "no_brief", False) or getattr(args, "brief", False):
+        return False
+    if getattr(args, "cmd", None) not in AUTO_BRIEF_CMDS:
+        return False
+    if not resolve_session_id(environ):
+        return False
+    args.brief = True
+    out(_c(AUTO_BRIEF_HINT, "meta"))
+    return True

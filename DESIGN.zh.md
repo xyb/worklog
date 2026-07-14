@@ -210,6 +210,7 @@ dev ai sync strategy reflection reading family health morning_check slack_scan
 - 分组头 `▸`，子项缩进 2/4 空格
 - emoji 克制：`📊` summary 头 / `📅` changes 头 / `⏱` 工时 / `●◷✓✎` 时间线事件 / `▸·` 分组
 - 高亮 / 配色 / `--color` / `--theme` 见 §19；输出走 `out()` 不直接 `print()`
+- **agent session 自动 brief**：检测到 session id（`resolve_session_id()`，与 `wl agent` 绑定用的是同一个信号）时，概览类命令 `day` / `ls` / `projects` / `active` / `summary` 默认按 `-q` 输出。这几个进白名单是因为 brief 在它们身上只删冗余：真实库上实测省 17–93%。`show` 和 `logs` 明确排除——brief 删掉的正是时间线 / 日志正文，那恰恰是运行它们的目的；`find` / `tree` / `focus` 本来就不受 brief 影响。brief 一定会丢东西，所以自动切换会打一行提示，而不是静默截断，`--no-brief` 可以退回完整输出。人类 shell 完全不受影响。唯一入口：`commands/agent_runtime.py` 的 `apply_auto_brief()`，dispatch 前调用一次（在 formatter 初始化之后，这样 `-o json` 会像抑制其它 `out()` 一样抑制这行提示）。
 
 ## 15. 测试约定
 

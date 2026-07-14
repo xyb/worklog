@@ -82,6 +82,7 @@ def run_cli(wl, *args):
     try:
         with contextlib.redirect_stdout(buf_out), contextlib.redirect_stderr(buf_err):
             try:
+                wl.apply_auto_brief(parsed)   # main() does this too, right before dispatch
                 wl.HANDLERS[parsed.cmd](parsed, con)
             except SystemExit as e:
                 # sys.exit("msg") stores the message in e.code; the default interpreter

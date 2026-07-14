@@ -346,6 +346,7 @@ Reuse these when a new command needs the functionality; do not write another cop
 - Group headers `▸`, sub-items indented 2 / 4 spaces
 - Restrained emoji use: `📊` summary header / `📅` changes header / `⏱` time / `●◷✓✎` timeline events / `▸·` grouping
 - Highlighting / colors / `--color` / `--theme` — see §19; outputs go through `out()`, not direct `print()`
+- **Auto-brief in an agent session.** When a session id is present (`resolve_session_id()` — the same signal `wl agent` binds on), the overview commands `day` / `ls` / `projects` / `active` / `summary` default to `-q`. They are whitelisted because brief there drops only bulk: measured 17–93% smaller on a real database. `show` and `logs` are deliberately excluded — brief drops their timeline / log body, which is the reason you ran them; `find` / `tree` / `focus` are unaffected by brief anyway. Brief always drops *something*, so the flip prints a one-line notice instead of silently truncating, and `--no-brief` opts back out. A human shell is untouched. Single entry point: `apply_auto_brief()` in `commands/agent_runtime.py`, called once before dispatch (after the formatter is set up, so `-o json` suppresses the notice like any other `out()`).
 
 ## 15. Test conventions
 

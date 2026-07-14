@@ -61,7 +61,14 @@ compound/batch params, clock, `wl metric`, recurrence, and `wl ls` queries → `
 Every command supports top-level **`-q` / `--brief`** — skips log body / timeline / detail
 sections, keeps structured key info. **AI should default to `-q`** when fetching output (big
 savings: `wl -q day` −47%, `wl -q summary --week` −89%, `wl -q show` −68%); drop to a full
-`wl show <id>` only for detail on a specific node. Typical pattern:
+`wl show <id>` only for detail on a specific node.
+
+**Inside an agent session this is partly automatic**: with a session id present, `day` / `ls` /
+`projects` / `active` / `summary` already default to `-q` and say so on a notice line — pass
+`--no-brief` when you need the detail back. Nothing else auto-briefs, so keep writing `-q`
+yourself for the rest (`show`, `logs`, `find`, `tree`, …). See `wl help agent`.
+
+Typical pattern:
 
 ```fish
 wl -q day                          # today's tasks: todo / in-progress / done

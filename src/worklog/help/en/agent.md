@@ -97,6 +97,25 @@ End of day, or any time the tabs have piled up — find the ones that stalled:
 The pair is the whole loop: `gaps` says what needs a session, `ls` says which sessions stopped
 delivering. Neither needs you to remember which tab was doing what.
 
+## Auto-brief: overview commands default to -q in an agent session
+
+Binding is not the only thing the session id buys. When one is present, these five commands
+default to brief output, because that is where brief drops bulk and nothing else:
+
+  day · ls · projects · active · summary        # measured 17–93% smaller on a real database
+
+Brief always drops *something* — that is how it saves tokens — so the flip is announced, not
+silent. Every auto-briefed command prints one notice line, and `--no-brief` gives you the full
+view back:
+
+  wl day                  # (agent session: auto -q; --no-brief for the dropped detail)
+  wl day --no-brief       # the full view, log bodies and all
+
+`show` and `logs` are deliberately NOT in the list: brief there drops the timeline / the log
+body, which is the reason you ran them. `find` / `tree` / `focus` are unaffected by brief at all.
+A human shell (no session id) sees no change, and `-o json` output is never touched — the notice
+rides the same output switch every other line does.
+
 ## Supported runtimes (the AgentRuntime registry)
 
 Runtime-specific knowledge lives in ONE registry (`src/worklog/commands/agent_runtime.py`) —
