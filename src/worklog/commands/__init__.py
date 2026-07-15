@@ -76,6 +76,7 @@ from .query import (
     cmd_metrics,
     cmd_changes,
     cmd_summary,
+    cmd_hours,
     cmd_logs,
     _show_one,
 )

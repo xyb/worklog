@@ -66,6 +66,7 @@ from ..graph import (
     _ancestors_chain,
     _collect_descendants,
     _project_members,
+    _node_project,
     relation_view,
     _backrels,
     node_ready_view,
@@ -876,6 +877,92 @@ def cmd_changes(args, con):
 
 
 
+
+
+_HOURS_GAP_SEC = 60 * 60   # a gap larger than this is a break (lunch / meeting / overnight), not work — dropped whole, not capped, so a real break never counts
+
+
+def _hm(minutes):
+    """Minutes -> compact 2h05m / 45m / 0 (no brackets, for the hours breakdown)."""
+    m = int(minutes)
+    if m <= 0:
+        return "0"
+    h, mm = divmod(m, 60)
+    return f"{h}h{mm:02d}m" if h else f"{mm}m"
+
+
+def _hours_group(con, node_id, title, logged_at, by):
+    """(group key, display title) for a log's node under the chosen `--by` dimension."""
+    if by == "task":
+        return node_id, title
+    if by == "day":
+        day = _tu.local_day_of(logged_at)
+        return day, day
+    pid, ptitle = _node_project(con, node_id)
+    return (pid if pid is not None else ptitle), ptitle
+
+
+@output_format
+def cmd_hours(args, con):
+    """Where time went, reconstructed from the log stream: each adjacent-log interval (capped at
+    60 min) is attributed to the EARLIER log's node, then grouped by project / task / day. This
+    measures log-activity time (work happening on a node, human or agent) — not pure human
+    presence, which needs the external multi-source tool."""
+    date = getattr(args, "date", None)
+    if date:
+        try:
+            since = until = _resolve_concrete_date(date)
+        except ValueError:
+            die(f"invalid date '{date}' (use YYYY-MM-DD / today / yesterday)")
+    elif getattr(args, "since", None) or getattr(args, "until", None) or _window_period(args)[0]:
+        since, until = _resolve_window(args)
+    else:
+        since = until = _tu.today()
+    by = getattr(args, "by", None) or "project"
+
+    rows = con.execute(
+        f"SELECT log.node_id AS node_id, log.logged_at AS logged_at, node.title AS title "
+        f"FROM log JOIN node ON log.node_id = node.id "
+        f"WHERE {_tu.local_day_sql('log.logged_at')} BETWEEN ? AND ? AND log.{_db.ALIVE} "
+        f"ORDER BY log.logged_at",
+        (since, until),
+    ).fetchall()
+
+    secs, titles = {}, {}
+    for i in range(len(rows) - 1):
+        dur = (_tu.parse_ts(rows[i + 1]["logged_at"]) - _tu.parse_ts(rows[i]["logged_at"])).total_seconds()
+        if dur <= 0 or dur > _HOURS_GAP_SEC:   # non-positive or a break -> not continuous work
+            continue
+        key, title = _hours_group(con, rows[i]["node_id"], rows[i]["title"], rows[i]["logged_at"], by)
+        secs[key] = secs.get(key, 0) + dur
+        titles[key] = title
+
+    total_sec = sum(secs.values())
+    groups = sorted(
+        [{"id": k if isinstance(k, int) else None, "title": titles[k],
+          "min": round(v / 60), "pct": round(v / total_sec * 100, 1)}
+         for k, v in secs.items()],
+        key=lambda g: g["min"], reverse=True,
+    )
+    result = {"since": since, "until": until, "by": by,
+              "total_min": round(total_sec / 60), "groups": groups}
+    cap_res = result
+
+    def _render():
+        out(_c(f"⏱  {cap_res['since']} ~ {cap_res['until']} · hours by {by}", "header"))
+        gs = cap_res["groups"]
+        if not gs:
+            out(_c("(no log activity in window)", "meta"))
+            return
+        width, mx = 20, gs[0]["min"] or 1
+        for g in gs:
+            fill = max(1, round(g["min"] / mx * width))
+            bar = "█" * fill + " " * (width - fill)
+            label = (f"#{g['id']} " if g["id"] else "") + g["title"]
+            out("  " + _c(bar, "id") + f" {_hm(g['min']):>6} {g['pct']:>4.0f}%  " + _c(label[:56], "body"))
+        out(_c(f"── total {_hm(cap_res['total_min'])} · from log cadence (gaps >60m = breaks, dropped); activity not presence", "meta"))
+
+    return TextRenderable(result, _render)
 
 
 # --- DRY helpers: filter / truncate / bulk status change, reused across commands ---

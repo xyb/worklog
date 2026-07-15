@@ -555,7 +555,7 @@ Concepts (the data model):
 Commands by purpose (run `wl <command> -h` for options + examples):
   track work    `add` · `log` · `done` · `defer` · `cancel` · `reopen` · `wait` · `tick`
   time          `start` · `stop` · `spent` · `active` · `clock`
-  see it        `day` · `tree` · `ls` · `show` · `logs` · `find` · `projects` · `agenda` · `summary` · `changes` · `focus`
+  see it        `day` · `tree` · `ls` · `show` · `logs` · `find` · `projects` · `agenda` · `summary` · `changes` · `hours` · `focus`
   organize      `tag` · `link` · `sched` · `set` · `prop` · `meta` · `node` · `relog` · `unlog`
   plan/reflect  `goal` · `recap` · `checkin` · `metric` · `dateinfo`
   bulk & setup  `import` · `apply` · `init` · `config` · `alias` · `themes` · `print-completion`
@@ -1407,6 +1407,21 @@ More: `wl help summary` (vs `wl changes` deltas / `wl day` single day).""")
     sm.add_argument("--no-dedup", action="store_true",
                     help="no dedup: a task across multiple projects is repeated in each bucket (old behavior)")
 
+    hr = add_cmd(sub, "hours", cmd_hours, parents=[window, output_parent],
+        help="where time went: reconstruct per-project/task/day time from the log stream",
+        description="Reconstruct where time went from the log stream: the interval between two adjacent logs is attributed to the earlier log's node when they're close enough to be one work session (a gap over 60 min counts as a break — lunch / meeting / overnight — and is dropped whole). Grouped by project (default) / task / day. Measures log-activity time — work happening on a node, human or agent — not pure human presence.",
+        epilog="""\
+Common examples:
+  wl hours                        # today, by project
+  wl hours 2026-07-14 --by task   # one day, broken down by task
+  wl hours --week 2026-W28        # a week, by project
+  wl hours --since 2026-07-08 --until 2026-07-14 --by day
+  wl hours -o toon                # compact, LLM-friendly
+
+Note: activity time (whoever wrote the log, human OR agent), not human presence.""")
+    hr.add_argument("date", nargs="?", help="a single day (YYYY-MM-DD / today / yesterday); or use --since/--until/--week/…")
+    hr.add_argument("--by", choices=["project", "task", "day"], default="project", help="aggregate dimension (default: project)")
+
     dy = add_cmd(sub, "day", cmd_day, parents=[filters, output_parent],
         help="full view of a day (default today): bucket -> project/plan -> task -> log",
         description="Full view of one day: work/personal/other -> (planned/unplanned/project/priority) -> task -> indented logs. The header states the day's nature (workday / weekend, refined to holiday / leave / makeup by a `wl dateinfo` label). Top shows end-of-day summary + today's goal + the week's & month's goal (if set). Defaults to log-date-driven (works for past days too).",
@@ -1998,6 +2013,7 @@ from .commands import (
     cmd_changes,
     _bulk_status_change,
     cmd_summary,
+    cmd_hours,
     _import_node,
     _import_update,
     cmd_import,
