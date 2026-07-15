@@ -160,6 +160,39 @@ class JSONFormatter(Formatter):
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=_dc_default))
 
 
+class JSONLFormatter(JSONFormatter):
+    """JSON Lines mode: a top-level array is streamed as one compact JSON object
+    per line; any other payload is emitted as a single compact line.
+
+    Same data as -o json, reshaped for line-oriented pipelines (`jq -c`, `grep`,
+    a streaming analyzer). Inherits out() suppression + RFC 9457 error formatting
+    from JSONFormatter — only the emit() serialisation differs.
+    """
+
+    def emit(self, data) -> None:
+        payload = data.data if isinstance(data, TextRenderable) else data
+        if isinstance(payload, list):
+            for item in payload:
+                print(json.dumps(item, ensure_ascii=False, default=_dc_default))
+        else:
+            if is_dataclass(payload) and not isinstance(payload, type):
+                payload = asdict(payload)
+            print(json.dumps(payload, ensure_ascii=False, default=_dc_default))
+
+
+class TOONFormatter(JSONFormatter):
+    """TOON mode: emit the payload as Token-Oriented Object Notation — a compact,
+    LLM-friendly JSON alternative (~40% fewer tokens on uniform arrays). Inherits
+    out() suppression + RFC 9457 error formatting from JSONFormatter; only the
+    serialisation differs. Encoder lives in worklog.toon (zero-dependency, G3).
+    """
+
+    def emit(self, data) -> None:
+        from ..toon import encode
+        payload = data.data if isinstance(data, TextRenderable) else data
+        print(encode(payload))
+
+
 _FORMATTERS: dict[str, type[Formatter]] = {}
 
 
@@ -213,3 +246,5 @@ def output_format(fn):
 # Register built-in formatters via the same public API used by external plugins.
 register_formatter("text", TextFormatter)
 register_formatter("json", JSONFormatter)
+register_formatter("jsonl", JSONLFormatter)
+register_formatter("toon", TOONFormatter)

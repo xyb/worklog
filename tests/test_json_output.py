@@ -47,6 +47,78 @@ class TestFindJson:
         assert rows == []
 
 
+class TestJSONLIntegration:
+    """-o jsonl: same data as -o json, but a top-level array streams one
+    compact object per line (for jq -c / streaming pipelines); other payloads
+    stay a single line."""
+
+    def _lines(self, cli, *args):
+        code, out, err = cli(*args)
+        assert code == 0, f"exit {code}: {err}"
+        return [json.loads(x) for x in out.splitlines() if x.strip()]
+
+    def test_list_command_streams_lines(self, cli):
+        cli("add", "jl one", "-t", "work")
+        cli("add", "jl two", "-t", "work")
+        code, out, _ = cli("find", "jl", "-o", "jsonl")
+        assert not out.lstrip().startswith("[")  # not a JSON array
+        rows = [json.loads(x) for x in out.splitlines() if x.strip()]
+        assert {r["title"] for r in rows} >= {"jl one", "jl two"}
+
+    def test_prefix_syntax(self, cli):
+        cli("add", "jlpfx")
+        rows = self._lines(cli, "-o", "jsonl", "find", "jlpfx")
+        assert rows[0]["title"] == "jlpfx"
+
+    def test_empty_emits_no_lines(self, cli):
+        code, out, _ = cli("find", "zzznomatch", "-o", "jsonl")
+        assert code == 0 and out.strip() == ""
+
+    def test_dict_payload_single_line(self, cli):
+        cli("add", "jl show")
+        code, out, _ = cli("show", "1", "-o", "jsonl")
+        assert out.count("\n") == 1
+        assert json.loads(out)["id"] == 1
+
+    def test_error_is_rfc9457_on_stderr(self, cli):
+        code, out, err = cli("show", "99999", "-o", "jsonl")
+        assert code != 0
+        assert json.loads(err)["status"] == 404 or json.loads(err)["title"] == "Error"
+
+
+class TestTOONIntegration:
+    """-o toon: compact Token-Oriented Object Notation. Same data as -o json,
+    round-trippable, ~40% fewer tokens. Encoder unit-tested in test_toon.py;
+    here we only check the CLI wiring end-to-end."""
+
+    def test_uniform_list_is_tabular(self, cli):
+        cli("add", "t1", "-t", "work")
+        cli("add", "t2", "-t", "work")
+        code, out, err = cli("tags", "-o", "toon")
+        assert code == 0, err
+        # tags → [{tag,count}] → uniform primitive → tabular header + rows
+        assert out.splitlines()[0].startswith("[") and "{tag,count}:" in out.splitlines()[0]
+
+    def test_object_command(self, cli):
+        cli("add", "solo")
+        code, out, _ = cli("show", "1", "-o", "toon")
+        assert code == 0
+        assert out.splitlines()[0] == "id: 1"
+
+    def test_empty_is_empty_array_token(self, cli):
+        code, out, _ = cli("find", "zzznomatch", "-o", "toon")
+        assert code == 0 and out.strip() == "[]"
+
+    def test_error_is_rfc9457_on_stderr(self, cli):
+        code, out, err = cli("show", "99999", "-o", "toon")
+        assert code != 0 and json.loads(err)["title"] == "Error"
+
+    def test_accepted_prefix_and_suffix(self, cli):
+        cli("add", "px")
+        assert cli("-o", "toon", "find", "px")[0] == 0
+        assert cli("find", "px", "-o", "toon")[0] == 0
+
+
 class TestFocusJson:
     def test_structure(self, cli):
         cli("add", "proj", "--para", "project")

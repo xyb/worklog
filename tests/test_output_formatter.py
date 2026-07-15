@@ -10,6 +10,7 @@ from worklog.commands.output import (
     Formatter,
     TextFormatter,
     JSONFormatter,
+    JSONLFormatter,
     TextRenderable,
     _FORMATTERS,
     register_formatter,
@@ -200,6 +201,70 @@ class TestJSONFormatter:
         # After inner teardown, outer's format_error is back.
         assert _render._active_error_formatter is JSONFormatter.format_error
         outer.teardown()
+        assert _render._active_error_formatter is None
+
+
+class TestJSONLFormatter:
+    """JSONL mode: a top-level list streams one compact object per line; any
+    other payload is a single compact line. Subclasses JSONFormatter, so it
+    inherits out() suppression + RFC 9457 error formatting."""
+
+    def test_registered_as_jsonl(self):
+        assert _FORMATTERS["jsonl"] is JSONLFormatter
+        assert isinstance(get_formatter("jsonl"), JSONLFormatter)
+
+    def test_subclasses_json_formatter(self):
+        assert issubclass(JSONLFormatter, JSONFormatter)
+
+    def test_list_streams_one_object_per_line(self, capsys):
+        JSONLFormatter().emit([{"id": 1}, {"id": 2}, {"id": 3}])
+        lines = capsys.readouterr().out.splitlines()
+        assert [json.loads(x) for x in lines] == [{"id": 1}, {"id": 2}, {"id": 3}]
+
+    def test_lines_are_compact_not_indented(self, capsys):
+        JSONLFormatter().emit([{"id": 1, "title": "a"}])
+        out = capsys.readouterr().out
+        assert out == '{"id": 1, "title": "a"}\n'  # no indent, no array brackets
+
+    def test_empty_list_emits_nothing(self, capsys):
+        JSONLFormatter().emit([])
+        assert capsys.readouterr().out == ""
+
+    def test_dict_payload_is_single_line(self, capsys):
+        JSONLFormatter().emit({"a": 1, "b": [2, 3]})
+        out = capsys.readouterr().out
+        assert out.count("\n") == 1 and json.loads(out) == {"a": 1, "b": [2, 3]}
+
+    def test_none_is_single_line(self, capsys):
+        JSONLFormatter().emit(None)
+        assert json.loads(capsys.readouterr().out) is None
+
+    def test_uses_text_renderable_data(self, capsys):
+        rendered = []
+        tr = TextRenderable([{"id": 7}], lambda: rendered.append("x"))
+        JSONLFormatter().emit(tr)
+        assert [json.loads(x) for x in capsys.readouterr().out.splitlines()] == [{"id": 7}]
+        assert rendered == []
+
+    def test_dataclass_items_serialized(self, capsys):
+        from dataclasses import dataclass
+        @dataclass
+        class P:
+            a: int
+        JSONLFormatter().emit([P(1), P(2)])
+        assert [json.loads(x) for x in capsys.readouterr().out.splitlines()] == [{"a": 1}, {"a": 2}]
+
+    def test_non_ascii_not_escaped(self, capsys):
+        JSONLFormatter().emit([{"t": "复盘"}])
+        assert "复盘" in capsys.readouterr().out
+
+    def test_inherits_error_formatter_setup(self):
+        fmt = JSONLFormatter()
+        fmt.setup()
+        try:
+            assert _render._active_error_formatter is JSONFormatter.format_error
+        finally:
+            fmt.teardown()
         assert _render._active_error_formatter is None
 
 

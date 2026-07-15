@@ -591,8 +591,8 @@ Good to know:
                    help="brief output: skip log body/timeline/detail in every command, token-saving for AI")
     p.add_argument("--no-brief", action="store_true",
                    help="never brief: opt back out of the auto -q that agent sessions get on day/ls/projects/active/summary")
-    p.add_argument("-o", "--output", choices=["text", "json"], default="text",
-                   help="output format: text (default) or json (machine-readable); place before or after the verb — wl -o json ls / wl ls -o json. See: wl help output")
+    p.add_argument("-o", "--output", choices=["text", "json", "jsonl", "toon"], default="text",
+                   help="output format: text (default) / json (machine-readable) / jsonl (a list streams one object per line, for jq -c / streaming) / toon (compact token-efficient format for LLMs); place before or after the verb — wl -o json ls / wl ls -o toon. See: wl help output")
     p.add_argument("--log-format", choices=["oneline", "full"], default="oneline",
                    help="log body render style (default oneline = truncate to terminal width with …; full = expand; applies across wl day/tree/logs/show)")
     p.add_argument("--show-canceled", action="store_true",
@@ -625,8 +625,8 @@ Good to know:
     # text = the rich rendering (default), json = machine-readable. A command gains `-o` only
     # when it serializes to json; others don't accept the flag (no silent text fallback).
     output_parent = argparse.ArgumentParser(add_help=False)
-    output_parent.add_argument("-o", "--output", choices=["text", "json"], default=argparse.SUPPRESS,
-                               help="output format: text (default) or json (machine-readable); place before or after the verb. See: wl help output")
+    output_parent.add_argument("-o", "--output", choices=["text", "json", "jsonl", "toon"], default=argparse.SUPPRESS,
+                               help="output format: text (default) / json (machine-readable) / jsonl (a list streams one object per line, for jq -c / streaming) / toon (compact token-efficient format for LLMs); place before or after the verb. See: wl help output")
 
     _real_sub = p.add_subparsers(dest="cmd", required=False, metavar="<command>")
 

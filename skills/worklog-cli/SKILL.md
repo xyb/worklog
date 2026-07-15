@@ -114,6 +114,10 @@ wl tree -o json                     # full tree as nested JSON
 wl day -o json                      # day view as JSON
 ```
 
+**`-o jsonl`** = the same data, line-oriented: a top-level array streams one compact object per line (empty → nothing), any other payload one line. Use for `jq -c` / `grep` / feeding an analyzer without loading the whole array — e.g. `wl logs --since 2026-07-01 --until 2026-07-07 -o jsonl`.
+
+**`-o toon`** = the same data as [TOON](https://github.com/toon-format/spec) (Token-Oriented Object Notation) — lossless but ~40% fewer tokens than JSON (a uniform object array becomes a table: field names once, then one row of values per line). Reach for it when piping wl straight into an LLM prompt — `wl ls --all -o toon`, `wl show 42 -o toon`.
+
 **Write commands** emit the affected node(s) in summary form:
 
 ```fish

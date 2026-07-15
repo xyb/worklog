@@ -1,5 +1,5 @@
 ---
-title: output — -o json for machine-readable output
+title: output — -o json / jsonl / toon for machine-readable output
 category: param
 see_also: show, ls, query, bulk
 ---
@@ -14,6 +14,26 @@ the human text view. It is a global flag accepted both before and after the verb
 All read commands that produce a list return a **JSON array**; commands that return one item
 return a **JSON object**; commands with nothing to return emit `null` or `[]`. `*_at` fields
 are UTC instants (ISO-8601); `*_date` fields are local calendar days (YYYY-MM-DD).
+
+`-o jsonl` (JSON Lines) is the same data, line-oriented: a top-level array streams **one compact
+JSON object per line** (empty array → no output); any other payload is a single line. Use it to
+pipe into `jq -c`, `grep`, or a streaming analyzer without loading the whole array:
+
+  wl logs --since 2026-07-01 --until 2026-07-07 -o jsonl   # one log event per line, streamable
+  wl ls --all -o jsonl | jq -c 'select(.status=="DOING")'
+  wl find "deploy" -o jsonl | grep -c .                     # count matches by line
+
+`-o toon` emits [TOON](https://github.com/toon-format/spec) (Token-Oriented Object Notation) — the
+same data as `-o json`, losslessly, in a compact indentation-based format that costs an LLM ~40%
+fewer tokens. A uniform array of flat objects becomes a table: field names once, then one row of
+values per line. Use it when piping wl data straight into an LLM prompt (context is the budget):
+
+  wl ls --all -o toon
+  # [3]{id,title,status,priority,tags}:
+  #   1,ship it,DOING,A,work
+  #   ...
+  wl agent ls -o toon                # bind table, minimal punctuation
+  wl show 42 -o toon                 # nested object form (indentation, no braces)
 
 Common uses:
 
