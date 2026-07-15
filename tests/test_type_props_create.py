@@ -137,16 +137,16 @@ class TestAddEchoesDerivedType:
 
 
 class TestJsonExposesTypeProps:
-    def test_type_facet_object_not_collapsed(self, cli):
-        # classification is the orthogonal `type` facet object (type.* prefix stripped), not a
-        # single collapsed token. The raw type.* keys also still ride in `props`.
+    def test_type_is_collapsed_token_props_keep_full(self, cli):
+        # `type` is the single representative token (PARA role wins by precedence); the full
+        # orthogonal classification stays available via the raw type.* keys in `props`.
         cli("add", "x", "--para", "project", "--prop", "type.meetlog=dating")
         import json
         _, out, _ = cli("show", "1", "-o", "json")
         d = json.loads(out)
-        # orthogonal facet: both para and meetlog present, not collapsed to one token
-        assert d["type"] == {"para": "project", "meetlog": "dating"}
-        # raw type.* still available in props
+        # collapsed token: para role takes precedence over the meetlog facet
+        assert d["type"] == "project"
+        # raw type.* still available in props — no classification info is lost
         assert d["props"]["type.para"] == "project"
         assert d["props"]["type.meetlog"] == "dating"
 

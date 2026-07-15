@@ -28,12 +28,16 @@ same data as `-o json`, losslessly, in a compact indentation-based format that c
 fewer tokens. A uniform array of flat objects becomes a table: field names once, then one row of
 values per line. Use it when piping wl data straight into an LLM prompt (context is the budget):
 
-  wl ls --all -o toon
-  # [3]{id,title,status,priority,tags}:
-  #   1,ship it,DOING,A,work
-  #   ...
-  wl agent ls -o toon                # bind table, minimal punctuation
-  wl show 42 -o toon                 # nested object form (indentation, no braces)
+  wl tags -o toon
+  # [2]{tag,count}:
+  #   work,42
+  #   personal,17
+  wl show 42 -o toon                 # nested object; uniform child rows collapse into a table
+  wl agent ls -o toon                # a table: field names once, then a row per bind
+
+A row of a uniform, primitive-only array is what becomes a table. A list whose rows carry a
+nested array or object (e.g. `wl ls`, whose rows include a `tags` list) stays in the readable
+expanded form instead — still lossless, just not tabular.
 
 Common uses:
 

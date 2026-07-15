@@ -167,9 +167,9 @@ class TestShowJson:
         import json
         d = json.loads(out)
         assert code == 0 and isinstance(d, dict)
-        # classification is the orthogonal `type` facet (a bare task → {}).
+        # classification is the single representative `type` token (a bare task → "task").
         assert d["id"] == 1 and d["title"] == "json task"
-        assert d["type"] == {}
+        assert d["type"] == "task"
         assert d["priority"] == "A"
         assert set(d["tags"]) == {"work", "dev"}
 

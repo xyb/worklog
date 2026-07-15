@@ -16,7 +16,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, fields
 
 from . import node_types as _nt
-from .queries import node_props, _node_tags
+from .queries import node_props, _node_tags, node_type_from_props
 
 CORE, SUMMARY, FULL = "core", "summary", "full"
 #: a view includes its own fields plus all narrower views' fields
@@ -26,19 +26,6 @@ _INCLUDES = {CORE: {CORE}, SUMMARY: {CORE, SUMMARY}, FULL: {CORE, SUMMARY, FULL}
 def _f(view, **kw):
     """A dataclass field tagged with the narrowest view it belongs to."""
     return field(metadata={"view": view}, **kw)
-
-
-def type_facet(props: dict) -> dict:
-    """The node's orthogonal ``type.*`` facets as a dict, ``type.`` prefix stripped — a
-    column-free, non-collapsing classification. Existence facets (habit/meetlog stored as
-    the canonical ``"true"`` or ``""``) → ``True``; valued facets (``type.para=project``,
-    ``type.date=day``, a sub-classified ``type.meetlog=dating``) keep the value. A bare task → ``{}``.
-    ``date.*`` time-values are NOT facets (they live in the full payload's ``props``)."""
-    out = {}
-    for k, v in props.items():
-        if k.startswith(_nt.TYPE_NS):
-            out[k[len(_nt.TYPE_NS):]] = True if v in ("", _nt.EXISTENCE_TRUE) else v
-    return out
 
 
 @dataclass
@@ -51,7 +38,7 @@ class NodeView:
     title: str    = _f(CORE, default=None)
     status: str   = _f(CORE, default=None)
     priority: str = _f(CORE, default=None)
-    type: dict    = _f(CORE, default_factory=dict)   # orthogonal type.* facets, each kept independently
+    type: str     = _f(CORE, default="task")   # single representative token: para role / time level / habit / meetlog / custom / task
     # ── summary: the flat list views (ls / projects / summary / day) add identity + plan + tags ──
     parent_id: int      = _f(SUMMARY, default=None)
     scheduled_date: str = _f(SUMMARY, default=None)
@@ -85,14 +72,14 @@ class NodeSummaryView:
     """CORE + SUMMARY node output DTO — the JSON contract for node list / write commands.
 
     Contains every field a list view needs: identity, status, plan dates, tags, and the
-    orthogonal type facet. Produced by :func:`node_summary_view` which is the control-layer
+    representative type token. Produced by :func:`node_summary_view` which is the control-layer
     factory; handlers return this so ``JSONFormatter`` can ``asdict()`` it reliably.
     """
     id: int
     title: str
     status: str | None
     priority: str | None
-    type: dict
+    type: str
     parent_id: int | None
     scheduled_date: str | None
     deadline_date: str | None
@@ -106,7 +93,7 @@ def node_summary_view(con, n) -> NodeSummaryView:
     props = node_props(con, n["id"])
     return NodeSummaryView(
         id=n["id"], title=n["title"], status=n["status"], priority=n["priority"],
-        type=type_facet(props),
+        type=node_type_from_props(props),
         parent_id=n["parent_id"], scheduled_date=n["scheduled_date"],
         deadline_date=n["deadline_date"], created_at=n["created_at"],
         closed_at=n["closed_at"],
@@ -118,7 +105,7 @@ def node_view(con, n, view=SUMMARY) -> NodeView:
     """Build a :class:`NodeView` from a node row, populating the fields a ``view`` needs."""
     nv = NodeView(
         id=n["id"], title=n["title"], status=n["status"], priority=n["priority"],
-        type=type_facet(node_props(con, n["id"])),
+        type=node_type_from_props(node_props(con, n["id"])),
     )
     if view in (SUMMARY, FULL):
         nv.parent_id = n["parent_id"]

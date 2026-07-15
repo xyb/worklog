@@ -15,7 +15,7 @@ from .. import node_types as _nt
 from ..models import Clock, Link, Node
 from ..node_schema import (
     node_view as _node_view, node_summary_view as _node_summary_view,
-    type_facet as _type_facet, SUMMARY as _SUMMARY, FULL as _FULL,
+    SUMMARY as _SUMMARY, FULL as _FULL,
     NodeSummaryView as _NodeSummaryView,
 )
 from .metric import _fmt_value, metric_rows
@@ -114,7 +114,7 @@ def _node_to_dict(con, n):
     # can't be emitted — the guard against silent drift.
     nv = _node_view(con, n, _FULL)   # core + summary + orthogonal type facet already populated
     nv.body = n["body"]
-    nv.ancestors = [{"id": p["id"], "title": p["title"], "type": _type_facet(node_props(con, p["id"]))}
+    nv.ancestors = [{"id": p["id"], "title": p["title"], "type": node_type(con, p["id"])}
                     for p in _ancestors_chain(con, nid)[:-1]]
     # relation.* props surface under "relations" (resolved bidirectionally), not in props
     nv.props = {r["key"]: r["value"] for r in _db.query(con, "prop", cols="key, value", node_id=nid)
@@ -130,7 +130,7 @@ def _node_to_dict(con, n):
         "rrules": list(dict.fromkeys(r["rrule"] for r in sched_rows if r["rrule"])),
     }
     nv.children = [{"id": c.id, "title": c.title,
-                    "type": _type_facet(node_props(con, c.id)),
+                    "type": node_type(con, c.id),
                     "status": c.status, "priority": c.priority}
                    for c in Node.query(con, parent_id=nid, order="priority NULLS LAST, id")]
     nv.logs = [{"id": r["id"], "logged_at": r["logged_at"], "tag": r["tag"], "body": r["body"]}

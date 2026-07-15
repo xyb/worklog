@@ -119,6 +119,29 @@ class TestTOONIntegration:
         assert cli("find", "px", "-o", "toon")[0] == 0
 
 
+class TestTypeScalar:
+    """`type` is the node's single representative token string everywhere (aligned
+    with `find`/`focus`), not the orthogonal facet object — so uniform list/child
+    rows stay primitive and render as a TOON table."""
+
+    def test_bare_task_type_is_scalar(self, cli):
+        cli("add", "plain")
+        assert _j(cli, "show", "1", "-o", "json")["type"] == "task"
+
+    def test_project_type_is_scalar(self, cli):
+        cli("add", "proj", "--para", "project")
+        assert _j(cli, "show", "1", "-o", "json")["type"] == "project"
+
+    def test_children_scalar_and_toon_tabular(self, cli):
+        cli("add", "parent", "--para", "project")
+        cli("add", "c1", "--parent", "1")
+        cli("add", "c2", "--parent", "1")
+        d = _j(cli, "show", "1", "-o", "json")
+        assert [c["type"] for c in d["children"]] == ["task", "task"]
+        code, out, _ = cli("show", "1", "-o", "toon")
+        assert "children[2]{id,title,type,status,priority}:" in out  # uniform → tabular
+
+
 class TestFocusJson:
     def test_structure(self, cli):
         cli("add", "proj", "--para", "project")

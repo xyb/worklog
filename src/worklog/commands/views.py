@@ -13,7 +13,7 @@ from .. import timeutil as _tu
 from .. import db_table as _db
 from .. import node_types as _nt
 from ..models import DateMeta, Node
-from ..node_schema import node_view as _node_view, type_facet as _type_facet, CORE as _CORE
+from ..node_schema import node_view as _node_view, CORE as _CORE
 from ..helpers import _ORDER_BY_PRI_ID, _TIME_LEVELS  # noqa: F401
 from ..helpers import (
     _apply_top_limit,
@@ -417,7 +417,7 @@ def _day_json_data(con, target, day, items, sched_ids):
             # day's node row is partial (id is the dict key), so build the facet from nid directly
             # rather than via node_view; the orthogonal type facet.
             "id": nid, "title": n["title"], "status": n["status"],
-            "priority": n["priority"], "type": _type_facet(node_props(con, nid)),
+            "priority": n["priority"], "type": node_type(con, nid),
             "planned": nid in sched_ids,
             "logs": list(it["logs"]),
             "clock_min": _node_clock_min(con, nid, target),

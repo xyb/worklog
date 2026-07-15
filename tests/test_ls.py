@@ -214,19 +214,18 @@ class TestLsJson:
         code, out, _ = cli("ls", "-o", "json")
         d = json.loads(out)
         assert code == 0 and isinstance(d, list) and len(d) == 2
-        # summary payload is the NodeView contract — an orthogonal `type` facet, not a single
-        # collapsed token.
+        # summary payload is the NodeView contract — `type` is the single representative token.
         assert set(d[0].keys()) >= {"id", "type", "title", "status", "priority", "tags"}
-        assert isinstance(d[0]["type"], dict)
+        assert isinstance(d[0]["type"], str)
 
-    def test_ls_json_type_facet(self, cli):
-        # orthogonal type facet: a project → {"para":"project"}; a bare task → {}
+    def test_ls_json_type_scalar(self, cli):
+        # single representative token: a project → "project"; a bare task → "task"
         cli("add", "proj", "--para", "project")
         cli("add", "plain")
         import json
         d = {n["title"]: n for n in json.loads(cli("ls", "-o", "json")[1])}
-        assert d["proj"]["type"] == {"para": "project"}
-        assert d["plain"]["type"] == {}
+        assert d["proj"]["type"] == "project"
+        assert d["plain"]["type"] == "task"
 
     def test_ls_json_respects_filter(self, cli):
         cli("add", "a", "-p", "A")
