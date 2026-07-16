@@ -86,13 +86,14 @@ wl done 1                                 # 完成
 wl day                                    # 今天的工作, 重新分组 + 统计
 ```
 
-下面是同一个 demo 的真实输出(与顶部 gif 同一份数据):
+下面是 `wl demo` 的真实输出(与顶部 gif 同一份数据; 任务带 `-t work` / `-t personal`, 据此分进 work / personal bucket):
 
 ```
-#9 2026-07-10 Fri · workday
+#9 2026-07-16 Thu · workday
   > 🎯 Send out the monthly report [1/1] ✅
      1. [x] #3 Write the report summary
-  > 📝 Recap: Summary sent; started the AI tutorial; ran 3km (written at 07-10 00:37)
+  > 📝 Recap: Focus nailed - report's out, and I didn't chase the new idea. Weak spot:
+    only scratched the AI tutorial. (written at 07-16 12:20)
   work
     ▸ planned
       [x] #3 [# ] Write the report summary
@@ -101,7 +102,7 @@ wl day                                    # 今天的工作, 重新分组 + 统�
     ▸ planned
       [ ] #4 [# ] Do the AI-agents tutorial
 
-  ── 2026-07-10: 1/1 tasks with progress · DONE 1 · planned·not-done 1
+  ── 2026-07-16: 1/1 tasks with progress · DONE 1 · planned·not-done 1
 ```
 
 `wl tree --by project` 按项目而不是按时间对同一份数据分组:

@@ -139,7 +139,7 @@ def cmd_demo(args, con):
     run("log", str(summ), "Draft written, sent to the team")
     run("done", str(summ))
     run("add", "Build a tiny agent myself", "--parent", str(ai), "--sched", "+3d", "-t", "personal")
-    run("recap", "Summary sent; started the AI tutorial; ran 3km")
+    run("recap", "Focus nailed - report's out, and I didn't chase the new idea. Weak spot: only scratched the AI tutorial.")
     tom = _ensure_day(con, _tu.today_date() + timedelta(days=1))
     run("goal", "set", str(tom), "Get the report signed off")
     con.commit()

@@ -59,13 +59,14 @@ wl recap "shipped it, copy still TBD"     # evening summary (bare = read back)
 wl day                                    # the whole day: plan, logs, what changed
 ```
 
-Real output, from the demo above:
+Real output from `wl demo` (the tasks carry `-t work` / `-t personal` — that tag is what sorts them into the day's buckets):
 
 ```
-#9 2026-07-10 Fri · workday
+#9 2026-07-16 Thu · workday
   > 🎯 Send out the monthly report [1/1] ✅
      1. [x] #3 Write the report summary
-  > 📝 Recap: Summary sent; started the AI tutorial; ran 3km (written at 07-10 00:37)
+  > 📝 Recap: Focus nailed - report's out, and I didn't chase the new idea. Weak spot:
+    only scratched the AI tutorial. (written at 07-16 12:20)
   work
     ▸ planned
       [x] #3 [# ] Write the report summary
@@ -74,7 +75,7 @@ Real output, from the demo above:
     ▸ planned
       [ ] #4 [# ] Do the AI-agents tutorial
 
-  ── 2026-07-10: 1/1 tasks with progress · DONE 1 · planned·not-done 1
+  ── 2026-07-16: 1/1 tasks with progress · DONE 1 · planned·not-done 1
 ```
 
 `wl tree --by project` groups the same data by project instead of by time:

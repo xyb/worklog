@@ -16,6 +16,10 @@ HOME=os.path.expanduser("~")
 DB=f"{HOME}/.local/share/wl-test/test.db"
 WL=[f"{HOME}/projects/worklog/.venv/bin/wl","--db",DB]
 env=dict(os.environ, WORKLOG_COLOR="always", WORKLOG_WIDTH="88", COLUMNS="88", LINES="40")
+# The demo is a human at a terminal, not an agent session — strip the session markers so it
+# never auto-briefs (dropping the log body) just because build runs inside a Claude/Cursor shell.
+for _k in ("WL_SESSION_ID","WL_AGENT","CLAUDE_CODE_SESSION_ID","CURSOR_CONVERSATION_ID","CURSOR_AGENT"):
+    env.pop(_k, None)
 
 def wl(*a): return subprocess.run(WL+list(a),capture_output=True,text=True,env=env).stdout
 def addid(*a):
@@ -25,9 +29,6 @@ def addid(*a):
 # fresh throwaway DB
 os.system(f"rm -rf {DB}* {HOME}/.local/share/wl-test/test.lancedb 2>/dev/null")
 wl("init")
-REP=addid("Ship the monthly report","--para","project","-p","A","-t","work")
-AI =addid("Learn how AI agents work","--para","project","-p","A","-t","personal")
-
 events=[]; t=[0.0]
 def emit(text,dt):
     t[0]+=dt; events.append([round(t[0],3),"o",text.replace("\n","\r\n")])
@@ -35,37 +36,47 @@ def say(s): emit(f"\x1b[93m# {s}\x1b[0m\n",0.9)          # bright yellow, fast
 # READ=1.8s pause BEFORE a command line appears (time to read whatever came before).
 # RUN=0.1s pause between the command line and its output (execution is instant).
 READ=1.8; RUN=0.1
-def cmd(disp,*a):
-    emit(f"\x1b[36m$ wl {disp}\x1b[0m\n",READ); emit(wl(*a)+"\n",RUN)
-def add_show(disp,*a):
-    emit(f"\x1b[36m$ wl add {disp}\x1b[0m\n",READ)
+def qfmt(a):
+    # the shown command line is DERIVED from the exact args we run — no separate
+    # display string that could drift from reality (a hidden -t flag once made the
+    # day buckets look like they came from nowhere).
+    return " ".join(f'"{x}"' if (x == "" or " " in x) else x for x in a)
+def cmd(*a):
+    emit(f"\x1b[36m$ wl {qfmt(a)}\x1b[0m\n",READ); emit(wl(*a)+"\n",RUN)
+def add_show(*a):
+    emit(f"\x1b[36m$ wl add {qfmt(a)}\x1b[0m\n",READ)
     out=wl("add",*a); emit(out+"\n",RUN)
     m=re.search(r"#(\d+)",out); return m.group(1) if m else None
 
 say("A day with worklog (wl) - work, learning and life in one tool.")
-say("Morning: line up the few things I'll actually do today.")
-SUM=add_show('"Write the report summary" --sched today',"Write the report summary","--parent",REP,"--sched","today","-t","work")
-add_show('"Do the AI-agents tutorial" --sched today',"Do the AI-agents tutorial","--parent",AI,"--sched","today","-t","personal")
+say("Two projects: one for work, one I'm learning on the side.")
+REP=add_show("Ship the monthly report","--para","project","-p","A","-t","work")
+AI =add_show("Learn how AI agents work","--para","project","-p","A","-t","personal")
+say("Morning: line up today's tasks under them - the -t tag sorts the day.")
+SUM=add_show("Write the report summary","--parent",REP,"--sched","today","-t","work")
+add_show("Do the AI-agents tutorial","--parent",AI,"--sched","today","-t","personal")
 say("Name today's ONE focus - point it at the task that delivers it.")
-cmd(f'goal today "Send out the monthly report" {SUM}',"goal","today","Send out the monthly report",SUM)
-say("The whole day on one screen: focus on top with its target, plan below.")
-cmd("day","day")
-say("Made progress - log it, then mark it done.")
-cmd(f'log {SUM} "Draft written, sent to the team"',"log",SUM,"Draft written, sent to the team")
-cmd(f"done {SUM}","done",SUM)
+cmd("goal","today","Send out the monthly report",SUM)
+say("Made progress - jot it down as you go.")
+cmd("log",SUM,"Draft written, sent to the team")
+say("The whole day on one screen: focus + target up top, tasks and their logs below.")
+cmd("day")
+say("Task delivered - mark it done, then check the detail.")
+cmd("done",SUM)
+say("wl show pulls up the task itself - status, its log, when it closed.")
+cmd("show",SUM)
 say("A new idea pops up while working. Don't derail today - push it out.")
-add_show('"Build a tiny agent myself" --sched +3d',"Build a tiny agent myself","--parent",AI,"--sched","+3d","-t","personal")
-cmd("agenda today +5d","agenda","today","+5d")
-say("Evening: recap the day...")
-cmd('recap "Summary sent; started the AI tutorial; ran 3km"',"recap","Summary sent; started the AI tutorial; ran 3km")
+add_show("Build a tiny agent myself","--parent",AI,"--sched","+3d","-t","personal")
+cmd("agenda","today","+5d")
+say("Evening: recap how it went - what worked, what didn't.")
+cmd("recap","Focus nailed - report's out, and I didn't chase the new idea. Weak spot: only scratched the AI tutorial.")
 say("...and set tomorrow's focus, so the morning starts clear.")
 today=datetime.date.today().isoformat(); tom=(datetime.date.today()+datetime.timedelta(days=1)).isoformat()
 con=sqlite3.connect(DB); row=con.execute("SELECT parent_id FROM node WHERE title=? AND deleted_at IS NULL LIMIT 1",(today,)).fetchone(); con.close()
 if row:
     dtom=addid(tom,"--prop","type.date=day","--parent",str(row[0]))
-    emit('\x1b[36m$ wl goal set tomorrow "Get the report signed off"\x1b[0m\n',READ)
-    emit(wl("goal","set",dtom,"Get the report signed off")+"\n",RUN)
-cmd("day","day")
+    cmd("goal","set",dtom,"Get the report signed off")
+cmd("day")
 say("^ Focus done: [1/1] up top, linked to the task that delivered it.")
 say("^ The reading is still going; the new idea is parked at +3 days.")
 say("^ Nothing got lost, today never got derailed -")
@@ -88,8 +99,8 @@ RAW=/tmp/wl_demo_raw.$$.gif
 agg --font-size 15 --speed 1.0 --idle-time-limit 15 wl_demo.cast "$RAW"
 # Lossless -O3 frame-diff + a single global 256-colour palette (agg emits per-frame local
 # colormaps, which balloon the file). No --lossy: the size is driven by the distinct frames
-# (each command types new output), not by intra-frame compressibility, so lossy barely helps
-# while it does soften the anti-aliased text. ~40% smaller than agg's raw output, no visible loss.
+# (each command types new output), not by intra-frame compressibility — measured, lossy saves only
+# ~4% here while it softens the anti-aliased text. To shrink the gif, cut recorded steps, not colours.
 gifsicle -O3 --colors 256 "$RAW" -o wl_demo.gif
 rm -f "$RAW"
 echo "[done] demo/wl_demo.gif ($(du -h wl_demo.gif | cut -f1))"
