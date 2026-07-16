@@ -11,7 +11,7 @@
 A local CLI worklog and task tracker backed by SQLite. Add tasks, log what you did, plan your day — all from the terminal, all in one file.
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/c472b531-ec09-4488-ad73-eb03ac413383" alt="wl demo — a day in the terminal: plan, log, recap" width="720">
+  <img src="https://github.com/user-attachments/assets/ff7d723b-03fa-4372-8c43-f3668b6dddf8" alt="wl demo — a day in the terminal: plan, log, recap" width="720">
 </p>
 
 **Why `wl`:**
