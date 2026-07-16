@@ -130,7 +130,10 @@ def _init_console(color_mode, theme_name):
         _CONSOLE = None
         return
     name = _resolve_theme(theme_name or os.environ.get("WORKLOG_THEME"))
-    force = True if color_mode == "always" else None
+    # force ANSI through a pipe when "always" was asked — via the flag OR $WORKLOG_COLOR (the env
+    # is the same values as --color). Keying only off the flag left env-always producing no color.
+    effective = color_mode if color_mode is not None else os.environ.get("WORKLOG_COLOR", "auto")
+    force = True if effective == "always" else None
     _CONSOLE = _RichConsole(theme=_RichTheme(THEMES[name]), force_terminal=force, highlight=False, soft_wrap=True)
     # terminal without color support (TERM=dumb etc.) -> effectively mono, rich won't emit ANSI
 

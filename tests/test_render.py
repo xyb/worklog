@@ -24,6 +24,16 @@ class TestColorRendering:
         assert ESC in out  # forced on → ANSI color codes present
         assert "colored task" in out  # content still intact
 
+    def test_color_always_via_env_emits_ansi(self, cli, monkeypatch):
+        # $WORKLOG_COLOR=always must force ANSI through a pipe just like --color always
+        # (DESIGN: the env is the same values as the flag). Regression: force_terminal was
+        # only set for the explicit flag, so the env path silently produced no color.
+        monkeypatch.setenv("WORKLOG_COLOR", "always")
+        cli("add", "env colored", "-p", "A")
+        code, out, _ = cli("ls")   # no --color flag → resolves from $WORKLOG_COLOR
+        assert ESC in out
+        assert "env colored" in out
+
     def test_brackets_in_title_not_eaten_by_markup(self, cli):
         """[brackets] in title must not be eaten as rich markup"""
         cli("add", "fix [login] module", "-p", "A")
