@@ -56,6 +56,9 @@ Likewise, before adding a dev todo under a project, check that project's existin
 
 Each command's `wl <cmd> --help` is the per-command quick reference; full grammar for the
 compound/batch params, clock, `wl metric`, recurrence, and `wl ls` queries → `references/features.md`.
+Modelling guides — **read before inventing a new prop key or metric tag**: props (namespaces, the
+three matching modes, prop vs log vs metric, reserved fields) → `references/props.md`; metrics
+(the one-command idiom, unit convention, `--on-log` trap) → `references/metrics.md`.
 
 ## ⭐ Brief / token-saving mode (REQUIRED for AI usage)
 
@@ -166,7 +169,7 @@ Ask *"will I filter/stat over it across nodes?"* + cardinality (full rule: `DESI
 - **`log`** — the process record (a dev task's many commits).
 - **`metric`** — those records made queryable per node: `wl metric add <id> commit <hash>`, then `wl metric ls <id> --tag commit`. Many-per-node, not a cross-node filter.
 - commit/PR/release: many commits → log (+ a `commit` metric for structure); a single identifying PR/commit or the release → prop.
-- **Namespaced prop keys** — dot-group related single-value props under a prefix (`agent_session.claude`, `ext.linear`); each full key stays single-value, but `key LIKE 'group.%'` finds the whole namespace, so prop filters/stats can target a namespace, not just an exact key. Flat keys (`owner`/`release`) stay flat.
+- **Namespaced prop keys** — dot-group related single-value props under a prefix (`agent_session.claude`, `ext.linear`); each full key stays single-value, but `key LIKE 'group.%'` finds the whole namespace, so prop filters/stats can target a namespace, not just an exact key. **Default to a namespace when the key belongs to a family, and never name a flat key after an existing prefix** (`type`, `relation`, …) — see `references/props.md` for when a flat key is still right. Metric *tags* are a separate vocabulary and do **not** take dotted namespaces.
 
 ## Vault link (knowledge ⇄ execution decoupling)
 
