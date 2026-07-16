@@ -11,7 +11,7 @@
 **worklog(`wl`)是一个 AI-first、local-first 的执行体系 CLI** —— 用来替代 Markdown 工作记录。完整执行体系层级建模在单个 SQLite `node` 表里 —— lifetime / decade / year / quarter / month / week / day / project / task / habit / signal / meetlog —— 共享同一个 id 空间,通过 `parent_id` 自引用形成树,命令风格沿用 `todo.sh`。
 
 <p align="center">
-  <img src="https://github.com/user-attachments/assets/c472b531-ec09-4488-ad73-eb03ac413383" alt="wl 演示 —— 终端里的一天:规划、记录、复盘" width="720">
+  <img src="https://github.com/user-attachments/assets/ff7d723b-03fa-4372-8c43-f3668b6dddf8" alt="wl 演示 —— 终端里的一天:规划、记录、复盘" width="720">
 </p>
 
 ## 为什么用 worklog?
