@@ -26,6 +26,26 @@ Output: one bar per group (time + share), sorted by time, plus the window total.
 gives `{since, until, by, total_min, groups:[{id,title,min,pct}]}`; `-o toon` turns the
 uniform `groups` into a compact table.
 
+## `--spans` — the raw time ranges, not totals
+
+`wl hours --spans` lists the continuous activity **spans** in time order instead of aggregate
+totals — each a start–end range on one node. A span is a maximal run of back-to-back logs on the
+same node (gap ≤ 60 min); a node switch or a break ends it, so one task can appear several times
+through the day. Adjacent spans with no time gap are one continuous stretch (you just switched
+task); a real gap prints a `····· break … ·····` line.
+
+  wl hours 2026-07-14 --spans
+  #   09:10–10:05   55m  #45 worklog-cli
+  #   10:05–10:40   35m  #942 castorvault
+  #         ····· break 3h20m ·····
+  #   14:00–14:50   50m  #45 worklog-cli      (worklog again, later)
+
+This is the point of the provider role: `-o json` gives
+`{since, until, total_min, spans:[{start, end, min, node_id, title, project_id, project}]}`
+where `start`/`end` are UTC instants — overlay them against your other presence signals
+(keyboard input, voice, calendar) to decide which spans were actually you at the desk rather
+than an agent running on its own.
+
 ## What it measures (and doesn't)
 
 `hours` measures **log-activity time** — when work was happening on a node — from wl's own

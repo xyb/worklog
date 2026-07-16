@@ -93,6 +93,54 @@ class TestByDay:
         assert by == {"2026-07-13": 40, "2026-07-14": 15}
 
 
+class TestSpans:
+    """--spans: a chronological list of continuous same-node activity spans (for
+    overlaying against other presence sources), not aggregate totals."""
+
+    def _seed_spans(self, cli):
+        cli("add", "Proj", "--para", "project")        # 1
+        cli("add", "T1", "--parent", "1")              # 2
+        cli("add", "T2", "--parent", "1")              # 3
+        # 09:00-10:00 on T1 (merged), 10:00-10:30 on T2, break, 14:00-14:40 on T1 again
+        cli("log", "2", "a", "--date", "2026-07-14", "--time", "09:00")
+        cli("log", "2", "b", "--date", "2026-07-14", "--time", "09:30")
+        cli("log", "3", "c", "--date", "2026-07-14", "--time", "10:00")
+        cli("log", "3", "d", "--date", "2026-07-14", "--time", "10:30")
+        cli("log", "2", "e", "--date", "2026-07-14", "--time", "14:00")
+        cli("log", "2", "f", "--date", "2026-07-14", "--time", "14:40")
+
+    def test_spans_merge_and_split(self, cli):
+        self._seed_spans(cli)
+        d = _j(cli, "hours", "2026-07-14", "--spans", "-o", "json")
+        seq = [(s["title"], s["min"]) for s in d["spans"]]
+        assert seq == [("T1", 60), ("T2", 30), ("T1", 40)]   # same task recurs (2 spans of T1)
+
+    def test_span_fields_and_project(self, cli):
+        self._seed_spans(cli)
+        d = _j(cli, "hours", "2026-07-14", "--spans", "-o", "json")
+        s = d["spans"][0]
+        assert set(s) >= {"start", "end", "min", "node_id", "title", "project_id", "project"}
+        assert s["project"] == "Proj" and s["node_id"] == 2
+
+    def test_break_between_spans(self, cli):
+        self._seed_spans(cli)
+        d = _j(cli, "hours", "2026-07-14", "--spans", "-o", "json")
+        # span[1] (T2, ends 10:30) and span[2] (T1, starts 14:00) are not contiguous
+        assert d["spans"][1]["end"] != d["spans"][2]["start"]
+        # adjacent node switch with no break IS contiguous
+        assert d["spans"][0]["end"] == d["spans"][1]["start"]
+
+    def test_toon_spans_tabular(self, cli):
+        self._seed_spans(cli)
+        code, out, _ = cli("hours", "2026-07-14", "--spans", "-o", "toon")
+        assert code == 0 and "spans[3]{" in out
+
+    def test_text_shows_break(self, cli):
+        self._seed_spans(cli)
+        code, out, _ = cli("hours", "2026-07-14", "--spans")
+        assert code == 0 and "T1" in out and "break" in out
+
+
 class TestEmptyAndFormats:
     def test_empty_window(self, cli):
         d = _j(cli, "hours", "2000-01-01", "-o", "json")

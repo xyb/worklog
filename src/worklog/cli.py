@@ -1421,6 +1421,8 @@ Common examples:
 Note: activity time (whoever wrote the log, human OR agent), not human presence.""")
     hr.add_argument("date", nargs="?", help="a single day (YYYY-MM-DD / today / yesterday); or use --since/--until/--week/…")
     hr.add_argument("--by", choices=["project", "task", "day"], default="project", help="aggregate dimension (default: project)")
+    hr.add_argument("--spans", action="store_true",
+                    help="list continuous activity spans (start–end per node), chronological, instead of aggregate totals — overlay against other presence sources to see which spans were really you")
 
     dy = add_cmd(sub, "day", cmd_day, parents=[filters, output_parent],
         help="full view of a day (default today): bucket -> project/plan -> task -> log",

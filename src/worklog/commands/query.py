@@ -902,6 +902,48 @@ def _hours_group(con, node_id, title, logged_at, by):
     return (pid if pid is not None else ptitle), ptitle
 
 
+def _hours_spans_result(con, since, until, rows):
+    """Chronological continuous-activity spans (for overlaying against other presence sources).
+    A span = a maximal run of back-to-back same-node intervals (gap ≤ 60 min); a node switch or a
+    break ends it. start/end are UTC instants (wl convention); the text view renders local time."""
+    spans = []
+    for i in range(len(rows) - 1):
+        t0, t1 = rows[i]["logged_at"], rows[i + 1]["logged_at"]
+        dur = (_tu.parse_ts(t1) - _tu.parse_ts(t0)).total_seconds()
+        if dur <= 0 or dur > _HOURS_GAP_SEC:
+            continue
+        nid = rows[i]["node_id"]
+        if spans and spans[-1]["node_id"] == nid and spans[-1]["end"] == t0:
+            spans[-1]["end"] = t1   # contiguous same node -> extend
+        else:
+            spans.append({"start": t0, "end": t1, "node_id": nid, "title": rows[i]["title"]})
+    for s in spans:
+        s["min"] = round((_tu.parse_ts(s["end"]) - _tu.parse_ts(s["start"])).total_seconds() / 60)
+        pid, ptitle = _node_project(con, s["node_id"])
+        s["project_id"], s["project"] = pid, ptitle
+    spans = [{"start": s["start"], "end": s["end"], "min": s["min"], "node_id": s["node_id"],
+              "title": s["title"], "project_id": s["project_id"], "project": s["project"]} for s in spans]
+    total_min = sum(s["min"] for s in spans)
+    result = {"since": since, "until": until, "spans": spans, "total_min": total_min}
+
+    def _render():
+        out(_c(f"⏱  {since} ~ {until} · activity spans", "header"))
+        if not spans:
+            out(_c("(no log activity in window)", "meta"))
+            return
+        prev_end = None
+        for s in spans:
+            if prev_end and s["start"] != prev_end:
+                gap = round((_tu.parse_ts(s["start"]) - _tu.parse_ts(prev_end)).total_seconds() / 60)
+                out(_c(f"        ····· break {_hm(gap)} ·····", "meta"))
+            st, en = _tu.utc_to_local(s["start"])[11:16], _tu.utc_to_local(s["end"])[11:16]
+            out(f"  {st}–{en} {_hm(s['min']):>6}  " + _c(f"#{s['node_id']} {s['title']}"[:52], "body"))
+            prev_end = s["end"]
+        out(_c(f"── {len(spans)} spans · active {_hm(total_min)} · log-activity, overlay other sources to find real presence", "meta"))
+
+    return TextRenderable(result, _render)
+
+
 @output_format
 def cmd_hours(args, con):
     """Where time went, reconstructed from the log stream: each adjacent-log interval (capped at
@@ -927,6 +969,9 @@ def cmd_hours(args, con):
         f"ORDER BY log.logged_at",
         (since, until),
     ).fetchall()
+
+    if getattr(args, "spans", False):
+        return _hours_spans_result(con, since, until, rows)
 
     secs, titles = {}, {}
     for i in range(len(rows) - 1):
