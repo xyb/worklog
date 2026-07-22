@@ -135,7 +135,7 @@ from .checkin import (
     _multi_select_tty,
     _checkin_per_item,
 )
-from .sched import cmd_sched, cmd_sched_ls, cmd_sched_rm, cmd_sched_group, _norm_rrule
+from .sched import cmd_sched, cmd_sched_ls, cmd_sched_rm, cmd_sched_group, _normalize_recurrence
 from .timenodes import _ensure_today_day
 from .help import cmd_help, colorize_help, topic_exists, topic_names
 from .semantic import cmd_query, cmd_reindex

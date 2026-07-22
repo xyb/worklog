@@ -306,7 +306,7 @@ class TestLogGroup:
 
 def _sched(con, nid):
     return [(r[0], r[1]) for r in con.execute(
-        "SELECT on_date, rrule FROM sched WHERE node_id=? AND deleted_at IS NULL ORDER BY on_date NULLS LAST, rrule", (nid,))]
+        "SELECT on_date, recurrence FROM sched WHERE node_id=? AND deleted_at IS NULL ORDER BY on_date NULLS LAST, recurrence", (nid,))]
 
 
 class TestSchedGroup:

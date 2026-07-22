@@ -109,7 +109,7 @@ def _node_to_dict(con, n):
     are UTC instants (verbatim, as stored), `*_date` are local calendar days. Timeline data is
     emitted in full (no tail elision) — machine output wants everything."""
     nid = n["id"]
-    sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid, order="on_date NULLS LAST, rrule")
+    sched_rows = _db.query(con, "sched", cols="on_date, recurrence", node_id=nid, order="on_date NULLS LAST, recurrence")
     # The contract + key order live in node_schema.NodeView; here we just populate the full-only
     # fields (their sub-queries belong with the other readers). A field not declared on NodeView
     # can't be emitted — the guard against silent drift.
@@ -128,7 +128,7 @@ def _node_to_dict(con, n):
     nv.links = [r.vault_doc for r in Link.query(con, node_id=nid)]
     nv.schedule = {
         "dates": list(dict.fromkeys(r["on_date"] for r in sched_rows if r["on_date"])),
-        "rrules": list(dict.fromkeys(r["rrule"] for r in sched_rows if r["rrule"])),
+        "recurrences": list(dict.fromkeys(r["recurrence"] for r in sched_rows if r["recurrence"])),
     }
     nv.children = [{"id": c.id, "title": c.title,
                     "type": node_type(con, c.id),
@@ -218,19 +218,19 @@ def _ls_build_query(con, args):
     if getattr(args, "unscheduled", False):
         where.append(f"id NOT IN (SELECT node_id FROM sched WHERE {_db.ALIVE})")
     if getattr(args, "not_checked_in", None) is not None:
-        # recurring items still ACTIVE today (an rrule not stopped-in-the-past) not checked in
-        # within N days (or never). A recurrence stopped via `wl sched stop` keeps a non-NULL rrule
-        # (`base;until=DATE`); the active test goes through the single-source `_rrule_active` helper
+        # recurring items still ACTIVE today (a recurrence not stopped-in-the-past) not checked in
+        # within N days (or never). A recurrence stopped via `wl sched stop` keeps a non-NULL recurrence
+        # (`base;until=DATE`); the active test goes through the single-source `_recurrence_is_active` helper
         # (not a hand-rolled SQL mirror of the ;until= parse) so it can't drift from `_split_until`.
         from datetime import timedelta
-        from .views import _rrule_active
+        from .views import _recurrence_is_active
         if args.not_checked_in < 0:
             die("--not-checked-in N must be >= 0 (days back)")
         d0 = _tu.today_date()
         today, cutoff = d0.isoformat(), (d0 - timedelta(days=args.not_checked_in)).isoformat()
         active_ids = sorted({row["node_id"] for row in
-                             con.execute(f"SELECT node_id, rrule FROM sched WHERE rrule IS NOT NULL AND {_db.ALIVE}")
-                             if _rrule_active(row["rrule"], today)})
+                             con.execute(f"SELECT node_id, recurrence FROM sched WHERE recurrence IS NOT NULL AND {_db.ALIVE}")
+                             if _recurrence_is_active(row["recurrence"], today)})
         if not active_ids:
             where.append("0")   # no active recurring items → empty result
         else:
@@ -561,7 +561,7 @@ def cmd_agenda(args, con):
 
     # Two schedule sources, both matter (else we recreate the very bug this guards against —
     # month/someday-level plans live in node.scheduled_date, not the sched table):
-    #   - sched table on_date: concrete one-off days (+ rrule, handled elsewhere)
+    #   - sched table on_date: concrete one-off days (+ recurrence, handled elsewhere)
     #   - node.scheduled_date:    a single fuzzy-granularity pin (@2026-06 / someday / ...)
     entries = []  # (node_id, sched_value)
     for r in _db.query(con, "sched", cols="node_id, on_date", on_date__ne=None):
@@ -1434,7 +1434,7 @@ def cmd_logs(args, con):
 # --- zsh backend ---
 
 def _next_sched_fire(rules, start):
-    """Earliest date in [start, start+365d] (366 days incl. today) that any rrule fires, as YYYY-MM-DD,
+    """Earliest date in [start, start+365d] (366 days incl. today) that any recurrence fires, as YYYY-MM-DD,
     or None. Reuses `_sched_fires` — the same predicate `wl day` / `agenda` use — so the
     shown "next" is exactly when the task will reappear, not a re-derived guess."""
     from datetime import timedelta
@@ -1496,25 +1496,25 @@ def _show_detail(con, args, n):
         out("  " + _c("links:", "meta") + "    " + _c(", ".join(f"[[{d}]]" for d in links)))
     # schedule (sched table): one-off dates + recurring rules. First-hand info for debugging
     # recurring tasks (e.g. why a task shows on multiple days); previously only visible via raw SQL.
-    sched_rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id, order="on_date NULLS LAST, rrule")
+    sched_rows = _db.query(con, "sched", cols="on_date, recurrence", node_id=args.id, order="on_date NULLS LAST, recurrence")
     if sched_rows:
         # dedup at display (order-preserving): pre-idempotency-fix data can hold duplicate
-        # (node_id, on_date) / (node_id, rrule) rows; show each once, don't mutate the source.
-        from .views import _rrule_display, _split_until
+        # (node_id, on_date) / (node_id, recurrence) rows; show each once, don't mutate the source.
+        from .views import _format_recurrence, _split_until
         dates = list(dict.fromkeys(r["on_date"] for r in sched_rows if r["on_date"]))
         # dedup by BASE rule: a live `weekly:Wed` and its stopped twin `weekly:Wed;until=...` are
         # the same recurrence — collapse to one segment (keep the first, which sorts live-before-stopped).
         rules, _seen = [], set()
         for r in sched_rows:
-            if not r["rrule"]:
+            if not r["recurrence"]:
                 continue
-            base = _split_until(r["rrule"])[0]
+            base = _split_until(r["recurrence"])[0]
             if base not in _seen:
                 _seen.add(base)
-                rules.append(r["rrule"])
+                rules.append(r["recurrence"])
         parts = []
         if rules:
-            seg = "recur " + ", ".join(_rrule_display(r) for r in rules)
+            seg = "recur " + ", ".join(_format_recurrence(r) for r in rules)
             nxt = _next_sched_fire(rules, _tu.today_date())   # when the rule next fires (until-aware)
             if nxt:
                 from datetime import date as _date
@@ -1527,9 +1527,9 @@ def _show_detail(con, args, n):
     # recurring concept; a one-off task closed with `tick --done` also has a checkin metric, and a
     # recurrence stopped in the past is retired — neither should show it). Computed read-time from
     # checkin metrics, never a cached prop, so `wl unlog` of the last check-in leaves no stale date.
-    from .views import _rrule_active
+    from .views import _recurrence_is_active
     _today = _tu.today()
-    if any(r["rrule"] and _rrule_active(r["rrule"], _today) for r in sched_rows) or node_type(con, n) == "habit":
+    if any(r["recurrence"] and _recurrence_is_active(r["recurrence"], _today) for r in sched_rows) or node_type(con, n) == "habit":
         last_ci = _last_checkin(con, args.id)
         out("  " + _c("last check-in:", "meta") + " " + _c(last_ci or "never", "planned"))
     # children (direct only) — minus any already shown above as goal targets (the goal block lists

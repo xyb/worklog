@@ -24,7 +24,7 @@ Recurring rules (`--recur`; every cycle supports `-1` = its last day):
 Stopping a recurrence (`wl sched stop <id> [date]`): it fires up to and INCLUDING `date`
 (default today), then no more — past occurrences stay intact. This is different from
 `--clear`/`rm`, which erase the rule from history too. If the node has several recurrence
-rules, all stop unless `--rule <rrule>` names one. `wl show` then reads `recur weekly:Wed
+rules, all stop unless `--rule <recurrence>` names one. `wl show` then reads `recur weekly:Wed
 (stopped 2026-06-30)`.
 
   wl sched stop 42                 # end the recurrence today

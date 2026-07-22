@@ -10,14 +10,14 @@ from ..queries import _check_ids_exist
 from ..helpers import _resolve_concrete_date
 from ..render import _c, die, dispatch_group, out
 from .state import _ids_list
-from .views import _WEEKDAY_ABBR, _split_until, _rrule_display
+from .views import _WEEKDAY_NAMES, _split_until, _format_recurrence
 from .output import output_format, TextRenderable, text_renderer
 
 
 @dataclass
 class SchedEntry:
     on_date: str | None
-    rrule: str | None
+    recurrence: str | None
 
 
 @dataclass
@@ -36,17 +36,17 @@ def _render_sched_clear(result):
 def _render_sched_query(result):
     for item in result:
         nid = item["node_id"]
-        if item["on_date"] is None and item["rrule"] is None:
+        if item["on_date"] is None and item["recurrence"] is None:
             out(_c(f"#{nid} has no schedule", "meta"))
         else:
-            disp = item["on_date"] or _rrule_display(item["rrule"])
+            disp = item["on_date"] or _format_recurrence(item["recurrence"])
             out("  " + _c(f"#{nid} @" + disp, "planned"))
 
 
 @text_renderer("sched_write")
 def _render_sched_write(result):
     for op in result["ops"]:
-        if op["type"] == "rrule":
+        if op["type"] == "recurrence":
             if op["exists"]:
                 out(_c(f"= #{op['node_id']} already on recurring schedule: {op['rule']}", "meta"))
             else:
@@ -58,19 +58,19 @@ def _render_sched_write(result):
                 out(_c(f"✓ #{op['node_id']} scheduled to {op['date']}", "meta"))
 
 
-def _upsert_rrule(con, nid, rule):
-    """Idempotent rrule write, keyed by BASE rule: any row whose base == `rule` already covers it —
+def _upsert_recurrence(con, nid, rule):
+    """Idempotent recurrence write, keyed by BASE rule: any row whose base == `rule` already covers it —
     including a stopped one (`base;until=DATE`). Consolidate ALL such rows to one clean live rule:
     reactivate the first (clear its until) and drop duplicates, so re-adding a recurrence you'd
     stopped resumes it without leaving a stale/duplicate row behind. Returns True if it already
     existed unchanged. Single source for `wl sched --recur` and apply's `recur` field-op. No commit."""
-    matches = [r for r in Sched.query(con, node_id=nid) if r.rrule and _split_until(r.rrule)[0] == rule]
+    matches = [r for r in Sched.query(con, node_id=nid) if r.recurrence and _split_until(r.recurrence)[0] == rule]
     if not matches:
-        Sched.insert(con, {"node_id": nid, "rrule": rule, "created_at": _tu.utc_now()})
+        Sched.insert(con, {"node_id": nid, "recurrence": rule, "created_at": _tu.utc_now()})
         return False
-    already = len(matches) == 1 and matches[0].rrule == rule
-    if matches[0].rrule != rule:
-        Sched.update(con, matches[0].id, {"rrule": rule})   # reactivate
+    already = len(matches) == 1 and matches[0].recurrence == rule
+    if matches[0].recurrence != rule:
+        Sched.update(con, matches[0].id, {"recurrence": rule})   # reactivate
     for extra in matches[1:]:
         Sched.delete(con, id=extra.id)                      # drop duplicate base rows
     return already
@@ -94,21 +94,21 @@ def cmd_sched(args, con):
     if not args.when and not args.recur:
         result = []
         for nid in ids:
-            rows = Sched.query(con, node_id=nid, order="on_date NULLS LAST, rrule")
+            rows = Sched.query(con, node_id=nid, order="on_date NULLS LAST, recurrence")
             if not rows:
-                result.append({"node_id": nid, "on_date": None, "rrule": None})
+                result.append({"node_id": nid, "on_date": None, "recurrence": None})
             for r in rows:
-                result.append({"node_id": nid, "on_date": r.on_date, "rrule": r.rrule})
+                result.append({"node_id": nid, "on_date": r.on_date, "recurrence": r.recurrence})
         return TextRenderable(result, cmd_name="sched_query")
     ops = []
     if args.recur:
         try:
-            rule = _norm_rrule(args.recur)
+            rule = _normalize_recurrence(args.recur)
         except ValueError as e:
             die(f"{e}")
         for nid in ids:
-            already = _upsert_rrule(con, nid, rule)
-            ops.append({"type": "rrule", "node_id": nid, "rule": rule, "exists": already})
+            already = _upsert_recurrence(con, nid, rule)
+            ops.append({"type": "recurrence", "node_id": nid, "rule": rule, "exists": already})
         con.commit()
     if args.when:
         try:
@@ -126,9 +126,9 @@ def cmd_sched(args, con):
         con.commit()
     # return updated schedule list for the first (usually only) id
     nid = ids[0]
-    rows = _db.query(con, "sched", cols="on_date, rrule", node_id=nid,
-                     order="on_date NULLS LAST, rrule")
-    schedule = [{"on_date": r["on_date"], "rrule": r["rrule"]} for r in rows]
+    rows = _db.query(con, "sched", cols="on_date, recurrence", node_id=nid,
+                     order="on_date NULLS LAST, recurrence")
+    schedule = [{"on_date": r["on_date"], "recurrence": r["recurrence"]} for r in rows]
     return TextRenderable({"ops": ops, "schedule": schedule}, cmd_name="sched_write")
 
 
@@ -138,21 +138,21 @@ def _render_sched_ls(result: SchedLsResult):
         out(_c(f"#{result.node_id} has no schedule", "meta"))
     else:
         for item in result.rows:
-            disp = item.on_date or _rrule_display(item.rrule)
+            disp = item.on_date or _format_recurrence(item.recurrence)
             out("  " + _c(f"#{result.node_id} @" + disp, "planned"))
 
 
 @output_format
 def cmd_sched_ls(args, con):
     """List a node's schedule entries — the read verb of the sched group (= bare `wl sched
-    <id>`). Each row is a one-off `on_date` or a recurring `rrule`."""
+    <id>`). Each row is a one-off `on_date` or a recurring `recurrence`."""
     _check_ids_exist(con, [args.id])
-    rows = _db.query(con, "sched", cols="on_date, rrule", node_id=args.id,
-                     order="on_date NULLS LAST, rrule")
+    rows = _db.query(con, "sched", cols="on_date, recurrence", node_id=args.id,
+                     order="on_date NULLS LAST, recurrence")
     nid = args.id
     result = SchedLsResult(
         node_id=nid,
-        rows=[SchedEntry(on_date=r["on_date"], rrule=r["rrule"]) for r in rows],
+        rows=[SchedEntry(on_date=r["on_date"], recurrence=r["recurrence"]) for r in rows],
     )
     return TextRenderable(result, cmd_name="sched_ls")
 
@@ -182,7 +182,7 @@ def _render_sched_stop(result):
 def cmd_sched_stop(args, con):
     """Stop a recurrence: it fires up to and INCLUDING <date> (default today), then no more.
     Past occurrences stay intact (unlike --clear/rm, which erase the rule from history). Encodes
-    an inclusive `;until=<date>` suffix on the rrule. Multiple rules → all, unless --rule names one."""
+    an inclusive `;until=<date>` suffix on the recurrence. Multiple rules → all, unless --rule names one."""
     _check_ids_exist(con, [args.id])
     try:
         end = _resolve_concrete_date(args.date) if args.date else _tu.today()
@@ -191,15 +191,15 @@ def cmd_sched_stop(args, con):
     # --rule may be pasted from output in either the internal `base;until=DATE` form or the display
     # form `base (stopped DATE)` — normalize both down to the base before comparing.
     want = _split_until((args.rule or "").split(" (stopped ")[0])[0] if args.rule else None
-    rows = [r for r in Sched.query(con, node_id=args.id) if r.rrule]
+    rows = [r for r in Sched.query(con, node_id=args.id) if r.recurrence]
     if not rows:
         die(f"#{args.id} has no recurring schedule to stop")
     stopped = []
     for r in rows:
-        base, _ = _split_until(r.rrule)
+        base, _ = _split_until(r.recurrence)
         if want and base != want:
             continue
-        Sched.update(con, r.id, {"rrule": f"{base};until={end}"})
+        Sched.update(con, r.id, {"recurrence": f"{base};until={end}"})
         stopped.append(base)
     if not stopped:
         die(f"#{args.id} has no recurrence matching --rule {args.rule!r}")
@@ -217,7 +217,7 @@ def cmd_sched_group(args, con):
         usage="usage: wl sched <id> <when>  |  wl sched <add|ls|rm|stop> … (see `wl sched --help`)")
 
 
-def _norm_rrule(s):
+def _normalize_recurrence(s):
     """Validate / normalize a recurrence rule:
     - daily
     - weekly:Mon,Wed,Fri | 1-7 | -1..-7 (1=Mon..7=Sun, -1=Sun..-7=Mon)
@@ -236,7 +236,7 @@ def _norm_rrule(s):
         norm_days = []
         for tok in raw:
             cap = tok.capitalize()
-            if cap in _WEEKDAY_ABBR:
+            if cap in _WEEKDAY_NAMES:
                 norm_days.append(cap)
                 continue
             try:
@@ -244,9 +244,9 @@ def _norm_rrule(s):
             except ValueError:
                 raise ValueError(f"invalid weekly day '{tok}' (use Mon..Sun or 1-7 / -1..-7)")
             if n > 0 and 1 <= n <= 7:
-                norm_days.append(_WEEKDAY_ABBR[n - 1])
+                norm_days.append(_WEEKDAY_NAMES[n - 1])
             elif n < 0 and -7 <= n <= -1:
-                norm_days.append(_WEEKDAY_ABBR[7 + n])  # -1 -> 6 (Sun), -7 -> 0 (Mon)
+                norm_days.append(_WEEKDAY_NAMES[7 + n])  # -1 -> 6 (Sun), -7 -> 0 (Mon)
             else:
                 raise ValueError(f"weekly number '{n}' out of range (allowed 1-7 or -1..-7)")
         # dedup preserve order

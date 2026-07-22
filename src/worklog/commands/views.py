@@ -238,7 +238,7 @@ def _is_recurring_on(con, nid, on_date):
     """Is this node a recurring item as of `on_date` — a habit, or a recurrence still live that day?
     THE single test for "does the check-in channel apply to this node", shared by `wl day`'s task
     bucket and the goal-target verdict, so the two can never disagree about what counts as done."""
-    return node_type(con, nid) == "habit" or _has_active_rrule(con, nid, on_date)
+    return node_type(con, nid) == "habit" or _has_active_recurrence(con, nid, on_date)
 
 
 def _recurring_done(con, nid, day):
@@ -1004,7 +1004,7 @@ def _habit_month_progress(con, nid, day):
     ≤ day on which the habit's schedule fires. Returns None when the habit has no
     schedule (no meaningful rate)."""
     from datetime import date, timedelta
-    scheds = _db.query(con, "sched", cols="on_date, rrule", node_id=nid)
+    scheds = _db.query(con, "sched", cols="on_date, recurrence", node_id=nid)
     if not scheds:
         return None
     y, m, d = (int(x) for x in day.split("-"))
@@ -1017,47 +1017,47 @@ def _habit_month_progress(con, nid, day):
     cur, end = date(y, m, 1), date(y, m, d)
     while cur <= end:
         ds = cur.isoformat()
-        if any(_sched_fires(s["on_date"], s["rrule"], ds) for s in scheds):
+        if any(_sched_fires(s["on_date"], s["recurrence"], ds) for s in scheds):
             expected += 1
         cur += timedelta(days=1)
     return done, expected
 
 
-def _split_until(rrule):
+def _split_until(recurrence):
     """Split a recurrence rule into (base_rule, until_date_or_None). A stopped recurrence encodes
-    its end as a `;until=YYYY-MM-DD` suffix on the rrule string (set by `wl sched stop`), so every
-    existing rrule consumer keeps working by stripping the suffix first. `until` is inclusive."""
-    if rrule and ";until=" in rrule:
-        base, _, until = rrule.partition(";until=")
+    its end as a `;until=YYYY-MM-DD` suffix on the recurrence string (set by `wl sched stop`), so every
+    existing recurrence consumer keeps working by stripping the suffix first. `until` is inclusive."""
+    if recurrence and ";until=" in recurrence:
+        base, _, until = recurrence.partition(";until=")
         return base, (until or None)
-    return rrule, None
+    return recurrence, None
 
 
-def _rrule_display(rrule):
-    """User-facing form of a (possibly stopped) rrule — the single source so every sched surface
+def _format_recurrence(recurrence):
+    """User-facing form of a (possibly stopped) recurrence — the single source so every sched surface
     (`wl show` / `wl sched ls` / sched write) renders a stopped rule the same clean way instead of
     leaking the internal `;until=` suffix: `weekly:Wed` or `weekly:Wed (stopped 2026-06-30)`."""
-    base, until = _split_until(rrule)
+    base, until = _split_until(recurrence)
     return f"{base} (stopped {until})" if until else base
 
 
-def _rrule_active(rrule, today):
+def _recurrence_is_active(recurrence, today):
     """Whether a recurrence is still live on `today` (YYYY-MM-DD): no `;until=`, or its inclusive
     until >= today. Single source for 'active recurrence vs one stopped in the past', shared by the
     done-warning / `wl show` last-check-in / `wl ls --not-checked-in` surfaces so they agree."""
-    _, until = _split_until(rrule)
+    _, until = _split_until(recurrence)
     return until is None or until >= today
 
 
-def _has_active_rrule(con, nid, on_date):
+def _has_active_recurrence(con, nid, on_date):
     """True if the node has a recurrence live ON `on_date` — the 'actively recurring that day' test
     for the `wl day` completion marker, so a recurrence stopped before that day doesn't render [x]
-    on it (keeps the day gate consistent with every other `_rrule_active` consumer)."""
-    return any(r["rrule"] and _rrule_active(r["rrule"], on_date)
-               for r in _db.query(con, "sched", cols="rrule", node_id=nid))
+    on it (keeps the day gate consistent with every other `_recurrence_is_active` consumer)."""
+    return any(r["recurrence"] and _recurrence_is_active(r["recurrence"], on_date)
+               for r in _db.query(con, "sched", cols="recurrence", node_id=nid))
 
 
-def _sched_fires(on_date, rrule, target):
+def _sched_fires(on_date, recurrence, target):
     """Whether this sched row fires on target (YYYY-MM-DD). Rules:
     - daily: every day
     - weekly:Mon,Wed,Fri | 1-7 | -1..-7: specific weekday(s) (number 1=Mon..7=Sun, -1=Sun..-7=Mon)
@@ -1070,48 +1070,48 @@ def _sched_fires(on_date, rrule, target):
 
     if on_date:
         return on_date == target
-    if not rrule:
+    if not recurrence:
         return False
-    rrule, until = _split_until(rrule)
+    recurrence, until = _split_until(recurrence)
     if until and target > until:   # stopped recurrence: no fire after the (inclusive) end date
         return False
-    rule = rrule.strip()
+    rule = recurrence.strip()
     if rule == "daily":
         return True
-    y, m, d = (int(x) for x in target.split("-"))
+    year, month, day = (int(part) for part in target.split("-"))
+    days_in_month = calendar.monthrange(year, month)[1]
     if rule.startswith("weekly:"):
-        days = [x.strip() for x in rule[len("weekly:"):].split(",") if x.strip()]
-        return _WEEKDAY_ABBR[date(y, m, d).weekday()] in days
+        weekdays = [part.strip() for part in rule[len("weekly:"):].split(",") if part.strip()]
+        return _WEEKDAY_NAMES[date(year, month, day).weekday()] in weekdays
     if rule.startswith("monthly:"):
-        tokens = [x.strip() for x in rule[len("monthly:"):].split(",") if x.strip()]
-        last = calendar.monthrange(y, m)[1]
-        for tok in tokens:
-            n = int(tok)
-            target_day = n if n > 0 else last + n + 1   # -1 → last, -2 → last-1
-            if 1 <= target_day <= last and target_day == d:
+        tokens = [part.strip() for part in rule[len("monthly:"):].split(",") if part.strip()]
+        for token in tokens:
+            offset = int(token)
+            # positive = day of month; negative counts back from the end (-1 = last day)
+            rule_day = offset if offset > 0 else days_in_month + offset + 1
+            if 1 <= rule_day <= days_in_month and rule_day == day:
                 return True
         return False
     if rule.startswith("quarterly:"):
-        tokens = [x.strip() for x in rule[len("quarterly:"):].split(",") if x.strip()]
-        quarter_month_idx = (m - 1) % 3 + 1   # month offset within the quarter: 1/2/3
-        last = calendar.monthrange(y, m)[1]
-        for tok in tokens:
-            if tok == "-1":
+        tokens = [part.strip() for part in rule[len("quarterly:"):].split(",") if part.strip()]
+        month_within_quarter = (month - 1) % 3 + 1   # 1 / 2 / 3
+        for token in tokens:
+            if token == "-1":
                 # quarter end: last day of the quarter's 3rd month (3/6/9/12)
-                if quarter_month_idx == 3 and d == last:
+                if month_within_quarter == 3 and day == days_in_month:
                     return True
                 continue
-            mm, dd = (int(x) for x in tok.split("-"))
-            if mm == quarter_month_idx and dd == d and 1 <= dd <= last:
+            rule_month, rule_day = (int(part) for part in token.split("-"))
+            if rule_month == month_within_quarter and rule_day == day and 1 <= rule_day <= days_in_month:
                 return True
         return False
     if rule.startswith("yearly:"):
-        tokens = [x.strip() for x in rule[len("yearly:"):].split(",") if x.strip()]
-        md = f"{m:02d}-{d:02d}"
-        for tok in tokens:
-            if tok == "-1" and md == "12-31":
+        tokens = [part.strip() for part in rule[len("yearly:"):].split(",") if part.strip()]
+        month_and_day = f"{month:02d}-{day:02d}"
+        for token in tokens:
+            if token == "-1" and month_and_day == "12-31":
                 return True
-            if tok == md:
+            if token == month_and_day:
                 return True
         return False
     return False
@@ -1119,8 +1119,8 @@ def _sched_fires(on_date, rrule, target):
 def _scheduled_node_ids(con, target):
     """Set of node_ids hit by a schedule on target (forward planning -> planned bucket)."""
     ids = set()
-    for r in _db.query(con, "sched", cols="node_id, on_date, rrule"):
-        if _sched_fires(r["on_date"], r["rrule"], target):
+    for r in _db.query(con, "sched", cols="node_id, on_date, recurrence"):
+        if _sched_fires(r["on_date"], r["recurrence"], target):
             ids.add(r["node_id"])
     return ids
 
@@ -1174,7 +1174,7 @@ def _day_nature(con, target):
 
 _PLAN_ORDER = ["planned", "unplanned"]
 _PRI_GROUP_ORDER = ["P0", "P1", "P2", "—"]
-_WEEKDAY_ABBR = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+_WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 def _cn_weekday(date_str):
     """YYYY-MM-DD -> weekday name (computed, not stored)"""

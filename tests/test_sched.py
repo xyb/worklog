@@ -335,8 +335,8 @@ class TestSched:
         cli("sched", "stop", "1", "2026-06-02")
         cli("sched", "1", "--recur", "daily")   # resume
         con = tmp_db.db_connect()
-        rows = con.execute("SELECT rrule FROM sched WHERE node_id=1 AND rrule IS NOT NULL").fetchall()
-        assert len(rows) == 1 and rows[0]["rrule"] == "daily"
+        rows = con.execute("SELECT recurrence FROM sched WHERE node_id=1 AND recurrence IS NOT NULL").fetchall()
+        assert len(rows) == 1 and rows[0]["recurrence"] == "daily"
 
     def test_sched_stop_rule_accepts_suffixed_string(self, cli, tmp_db):
         """`--rule` copied from output (carrying `;until=`) still matches, re-stopping at a new date."""
@@ -346,7 +346,7 @@ class TestSched:
         code, _, _ = cli("sched", "stop", "1", "2026-06-10", "--rule", "daily;until=2026-06-02")
         assert code == 0
         con = tmp_db.db_connect()
-        assert con.execute("SELECT rrule FROM sched WHERE node_id=1").fetchone()["rrule"] == "daily;until=2026-06-10"
+        assert con.execute("SELECT recurrence FROM sched WHERE node_id=1").fetchone()["recurrence"] == "daily;until=2026-06-10"
 
     def test_not_checked_in_excludes_stopped_recurrence(self, cli):
         """a recurrence stopped in the past drops off the --not-checked-in nag list."""
@@ -380,7 +380,7 @@ class TestSched:
         assert "is recurring" in out and ";until=" not in out
 
     def test_done_warns_when_any_rrule_still_active(self, cli):
-        """a node with one stopped + one active rrule still warns — done checks ALL rules for an
+        """a node with one stopped + one active recurrence still warns — done checks ALL rules for an
         active one, not just the first."""
         cli("add", "t")
         cli("sched", "1", "--recur", "weekly:Mon")
@@ -397,7 +397,7 @@ class TestSched:
         code, _, _ = cli("sched", "stop", "1", "2026-06-10", "--rule", "daily (stopped 2026-06-02)")
         assert code == 0
         con = tmp_db.db_connect()
-        assert con.execute("SELECT rrule FROM sched WHERE node_id=1").fetchone()["rrule"] == "daily;until=2026-06-10"
+        assert con.execute("SELECT recurrence FROM sched WHERE node_id=1").fetchone()["recurrence"] == "daily;until=2026-06-10"
 
     def test_show_stopped_recurrence_hides_last_checkin(self, cli):
         """a retired (past-stopped) recurrence is not a live tracked item — no `last check-in` line."""
@@ -443,7 +443,7 @@ class TestSched:
 
 
 class TestSchedHelpers:
-    """_sched_level / _sched_anchor / _sched_fires / _norm_rrule edge coverage."""
+    """_sched_level / _sched_anchor / _sched_fires / _normalize_recurrence edge coverage."""
 
     def test_sched_recur_weekly(self, cli):
         """weekly:Mon,Wed,Fri rule normalization + write"""
@@ -453,8 +453,8 @@ class TestSchedHelpers:
         # confirm the rule was stored in the sched table
         from worklog import cli as wl
         con = wl.db_connect()
-        row = con.execute("SELECT rrule FROM sched WHERE node_id=1").fetchone()
-        assert row and "Mon" in row["rrule"]
+        row = con.execute("SELECT recurrence FROM sched WHERE node_id=1").fetchone()
+        assert row and "Mon" in row["recurrence"]
 
     def test_sched_invalid_rrule(self, cli):
         cli("add", "h1", "--prop", "type.habit=true")
@@ -640,27 +640,27 @@ class TestWeeklyNumeric:
     def test_norm_weekly_positive_numbers(self):
         from worklog import cli as wl
         # 1=Mon, 2=Tue, ..., 7=Sun
-        assert wl._norm_rrule("weekly:1") == "weekly:Mon"
-        assert wl._norm_rrule("weekly:1,3,5") == "weekly:Mon,Wed,Fri"
-        assert wl._norm_rrule("weekly:7") == "weekly:Sun"
+        assert wl._normalize_recurrence("weekly:1") == "weekly:Mon"
+        assert wl._normalize_recurrence("weekly:1,3,5") == "weekly:Mon,Wed,Fri"
+        assert wl._normalize_recurrence("weekly:7") == "weekly:Sun"
 
     def test_norm_weekly_negative_numbers(self):
         from worklog import cli as wl
         # -1 = Sun (last day), -7 = Mon
-        assert wl._norm_rrule("weekly:-1") == "weekly:Sun"
-        assert wl._norm_rrule("weekly:-7") == "weekly:Mon"
-        assert wl._norm_rrule("weekly:-1,-2") == "weekly:Sun,Sat"
+        assert wl._normalize_recurrence("weekly:-1") == "weekly:Sun"
+        assert wl._normalize_recurrence("weekly:-7") == "weekly:Mon"
+        assert wl._normalize_recurrence("weekly:-1,-2") == "weekly:Sun,Sat"
 
     def test_norm_weekly_mixed_forms(self):
         from worklog import cli as wl
         # mixes numbers + names + negatives; dedup, order preserved
-        assert wl._norm_rrule("weekly:Mon,1,Tue,2") == "weekly:Mon,Tue"
+        assert wl._normalize_recurrence("weekly:Mon,1,Tue,2") == "weekly:Mon,Tue"
 
     def test_norm_weekly_out_of_range_rejected(self):
         from worklog import cli as wl
         for bad in ("weekly:0", "weekly:8", "weekly:-8", "weekly:abc"):
             try:
-                wl._norm_rrule(bad)
+                wl._normalize_recurrence(bad)
                 assert False, f"should reject {bad}"
             except ValueError:
                 pass
@@ -669,33 +669,33 @@ class TestWeeklyNumeric:
         """weekly:-1 = weekly:Sun → 2026-01-04 is a Sunday"""
         from worklog import cli as wl
         assert wl._sched_fires(None, "weekly:Sun", "2026-01-04") is True
-        # passing a numeric rule directly to _sched_fires does not work (needs _norm_rrule conversion);
-        # end-to-end via wl sched, _norm_rrule has already converted it
+        # passing a numeric rule directly to _sched_fires does not work (needs _normalize_recurrence conversion);
+        # end-to-end via wl sched, _normalize_recurrence has already converted it
 
 
 class TestQuarterlyAndYearlyNeg1Norm:
     def test_quarterly_norm_md(self):
         from worklog import cli as wl
-        assert wl._norm_rrule("quarterly:1-15") == "quarterly:1-15"
-        assert wl._norm_rrule("quarterly:3-31,1-1") == "quarterly:3-31,1-1"
+        assert wl._normalize_recurrence("quarterly:1-15") == "quarterly:1-15"
+        assert wl._normalize_recurrence("quarterly:3-31,1-1") == "quarterly:3-31,1-1"
 
     def test_quarterly_norm_neg1(self):
         from worklog import cli as wl
-        assert wl._norm_rrule("quarterly:-1") == "quarterly:-1"
+        assert wl._normalize_recurrence("quarterly:-1") == "quarterly:-1"
 
     def test_quarterly_rejects_bad(self):
         from worklog import cli as wl
         for bad in ("quarterly:", "quarterly:4-1", "quarterly:0-15", "quarterly:abc"):
             try:
-                wl._norm_rrule(bad)
+                wl._normalize_recurrence(bad)
                 assert False, f"should reject {bad}"
             except ValueError:
                 pass
 
     def test_yearly_neg1_norm(self):
         from worklog import cli as wl
-        assert wl._norm_rrule("yearly:-1") == "yearly:-1"
-        assert wl._norm_rrule("yearly:-1,03-21") == "yearly:-1,03-21"
+        assert wl._normalize_recurrence("yearly:-1") == "yearly:-1"
+        assert wl._normalize_recurrence("yearly:-1,03-21") == "yearly:-1,03-21"
 
 
 class TestQuarterlyE2E:
@@ -725,18 +725,18 @@ class TestQuarterlyE2E:
 
 
 class TestNormRruleNew:
-    """_norm_rrule new prefix validation"""
+    """_normalize_recurrence new prefix validation"""
 
     def test_monthly_norm(self):
         from worklog import cli as wl
-        assert wl._norm_rrule("monthly:5") == "monthly:5"
-        assert wl._norm_rrule("monthly:1,15,25") == "monthly:1,15,25"
-        assert wl._norm_rrule("monthly:-1") == "monthly:-1"
+        assert wl._normalize_recurrence("monthly:5") == "monthly:5"
+        assert wl._normalize_recurrence("monthly:1,15,25") == "monthly:1,15,25"
+        assert wl._normalize_recurrence("monthly:-1") == "monthly:-1"
 
     def test_monthly_empty_rejected(self):
         from worklog import cli as wl
         try:
-            wl._norm_rrule("monthly:")
+            wl._normalize_recurrence("monthly:")
             assert False
         except ValueError:
             pass
@@ -745,21 +745,21 @@ class TestNormRruleNew:
         from worklog import cli as wl
         for bad in ("monthly:0", "monthly:32", "monthly:-29", "monthly:abc"):
             try:
-                wl._norm_rrule(bad)
+                wl._normalize_recurrence(bad)
                 assert False, f"should reject {bad}"
             except ValueError:
                 pass
 
     def test_yearly_norm(self):
         from worklog import cli as wl
-        assert wl._norm_rrule("yearly:03-21") == "yearly:03-21"
-        assert wl._norm_rrule("yearly:01-01,12-25") == "yearly:01-01,12-25"
+        assert wl._normalize_recurrence("yearly:03-21") == "yearly:03-21"
+        assert wl._normalize_recurrence("yearly:01-01,12-25") == "yearly:01-01,12-25"
 
     def test_yearly_bad_format_rejected(self):
         from worklog import cli as wl
         for bad in ("yearly:", "yearly:3-21", "yearly:13-01", "yearly:02-32", "yearly:abc-de"):
             try:
-                wl._norm_rrule(bad)
+                wl._normalize_recurrence(bad)
                 assert False, f"should reject {bad}"
             except ValueError:
                 pass
@@ -821,7 +821,7 @@ class TestSchedListing:
 
 
 class TestSchedIdempotent:
-    """sched must not insert duplicate (node_id, on_date) / (node_id, rrule) rows."""
+    """sched must not insert duplicate (node_id, on_date) / (node_id, recurrence) rows."""
 
     def test_oneoff_date_idempotent(self, cli):
         cli("add", "t")
@@ -842,7 +842,7 @@ class TestSchedIdempotent:
         assert "already on recurring schedule" in out
         import sqlite3, os
         con = sqlite3.connect(os.environ["WORKLOG_DB"])
-        cnt = con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1 AND rrule=?", ("daily",)).fetchone()[0]
+        cnt = con.execute("SELECT COUNT(*) FROM sched WHERE node_id=1 AND recurrence=?", ("daily",)).fetchone()[0]
         con.close()
         assert cnt == 1
 
@@ -914,9 +914,9 @@ class TestSchedLsAndRruleValidation:
     def test_empty_weekly_rule_rejected(self):
         from worklog import cli as wl
         with pytest.raises(ValueError):
-            wl._norm_rrule("weekly:")          # no weekday after the colon
+            wl._normalize_recurrence("weekly:")          # no weekday after the colon
 
     def test_quarterly_day_out_of_range_rejected(self):
         from worklog import cli as wl
         with pytest.raises(ValueError):
-            wl._norm_rrule("quarterly:1-99")   # day 99 > 31
+            wl._normalize_recurrence("quarterly:1-99")   # day 99 > 31

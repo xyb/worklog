@@ -637,9 +637,9 @@ def _validate_fieldop(con, lineno, action, field, value, errs):
             errs.append(f"line {lineno}: invalid sched date '{value}' "
                         "(YYYY-MM-DD / today / tomorrow / +1 / -2w / next-week / next-month)")
     elif field == "recur" and action == "set":
-        from .sched import _norm_rrule
+        from .sched import _normalize_recurrence
         try:
-            _norm_rrule(value)
+            _normalize_recurrence(value)
         except ValueError as e:
             errs.append(f"line {lineno}: {e}")
     elif field == "spent" and action == "set":
@@ -703,8 +703,8 @@ def _exec_update(con, o):
                 if not Sched.exists(con, node_id=nid, on_date=d):
                     Sched.insert(con, {"node_id": nid, "on_date": d, "created_at": _tu.utc_now()})
         elif field == "recur":
-            from .sched import _norm_rrule, _upsert_rrule
-            _upsert_rrule(con, nid, _norm_rrule(value))   # idempotent by BASE rule; resumes a stopped one
+            from .sched import _normalize_recurrence, _upsert_recurrence
+            _upsert_recurrence(con, nid, _normalize_recurrence(value))   # idempotent by BASE rule; resumes a stopped one
         elif field == "spent":
             # a COMPLETED clock ending now — the declarative `wl spent`. `start`/`stop` stay
             # command-only: "start a timer now" is imperative state, not something a diff describes.

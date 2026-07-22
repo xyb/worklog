@@ -122,7 +122,7 @@ class TestCheckin:
         assert "#1" not in out and "#3" not in out
 
     def test_oneoff_tick_without_done_not_marked_x(self, cli):
-        """a plain one-off task (no rrule, not habit) ticked for a note (no --done) must NOT
+        """a plain one-off task (no recurrence, not habit) ticked for a note (no --done) must NOT
         render [x] — the done marker is gated on recurring items."""
         from datetime import date
         cli("add", "oneoff")

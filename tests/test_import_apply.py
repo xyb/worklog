@@ -334,13 +334,13 @@ class TestApply:
         assert len(rows) == 1 and rows[0]["on_date"] == "2026-08-01"
 
     def test_apply_recur_field_op(self, cli, tmp_db):
-        # `recur <rule>` — the declarative `wl sched --recur`: a normalised rrule row.
+        # `recur <rule>` — the declarative `wl sched --recur`: a normalised recurrence row.
         cli("add", "t")
         self._apply(cli, "~ #1\n  recur weekly:Mon,Fri\n")
         con = tmp_db.db_connect()
-        row = con.execute("SELECT rrule FROM sched WHERE node_id=1 AND rrule IS NOT NULL "
+        row = con.execute("SELECT recurrence FROM sched WHERE node_id=1 AND recurrence IS NOT NULL "
                           "AND deleted_at IS NULL").fetchone()
-        assert row is not None and "weekly" in row["rrule"]
+        assert row is not None and "weekly" in row["recurrence"]
 
     def test_apply_sched_clear(self, cli, tmp_db):
         # `-sched` clears every schedule row for the node (declarative `wl sched --clear`).
@@ -393,9 +393,9 @@ class TestApply:
         cli("sched", "stop", "1")
         self._apply(cli, "~ #1\n  recur daily\n")
         con = tmp_db.db_connect()
-        rows = con.execute("SELECT rrule FROM sched WHERE node_id=1 AND rrule IS NOT NULL "
+        rows = con.execute("SELECT recurrence FROM sched WHERE node_id=1 AND recurrence IS NOT NULL "
                            "AND deleted_at IS NULL").fetchall()
-        assert len(rows) == 1 and rows[0]["rrule"] == "daily"
+        assert len(rows) == 1 and rows[0]["recurrence"] == "daily"
 
     def test_apply_body_dash_clears_a_node_body_and_is_rejected_on_a_log(self, cli, tmp_db):
         # `-` clears, matching every other settable field; a log body can't be cleared (delete it).

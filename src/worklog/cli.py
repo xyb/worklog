@@ -282,7 +282,7 @@ def _args_node_ls(p):
     p.add_argument("--unscheduled", action="store_true",
                    help="only items not in sched (use this for 'unscheduled', not --status)")
     p.add_argument("--not-checked-in", type=int, metavar="N", default=None,
-                   help="only recurring items (have an rrule) not checked in within the last N days, or never")
+                   help="only recurring items (have a recurrence) not checked in within the last N days, or never")
     p.add_argument("--ids", type=int, nargs="+", metavar="id",
                    help="list specific ids directly, skipping filters (like shell ls file1 file2)")
     return p
@@ -1669,7 +1669,7 @@ More: `wl help sched` (the full recurring-rule grammar).""")
         description="Stop a recurring schedule: it keeps firing up to and INCLUDING <date> (default today), then stops. Past occurrences stay intact (unlike --clear, which erases the rule from history too). If the node has several recurrence rules, all are stopped unless --rule names one.")
     _scstop.add_argument("id", type=int)
     _scstop.add_argument("date", nargs="?", help="last day the recurrence fires (inclusive); default today — YYYY-MM-DD / today / a signed delta")
-    _scstop.add_argument("--rule", help="only stop the recurrence rule equal to this rrule (default: all of the node's rrules)")
+    _scstop.add_argument("--rule", help="only stop the recurrence rule matching this exact value (default: all of the node's recurrence rules)")
 
     di = add_cmd(sub, "dateinfo", cmd_dateinfo,
         help="date metadata (holiday/vacation/working-day swap; shown in wl day header)",
@@ -2006,7 +2006,7 @@ from .commands import (
     cmd_retag,
     _edit_in_editor,
     cmd_tick,
-    _norm_rrule,
+    _normalize_recurrence,
     cmd_sched,
     cmd_sched_group,
     cmd_dateinfo,

@@ -1,0 +1,16 @@
+-- worklog schema v14: `sched.rrule` → `sched.recurrence` — a rename only, no data change.
+--
+-- The column was named after RFC 5545's RRULE on the plan of eventually growing into it.
+-- It grew in another direction: `quarterly:` is not an RFC frequency (the standard spells
+-- that `FREQ=MONTHLY;INTERVAL=3`), and `weekly:-1` means Sunday here where the standard's
+-- leading `-1` means "the last one of the period". So the stored strings are a private DSL
+-- that happens to share a name with a standard it does not implement — which misleads
+-- exactly the readers who know the standard best.
+--
+-- `recurrence` claims only what the column holds: how the schedule repeats. The user-facing
+-- flag stays `--recur`; a command-line flag is typed daily and is allowed to be short, while
+-- a stored field and the code around it are read far more often than written.
+--
+-- Values are untouched: `daily` / `weekly:Mon,Wed` / `monthly:-1` / … and the `;until=` suffix
+-- all keep their exact meaning.
+ALTER TABLE sched RENAME COLUMN rrule TO recurrence;

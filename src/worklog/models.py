@@ -190,12 +190,12 @@ class Clock(_IdPK, _Model):
 
 @dataclass
 class Sched(_IdPK, _Model):
-    """Mirrors the ``sched`` table (forward-planning entry: one-off date or rrule)."""
+    """Mirrors the ``sched`` table (forward-planning entry: one-off date or recurrence)."""
     _table = "sched"
     id: int
     node_id: int
-    on_date: str | None  # YYYY-MM-DD one-off date; mutually exclusive with rrule
-    rrule: str | None    # recurrence rule: daily / weekly:Mon,Wed / monthly:5 / …
+    on_date: str | None  # YYYY-MM-DD one-off date; mutually exclusive with recurrence
+    recurrence: str | None    # recurrence rule: daily / weekly:Mon,Wed / monthly:5 / …
     created_at: str
 
 

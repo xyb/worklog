@@ -401,17 +401,17 @@ def cmd_log(args, con):
 
 @output_format
 def cmd_done(args, con):
-    from .views import _rrule_active, _rrule_display
+    from .views import _recurrence_is_active, _format_recurrence
     ids = _ids_list(args)
     today = _tu.today()
     # only warn for a still-ACTIVE recurrence — one stopped in the past no longer fires, so the
-    # "use wl tick for today's occurrence" advice would be misleading. Display via _rrule_display
+    # "use wl tick for today's occurrence" advice would be misleading. Display via _format_recurrence
     # so the internal ;until= suffix never leaks.
     recurring = []
     for nid in ids:
-        active = [r.rrule for r in Sched.query(con, node_id=nid) if r.rrule and _rrule_active(r.rrule, today)]
+        active = [r.recurrence for r in Sched.query(con, node_id=nid) if r.recurrence and _recurrence_is_active(r.recurrence, today)]
         if active:
-            recurring.append((nid, ", ".join(_rrule_display(r) for r in active)))
+            recurring.append((nid, ", ".join(_format_recurrence(r) for r in active)))
     inner = _bulk_status_change(con, args, "DONE", close=True)
 
     def _render():
@@ -2097,14 +2097,14 @@ def _gap_candidates(con):
     Deliberately NOT "every open P0": priority is a standing ranking, not a statement that a thing
     is in flight today. That reading sweeps in nearly every open P0 — including calendar-only nodes
     (a weekly sync) that will never have a session — and an alert that always fires is no alert."""
-    from .views import _goal_target_rows, _has_active_rrule
+    from .views import _goal_target_rows, _has_active_recurrence
     from ..queries import time_node_by_period, node_type, node_props
     gaps = {}
     for n in Node.query(con, priority="A", status="DOING"):
         # A recurring item is NOT "claimed in flight": `wl tick` never moves the status, so a habit
         # sits at DOING forever. Its "am I keeping up" signal is the check-in, not a bound session —
         # it would otherwise be flagged as unattended every single day.
-        if node_type(con, n.id) == "habit" or _has_active_rrule(con, n.id, _tu.today()):
+        if node_type(con, n.id) == "habit" or _has_active_recurrence(con, n.id, _tu.today()):
             continue
         # Nor is a CONTAINER (a project / area): it stays DOING for as long as anything under it is
         # live, and it's pushed through its children — a session binds to a task, not to the bucket
