@@ -159,6 +159,56 @@ The codebase has a small set of single-source helpers; new code must reuse them,
 
 Same rule for documentation: install / dev / release info lives here, not duplicated in README. Sections in README that need this content link to it instead of restating it.
 
+## Naming: spell it out
+
+Identifiers use whole words. The cost of a longer name is paid once, by the person
+typing it; the cost of a short one is paid every time anybody reads the line.
+
+| Write this | Not this |
+|---|---|
+| `connection` | `con` |
+| `node_id` | `nid` |
+| `token` | `tok` |
+| `cursor` | `cur` |
+| `config` | `cfg` |
+| `value` | `val` |
+| `result` | `res` |
+| `normalize_*` | `norm_*` |
+| `*_names` | `*_abbr` |
+
+Short forms are fine when the short form is itself the word readers know: `id`, `url`,
+`db`, `ok`, `args`, `kwargs`. A loop index may be `i` when its entire scope fits on one
+screen.
+
+**Two rules that come from real confusion in this code:**
+
+**1. No near-identical names in one scope.** Names that differ by a letter or two force
+the reader to hold both in their head at once and re-derive which is which. The
+recurrence matcher used to read:
+
+```python
+# before — d is the target date's day, dd is the day the rule asks for
+mm, dd = (int(x) for x in tok.split("-"))
+if mm == quarter_month_idx and dd == d and 1 <= dd <= last:
+
+# after
+rule_month, rule_day = (int(part) for part in token.split("-"))
+if rule_month == month_within_quarter and rule_day == day and 1 <= rule_day <= days_in_month:
+```
+
+**2. Don't name a thing after a standard it doesn't implement.** The recurrence column
+was called `rrule` because the plan was to grow it into RFC 5545 RRULE. It grew a
+different way instead — `quarterly:` is not an RFC frequency at all, and `weekly:-1`
+means "Sunday" here but "the last one" in the standard. The name kept promising
+compliance the code never delivered, which is worse than no name at all: a reader who
+knows the standard is actively misled. It is now `recurrence`, which claims only what
+it is. If a name describes an intention rather than the current behavior, it will be
+wrong for however long the intention takes — assume that is forever.
+
+Renaming existing abbreviations is welcome, as **its own commit**. Never fold a rename
+into a behavior change: a diff that both moves logic and renames symbols is one nobody
+can review properly.
+
 ## Local Makefile overrides
 
 The Makefile loads any `local/*.mk` files at the end via `-include local/*.mk`. The `local/` directory is gitignored, so site-specific variables, private remotes, or extra targets go there without touching the shipped Makefile. Missing is fine — make won't complain.
