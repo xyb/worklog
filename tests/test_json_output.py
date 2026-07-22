@@ -755,6 +755,13 @@ class TestSchedWriteJson:
         d = _j(cli, "sched", "1", "2026-09-01", "-o", "json")
         assert any(r["on_date"] == "2026-09-01" for r in d["schedule"])
 
+    def test_recur_op_type_is_recurrence(self, cli):
+        """`ops[].type` is a public token consumers branch on — pin it so a rename can't
+        change it silently (it was "rrule" before the recurrence rename)."""
+        cli("add", "task")
+        d = _j(cli, "sched", "1", "--recur", "weekly:Mon", "-o", "json")
+        assert [op["type"] for op in d["ops"]] == ["recurrence"]
+
     def test_sched_rm_returns_cleared_count(self, cli):
         cli("add", "task")
         cli("sched", "1", "2026-09-01")

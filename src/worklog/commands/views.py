@@ -1174,7 +1174,8 @@ def _day_nature(con, target):
 
 _PLAN_ORDER = ["planned", "unplanned"]
 _PRI_GROUP_ORDER = ["P0", "P1", "P2", "—"]
-_WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+# weekday tokens: see _WEEKDAY_NAMES above — one list serves both the day header and
+# `weekly:` recurrence matching, so the two can never disagree about spelling or order.
 
 def _cn_weekday(date_str):
     """YYYY-MM-DD -> weekday name (computed, not stored)"""

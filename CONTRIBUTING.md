@@ -174,11 +174,17 @@ typing it; the cost of a short one is paid every time anybody reads the line.
 | `value` | `val` |
 | `result` | `res` |
 | `normalize_*` | `norm_*` |
-| `*_names` | `*_abbr` |
 
 Short forms are fine when the short form is itself the word readers know: `id`, `url`,
 `db`, `ok`, `args`, `kwargs`. A loop index may be `i` when its entire scope fits on one
 screen.
+
+**Two established exceptions: `con` and `nid`.** The DB handle is `con` everywhere —
+that is fixed by the `cmd_<name>(args, con)` handler contract (AGENTS.md) and by
+single-source helpers like `_node_line(con, …)`. A node id argument is `nid`. Both have
+four-figure call-site counts; renaming them one file at a time would leave the codebase
+*less* consistent than it is now, which is the opposite of the point. They change in a
+dedicated whole-repo sweep or not at all. In new code, match the surrounding file.
 
 **Two rules that come from real confusion in this code:**
 
@@ -205,9 +211,11 @@ knows the standard is actively misled. It is now `recurrence`, which claims only
 it is. If a name describes an intention rather than the current behavior, it will be
 wrong for however long the intention takes — assume that is forever.
 
-Renaming existing abbreviations is welcome, as **its own commit**. Never fold a rename
-into a behavior change: a diff that both moves logic and renames symbols is one nobody
-can review properly.
+**A sweeping rename lands as its own commit.** Renaming a symbol across many files, or
+renaming a stored field, must not ride along with a behavior change — a diff that both
+moves logic and renames symbols across the tree is one nobody can review properly. This
+does not restrict the refactor step of the TDD loop: tidying the names inside the code
+you just changed is exactly what that step is for, and it stays in that commit.
 
 ## Local Makefile overrides
 

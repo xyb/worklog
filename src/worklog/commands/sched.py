@@ -217,7 +217,7 @@ def cmd_sched_group(args, con):
         usage="usage: wl sched <id> <when>  |  wl sched <add|ls|rm|stop> … (see `wl sched --help`)")
 
 
-def _normalize_recurrence(s):
+def _normalize_recurrence(raw_rule):
     """Validate / normalize a recurrence rule:
     - daily
     - weekly:Mon,Wed,Fri | 1-7 | -1..-7 (1=Mon..7=Sun, -1=Sun..-7=Mon)
@@ -226,73 +226,73 @@ def _normalize_recurrence(s):
     - yearly:03-21 / -1 (last day of year): MM-DD
     """
     import re as _re
-    rule = s.strip()
+    rule = raw_rule.strip()
     if rule == "daily":
         return "daily"
     if rule.startswith("weekly:"):
-        raw = [x.strip() for x in rule[len("weekly:"):].split(",") if x.strip()]
-        if not raw:
+        tokens = [part.strip() for part in rule[len("weekly:"):].split(",") if part.strip()]
+        if not tokens:
             raise ValueError("weekly rule needs at least 1 weekday (Mon/Tue/.../Sun or 1-7 / -1..-7)")
-        norm_days = []
-        for tok in raw:
-            cap = tok.capitalize()
-            if cap in _WEEKDAY_NAMES:
-                norm_days.append(cap)
+        weekdays = []
+        for token in tokens:
+            capitalized = token.capitalize()
+            if capitalized in _WEEKDAY_NAMES:
+                weekdays.append(capitalized)
                 continue
             try:
-                n = int(tok)
+                number = int(token)
             except ValueError:
-                raise ValueError(f"invalid weekly day '{tok}' (use Mon..Sun or 1-7 / -1..-7)")
-            if n > 0 and 1 <= n <= 7:
-                norm_days.append(_WEEKDAY_NAMES[n - 1])
-            elif n < 0 and -7 <= n <= -1:
-                norm_days.append(_WEEKDAY_NAMES[7 + n])  # -1 -> 6 (Sun), -7 -> 0 (Mon)
+                raise ValueError(f"invalid weekly day '{token}' (use Mon..Sun or 1-7 / -1..-7)")
+            if number > 0 and 1 <= number <= 7:
+                weekdays.append(_WEEKDAY_NAMES[number - 1])
+            elif number < 0 and -7 <= number <= -1:
+                weekdays.append(_WEEKDAY_NAMES[7 + number])  # -1 -> 6 (Sun), -7 -> 0 (Mon)
             else:
-                raise ValueError(f"weekly number '{n}' out of range (allowed 1-7 or -1..-7)")
+                raise ValueError(f"weekly number '{number}' out of range (allowed 1-7 or -1..-7)")
         # dedup preserve order
         seen = set()
-        deduped = [d for d in norm_days if not (d in seen or seen.add(d))]
+        deduped = [day for day in weekdays if not (day in seen or seen.add(day))]
         return "weekly:" + ",".join(deduped)
     if rule.startswith("monthly:"):
-        tokens = [x.strip() for x in rule[len("monthly:"):].split(",") if x.strip()]
+        tokens = [part.strip() for part in rule[len("monthly:"):].split(",") if part.strip()]
         if not tokens:
             raise ValueError("monthly rule needs at least 1 day (e.g. monthly:5 / monthly:1,15 / monthly:-1)")
-        norm = []
-        for tok in tokens:
+        days = []
+        for token in tokens:
             try:
-                n = int(tok)
+                day = int(token)
             except ValueError:
-                raise ValueError(f"monthly day must be an integer: '{tok}' (positive 1-31 / negative -1..-28 from month-end)")
-            if n == 0 or not (-28 <= n <= 31):
-                raise ValueError(f"monthly day '{n}' out of range (allowed 1-31 or -1..-28)")
-            norm.append(str(n))
-        return "monthly:" + ",".join(norm)
+                raise ValueError(f"monthly day must be an integer: '{token}' (positive 1-31 / negative -1..-28 from month-end)")
+            if day == 0 or not (-28 <= day <= 31):
+                raise ValueError(f"monthly day '{day}' out of range (allowed 1-31 or -1..-28)")
+            days.append(str(day))
+        return "monthly:" + ",".join(days)
     if rule.startswith("quarterly:"):
-        tokens = [x.strip() for x in rule[len("quarterly:"):].split(",") if x.strip()]
+        tokens = [part.strip() for part in rule[len("quarterly:"):].split(",") if part.strip()]
         if not tokens:
             raise ValueError("quarterly rule needs at least 1 M-D or -1 (e.g. quarterly:1-15 / quarterly:-1)")
-        for tok in tokens:
-            if tok == "-1":
+        for token in tokens:
+            if token == "-1":
                 continue
-            if not _re.fullmatch(r"\d{1,2}-\d{1,2}", tok):
-                raise ValueError(f"invalid quarterly '{tok}' (expected M-D, M in 1-3 month-in-quarter; or -1 quarter end)")
-            mm, dd = (int(x) for x in tok.split("-"))
-            if not (1 <= mm <= 3):
-                raise ValueError(f"quarterly '{tok}' month offset out of range (1=Q-start / 2=mid / 3=Q-end)")
-            if not (1 <= dd <= 31):
-                raise ValueError(f"quarterly '{tok}' day out of range (1-31)")
+            if not _re.fullmatch(r"\d{1,2}-\d{1,2}", token):
+                raise ValueError(f"invalid quarterly '{token}' (expected M-D, M in 1-3 month-in-quarter; or -1 quarter end)")
+            month_within_quarter, day = (int(part) for part in token.split("-"))
+            if not (1 <= month_within_quarter <= 3):
+                raise ValueError(f"quarterly '{token}' month offset out of range (1=Q-start / 2=mid / 3=Q-end)")
+            if not (1 <= day <= 31):
+                raise ValueError(f"quarterly '{token}' day out of range (1-31)")
         return "quarterly:" + ",".join(tokens)
     if rule.startswith("yearly:"):
-        tokens = [x.strip() for x in rule[len("yearly:"):].split(",") if x.strip()]
+        tokens = [part.strip() for part in rule[len("yearly:"):].split(",") if part.strip()]
         if not tokens:
             raise ValueError("yearly rule needs at least 1 MM-DD or -1 (e.g. yearly:03-21 / yearly:-1)")
-        for tok in tokens:
-            if tok == "-1":
+        for token in tokens:
+            if token == "-1":
                 continue
-            if not _re.fullmatch(r"\d{2}-\d{2}", tok):
-                raise ValueError(f"invalid yearly '{tok}' (expected MM-DD like 03-21; or -1 year end)")
-            mm, dd = int(tok[:2]), int(tok[3:])
-            if not (1 <= mm <= 12 and 1 <= dd <= 31):
-                raise ValueError(f"yearly '{tok}' out of range (month 1-12 / day 1-31)")
+            if not _re.fullmatch(r"\d{2}-\d{2}", token):
+                raise ValueError(f"invalid yearly '{token}' (expected MM-DD like 03-21; or -1 year end)")
+            month, day = int(token[:2]), int(token[3:])
+            if not (1 <= month <= 12 and 1 <= day <= 31):
+                raise ValueError(f"yearly '{token}' out of range (month 1-12 / day 1-31)")
         return "yearly:" + ",".join(tokens)
-    raise ValueError(f"unknown recurrence rule '{s}' (supports daily / weekly / monthly / quarterly / yearly, each accepting -1 = end of cycle)")
+    raise ValueError(f"unknown recurrence rule '{raw_rule}' (supports daily / weekly / monthly / quarterly / yearly, each accepting -1 = end of cycle)")

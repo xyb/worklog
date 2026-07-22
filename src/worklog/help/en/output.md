@@ -56,7 +56,7 @@ Common uses:
                                      #   work on the node; the bind itself doesn't count)
   wl agent gaps -o json              # [{id,title,priority,status,reason}] reason: DOING|goal
   wl date ls -o json                 # [{date,label}]
-  wl sched ls -o json                # [{node_id,title,scheduled_date,recur}]
+  wl sched ls -o json                # {node_id, rows:[{on_date,recurrence}]}
   wl changes --month 2026-06 -o json # per-project change lists
 
 Write commands (`add`, `done`, `start`, `defer`, `wait`, …) also accept `-o json` and return

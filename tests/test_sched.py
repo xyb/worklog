@@ -379,7 +379,7 @@ class TestSched:
         _, out, _ = cli("done", "1")
         assert "is recurring" in out and ";until=" not in out
 
-    def test_done_warns_when_any_rrule_still_active(self, cli):
+    def test_done_warns_when_any_recurrence_still_active(self, cli):
         """a node with one stopped + one active recurrence still warns — done checks ALL rules for an
         active one, not just the first."""
         cli("add", "t")
@@ -428,7 +428,7 @@ class TestSched:
         code, out, _ = cli("sched", "1")
         assert "2026-06-15" in out
 
-    def test_sched_invalid_rrule_rejected(self, cli):
+    def test_sched_invalid_recurrence_rejected(self, cli):
         cli("add", "t")
         code, _, _ = cli("sched", "1", "--recur", "monthly")
         assert code != 0
@@ -456,7 +456,7 @@ class TestSchedHelpers:
         row = con.execute("SELECT recurrence FROM sched WHERE node_id=1").fetchone()
         assert row and "Mon" in row["recurrence"]
 
-    def test_sched_invalid_rrule(self, cli):
+    def test_sched_invalid_recurrence(self, cli):
         cli("add", "h1", "--prop", "type.habit=true")
         code, _, _ = cli("sched", "1", "--recur", "garbage-rule")
         assert code != 0
@@ -724,7 +724,7 @@ class TestQuarterlyE2E:
         assert "Sunday review" in out
 
 
-class TestNormRruleNew:
+class TestNormalizeRecurrenceNew:
     """_normalize_recurrence new prefix validation"""
 
     def test_monthly_norm(self):

@@ -173,6 +173,19 @@ class TestShowJson:
         assert d["priority"] == "A"
         assert set(d["tags"]) == {"work", "dev"}
 
+    def test_json_schedule_keys(self, cli):
+        """`schedule.dates` / `schedule.recurrences` are the public shape consumers read.
+        Pin both keys: the recurrences one was `rrules` before the recurrence rename, and a
+        renamed key fails silently downstream (jq yields null, not an error)."""
+        cli("add", "patrol")
+        cli("sched", "1", "2026-09-01")
+        cli("sched", "1", "--recur", "weekly:Mon")
+        _, out, _ = cli("show", "1", "-o", "json")
+        import json
+        schedule = json.loads(out)["schedule"]
+        assert schedule["recurrences"] == ["weekly:Mon"]
+        assert "2026-09-01" in schedule["dates"]
+
     def test_json_includes_relations(self, cli):
         cli("add", "proj", "--para", "project")               # 1
         cli("add", "child", "--parent", "1") # 2
