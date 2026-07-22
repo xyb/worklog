@@ -762,6 +762,14 @@ class TestSchedWriteJson:
         d = _j(cli, "sched", "1", "--recur", "weekly:Mon", "-o", "json")
         assert [op["type"] for op in d["ops"]] == ["recurrence"]
 
+    def test_schedule_rows_use_recurrence_key(self, cli):
+        """The write path echoes the node's schedule back; `schedule[].recurrence` is the
+        key consumers read (it was `rrule`). A renamed key fails silently downstream —
+        jq yields null rather than erroring — so pin the name, not just the value."""
+        cli("add", "task")
+        d = _j(cli, "sched", "1", "--recur", "daily", "-o", "json")
+        assert [row["recurrence"] for row in d["schedule"]] == ["daily"]
+
     def test_sched_rm_returns_cleared_count(self, cli):
         cli("add", "task")
         cli("sched", "1", "2026-09-01")

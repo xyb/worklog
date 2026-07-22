@@ -521,6 +521,50 @@ class TestMigration0013RelationSplitRename:
         assert row and row["value"] == "2"
 
 
+class TestMigration0014RrulesToRecurrence:
+    """0014: sched.rrule -> sched.recurrence. A pure rename — every stored rule string,
+    including a stopped one carrying its `;until=` suffix, must survive byte-identical."""
+
+    def _replay_0014(self, tmp_db, con):
+        import pathlib
+        mig = pathlib.Path(tmp_db.__file__).resolve().parent / "migrations" / "0014_rrule_to_recurrence.sql"
+        con.executescript(mig.read_text())
+        con.commit()
+
+    def test_rules_survive_the_rename(self, cli, tmp_db):
+        cli("add", "patrol")   # #1
+        con = tmp_db.db_connect()
+        # a fresh DB is already at v14, so put the column back to its pre-0014 name and
+        # seed it, then replay the migration over that pre-state.
+        con.execute("ALTER TABLE sched RENAME COLUMN recurrence TO rrule")
+        con.executemany("INSERT INTO sched (node_id, rrule) VALUES (1, ?)",
+                        [("daily",), ("weekly:Mon,Wed",), ("monthly:-1",), ("weekly:Wed;until=2026-06-30",)])
+        con.commit()
+        self._replay_0014(tmp_db, con)
+        stored = [r["recurrence"] for r in con.execute("SELECT recurrence FROM sched ORDER BY id")]
+        assert stored == ["daily", "weekly:Mon,Wed", "monthly:-1", "weekly:Wed;until=2026-06-30"]
+
+    def test_old_column_is_gone(self, cli, tmp_db):
+        cli("add", "patrol")
+        con = tmp_db.db_connect()
+        con.execute("ALTER TABLE sched RENAME COLUMN recurrence TO rrule")
+        con.commit()
+        self._replay_0014(tmp_db, con)
+        with pytest.raises(sqlite3.OperationalError):
+            con.execute("SELECT rrule FROM sched")
+
+    def test_one_off_dates_untouched(self, cli, tmp_db):
+        """The rename must not disturb the other column a sched row can carry."""
+        cli("add", "patrol")
+        con = tmp_db.db_connect()
+        con.execute("ALTER TABLE sched RENAME COLUMN recurrence TO rrule")
+        con.execute("INSERT INTO sched (node_id, on_date) VALUES (1, '2026-09-01')")
+        con.commit()
+        self._replay_0014(tmp_db, con)
+        row = con.execute("SELECT on_date, recurrence FROM sched WHERE on_date IS NOT NULL").fetchone()
+        assert row["on_date"] == "2026-09-01" and row["recurrence"] is None
+
+
 class TestDbHelpers:
     """Edge paths in worklog.db: in-memory connections, missing dirs, non-numeric files."""
 

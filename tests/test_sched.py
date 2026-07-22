@@ -905,7 +905,7 @@ class TestAgenda:
         assert code != 0
 
 
-class TestSchedLsAndRruleValidation:
+class TestSchedLsAndRecurrenceValidation:
     def test_sched_ls_no_schedule_message(self, cli):
         cli("add", "t")
         _, out, _ = cli("sched", "ls", "1")

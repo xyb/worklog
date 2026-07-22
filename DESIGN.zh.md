@@ -652,7 +652,7 @@ log 写错有两条出路:
 
 `spent` 适合"已经结束、忘了开 clock"的回顾;`start --at` + `stop --at` 适合"开始时间记得但当时没敲"。三种都共用 `_resolve_at_ts(at)` helper (跟 `wl relog --at` / `wl log --time` 一致语法)。
 
-## 32. 循环/定期任务 RRULE
+## 32. 循环/定期任务 recurrence
 
 `wl sched <id> --recur <rule>` 接受五种重复规则,每种都支持 `-1` 表"周期最后一天":
 

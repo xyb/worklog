@@ -166,8 +166,6 @@ typing it; the cost of a short one is paid every time anybody reads the line.
 
 | Write this | Not this |
 |---|---|
-| `connection` | `con` |
-| `node_id` | `nid` |
 | `token` | `tok` |
 | `cursor` | `cur` |
 | `config` | `cfg` |
@@ -179,12 +177,14 @@ Short forms are fine when the short form is itself the word readers know: `id`, 
 `db`, `ok`, `args`, `kwargs`. A loop index may be `i` when its entire scope fits on one
 screen.
 
-**Two established exceptions: `con` and `nid`.** The DB handle is `con` everywhere —
-that is fixed by the `cmd_<name>(args, con)` handler contract (AGENTS.md) and by
-single-source helpers like `_node_line(con, …)`. A node id argument is `nid`. Both have
-four-figure call-site counts; renaming them one file at a time would leave the codebase
-*less* consistent than it is now, which is the opposite of the point. They change in a
-dedicated whole-repo sweep or not at all. In new code, match the surrounding file.
+**Two established exceptions, deliberately not in the table above: `con` and `nid`.** The
+DB handle is `con` everywhere — fixed by the `cmd_<name>(args, con)` handler contract
+(AGENTS.md) and by single-source helpers like `_node_line(con, …)`. A node id argument is
+`nid`. `con` occurs ~2700 times across `src/` + `tests/` and `nid` ~700; renaming them one
+file at a time would leave the codebase *less* consistent than it is now, which is the
+opposite of the point. They change in a dedicated whole-repo sweep or not at all. In new
+code, match the surrounding file — writing `connection` in a new handler is the drift, not
+the fix.
 
 **Two rules that come from real confusion in this code:**
 

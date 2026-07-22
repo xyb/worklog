@@ -1079,11 +1079,13 @@ def _sched_fires(on_date, recurrence, target):
     if rule == "daily":
         return True
     year, month, day = (int(part) for part in target.split("-"))
-    days_in_month = calendar.monthrange(year, month)[1]
     if rule.startswith("weekly:"):
         weekdays = [part.strip() for part in rule[len("weekly:"):].split(",") if part.strip()]
         return _WEEKDAY_NAMES[date(year, month, day).weekday()] in weekdays
     if rule.startswith("monthly:"):
+        # month length is only needed by the two branches that count from month end; computing it
+        # up front would make a `yearly:` rule raise on an out-of-range month where it returns False
+        days_in_month = calendar.monthrange(year, month)[1]
         tokens = [part.strip() for part in rule[len("monthly:"):].split(",") if part.strip()]
         for token in tokens:
             offset = int(token)
@@ -1093,6 +1095,7 @@ def _sched_fires(on_date, recurrence, target):
                 return True
         return False
     if rule.startswith("quarterly:"):
+        days_in_month = calendar.monthrange(year, month)[1]
         tokens = [part.strip() for part in rule[len("quarterly:"):].split(",") if part.strip()]
         month_within_quarter = (month - 1) % 3 + 1   # 1 / 2 / 3
         for token in tokens:

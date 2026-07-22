@@ -1669,7 +1669,7 @@ More: `wl help sched` (the full recurring-rule grammar).""")
         description="Stop a recurring schedule: it keeps firing up to and INCLUDING <date> (default today), then stops. Past occurrences stay intact (unlike --clear, which erases the rule from history too). If the node has several recurrence rules, all are stopped unless --rule names one.")
     _scstop.add_argument("id", type=int)
     _scstop.add_argument("date", nargs="?", help="last day the recurrence fires (inclusive); default today — YYYY-MM-DD / today / a signed delta")
-    _scstop.add_argument("--rule", help="only stop the recurrence rule matching this exact value (default: all of the node's recurrence rules)")
+    _scstop.add_argument("--rule", help="only stop this recurrence rule, matched on the base rule with any `;until=` suffix ignored (default: all of the node's recurrence rules)")
 
     di = add_cmd(sub, "dateinfo", cmd_dateinfo,
         help="date metadata (holiday/vacation/working-day swap; shown in wl day header)",
