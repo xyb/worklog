@@ -415,6 +415,18 @@ class TestSched:
         assert _sched_fires(None, "weekly:Mon;until=2026-05-04", "2026-05-04") is True   # a Monday
         assert _sched_fires(None, "weekly:Mon;until=2026-05-03", "2026-05-04") is False
 
+    def test_yearly_does_not_probe_month_length(self):
+        """A `yearly:` rule compares MM-DD strings and must never ask how long the month is.
+
+        Regression guard: computing `calendar.monthrange(...)` before the branch dispatch —
+        an easy "hoist the common subexpression" tidy-up, since three of the five branches
+        want it — turns this from False into IllegalMonthError. Only `monthly:`/`quarterly:`
+        count from the month end, so only they may call it.
+        """
+        from worklog.commands.views import _sched_fires
+        assert _sched_fires(None, "yearly:03-21", "2026-13-05") is False
+        assert _sched_fires(None, "yearly:-1", "2026-13-05") is False
+
     def test_sched_clear(self, cli):
         cli("add", "t")
         cli("sched", "1", "2026-06-15")
