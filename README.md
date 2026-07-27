@@ -14,6 +14,8 @@ A local CLI worklog and task tracker backed by SQLite. Add tasks, log what you d
   <img src="https://github.com/user-attachments/assets/ff7d723b-03fa-4372-8c43-f3668b6dddf8" alt="wl demo — a day in the terminal: plan, log, recap" width="720">
 </p>
 
+**Background:** [A todo tool where the writing is done by an AI, not me](https://xieyanbo.me/blog/2026-07-26-a-todo-tool-the-ai-writes/) tells the story behind wl and the design choices.
+
 **Why `wl`:**
 
 - **Everything in one place.** Time (year → month → week → day) and projects (area → task) share the same tree and the same id space. No switching between apps.

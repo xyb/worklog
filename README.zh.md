@@ -14,6 +14,8 @@
   <img src="https://github.com/user-attachments/assets/ff7d723b-03fa-4372-8c43-f3668b6dddf8" alt="wl 演示 —— 终端里的一天:规划、记录、复盘" width="720">
 </p>
 
+**背景阅读**：[知识库之外，还缺一层：记录当下正在做的事](https://xieyanbo.me/blog/2026-07-26-a-todo-tool-the-ai-writes-zh/) 讲了 wl 的由来和设计取舍。
+
 ## 为什么用 worklog?
 
 起源:AI 帮我记的 Markdown 工作记录涨了大约 50 倍后撑不住——并发写互相覆盖、wikilink 重命名就断、总结要重读大文件。于是把结构化的部分挪进一个为 AI 驱动而设计的数据库。
