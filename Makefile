@@ -66,7 +66,7 @@ install:             ## install wl from a clean committed HEAD (isolated from de
 	fi
 	@WORKTREE=$$(mktemp -d /tmp/wl-install-XXXXXX) && \
 	  $(GIT) worktree add --detach "$$WORKTREE" HEAD 2>/dev/null && \
-	  $(UV) tool install --reinstall "$$WORKTREE" && \
+	  $(UV) tool install --reinstall "pyworklog[semantic] @ $$WORKTREE" && \
 	  $(GIT) worktree remove "$$WORKTREE"
 	@echo "✓ wl installed from clean HEAD (isolated snapshot, not dev .venv)"
 	@which wl
