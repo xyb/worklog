@@ -365,6 +365,15 @@ def cmd_query(args, con):
         die("search term cannot be empty")
     cfg = _config.resolve_embedding_config(args)
     db = _open_store(args)
+    # A silent downgrade is worse than a slow one: when lancedb is not importable
+    # connect() falls back to the pure-Python cosine scan and says nothing, and a
+    # leftover worklog.lancedb/ directory keeps it looking like the fast path is
+    # still in use. Warn before anything else can exit, on stderr so JSON output
+    # stays clean.
+    if _vs.backend_name(db) == "sqlite":
+        print("⚠ vector search is on the SQLite fallback (pure-Python cosine scan), "
+              "not LanceDB — `pip install 'pyworklog[semantic]'` for the fast store",
+              file=sys.stderr)
     if _vs.index_model(db) is None:
         die("no semantic index yet — run `wl reindex` first to build it")
     try:
