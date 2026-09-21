@@ -405,10 +405,25 @@ def cmd_query(args, con):
     # warn (on stderr, so stdout/JSON stays clean) when the index is out of date vs the
     # live DB — a node added/changed since the last `wl reindex` is absent from the vector side
     # (scores 0.000, only the keyword leg carries it), which is otherwise silent and confusing.
-    n_unindexed = Node.count(con) - len(vec_map)
+    total = Node.count(con)
+    n_unindexed = total - len(vec_map)
     if n_unindexed > 0:
-        print(f"⚠ {n_unindexed} node(s) not indexed — run `wl reindex` (they match by keyword only, not meaning)",  # noqa
-              file=sys.stderr)
+        pct = 100.0 * n_unindexed / total if total else 0.0
+        # Graded, because "3 nodes behind" and "a third of the corpus missing" call
+        # for different reactions, and the flat wording read the same for both. Past
+        # 10% the vector leg is only covering part of the corpus, so a query is
+        # closer to keyword search than to the hybrid it claims to be -- loud enough
+        # that a person or an agent reading stderr knows to reindex before trusting
+        # the result.
+        if pct >= 10:
+            print(f"⚠⚠ semantic index is STALE: {n_unindexed}/{total} node(s) "
+                  f"({pct:.0f}%) are missing from it, so those match by keyword only "
+                  f"and score 0.000. Results are NOT the full hybrid search. "
+                  f"Run `wl reindex` before relying on this.", file=sys.stderr)
+        else:
+            print(f"⚠ {n_unindexed}/{total} node(s) ({pct:.1f}%) not indexed — "
+                  f"run `wl reindex` (they match by keyword only, not meaning)",
+                  file=sys.stderr)
 
     # fetch every fused node in one query; both the JSON and the render path share it
     node_pairs = [(nid, n) for nid, n in zip(fused, Node.gets(con, fused)) if n]
