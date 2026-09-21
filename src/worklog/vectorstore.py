@@ -203,7 +203,13 @@ class _LanceBackend:
         if not n:
             return []
         # All chunks scored (limit = row count) so the per-node max is exact at worklog scale.
-        raw = tbl.search(list(query_vec)).metric("cosine").limit(n).to_list()
+        # Do NOT bring the vector column back: _maxpool never reads it, and materialising
+        # 11k rows x 1024 floats as Python objects was ~2s of a ~2s query -- the similarity
+        # itself is computed inside LanceDB and is cheap. Excluding it gives identical hits
+        # about 24x faster (measured 2076ms -> 88ms on 11161 chunks). `_distance` is named
+        # explicitly because LanceDB is deprecating its implicit inclusion.
+        cols = [c for c in tbl.schema.names if c != "vector"] + ["_distance"]
+        raw = tbl.search(list(query_vec)).metric("cosine").limit(n).select(cols).to_list()
         return _maxpool(((r, 1.0 - r["_distance"]) for r in raw), k, threshold)
 
 

@@ -371,7 +371,7 @@ def cmd_query(args, con):
     # still in use. Warn before anything else can exit, on stderr so JSON output
     # stays clean.
     if _vs.backend_name(db) == "sqlite":
-        print("⚠ vector search is on the SQLite fallback (pure-Python cosine scan), "
+        print("⚠ vector search is on the SQLite fallback (pure-Python cosine scan), "  # noqa: stderr, see file= below
               "not LanceDB — `pip install 'pyworklog[semantic]'` for the fast store",
               file=sys.stderr)
     if _vs.index_model(db) is None:
@@ -416,12 +416,14 @@ def cmd_query(args, con):
         # that a person or an agent reading stderr knows to reindex before trusting
         # the result.
         if pct >= 10:
-            print(f"⚠⚠ semantic index is STALE: {n_unindexed}/{total} node(s) "
-                  f"({pct:.0f}%) are missing from it, so those match by keyword only "
-                  f"and score 0.000. Results are NOT the full hybrid search. "
+            # keep the phrase "not indexed": the milder line has always said it, and
+            # anything that greps stderr to decide whether to reindex keys on it
+            print(f"⚠⚠ semantic index is STALE: {n_unindexed}/{total} node(s) "  # noqa: stderr, see file= below
+                  f"({pct:.0f}%) not indexed, so those match by keyword only and "
+                  f"score 0.000. Results are NOT the full hybrid search. "
                   f"Run `wl reindex` before relying on this.", file=sys.stderr)
         else:
-            print(f"⚠ {n_unindexed}/{total} node(s) ({pct:.1f}%) not indexed — "
+            print(f"⚠ {n_unindexed}/{total} node(s) ({pct:.1f}%) not indexed — "  # noqa: stderr, see file= below
                   f"run `wl reindex` (they match by keyword only, not meaning)",
                   file=sys.stderr)
 
