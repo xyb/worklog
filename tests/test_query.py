@@ -258,6 +258,91 @@ class TestKeywordRank:
         assert set(ranked) == {1, 2}    # matched via log and via tag
 
 
+class TestKeywordIdf:
+    """The live LIKE scorer weights each term by IDF. Without it a word most nodes share
+    counted as much as a name on two, which is what cost the ranking most."""
+
+    def test_rare_term_outranks_common_one(self, cli, tmp_db):
+        cli("add", "needle")                        # 1: the rare term, title only (weight 3)
+        for _ in range(6):                          # 2..7: the common term, title + log (3 + 1)
+            code, out, _ = cli("add", "common")
+        for nid in range(2, 8):
+            cli("log", str(nid), "common again")
+        from worklog.commands import semantic
+        con = tmp_db.db_connect()
+        try:
+            hits = semantic._keyword_hits(con, ["needle", "common"])
+        finally:
+            con.close()
+        # flat weights would rank a common node first (4 > 3); IDF must reverse that
+        assert max(hits, key=lambda n: hits[n][0]) == 1
+
+
+class TestBm25Index:
+    """Nodes covered by reindex are scored by BM25 from a prebuilt index; nodes added
+    since fall back to the live LIKE + IDF so they are findable before a reindex."""
+
+    def _build(self, tmp_db):
+        from worklog.commands import semantic
+        from worklog.xdg import _resolve_kw_db_path
+        con = tmp_db.db_connect()
+        try:
+            semantic._build_kw_index(con, _resolve_kw_db_path())
+        finally:
+            con.close()
+
+    def _hits(self, tmp_db, terms):
+        from worklog.commands import semantic
+        con = tmp_db.db_connect()
+        kw = semantic._open_kw_index(None)
+        try:
+            alive = {r[0] for r in con.execute("SELECT id FROM node WHERE status != 'CANCELED'")}
+            return semantic._bm25_hits(kw, terms, alive)
+        finally:
+            kw.close()
+            con.close()
+
+    def test_reindex_builds_the_index(self, seeded):
+        from worklog.xdg import _resolve_kw_db_path
+        assert not _resolve_kw_db_path().exists()
+        seeded("reindex")
+        assert _resolve_kw_db_path().exists()
+
+    def test_length_normalisation_favours_the_short_node(self, cli, tmp_db):
+        cli("add", "needle")                                            # 1: short
+        cli("add", "needle " + " ".join(f"filler{i}" for i in range(80)))  # 2: same term, long
+        self._build(tmp_db)
+        hits = self._hits(tmp_db, ["needle"])
+        assert hits[1][0] > hits[2][0], "a long node must not outrank a short one on one match"
+
+    def test_word_inside_a_chinese_run_is_found(self, cli, tmp_db):
+        pytest.importorskip("jieba")
+        cli("add", "税务局那通电话的录音")
+        self._build(tmp_db)
+        assert 1 in self._hits(tmp_db, ["税务"])
+
+    def test_canceled_nodes_are_excluded(self, cli, tmp_db):
+        cli("add", "needle")
+        cli("add", "needle too")
+        cli("cancel", "2")
+        self._build(tmp_db)
+        assert set(self._hits(tmp_db, ["needle"])) == {1}
+
+    def test_node_added_after_reindex_is_still_found(self, seeded):
+        seeded("reindex")                                # index built without #4
+        seeded("add", "zebra stripes")                   # 4: not in either index
+        code, out, _ = seeded("--color", "never", "query", "zebra")
+        assert "#4 " in out, "the LIKE + IDF fallback must find a node the index has not seen"
+
+    def test_query_warns_when_index_missing(self, seeded):
+        seeded("reindex")
+        from worklog.xdg import _resolve_kw_db_path
+        _resolve_kw_db_path().unlink()
+        code, out, err = seeded("query", "alpha")
+        assert "BM25 keyword index not built" in err
+        assert "reindex" in err
+
+
 class TestSynonyms:
     def test_expand_pulls_in_group(self, tmp_db, monkeypatch, tmp_path):
         from worklog.commands import semantic

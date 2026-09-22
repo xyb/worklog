@@ -62,3 +62,10 @@ def _resolve_vec_db_path(args=None) -> Path:
     data in SQLite, vectors in LanceDB) kept next to whichever DB ``--db``/``$WORKLOG_DB``
     selected, so test temp DBs get an isolated sidecar for free."""
     return _resolve_db_path(args).with_suffix(".lancedb")
+
+
+def _resolve_kw_db_path(args=None) -> Path:
+    """Sidecar BM25 keyword index (SQLite FTS5): ``<db-stem>.kw.sqlite3`` beside the main
+    DB. Derived like the vector store -- rebuilt by ``wl reindex``, never the source of
+    truth -- and placed by the same rule, so a test temp DB gets its own for free."""
+    return _resolve_db_path(args).with_suffix(".kw.sqlite3")
