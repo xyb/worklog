@@ -350,6 +350,23 @@ class TestBm25Index:
         _, out, _ = seeded("--color", "never", "query", "zebra", "--limit", "1")
         assert "#4 " in out, "the LIKE + IDF fallback must not drop status-less nodes"
 
+    def test_canceled_node_hidden_by_default_even_by_meaning(self, seeded):
+        seeded("add", "alpha abandoned plan")            # 4: the vector side ranks it near the top
+        seeded("cancel", "4")
+        seeded("reindex")
+        _, out, _ = seeded("--color", "never", "query", "alpha")
+        assert "#4 " not in out, "a canceled node must not come back through the vector side"
+        _, out, _ = seeded("--color", "never", "query", "alpha", "--show-canceled")
+        assert "#4 " in out
+
+    def test_show_canceled_reaches_the_keyword_side(self, seeded):
+        seeded("add", "gamma zebra")                     # 4: only keyword can lift it
+        seeded("add", "plain words")                     # 5: the vector side ranks it first
+        seeded("cancel", "4")
+        seeded("reindex")
+        _, out, _ = seeded("--color", "never", "query", "zebra", "--limit", "1", "--show-canceled")
+        assert "#4 " in out, "--show-canceled must let BM25 match a canceled node"
+
     def test_node_added_after_reindex_is_still_found(self, seeded):
         seeded("reindex")                                # index built without #4
         seeded("add", "zebra stripes")                   # 4: not in either index

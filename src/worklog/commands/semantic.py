@@ -135,18 +135,20 @@ def _expand_synonyms(terms):
 _KW_FIELD_WEIGHT = {"title": 3, "tag": 2, "body": 1, "log": 1}
 
 
-def _searchable_ids(con):
-    """Node ids keyword search may return: every live node except canceled ones.
+def _searchable_ids(con, include_canceled=False):
+    """Node ids a query may return: every live node, minus canceled ones unless asked.
 
     Not `status != 'CANCELED'`: that is NULL, not true, for a NULL status, and every
     project / area / period / day node has one -- so the filter silently took about a
     tenth of the corpus out of keyword search, and those nodes were findable only by
     meaning."""
-    canceled = {r["id"] for r in _db.query(con, "node", cols="id", status="CANCELED")}
-    return {r["id"] for r in _db.query(con, "node", cols="id")} - canceled
+    ids = {r["id"] for r in _db.query(con, "node", cols="id")}
+    if include_canceled:
+        return ids
+    return ids - {r["id"] for r in _db.query(con, "node", cols="id", status="CANCELED")}
 
 
-def _keyword_hits(con, terms):
+def _keyword_hits(con, terms, include_canceled=False):
     """Per-node keyword match over title/body/log/tag with field weights. Returns
     `{node_id: (score, n_terms_matched)}` for alive, non-canceled nodes — `score` is the
     field-weighted sum (a term in the title counts more than one in a log), `n_terms_matched`
@@ -159,7 +161,7 @@ def _keyword_hits(con, terms):
     put together. The document frequency IDF needs is exactly the set of nodes each LIKE
     below already returns, so this stays a query against the live DB: no index to build,
     and a node added since the last reindex is still found by keyword."""
-    alive = _searchable_ids(con)
+    alive = _searchable_ids(con, include_canceled)
     n_alive = len(alive) or 1
     score, covered = {}, {}
 
@@ -552,7 +554,12 @@ def cmd_query(args, con):
     # vector side: rank every node by its best chunk; keyword side: lexical term match. Fuse w/ RRF.
     vec_hits = _vs.search(db, qvec, k=10 ** 9)   # all nodes ranked; threshold applied below, not here
     vec_map = {h["node_id"]: h for h in vec_hits}
-    vec_ids_all = [h["node_id"] for h in vec_hits if threshold is None or h["score"] >= threshold]
+    # canceled nodes are hidden on both sides unless --show-canceled; the vector side used
+    # to keep them while the keyword side dropped them, so they surfaced only by meaning
+    include_canceled = getattr(args, "show_canceled", False)
+    searchable = _searchable_ids(con, include_canceled)
+    vec_ids_all = [h["node_id"] for h in vec_hits if h["node_id"] in searchable
+                   and (threshold is None or h["score"] >= threshold)]
     # B: cap the vector list — its long noisy tail (every node gets a rank) otherwise
     # dilutes precise keyword hits through RRF, esp. for short Chinese queries on a small model.
     vec_ids = vec_ids_all[: max(50, limit * 5)]
@@ -562,12 +569,12 @@ def cmd_query(args, con):
     # different scales, so they enter RRF as separate lists rather than being summed.
     kw_db = _open_kw_index(args)
     if kw_db is not None:
-        alive = _searchable_ids(con)
+        alive = searchable
         indexed = _kw_indexed_ids(kw_db)
         bm = _bm25_hits(kw_db, terms, alive)
         fresh_ids = alive - indexed
         # the live scan is only paid when something is actually waiting on a reindex
-        fresh = ({n: v for n, v in _keyword_hits(con, terms).items() if n in fresh_ids}
+        fresh = ({n: v for n, v in _keyword_hits(con, terms, include_canceled).items() if n in fresh_ids}
                  if fresh_ids else {})
         kw_db.close()
         kw_lists = [sorted(h, key=lambda nid, h=h: (h[nid][0], nid), reverse=True)
@@ -576,7 +583,7 @@ def cmd_query(args, con):
     else:
         print("⚠ BM25 keyword index not built — keyword matching falls back to LIKE + IDF, "  # noqa: stderr
               "which ranks noticeably worse. Run `wl reindex` to build it.", file=sys.stderr)
-        live = _keyword_hits(con, terms)
+        live = _keyword_hits(con, terms, include_canceled)
         kw_lists = [sorted(live, key=lambda nid: (live[nid][0], nid), reverse=True)]
         tiers = (live,)
     # C: nodes covering EVERY query term (an exact full match) lead, ordered by keyword

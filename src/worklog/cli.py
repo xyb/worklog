@@ -1827,6 +1827,7 @@ Common examples:
   wl query "how to avoid duplicate work"   # concept search, not substring
   wl query "open-source release" --limit 5
   wl query "performance" --threshold 0.4    # drop weak matches
+  wl query "S3 bridge" --show-canceled      # include CANCELED nodes too
 
 More: `wl find` for exact keyword/substring; `wl reindex` to (re)build the index.""")
     qy.add_argument("query", help="natural-language text to search for by meaning")
