@@ -296,8 +296,7 @@ class TestBm25Index:
         con = tmp_db.db_connect()
         kw = semantic._open_kw_index(None)
         try:
-            alive = {r[0] for r in con.execute("SELECT id FROM node WHERE status != 'CANCELED'")}
-            return semantic._bm25_hits(kw, terms, alive)
+            return semantic._bm25_hits(kw, terms, semantic._searchable_ids(con))
         finally:
             kw.close()
             con.close()
@@ -327,6 +326,29 @@ class TestBm25Index:
         cli("cancel", "2")
         self._build(tmp_db)
         assert set(self._hits(tmp_db, ["needle"])) == {1}
+
+    @staticmethod
+    def _null_status(tmp_db, nid):
+        # projects, areas, periods and days carry no status
+        con = tmp_db.db_connect()
+        con.execute("UPDATE node SET status = NULL WHERE id = ?", (nid,))
+        con.commit()
+        con.close()
+
+    def test_null_status_node_is_found_by_bm25(self, seeded, tmp_db):
+        seeded("add", "gamma zebra")                     # 4: the vector side ranks it low
+        seeded("add", "plain words")                     # 5: the vector side ranks it first
+        self._null_status(tmp_db, 4)
+        seeded("reindex")
+        _, out, _ = seeded("--color", "never", "query", "zebra", "--limit", "1")
+        assert "#4 " in out, "a status-less node must still match by keyword"
+
+    def test_null_status_node_is_found_before_reindex(self, seeded, tmp_db):
+        seeded("reindex")
+        seeded("add", "gamma zebra")                     # 4: in neither index
+        self._null_status(tmp_db, 4)
+        _, out, _ = seeded("--color", "never", "query", "zebra", "--limit", "1")
+        assert "#4 " in out, "the LIKE + IDF fallback must not drop status-less nodes"
 
     def test_node_added_after_reindex_is_still_found(self, seeded):
         seeded("reindex")                                # index built without #4

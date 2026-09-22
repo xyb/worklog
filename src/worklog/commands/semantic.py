@@ -135,6 +135,17 @@ def _expand_synonyms(terms):
 _KW_FIELD_WEIGHT = {"title": 3, "tag": 2, "body": 1, "log": 1}
 
 
+def _searchable_ids(con):
+    """Node ids keyword search may return: every live node except canceled ones.
+
+    Not `status != 'CANCELED'`: that is NULL, not true, for a NULL status, and every
+    project / area / period / day node has one -- so the filter silently took about a
+    tenth of the corpus out of keyword search, and those nodes were findable only by
+    meaning."""
+    canceled = {r["id"] for r in _db.query(con, "node", cols="id", status="CANCELED")}
+    return {r["id"] for r in _db.query(con, "node", cols="id")} - canceled
+
+
 def _keyword_hits(con, terms):
     """Per-node keyword match over title/body/log/tag with field weights. Returns
     `{node_id: (score, n_terms_matched)}` for alive, non-canceled nodes — `score` is the
@@ -148,7 +159,7 @@ def _keyword_hits(con, terms):
     put together. The document frequency IDF needs is exactly the set of nodes each LIKE
     below already returns, so this stays a query against the live DB: no index to build,
     and a node added since the last reindex is still found by keyword."""
-    alive = {r["id"] for r in _db.query(con, "node", cols="id", status__ne="CANCELED")}
+    alive = _searchable_ids(con)
     n_alive = len(alive) or 1
     score, covered = {}, {}
 
@@ -551,7 +562,7 @@ def cmd_query(args, con):
     # different scales, so they enter RRF as separate lists rather than being summed.
     kw_db = _open_kw_index(args)
     if kw_db is not None:
-        alive = {r["id"] for r in _db.query(con, "node", cols="id", status__ne="CANCELED")}
+        alive = _searchable_ids(con)
         indexed = _kw_indexed_ids(kw_db)
         bm = _bm25_hits(kw_db, terms, alive)
         fresh_ids = alive - indexed
