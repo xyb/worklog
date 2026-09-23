@@ -281,8 +281,9 @@ class TestKeywordIdf:
 
 
 class TestBm25Index:
-    """Nodes covered by reindex are scored by BM25 from a prebuilt index; nodes added
-    since fall back to the live LIKE + IDF so they are findable before a reindex."""
+    """Every searchable node is scored by BM25. `wl reindex` precomputes the term counts;
+    a node the index has not seen, or whose text has changed since, is re-tokenised at
+    query time from the live DB, so it is findable before the next reindex."""
 
     def _build(self, tmp_db):
         from worklog.commands import semantic
@@ -350,7 +351,7 @@ class TestBm25Index:
         seeded("add", "gamma zebra")                     # 4: in neither index
         self._null_status(tmp_db, 4)
         _, out, _ = seeded("--color", "never", "query", "zebra", "--limit", "1")
-        assert "#4 " in out, "the LIKE + IDF fallback must not drop status-less nodes"
+        assert "#4 " in out, "a status-less node the index has not seen must still be scored"
 
     def test_canceled_node_hidden_by_default_even_by_meaning(self, seeded):
         seeded("add", "alpha abandoned plan")            # 4: the vector side ranks it near the top
@@ -379,11 +380,14 @@ class TestBm25Index:
         _, out, _ = seeded("--color", "never", "query", "zebra", "--limit", "1")
         assert "#4 " not in out, "and the text it replaced must stop matching"
 
-    def test_keyword_match_ignores_case(self, seeded):
+    @pytest.mark.parametrize("query", ["lancedb", "LANCEDB", "LanceDb"])
+    def test_keyword_match_ignores_case(self, seeded, query):
+        # both sides have to fold: the index (the document writes LanceDB) and the query
+        # (which arrives in whatever case it was typed)
         seeded("add", "gamma LanceDB notes")             # 4: not the vector top
         seeded("add", "plain words")                     # 5: the vector side ranks it first
         seeded("reindex")
-        _, out, _ = seeded("--color", "never", "query", "lancedb", "--limit", "1")
+        _, out, _ = seeded("--color", "never", "query", query, "--limit", "1")
         assert "#4 " in out, "SQLite LIKE ignored ASCII case; the index must too"
 
     def test_title_weight_does_not_grow_with_log_count(self, cli, tmp_db):
@@ -422,6 +426,50 @@ class TestBm25Index:
         expected = idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avgdl))
         assert got == pytest.approx(expected)
 
+    def test_a_multi_word_synonym_matches_the_indexed_tokens(self, cli, tmp_db):
+        from worklog.xdg import _resolve_config_path
+        p = _resolve_config_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text("[synonyms]\nnyc = New York\n", encoding="utf-8")
+        cli("add", "trip to New York")
+        self._build(tmp_db)
+        from worklog.commands import semantic
+        con = tmp_db.db_connect()
+        kw = semantic._open_kw_index(None)
+        try:
+            terms = semantic._expand_synonyms(semantic._query_terms("nyc"))
+            hits = semantic._bm25_hits(con, kw, terms, {1})
+        finally:
+            kw.close()
+            con.close()
+        assert 1 in hits, "a synonym of several words must be looked up as the tokens it is cut into"
+
+    def test_index_built_by_another_tokenizer_is_ignored(self, seeded):
+        # the signature says a node's text is unchanged; it cannot say the tokenizer that
+        # cut that text into the stored terms is the one now cutting the query
+        seeded("reindex")
+        from worklog.xdg import _resolve_kw_db_path
+        import sqlite3
+        con = sqlite3.connect(_resolve_kw_db_path())
+        con.execute("UPDATE meta_text SET value = 'jieba-0.0.0' WHERE key = 'tokenizer'")
+        con.commit()
+        con.close()
+        _, _, err = seeded("--color", "never", "query", "alpha")
+        assert "index missing" in err, "a differently-tokenised index must not be trusted"
+
+    def test_reindex_replaces_an_index_this_version_cannot_read(self, seeded):
+        seeded("reindex")
+        from worklog.xdg import _resolve_kw_db_path
+        import sqlite3
+        p = _resolve_kw_db_path()
+        con = sqlite3.connect(p)
+        con.execute("UPDATE meta SET value = 1 WHERE key = 'schema'")
+        con.commit()
+        con.close()
+        seeded("reindex")                       # vectors are already current: the old test of
+        _, out, err = seeded("--color", "never", "query", "alpha")   # path.exists() stopped here
+        assert "index missing" not in err, "reindex must replace an index it refuses to read"
+
     def test_index_from_an_older_schema_is_ignored(self, seeded):
         seeded("reindex")
         from worklog.xdg import _resolve_kw_db_path
@@ -438,14 +486,14 @@ class TestBm25Index:
         seeded("reindex")                                # index built without #4
         seeded("add", "zebra stripes")                   # 4: not in either index
         code, out, _ = seeded("--color", "never", "query", "zebra")
-        assert "#4 " in out, "the LIKE + IDF fallback must find a node the index has not seen"
+        assert "#4 " in out, "a node the index has not seen must still be scored"
 
     def test_query_warns_when_index_missing(self, seeded):
         seeded("reindex")
         from worklog.xdg import _resolve_kw_db_path
         _resolve_kw_db_path().unlink()
         code, out, err = seeded("query", "alpha")
-        assert "BM25 keyword index not built" in err
+        assert "BM25 keyword index missing" in err
         assert "reindex" in err
 
 

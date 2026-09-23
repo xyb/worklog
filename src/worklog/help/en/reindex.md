@@ -5,7 +5,8 @@ see_also: query, config
 ---
 `wl reindex` embeds live nodes — split into chunks (its head, plus one per log) — via the
 configured embedding server and stores the vectors in a sidecar index; it also builds the BM25
-keyword index (`<db>.kw.sqlite3`) that `wl query`'s keyword side scores from. `wl query` then
+keyword index (`<db>.kw.sqlite3`) that `wl query`'s keyword side scores from -- and replaces
+it when it was built by a version whose layout or tokenizer differs from this one. `wl query` then
 searches (ranking each node by its best-matching chunk).
 
   wl reindex                              # incremental top-up (full on first run)

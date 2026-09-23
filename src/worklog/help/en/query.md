@@ -19,8 +19,9 @@ not a diluted whole-node average). In parallel the query is **jieba-segmented** 
 (expanded via `config.ini [synonyms]`, so e.g. an alias finds its canonical) and scored with
 **BM25** over title/body/log/tag, from a keyword index `wl reindex` builds alongside the vectors
 — a rare name outweighs a word half the corpus contains, and a long node no longer wins on
-length alone. A node added since the last reindex is not in that index yet, so it falls back to
-a live LIKE + IDF scan and stays findable. The two rankings are merged with **Reciprocal Rank
+length alone. A node the index has not seen, or whose text changed since it was built, is
+re-read from the live database and scored on the same terms, so what you just wrote is
+searchable before the next reindex. The two rankings are merged with **Reciprocal Rank
 Fusion**. Each hit shows its matching chunk (`↳ …`), query terms highlighted.
 
 `--threshold` filters the *semantic* side; keyword matches still surface regardless.

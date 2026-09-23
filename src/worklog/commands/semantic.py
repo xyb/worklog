@@ -209,13 +209,18 @@ def _keyword_hits(con, terms, include_canceled=False):
 # over those 41 questions puts the LIKE -> BM25 step at +.146 [+.024, +.268].
 
 _BM25_K1, _BM25_B = 1.2, 0.75
-_KW_SCHEMA = 2           # bump when the layout, the text, or the tokens change
-_KW_TITLE_W, _KW_TAG_W = 3, 2     # field weight by repetition, matching _KW_FIELD_WEIGHT
+_KW_SCHEMA = 2           # bump when the layout or the indexed text changes
+_KW_TITLE_W, _KW_TAG_W = 3, 2     # field weight by repetition (see _node_kw_text)
 
 
 def _node_kw_text(con):
-    """node_id -> the text BM25 indexes: title, tags, body and every log, with title and
-    tags repeated to the same 3 / 2 / 1 weights the LIKE scorer uses.
+    """node_id -> the text BM25 indexes: title, tags, body and every log, with the title
+    written 3 times and the tags twice.
+
+    Repetition is the cheap stand-in for BM25F, and it is weaker than it looks: term
+    frequency saturates (a title term at tf=3 scores about 1.6x, not 3x) and the copies
+    count towards the document length. It buys the ordering the LIKE weights gave -- a
+    title match ahead of a log match -- not their arithmetic.
 
     Not the embed chunks joined. Each log chunk carries a `title · tags` prefix so it can
     stand alone as a vector; concatenating them repeated the title once per log, so a
@@ -226,6 +231,7 @@ def _node_kw_text(con):
         logs.setdefault(r["node_id"], []).append(r["body"] or "")
     for r in _db.query(con, "tag", cols="node_id, tag"):
         tags.setdefault(r["node_id"], []).append(r["tag"] or "")
+    tags = {nid: sorted(ts) for nid, ts in tags.items()}   # stable order: a reshuffle is not an edit
     text = {}
     for n in _db.query(con, "node", cols="id, title, body", order="id"):
         nid = n["id"]
@@ -238,6 +244,18 @@ def _node_kw_text(con):
         parts += logs.get(nid, ())
         text[nid] = "\n".join(parts)
     return text
+
+
+def _tokenizer_id():
+    """Which tokenizer built (or is querying) the index. Stored beside the schema, because
+    a node's signature only says its text is unchanged -- upgrading jieba, or losing it and
+    dropping to the `\\w+` fallback, re-cuts that same text into different tokens, and the
+    postings would silently go on answering with the old ones."""
+    try:
+        import jieba
+        return f"jieba-{getattr(jieba, '__version__', '?')}"
+    except ImportError:
+        return "re-w"
 
 
 def _kw_terms(text):
@@ -276,8 +294,9 @@ def _build_kw_index(con, path):
             "CREATE TABLE postings(term TEXT NOT NULL, node_id INTEGER NOT NULL, tf INTEGER NOT NULL);"
             "CREATE TABLE doclen(node_id INTEGER PRIMARY KEY, dl INTEGER NOT NULL, "
             "                    sig TEXT NOT NULL);"
-            "CREATE TABLE meta(key TEXT PRIMARY KEY, value REAL NOT NULL);")
-        total, n = 0, 0
+            "CREATE TABLE meta(key TEXT PRIMARY KEY, value REAL NOT NULL);"
+            "CREATE TABLE meta_text(key TEXT PRIMARY KEY, value TEXT NOT NULL);")
+        n = 0
         for nid, text in _node_kw_text(con).items():
             counts = {}
             for t in _kw_terms(text):
@@ -286,11 +305,9 @@ def _build_kw_index(con, path):
             kw.executemany("INSERT INTO postings VALUES (?,?,?)",
                            ((t, nid, c) for t, c in counts.items()))
             kw.execute("INSERT INTO doclen VALUES (?,?,?)", (nid, dl, _kw_sig(text)))
-            total += dl
             n += 1
-        kw.executemany("INSERT INTO meta VALUES (?,?)",
-                       [("n_docs", n), ("avgdl", (total / n) if n else 1.0),
-                        ("schema", _KW_SCHEMA)])
+        kw.executemany("INSERT INTO meta VALUES (?,?)", [("schema", _KW_SCHEMA)])
+        kw.execute("INSERT INTO meta_text VALUES (?,?)", ("tokenizer", _tokenizer_id()))
         kw.execute("CREATE INDEX postings_term ON postings(term)")
         kw.commit()
     finally:
@@ -311,7 +328,9 @@ def _open_kw_index(args):
         return None
     try:
         kw = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
-        if dict(kw.execute("SELECT key, value FROM meta")).get("schema") != _KW_SCHEMA:
+        meta = dict(kw.execute("SELECT key, value FROM meta"))
+        tok = dict(kw.execute("SELECT key, value FROM meta_text")).get("tokenizer")
+        if meta.get("schema") != _KW_SCHEMA or tok != _tokenizer_id():
             kw.close()
             return None
         return kw
@@ -355,29 +374,41 @@ def _bm25_hits(con, kw, terms, alive):
     n_docs = len(dls)
     avgdl = (sum(dls.values()) / n_docs) or 1.0
     score, covered = {}, {}
-    for t in dict.fromkeys(t.lower() for t in terms if t.strip()):
-        postings = [(nid, tf) for nid, tf in
-                    kw.execute("SELECT node_id, tf FROM postings WHERE term = ?", (t,))
-                    if nid in dls and nid not in moved]
-        postings += [(nid, c[t]) for nid, c in moved.items() if c.get(t)]
-        if not postings:
-            continue
-        idf = math.log(1 + (n_docs - len(postings) + 0.5) / (len(postings) + 0.5))
-        for nid, tf in postings:
-            norm = 1 - _BM25_B + _BM25_B * dls[nid] / avgdl
-            score[nid] = score.get(nid, 0.0) + idf * tf * (_BM25_K1 + 1) / (tf + _BM25_K1 * norm)
-            covered.setdefault(nid, set()).add(t)
+    for term in dict.fromkeys(t for t in terms if t.strip()):
+        # a term can be several tokens -- `[synonyms]` expands an alias into whole phrases
+        # ("NYC" -> "New York"), and the index holds those cut, so looking the phrase up
+        # whole matched nothing. Coverage still counts the term once, however it was cut.
+        for tok in dict.fromkeys(_kw_terms(term) or [term.lower()]):
+            postings = [(nid, tf) for nid, tf in
+                        kw.execute("SELECT node_id, tf FROM postings WHERE term = ?", (tok,))
+                        if nid in dls and nid not in moved]
+            postings += [(nid, c[tok]) for nid, c in moved.items() if c.get(tok)]
+            if not postings:
+                continue
+            idf = math.log(1 + (n_docs - len(postings) + 0.5) / (len(postings) + 0.5))
+            for nid, tf in postings:
+                norm = 1 - _BM25_B + _BM25_B * dls[nid] / avgdl
+                score[nid] = score.get(nid, 0.0) + idf * tf * (_BM25_K1 + 1) / (tf + _BM25_K1 * norm)
+                covered.setdefault(nid, set()).add(term)
     return {nid: (score[nid], len(covered[nid])) for nid in score}
 
 
 def _refresh_kw_index(con, args, *, force):
-    """Rebuild the keyword index when reindex did work (`force`), or when it is missing --
-    e.g. the first reindex after upgrading, when the vectors are already up to date and
-    nothing else would ever create it. Returns the node count built, or None."""
-    path = _resolve_kw_db_path(args)
-    if force or not path.exists():
-        return _build_kw_index(con, path)
-    return None
+    """Rebuild the keyword index when reindex did work (`force`), or when the one on disk
+    cannot be used -- missing, or built by a version whose tokens or layout differ.
+
+    The test is `_open_kw_index`, the same one the query path applies, not `path.exists()`:
+    an index this version refuses to read is exactly what a reindex has to replace, and
+    checking only for the file left an upgraded install answering from LIKE forever, since
+    `wl reindex` finds the vectors already current and would do nothing.
+
+    Returns the node count built, or None."""
+    kw = _open_kw_index(args)
+    if kw is not None:
+        kw.close()
+        if not force:
+            return None
+    return _build_kw_index(con, _resolve_kw_db_path(args))
 
 
 def _keyword_rank(con, terms):
@@ -638,8 +669,9 @@ def cmd_query(args, con):
         kw_lists = [sorted(bm, key=lambda nid: (bm[nid][0], nid), reverse=True)] if bm else []
         tiers = (bm,)
     else:
-        print("⚠ BM25 keyword index not built — keyword matching falls back to LIKE + IDF, "  # noqa: stderr
-              "which ranks noticeably worse. Run `wl reindex` to build it.", file=sys.stderr)
+        print("⚠ BM25 keyword index missing or built by an older version — keyword matching "  # noqa: stderr
+              "falls back to LIKE + IDF, which ranks noticeably worse. Run `wl reindex`.",
+              file=sys.stderr)
         live = _keyword_hits(con, terms, include_canceled)
         kw_lists = [sorted(live, key=lambda nid: (live[nid][0], nid), reverse=True)]
         tiers = (live,)
