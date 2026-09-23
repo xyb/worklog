@@ -4,6 +4,8 @@ The embedding backend (HTTP) is replaced with a deterministic fake — these tes
 the command wiring, ranking, threshold, JSON output, and error handling, NOT the
 real model. LanceDB (the 'semantic' extra) runs for real against a tmp store."""
 import json
+import math
+
 import pytest
 
 from worklog import embedding as emb
@@ -296,7 +298,7 @@ class TestBm25Index:
         con = tmp_db.db_connect()
         kw = semantic._open_kw_index(None)
         try:
-            return semantic._bm25_hits(kw, terms, semantic._searchable_ids(con))
+            return semantic._bm25_hits(con, kw, terms, semantic._searchable_ids(con))
         finally:
             kw.close()
             con.close()
@@ -366,6 +368,71 @@ class TestBm25Index:
         seeded("reindex")
         _, out, _ = seeded("--color", "never", "query", "zebra", "--limit", "1", "--show-canceled")
         assert "#4 " in out, "--show-canceled must let BM25 match a canceled node"
+
+    def test_edited_node_is_searched_by_its_new_text(self, seeded, tmp_db):
+        seeded("add", "gamma zebra")                     # 4: indexed with "zebra"
+        seeded("add", "plain words")                     # 5: the vector side ranks it first
+        seeded("reindex")
+        seeded("node", "edit", "4", "--title", "gamma lion")
+        _, out, _ = seeded("--color", "never", "query", "lion", "--limit", "1")
+        assert "#4 " in out, "an edit must be searchable before the next reindex"
+        _, out, _ = seeded("--color", "never", "query", "zebra", "--limit", "1")
+        assert "#4 " not in out, "and the text it replaced must stop matching"
+
+    def test_keyword_match_ignores_case(self, seeded):
+        seeded("add", "gamma LanceDB notes")             # 4: not the vector top
+        seeded("add", "plain words")                     # 5: the vector side ranks it first
+        seeded("reindex")
+        _, out, _ = seeded("--color", "never", "query", "lancedb", "--limit", "1")
+        assert "#4 " in out, "SQLite LIKE ignored ASCII case; the index must too"
+
+    def test_title_weight_does_not_grow_with_log_count(self, cli, tmp_db):
+        cli("add", "needle")                             # 1: no logs
+        cli("add", "needle")                             # 2: same title, plenty of logs
+        for i in range(5):
+            cli("log", "2", f"unrelated note {i}")
+        from worklog.commands import semantic
+        con = tmp_db.db_connect()
+        try:
+            text = semantic._node_kw_text(con)
+        finally:
+            con.close()
+        assert text[1].count("needle") == text[2].count("needle") == semantic._KW_TITLE_W
+
+    def test_statistics_are_taken_over_the_candidates(self, cli, tmp_db):
+        # Every statistic BM25 needs -- df, n_docs, avgdl -- must come from the candidate
+        # set, not from whatever the index happens to hold, so the expected score is
+        # written out here rather than read back from the code under test.
+        cli("add", "needle")                             # 1: title only -> 3 tokens
+        cli("add", "haystack of straw")                  # 2: 3 words x 3 -> 9 tokens
+        cli("add", "needle")                             # 3: indexed, NOT a candidate
+        self._build(tmp_db)
+        from worklog.commands import semantic
+        con = tmp_db.db_connect()
+        kw = semantic._open_kw_index(None)
+        try:
+            got = semantic._bm25_hits(con, kw, ["needle"], {1, 2})[1][0]
+        finally:
+            kw.close()
+            con.close()
+        k1, b = semantic._BM25_K1, semantic._BM25_B
+        n_docs, df, dl, avgdl = 2, 1, 3, 6.0       # #3 counts in neither n_docs nor df
+        idf = math.log(1 + (n_docs - df + 0.5) / (df + 0.5))
+        tf = semantic._KW_TITLE_W
+        expected = idf * tf * (k1 + 1) / (tf + k1 * (1 - b + b * dl / avgdl))
+        assert got == pytest.approx(expected)
+
+    def test_index_from_an_older_schema_is_ignored(self, seeded):
+        seeded("reindex")
+        from worklog.xdg import _resolve_kw_db_path
+        import sqlite3
+        p = _resolve_kw_db_path()
+        con = sqlite3.connect(p)
+        con.execute("UPDATE meta SET value = 1 WHERE key = 'schema'")
+        con.commit()
+        con.close()
+        code, out, err = seeded("--color", "never", "query", "alpha")
+        assert code == 0 and "reindex" in err, "an older index must fall back, not raise"
 
     def test_node_added_after_reindex_is_still_found(self, seeded):
         seeded("reindex")                                # index built without #4

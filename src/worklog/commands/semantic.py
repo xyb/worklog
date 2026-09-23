@@ -6,6 +6,7 @@ the optional 'semantic' extra). Both failure modes — backend unreachable, extr
 installed — are turned into a single clean `sys.exit` message here, never a traceback."""
 from __future__ import annotations
 
+import hashlib
 import math
 import os
 import re
@@ -194,65 +195,102 @@ def _keyword_hits(con, terms, include_canceled=False):
 
 # --- BM25 keyword index (built by reindex) ----------------------------------------
 #
-# Nodes already covered by `wl reindex` are scored with BM25 from a prebuilt FTS5 index;
-# nodes added since then are not in it and fall back to the live LIKE + IDF above. That
-# split mirrors the vector side, where an unindexed node likewise has no vector and is
-# found only by keyword.
+# Every node is scored with BM25. `wl reindex` precomputes term counts into a sidecar
+# index; a node whose text has changed since (or was never indexed) is re-tokenised at
+# query time, so what you just wrote is searchable before any reindex -- which is what
+# the live LIKE scan this replaced always did.
 #
-# Why BM25 and not just IDF: measured at node grain on a 41-question benchmark, LIKE +
-# field weights scored .585, adding IDF .634, and BM25 .854. IDF was only a fifth of the
-# gain. Most of the rest is length normalisation -- a node carrying hundreds of logs
-# contains nearly every common word, so without dividing by length it outranks the right
-# node on almost any query -- and that needs term counts per node, which is what this
-# index precomputes.
+# Why BM25 and not just IDF: measured at node grain on a 41-question benchmark, hybrid
+# recall with LIKE + field weights was .634, adding IDF .732, and BM25 .829 (keyword side
+# alone: .268 / .610 / .902). IDF is a third of the gain; most of the rest is length
+# normalisation -- a node carrying hundreds of logs contains nearly every common word, so
+# without dividing by length it outranks the right node on almost any query -- and that
+# needs term counts per node, which is what this index precomputes. A paired bootstrap
+# over those 41 questions puts the LIKE -> BM25 step at +.146 [+.024, +.268].
 
 _BM25_K1, _BM25_B = 1.2, 0.75
+_KW_SCHEMA = 2           # bump when the layout, the text, or the tokens change
+_KW_TITLE_W, _KW_TAG_W = 3, 2     # field weight by repetition, matching _KW_FIELD_WEIGHT
 
 
 def _node_kw_text(con):
-    """node_id -> the text BM25 indexes: the same chunk texts reindex embeds, joined.
-    Using exactly what the vector side sees keeps the two legs about the same thing."""
+    """node_id -> the text BM25 indexes: title, tags, body and every log, with title and
+    tags repeated to the same 3 / 2 / 1 weights the LIKE scorer uses.
+
+    Not the embed chunks joined. Each log chunk carries a `title · tags` prefix so it can
+    stand alone as a vector; concatenating them repeated the title once per log, so a
+    node's title term frequency -- and its length -- grew with how much work it logged,
+    and two nodes with the same title scored differently on it."""
+    logs, tags = {}, {}
+    for r in _db.query(con, "log", cols="node_id, body", order="id"):
+        logs.setdefault(r["node_id"], []).append(r["body"] or "")
+    for r in _db.query(con, "tag", cols="node_id, tag"):
+        tags.setdefault(r["node_id"], []).append(r["tag"] or "")
     text = {}
-    for nid, _t, _s, _p, _f, chunk in _node_chunks(con):
-        text.setdefault(nid, []).append(chunk)
-    return {nid: "\n".join(t) for nid, t in text.items()}
+    for n in _db.query(con, "node", cols="id, title, body", order="id"):
+        nid = n["id"]
+        parts = [n["title"] or ""] * _KW_TITLE_W
+        tagstr = " ".join(tags.get(nid, ()))
+        if tagstr:
+            parts += [tagstr] * _KW_TAG_W
+        if n["body"]:
+            parts.append(n["body"])
+        parts += logs.get(nid, ())
+        text[nid] = "\n".join(parts)
+    return text
+
+
+def _kw_terms(text):
+    """Index and query tokens: segmented, then case-folded. SQLite LIKE ignores ASCII
+    case, so the scan this replaced always did; matching the index on exact tokens did
+    not, and a query for `lancedb` silently missed every node that writes `LanceDB`."""
+    return [t.lower() for t in _segment(text)]
+
+
+def _kw_sig(text):
+    """Short content signature, to tell an index entry that is still current from one
+    whose node has been edited since."""
+    return hashlib.blake2b(text.encode("utf-8"), digest_size=8).hexdigest()
 
 
 def _build_kw_index(con, path):
     """Rebuild the BM25 keyword index from scratch; returns how many nodes it holds.
 
-    A plain inverted index in SQLite -- postings(term, node_id, tf) plus each node's
-    length -- scored in Python at query time. FTS5 was tried first and measured .756
-    against .854 for this exact algorithm on the same tokens: it re-tokenises jieba's
-    output with its own rules and normalises length its own way, and neither is
-    adjustable. Owning the index keeps the ranking identical to the one that was
-    benchmarked.
+    A plain inverted index in SQLite -- postings(term, node_id, tf), each node's length
+    and a signature of the text it was built from -- scored in Python at query time.
+    FTS5 was tried first and lost: it re-tokenises jieba's output with its own rules and
+    normalises length its own way, and neither is adjustable. Owning the index keeps the
+    ranking identical to the one that was benchmarked.
 
     Whole rebuild on every reindex, built beside the live file and swapped in with
-    os.replace, so a concurrent query never reads a half-written index."""
+    os.replace, so a concurrent query never reads a half-written index. The temporary
+    name carries the pid, so a manual `wl reindex` and the background worker cannot
+    delete or rename each other's half-built file."""
     path = Path(path)
-    tmp = path.with_name(path.name + ".building")
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.building")
     if tmp.exists():
         tmp.unlink()
     kw = sqlite3.connect(tmp)
     try:
         kw.executescript(
             "CREATE TABLE postings(term TEXT NOT NULL, node_id INTEGER NOT NULL, tf INTEGER NOT NULL);"
-            "CREATE TABLE doclen(node_id INTEGER PRIMARY KEY, dl INTEGER NOT NULL);"
+            "CREATE TABLE doclen(node_id INTEGER PRIMARY KEY, dl INTEGER NOT NULL, "
+            "                    sig TEXT NOT NULL);"
             "CREATE TABLE meta(key TEXT PRIMARY KEY, value REAL NOT NULL);")
         total, n = 0, 0
         for nid, text in _node_kw_text(con).items():
             counts = {}
-            for t in _segment(text):
+            for t in _kw_terms(text):
                 counts[t] = counts.get(t, 0) + 1
             dl = sum(counts.values())
             kw.executemany("INSERT INTO postings VALUES (?,?,?)",
                            ((t, nid, c) for t, c in counts.items()))
-            kw.execute("INSERT INTO doclen VALUES (?,?)", (nid, dl))
+            kw.execute("INSERT INTO doclen VALUES (?,?,?)", (nid, dl, _kw_sig(text)))
             total += dl
             n += 1
         kw.executemany("INSERT INTO meta VALUES (?,?)",
-                       [("n_docs", n), ("avgdl", (total / n) if n else 1.0)])
+                       [("n_docs", n), ("avgdl", (total / n) if n else 1.0),
+                        ("schema", _KW_SCHEMA)])
         kw.execute("CREATE INDEX postings_term ON postings(term)")
         kw.commit()
     finally:
@@ -262,45 +300,71 @@ def _build_kw_index(con, path):
 
 
 def _open_kw_index(args):
-    """The keyword index read-only, or None when it has not been built yet."""
+    """The keyword index read-only, or None when it has not been built yet, was built by
+    an older version, or is not a keyword index at all.
+
+    The check is a read, not a guess: anything that fails to answer for its schema is
+    treated as absent, so `wl query` falls back to LIKE and asks for a reindex instead of
+    raising out of a SELECT against a table shaped differently."""
     p = _resolve_kw_db_path(args)
     if not p.exists():
         return None
     try:
-        return sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+        kw = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+        if dict(kw.execute("SELECT key, value FROM meta")).get("schema") != _KW_SCHEMA:
+            kw.close()
+            return None
+        return kw
     except sqlite3.Error:
         return None
 
 
-def _kw_indexed_ids(kw):
-    return {r[0] for r in kw.execute("SELECT node_id FROM doclen")}
+def _bm25_hits(con, kw, terms, alive):
+    """BM25 over `alive`: `{node_id: (score, n_terms_matched)}`, same shape as
+    `_keyword_hits`.
 
+    Two things this does not do, both of which it used to. It does not decide by
+    membership: a node that was edited after the last reindex is still in the index, so
+    scoring it from its postings answered out of text that no longer exists and missed
+    the text that does. Every entry carries a signature of the text it was built from,
+    and a node whose signature moved is re-tokenised here, which is what the live LIKE
+    scan this replaced always did. And it does not take its statistics from the index:
+    df, n_docs and avgdl are computed over `alive`, so canceled nodes and nodes deleted
+    since the last reindex cannot tilt the ranking of the ones actually shown.
 
-def _bm25_hits(kw, terms, alive):
-    """BM25 over the prebuilt index: `{node_id: (score, n_terms_matched)}`, alive nodes
-    only, same shape as `_keyword_hits`. Only the postings of the query's own terms are
-    read, so a query costs a handful of indexed lookups regardless of corpus size."""
-    meta = dict(kw.execute("SELECT key, value FROM meta"))
-    n_docs, avgdl = meta.get("n_docs", 0), meta.get("avgdl", 1.0) or 1.0
-    if not n_docs:
-        return {}
-    score, covered, dls = {}, {}, {}
-    for t in dict.fromkeys(t for t in terms if t.strip()):
-        rows = kw.execute("SELECT node_id, tf FROM postings WHERE term = ?", (t,)).fetchall()
-        if not rows:
+    Cost is one pass over the corpus text to sign it (tens of ms on a few thousand
+    nodes), plus tokenising only the nodes that moved."""
+    texts = _node_kw_text(con)
+    indexed = {r[0]: (r[1], r[2]) for r in kw.execute("SELECT node_id, dl, sig FROM doclen")}
+    dls, moved = {}, {}
+    for nid in alive:
+        text = texts.get(nid)
+        if text is None:
             continue
-        df = len(rows)
-        idf = math.log(1 + (n_docs - df + 0.5) / (df + 0.5))
-        need = [nid for nid, _ in rows if nid not in dls]
-        for i in range(0, len(need), 900):            # SQLite's bound-parameter limit
-            chunk = need[i:i + 900]
-            dls.update(kw.execute(
-                f"SELECT node_id, dl FROM doclen WHERE node_id IN ({','.join('?' * len(chunk))})",
-                chunk))
-        for nid, tf in rows:
-            if nid not in alive:
-                continue
-            norm = 1 - _BM25_B + _BM25_B * dls.get(nid, avgdl) / avgdl
+        row = indexed.get(nid)
+        if row is not None and row[1] == _kw_sig(text):
+            dls[nid] = row[0]                      # index still holds this node's text
+        else:
+            counts = {}
+            for tok in _kw_terms(text):
+                counts[tok] = counts.get(tok, 0) + 1
+            moved[nid] = counts
+            dls[nid] = sum(counts.values())
+    if not dls:
+        return {}
+    n_docs = len(dls)
+    avgdl = (sum(dls.values()) / n_docs) or 1.0
+    score, covered = {}, {}
+    for t in dict.fromkeys(t.lower() for t in terms if t.strip()):
+        postings = [(nid, tf) for nid, tf in
+                    kw.execute("SELECT node_id, tf FROM postings WHERE term = ?", (t,))
+                    if nid in dls and nid not in moved]
+        postings += [(nid, c[t]) for nid, c in moved.items() if c.get(t)]
+        if not postings:
+            continue
+        idf = math.log(1 + (n_docs - len(postings) + 0.5) / (len(postings) + 0.5))
+        for nid, tf in postings:
+            norm = 1 - _BM25_B + _BM25_B * dls[nid] / avgdl
             score[nid] = score.get(nid, 0.0) + idf * tf * (_BM25_K1 + 1) / (tf + _BM25_K1 * norm)
             covered.setdefault(nid, set()).add(t)
     return {nid: (score[nid], len(covered[nid])) for nid in score}
@@ -563,23 +627,16 @@ def cmd_query(args, con):
     # B: cap the vector list — its long noisy tail (every node gets a rank) otherwise
     # dilutes precise keyword hits through RRF, esp. for short Chinese queries on a small model.
     vec_ids = vec_ids_all[: max(50, limit * 5)]
-    # Keyword side, split by index coverage. Nodes in the BM25 index are scored by BM25;
-    # nodes added since the last reindex are not in it, and fall back to the live LIKE +
-    # IDF so they are still findable before anyone reindexes. The two scores are on
-    # different scales, so they enter RRF as separate lists rather than being summed.
+    # Keyword side: one BM25 ranking over every searchable node. Nodes the index has not
+    # seen, and nodes whose text has changed since it was built, are scored from the live
+    # DB inside _bm25_hits on the same scale -- so there is one keyword list, not a tier
+    # per index-coverage state, and a fresh node is neither hidden nor over-credited.
     kw_db = _open_kw_index(args)
     if kw_db is not None:
-        alive = searchable
-        indexed = _kw_indexed_ids(kw_db)
-        bm = _bm25_hits(kw_db, terms, alive)
-        fresh_ids = alive - indexed
-        # the live scan is only paid when something is actually waiting on a reindex
-        fresh = ({n: v for n, v in _keyword_hits(con, terms, include_canceled).items() if n in fresh_ids}
-                 if fresh_ids else {})
+        bm = _bm25_hits(con, kw_db, terms, searchable)
         kw_db.close()
-        kw_lists = [sorted(h, key=lambda nid, h=h: (h[nid][0], nid), reverse=True)
-                    for h in (bm, fresh) if h]
-        tiers = (bm, fresh)
+        kw_lists = [sorted(bm, key=lambda nid: (bm[nid][0], nid), reverse=True)] if bm else []
+        tiers = (bm,)
     else:
         print("⚠ BM25 keyword index not built — keyword matching falls back to LIKE + IDF, "  # noqa: stderr
               "which ranks noticeably worse. Run `wl reindex` to build it.", file=sys.stderr)
@@ -587,9 +644,8 @@ def cmd_query(args, con):
         kw_lists = [sorted(live, key=lambda nid: (live[nid][0], nid), reverse=True)]
         tiers = (live,)
     # C: nodes covering EVERY query term (an exact full match) lead, ordered by keyword
-    # score within their own tier -- so a literal hit (e.g. a node titled "微信全量导出" for
-    # "微信导出") isn't buried under noisy semantic neighbors, and surfaces even when it's
-    # missing from the index. Indexed tier first, because its scores are the better ranked.
+    # score -- so a literal hit (e.g. a node titled "微信全量导出" for "微信导出") isn't
+    # buried under noisy semantic neighbors.
     nterms = len(terms)
     full = [nid for h in tiers
             for nid in sorted((n for n in h if nterms and h[n][1] == nterms),
