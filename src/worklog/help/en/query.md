@@ -16,11 +16,18 @@ How it works: each node is split into chunks (its head — title+body+tags — p
 and embedded by an OpenAI-compatible server; your query is embedded the same way and nodes are
 ranked by their **best-matching chunk** (cosine, so a node surfaces on its most relevant passage,
 not a diluted whole-node average). In parallel the query is **jieba-segmented** into terms
-(expanded via `config.ini [synonyms]`, so e.g. an alias finds its canonical) and matched
-literally against title/body/log/tag. The two rankings are merged with **Reciprocal Rank
+(expanded via `config.ini [synonyms]`, so e.g. an alias finds its canonical) and scored with
+**BM25** over title/body/log/tag, from a keyword index `wl reindex` builds alongside the vectors
+— a rare name outweighs a word half the corpus contains, and a long node no longer wins on
+length alone. A node added since the last reindex is not in that index yet, so it falls back to
+a live LIKE + IDF scan and stays findable. The two rankings are merged with **Reciprocal Rank
 Fusion**. Each hit shows its matching chunk (`↳ …`), query terms highlighted.
 
 `--threshold` filters the *semantic* side; keyword matches still surface regardless.
+
+**CANCELED nodes are hidden** on both sides — pass the global `--show-canceled` to include them:
+
+  wl query "S3 bridge service" --show-canceled   # abandoned work too
 
 Run `wl reindex` to build or update the index — `wl query` reads what it builds. The first
 `wl reindex` does a full build; subsequent runs are incremental (only new/changed nodes).
