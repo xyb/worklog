@@ -53,14 +53,14 @@ class TestLogsFullRead:
     def test_full_format_keeps_title_tag_and_newlines(self, cli, monkeypatch):
         from worklog import helpers
         monkeypatch.setattr(helpers, "_term_width", lambda: 40)
-        title = "把 asset 的版本号写进发布说明并且不要截断"
+        title = "write the asset version into the release notes and do not clip it"
         cli("add", title)
-        cli("log", "1", "第一行\n第二行 " + "x" * 80)
+        cli("log", "1", "first line\nsecond line " + "x" * 80)
         cli("retag", "#L1", "goal")
         _, out, _ = cli("logs", "--id", "1", "--log-format", "full")
         assert title in out
         assert "…" not in out
-        assert "第一行\n第二行" in out
+        assert "first line\nsecond line" in out
         header = next(ln for ln in out.splitlines() if "#L1" in ln)
         assert "goal" in header
         assert re.search(r"\d{2}:\d{2}:\d{2}", header)
