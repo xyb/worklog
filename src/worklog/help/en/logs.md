@@ -15,7 +15,7 @@ single-node history.
   wl logs --group day --by project             # group by day → project → task
   wl logs -d 2026-06-01                         # a single day (also --date)
   wl logs --id 42 -o json                       # machine-readable array of log rows
-  wl log show #L282 #L283                       # one or more logs, full body, newlines kept
+  wl log show L282 L283                         # one or more logs, full body, newlines kept
 
 Defaults to the last 7 days to avoid flooding; widen with the window flags (`wl help window`).
 `--id` or `--match` with no window searches all history. The window is the **local** calendar

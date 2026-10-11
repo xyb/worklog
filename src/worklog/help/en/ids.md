@@ -11,3 +11,6 @@ Three id forms appear in wl output:
 
 Find them in `wl show <id>` (the timeline) and `wl logs`. The letter prefix (L / M)
 distinguishes a log/metric id from a plain node id.
+
+A form that starts with `#` must be quoted on the command line: `wl log show '#L42'`.
+An unquoted `#` is a shell comment. `L42` and `42` need no quotes.

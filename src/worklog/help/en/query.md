@@ -40,5 +40,4 @@ the fast path on Python 3.9–3.14 / Linux / Apple-Silicon macOS), else a pure-P
 fallback (same results, slower) where no LanceDB wheel exists; segmentation is jieba with the
 extra, else a `\w+` fallback. Configure the embedding backend in `wl config` — see `wl help config`.
 
-`wl find` (exact keyword/substring) and `wl query` (meaning) are complementary: `find` for
-when you remember a word, `query` for when you only remember the idea.
+Search with `wl query`. If the command cannot run — a missing library, or no embedding backend — use `wl find`. An empty result is not that case.

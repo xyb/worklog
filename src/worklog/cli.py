@@ -761,8 +761,8 @@ Common examples:
   wl log 42 "result: PR#13 merged"               # progress now (add, the default verb)
   wl log 42 "..." --date yesterday --time 14:30  # backfill a precise timestamp
   wl log ls 42                                   # this node's logs (= wl logs --id 42)
-  wl log show #L282 #L283                        # full body of one or more logs; newlines kept
-  wl log edit #L282 "fixed"                      # rewrite (= wl relog); wl log rm = wl unlog
+  wl log show L282 L283                          # full body of one or more logs; newlines kept
+  wl log edit L282 "fixed"                       # rewrite (= wl relog); wl log rm = wl unlog
 
 More: `wl help log` (vs `wl tick` habit check-in / `wl logs` filterable stream).""")
     _lgsub = g.add_subparsers(dest="log_sub")
@@ -782,15 +782,15 @@ More: `wl help log` (vs `wl tick` habit check-in / `wl logs` filterable stream).
         description="Rewrite an existing log's body or timestamp. Also: the top-level shortcut `wl relog`.",
         formatter_class=_WlHelpFormatter,
         epilog="""\
-  wl log edit #L282 "fixed content"   # change body
-  wl log edit #L282 --at 14:30        # only change time
-  wl log edit #L282                   # no body/--at -> open $EDITOR"""))
+  wl log edit L282 "fixed content"    # change body
+  wl log edit L282 --at 14:30         # only change time
+  wl log edit L282                    # no body/--at -> open $EDITOR"""))
     _args_unlog(_lgsub.add_parser("rm", parents=[output_parent],
         help="delete a log entry (= wl unlog)",
         description="Delete a log entry (soft-delete). Also: the top-level shortcut `wl unlog`.",
         formatter_class=_WlHelpFormatter,
         epilog="""\
-  wl log rm #L282                     # exact delete by log id
+  wl log rm L282                      # exact delete by log id
   wl log rm --node 39                 # delete the latest log for #39 today
   wl log rm --node 39 --all           # delete all of #39's logs that day"""))
 
@@ -1534,8 +1534,7 @@ For interactive habit batch review, use wl checkin (interactive multi-select).""
         description="Delete a log entry (soft-delete). Canonical form: `wl log rm` (this is the shortcut; see `wl log -h`).",
         epilog="""\
 Common examples:
-  wl unlog #L282                      # exact delete by log id
-  wl unlog L282                       # same (# optional)
+  wl unlog L282                       # exact delete by log id
   wl unlog 282                        # same (plain number)
   wl unlog --node 39                  # delete the latest log for #39 today
   wl unlog --node 39 --date yesterday # latest log that day
@@ -1550,11 +1549,11 @@ Edit a mistyped log with wl relog #L<id> instead. (Timing lives in the clock tab
         description="Rewrite an existing log's body or timestamp. Canonical form: `wl log edit` (this is the shortcut; see `wl log -h`).",
         epilog="""\
 Common examples:
-  wl relog #L282 "fixed content"     # change body
-  wl relog #L282 -m "fixed content"  # -m mutually exclusive with positional
-  wl relog #L282 --at 14:30          # only change time (keep date)
-  wl relog #L282 --at 2026-05-30     # only change date (keep time)
-  wl relog #L282                     # no body/--at -> open $EDITOR
+  wl relog L282 "fixed content"      # change body
+  wl relog L282 -m "fixed content"   # -m mutually exclusive with positional
+  wl relog L282 --at 14:30           # only change time (keep date)
+  wl relog L282 --at 2026-05-30      # only change date (keep time)
+  wl relog L282                      # no body/--at -> open $EDITOR
 
 Timing lives in the clock table, not logs — to fix a clock interval use wl stop --at.
 Cannot move a log across nodes (that's unlog + log).""")
@@ -1564,9 +1563,9 @@ Cannot move a log across nodes (that's unlog + log).""")
         help="change one log's tag (goal / summary / custom; `note` clears to a plain note)",
         description="Change a single log's `tag` directly — the tag classifies a log's role (goal / summary / a custom marker); a plain note has no tag. `note` / `none` / `-` / empty clears it back to a plain note.",
         epilog="""\
-  wl retag #L282 goal      # mark this log as a goal
-  wl retag #L282 summary   # ... or a summary
-  wl retag #L282 note      # clear back to a plain note (note / none / - / "" all clear)""")
+  wl retag L282 goal       # mark this log as a goal
+  wl retag L282 summary    # ... or a summary
+  wl retag L282 note       # clear back to a plain note (note / none / - / "" all clear)""")
     rt.add_argument("log_id", type=_log_id_arg, metavar="log_id", help="log id (#L282 / L282 / 282)")
     rt.add_argument("tag", help="new tag (goal / summary / a custom marker; `note` clears it)")
 
@@ -1583,7 +1582,7 @@ Common examples:
   wl metric add 42 pullups 8 --unit reps         # reps
   wl metric add 42 checkin                        # a pure marker (stored as value 1)
   wl metric add 42 weight 70 --at yesterday       # backfill a timestamp
-  wl metric add 42 glucose 6.1 --on-log #L99      # attach to an existing log instead of a new carrier
+  wl metric add 42 glucose 6.1 --on-log L99       # attach to an existing log instead of a new carrier
   wl metric ls 42                                 # list node #42's metrics
   wl metric ls 42 --tag glucose --since 2026-06-01
   wl metric edit #M7 --value 5.6 --note "post-meal"

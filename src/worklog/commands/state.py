@@ -1297,11 +1297,11 @@ def _render_relog(result):
 def cmd_relog(args, con):
     """Rewrite an existing log: body or timestamp.
 
-       wl relog #L282 "fixed content"      positional = new body
-       wl relog #L282 -m "fixed content"   -m explicit
-       wl relog #L282 --at 14:30           only change time (same day HH:MM, date auto-prepended)
-       wl relog #L282 --at 2026-05-30 14:30  full ts (YYYY-MM-DD or YYYY-MM-DD HH:MM)
-       wl relog #L282                       no body/--at -> open $EDITOR to edit body
+       wl relog L282 "fixed content"       positional = new body
+       wl relog L282 -m "fixed content"    -m explicit
+       wl relog L282 --at 14:30            only change time (same day HH:MM, date auto-prepended)
+       wl relog L282 --at 2026-05-30 14:30   full ts (YYYY-MM-DD or YYYY-MM-DD HH:MM)
+       wl relog L282                        no body/--at -> open $EDITOR to edit body
 
     Constraints:
     - Timing lives in the clock table, not logs (use wl stop --at to fix a clock interval)
