@@ -33,11 +33,11 @@ Passing both conflicts.
 `wl show` / `wl logs` timelines show log id as `#L<id>`:
 
 ```fish
-wl unlog #L282                       # delete log
+wl unlog L282                        # delete log
 wl unlog --node 39 --date yesterday  # delete most-recent 1 by node + date
-wl relog #L282 "corrected content"   # edit body
-wl relog #L282 --at 14:30            # edit time only
-wl relog #L282                       # no body/--at → opens $EDITOR
+wl relog L282 "corrected content"    # edit body
+wl relog L282 --at 14:30             # edit time only
+wl relog L282                        # no body/--at → opens $EDITOR
 ```
 
 ## Time tracking: `start` / `stop` / `spent` (structured `clock` table)
@@ -66,7 +66,7 @@ wl metric add 42 glucose 5.4 --unit mmol/L   # numeric datapoint (auto creates a
 wl metric add 42 pullups 8                    # numeric, no unit
 wl metric add 42 mood good --text             # text value
 wl metric add 42 checkin                       # a pure marker (stored as value 1)
-wl metric add 42 glucose 6.1 --on-log #L99     # attach to an existing log instead of a new carrier
+wl metric add 42 glucose 6.1 --on-log L99      # attach to an existing log instead of a new carrier
 wl metric ls 42                                # list (default this week; --all / --tag / --since/--until/--week/--month)
 wl metric edit #M7 --value 5.6 --note "post-meal"
 wl metric rm #M7 #M8                           # delete (also removes an emptied auto-carrier log)
@@ -196,7 +196,7 @@ wl summary --week 2026-W22 -o json | jq .totals   # window totals + done/pending
 
 **The command should make "goal → command → output" precise at all three layers** — don't rely on
 `ls --all` and eyeball-search. Anti-patterns: AI uses `wl ls` to list 100 entries to find 1 / `wl
-logs --id N` lists 17 to find latest. Correct: use specialty entry points (`wl find` / `wl active`
+logs --id N` lists 17 to find latest. Correct: use specialty entry points (`wl query`, `wl find` only if query cannot run, `wl active`
 / `wl day` / `wl ls --recent/--ids/--sort` / each subcommand's `--help` for examples) or add one.
 
 ### Input validation

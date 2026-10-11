@@ -17,7 +17,7 @@ wl init
 The skill is **multi-file** — `SKILL.md` (always loaded when the skill triggers) plus
 `references/` (loaded on demand). Source of truth is the repo at `skills/worklog-cli/`. Install
 it by **symlinking the whole skill directory** into the assistant's skills dir, so `references/`
-come along and SKILL.md's "More detail" pointers resolve:
+come along and SKILL.md's "Load when needed" pointers resolve:
 
 ```fish
 ln -sfn ~/projects/worklog-cli/skills/worklog-cli ~/.claude/skills/worklog-cli
@@ -25,7 +25,7 @@ ln -sfn ~/projects/worklog-cli/skills/worklog-cli ~/.claude/skills/worklog-cli
 
 - `-n` so re-running doesn't nest a new link *inside* an already-linked dir.
 - **Symlink the directory, not just `SKILL.md`** — a file-only symlink leaves `references/`
-  missing and the § More-detail pointers dangling.
+  missing and the "Load when needed" pointers dangling.
 - Edit the skill in the repo; the symlink means the assistant always sees the live version (no
   copy to keep in sync). The `ai-skills` backup repo is only a mirror, not the source.
 

@@ -53,6 +53,20 @@ guard against "I gave id + name and other fields got wiped."
 - Illegal values (priority∉ABC, illegal status, parent missing) caught by validator — **bad data
   never lands**
 
+## What one diff can write
+
+Create: `+ [marker] [#P] title :tags:` (2-space indent nests under the line above). On the following indented lines: `@prop k=v` / `@link doc` / `@log text` / `@metric tag [value] [unit]`.
+
+Update: `~ #id`, then indented ops only. Only declared fields change.
+
+`status` / `priority` / `title` / `parent N` / `scheduled` / `deadline` / `+tag` / `-tag` / `+link` / `-link` / `prop k=v` / `-prop` / `goal <text>` / `summary <text>` / `+metric tag [value] [unit]` / `sched <date>` / `recur <rule>` / `-sched` / `spent <duration>` / `body <text>`
+
+`scheduled` is the rough date column. `sched` / `recur` write a precise schedule row. `goal` / `summary` write the reserved-tag log. `prop relation.block=N` (also `relation.split` / `relation.related`) writes one side; the reverse is derived. `spent 1h30m` records a finished clock.
+
+Other lines: `@date <date> <label>` (a `-` label clears it). `~ #L<id>` edits one log (`body` / `retag` / `at`). `- #L<id>` deletes that log. `- #id` soft-deletes the node and its subtree.
+
+The diff is validated first, then applied in one transaction. A clock that is still running is the exception: `wl start` / `wl stop`.
+
 ## Typical workflow: AI handling a day's worklog
 
 1. Parse the day's discussion / notes → assemble a `wl apply` diff or `wl import` JSON

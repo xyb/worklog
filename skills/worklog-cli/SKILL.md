@@ -1,189 +1,77 @@
 ---
 name: worklog-cli
-description: 'Use the `wl` command to read/write a SQLite-backed execution-system DB (default `~/.local/share/worklog/worklog.db`, override with `wl --db PATH` or `$WORKLOG_DB`) — record/query plans + projects + tasks + logs + time hierarchy + metrics; a structured replacement for markdown worklogs. Use when the user wants to add a task/project/day entry, append a log to a task, mark done/defer, list a tree/a day''s work/active projects, query time-range progress for a weekly report, bulk-import a day of data, focus a node''s parents/children, or record/query a metric — a number, measurement, or habit check-in (see references/metrics.md for the recording best-practice: the `wl log --metric checkin --metric ''tag value unit''` idiom, the unit-convention rule, and the `--on-log` retrofit trap). Trigger words: wl, worklog-cli, add worklog, log progress, list tree, show day, weekly report input, bulk import tasks, apply diff, wl metric, log metric, measurement, habit check-in, checkin, --metric, --on-log, metric unit convention.'
+description: Use wl to read and write tasks, logs, a day, schedules, and metrics. Use when the user says wl, worklog, log progress, show today, list tasks, or apply a batch. Read with wl, not sqlite.
 ---
 
 # worklog-cli (wl)
 
-SQLite execution-system tool. A single `node` table carries lifetime/year/quarter/month/week/day/area/project/task/meetlog/habit; `parent_id` self-reference builds the tree. CLI mimics `todo.sh`. Global command name `wl` (installed via `make install` from a clean committed ref — isolated from the dev `.venv`; or `pip install pyworklog` for a standalone install).
+`wl` is the execution record: tasks, logs, a day, schedules, and metrics, in one local database. Use it instead of a markdown worklog or a direct SQL read. A markdown file cannot answer what was planned, what is still open, or what happened in a week. SQL drops columns, clips body text, and treats a stored UTC timestamp as a local date.
 
-**Full design conventions in repo `DESIGN.md`** (required reading before adding commands or changing formats). This skill covers how AI uses `wl`. Detail beyond the everyday path lives in `references/` (loaded on demand — see § More detail at the bottom).
+This skill says which command to run, and the rules that stop a wrong write. It does not copy the manual. The map of what to read is `references/help-index.md`: topic name, then `wl help <topic>`. `wl <cmd> -h` is that command's flags. `wl help --all` is the same topic list on the installed command. Changing `wl` itself: read repo `DESIGN.md`.
 
-## ⚠️ Check for duplicates before adding a task/project (hard rule)
+## Often used
 
-Before `wl add`-ing any task or project, **first check whether a related entry already exists** — if so, reuse it (`wl sched` it onto the new day) instead of creating a duplicate. **Search across time ranges**, because an entry may be scheduled at `@2026-06` (month level) / `@someday` / earlier or later, so looking only at the current month misses it:
-
-- `wl find <keyword>` — keyword/substring search (always run this first); for a concept you can't keyword (paraphrases), `wl query "<text>"` searches by meaning (needs `wl reindex` + the `semantic` extra)
-- `wl agenda <start> <end> [--someday]` — everything scheduled in a date range across all granularities (day/week/month pins), the cross-range view that catches `@2026-06` / `@someday` items a per-month tree misses
-- `wl ls --parent <proj> --all` — direct children of that project; `wl ls --root <proj> --all` — the **whole subtree** (all descendants, recursive — prefer this for dedup, entries may be nested deeper)
-
-Likewise, before adding a dev todo under a project, check that project's existing entries first.
-
-## When to use `wl` (scenario → command)
-
-| User says | Command |
+| Run | |
 |---|---|
-| **Daily three** (the daily flow) | `wl goal "deliver X today"` (read = `wl goal`) / `wl recap "end-of-day summary..."` (read = `wl recap`) / `wl tick <id> [--note "..."] [--done]` to check in. **Auto-creates today's day node** (hung under the current ISO week), no need to manually `wl add ... --prop type.date=day`. `wl recap`/`wl goal` write a history-preserving `log.tag` log (latest = current); `wl day` shows "(written MM-DD HH:MM)" from the recap log's own time, and if more plain-note logs land after it, warns "⚠ N changes after recap, consider rewriting". Back-fill a past day with `wl recap --date YYYY-MM-DD "..."` (`goal --date` is not available — recap only) |
-| Add a task / project / habit | `wl add "..." -p A -t work,P0 --parent N` (bare = task; `--para project` for a project; `--prop type.habit` for a habit) |
-| Add a task with scheduled time (precise or fuzzy) | `wl add "..." --scheduled 2026-06-15` / `--scheduled 2026-06` / `next-week` / `next-month` / `someday` |
-| Log progress on a task | `wl log <id> "..."` (backfill old logs with `--date 2026-05-06`, or use `import` with body `"2026-05-06 content"` so logs land on the original day, not today). **Logging a TODO auto-promotes it to DOING**; `--keep-status` logs without changing status |
-| Record a number / measurement / check-in | `wl metric add <id> glucose 5.4 --unit mmol/L` / `wl metric ls <id>` (omit the node + `--tag X` → find that tag across **all** nodes, e.g. before renaming) / `wl metric edit #M7` / `wl metric rm #M7`. **Best: one command, checkin + number on the same log** — `wl log <id> "morning loop" --metric checkin --metric 'steps 5200 count' --keep-status` (repeatable `--metric 'tag [value] [unit]'`; `--keep-status` so a habit stays TODO). Retrofitting a number onto an existing check-in → `wl metric add <id> <tag> <v> --on-log #L<that checkin log>`, NOT a bare add (which spawns a second carrier log, splitting checkin from the number). **Check the node's unit convention first** (`wl prop ls <id>` metrics prop + `wl metric ls <id> --all`) — reuse, don't invent. **Any recurring item's done-today = a `checkin` metric** (`wl tick`/`wl checkin`) — habit *or* recurring task alike; `wl day` renders `[x]` for it that day and the node stays recurring. `wl show` shows `last check-in: <date>`; `wl ls --not-checked-in N` lists overdue. Best-practice → `references/metrics.md`; grammar → `references/features.md` |
-| Mark done / defer (fuzzy time ok) / start clock | `wl done <id>` / `wl defer <id> next-month` (also accepts `2026-Q3` / `someday` / precise date) / `wl start <id>` `wl stop <id>`. `done`/`cancel`/`wait`/`tick --done` auto-close a running clock; a clock left open >12h is auto-capped at 12h by `wl active`/`wl day` (warns >6h) so a forgotten timer never runs forever |
-| Schedule task to a date / repeat (drives "planned") | `wl sched <id> 2026-06-15` (also accepts `tomorrow` / `day-after-tomorrow`) / `--clear`. `--recur` supports period start / end (`daily` / `weekly:Mon,Fri` / `monthly:-1` / `quarterly:1-15` / `yearly:-1`; `-1` = period end). **Stop a recurrence keeping history: `wl sched stop <id> [date]`** (fires through `date` inclusive, default today; unlike `--clear` which erases history) — full grammar in `references/features.md`. A task scheduled to a day shows up in `wl day` as "planned · not yet logged" even with no log |
-| Goal / end-of-day summary (any time level) | History-preserving reserved-tag logs (`log.tag` ∈ goal/summary), **a distinct store from props** — group `wl goal set/ls/rm <node>` (`--summary` targets the summary). A goal is the **same `goal` tag at every level** — the node's type (day/week/month/year) is the level (no more `overview`/`top5`). Shortcuts: bare `wl goal "..."` / `wl recap "..."` (auto-target today's day; preferred — read-back + stale-warning), and the key-routed `wl set <node> goal\|summary` (= `wl goal set`; `wl unset` = `wl goal rm`). e.g. `wl goal set <week> "this week: ..."` / `wl goal set <month> "..." 7 9 3`. **Structured targets**: trailing node ids (priority order) are stored as `goal` metrics — `wl goal "ship X" 12 34`, or `wl goal set <node> --ids 12 34` to set them on an existing goal; named-but-unstructured ids in the text trigger a copy-paste hint. `wl day` / `wl goal` show the goal + its numbered, status-marked targets + `[done/total]`. A target counts as done at DONE/CANCELED — or, for a **recurring** target (which never reaches DONE), when it has a check-in inside the goal's period, so `wl tick` alone closes it out |
-| ⚠️ **Goal/summary footguns (don't corrupt the goal record)** | Two real traps that silently write the wrong thing: **(1) Setting a goal via `wl log` does NOT work** — `wl log` writes a plain note, the goal is unchanged, and `wl day` keeps showing the OLD goal with no warning. To set/change any node's goal or summary you MUST use `wl goal set <node> "..."` / `wl set <node> goal\|summary "..."` (or bare `wl goal "..."` for today). **(2) `wl goal <id>` is NOT a read — it WRITES.** A bare arg is the goal *text*, so `wl goal 408` sets today's goal to the literal "408". To **read** a specific node's goal use `wl goal ls <node>` (or `wl show <node>`); bare `wl goal` (no arg) reads *today's*. Mnemonic: `wl goal ls` = read, `wl goal set`/`wl goal "text"` = write. Fixing a mis-tagged log after the fact: `wl retag #L<id> goal`. |
-| Command aliases | `wl alias add d day` (→ `wl d` == `wl day`); a target may carry args — `wl alias add w "day -t work"` → `wl w` == `wl day -t work` (typed args append) / `wl alias ls` / `wl alias rm d`. Stored in `~/.config/worklog/aliases.ini`; target's first word must be a real command, can't shadow one; takes effect next run |
-| Date context (holidays / vacation / makeup days) | `wl dateinfo 2026-05-01 Labor-Day-holiday` / `wl dateinfo --import holidays.json` (`{"YYYY-MM-DD":"label"}`) / `wl dateinfo <date> --clear`. Weekday auto-computed; `wl day` header shows "date weekday · label" |
-| Reproduce a day's progress (like markdown worklog) | `wl day [YYYY-MM-DD]` (log-date based: work/personal split → secondary group → task → indented logs + stats). **Default `--by plan`** (planned / unplanned). **Planned = has a `sched`/recur entry firing that day (source of truth, set via `wl sched`); everything else = unplanned.** The legacy `:planned:` tag is honored only as a transitional fallback — do NOT add it to new tasks, use `wl sched`. Switch dimensions with `--by project` / `--by priority` (P0/P1/P2) |
-| List all active projects | `wl projects` |
-| Tree view | `wl tree` (**default = overview: timeline expanded to today [year→quarter→month→week→today + today's tasks] + areas only listed as names, ~30 lines to avoid flooding**) / `wl tree --root <area>` (projects + tasks under that area) / `wl tree --root <week/month>` (per-day activity) / `wl tree --depth N` (fully expanded from lifetime) / `wl tree --by project/tag/direction` (switch dimension). Time nodes sorted by date; **day node expansion = tasks that have logs that day + only their logs from that day** |
-| Time-range progress (weekly report input) | `wl changes --week 2026-W22` / `wl summary --week ... --by project/day` |
-| Where time went (time allocation) | `wl hours [day\|--week ...] --by project/task/day` — reconstructs log-activity time from the log stream (gap >60m = break, dropped), grouped. Measures activity (human OR agent), not human presence; an honest replacement for parallel-agent-inflated `clock` |
-| Full info + timeline for a single task | `wl show <id>` |
-| Search by keyword vs by meaning | `wl find <kw>` (exact substring across title/body/log/tag — primary, no setup) · `wl query "<text>"` (**hybrid**: fuses semantic meaning + keyword match via RRF, so paraphrases *and* exact names both surface; jieba-segmented, `config.ini [synonyms]` aware; keyword side is **BM25** over a keyword index `wl reindex` builds, with anything the index has not caught up with scored from the live DB; `--limit N` / `--threshold T` / `-o json`). **CANCELED nodes are hidden on both sides — pass the global `--show-canceled` to include them**. `query` needs `wl reindex` (incremental by default — first run builds the full index, subsequent runs embed only new/changed nodes; `--full` forces a complete rebuild after a model change; backend in `wl config`); the **`semantic` extra** (`pip install 'pyworklog[semantic]'`) is the fast path (LanceDB + jieba) but optional — without it `query` auto-falls-back to a pure-Python SQLite store + `\w+` segmentation. `find` is the zero-setup primary; `query` adds meaning + ranking |
-| Focus a node's parents/children | `wl focus <id>` / `wl ancestors <id>` / `wl descendants <id>` |
-| Link a vault doc | `wl link <id> "doc name"` (no `.md` suffix); remove one with `wl unlink <id> "doc name"` |
-| Relate two tasks (block / split / related) | `wl relation <id> block <other…>` (this task blocks the other(s) — a dependency, `<other>` can't start until `<id>` is done; **cycles are rejected**) · `split` (this task split out the other(s)) · `related` (no direction, the **default type** — `wl relation 42 7 9` == `… related 7 9`). `wl relation <id>` lists; `--rm` removes. **Single-write** — only `<id>`'s side is stored; the reverse (`=blocked-by` / `=split-from`, or a one-sided `related` folded into `=backrels`) is derived, never stored, so `wl show` on the OTHER node still shows it. Distinct from ancestors (parent/child hierarchy) — this is derivation/association/dependency across the tree. Stored as `relation.*` props (comma-sep id list), so `wl ls --prop relation.block` works. **At creation:** `wl add "…" --relation 'block 42' --relation 'related 7 9'` establishes the relation in one shot (repeatable). **When a new node blocks / splits out / relates to another, attach the relation with `--relation`** so the dependency/derivation isn't left implicit in the title |
-| What's ready to work on / the dependency graph / open backlog | `wl relation ready <id> [--chain]` (is `<id>` ready — all its direct `block` blockers done? — plus which of its downstream tasks just unlocked, layer by layer, not cascaded past a still-open one; `--chain` adds the full upstream chain) · `wl relation deps [<root>]` (the full cascaded block-dependency graph, `<root>`'s subtree or global; unlike `wl show`'s direct-layer-only `=blocked-by`, walks the whole chain) · `wl relation unclaimed [<root>]` (open, unclaimed tickets — scoped by the **tree**, not the block graph). `ready`/`deps` always need `block` relations to say anything meaningful; a wayfinder-style frontier = `ready ∩ unclaimed`. `wl show <id>` already surfaces the same per-node answer inline as `=ready`/`=waiting` (only when `<id>` touches a `block` edge at all) — no need for a separate `ready` call just to check one task |
-| Claim a ticket (who's working it, not whether it can be) | `wl relation claim <id>` (as `<agent>:<session id>`, same identity `wl agent` uses; `--as alice` for a free-string override) / `wl relation unclaim <id>` (`--force` to override someone else's claim). Orthogonal to `block`/`ready` — a wayfinder-style frontier is ready ∩ unclaimed. Re-claiming under your own identity is a no-op refresh; a claim older than 24h is stale and free for anyone (no `--force` needed). Stored as plain `claimed_by`/`claimed_at` props (not `relation.*` — not a task↔task edge), so they show under `wl show`'s ordinary props, not the `relation:` block |
-| Edit a node's tags | `wl tag <id> +work -planned` (bare word = add; no ops = list). **Edits the real tag field** — do NOT `wl set <id> tags ...` (rejected; it would create a misleading shadow prop). For bulk, `apply ~ #id / +tag` or `import add_tags/remove_tags` |
-| Vocabulary overview (cross-node) | `wl tags` / `wl props` / `wl metrics` / `wl types` — each lists that vocabulary in use across all nodes, sorted by frequency. All support `-o json`: `wl tags -o json` → `[{"tag": "work", "count": 2}, …]`; `wl props -o json` → `[{"key": "owner", "count": 1}, …]`; `wl metrics -o json` → `[{"tag": "pullups", "count": 3}, …]`; `wl types -o json` → `[{"key": "type.para", "value": "project", "count": 1}, …]`. Use these to discover what's in the DB before filtering with `wl ls --tag` / `--prop` / `wl metric ls --tag`. |
-| Bind / show which task **this agent session** is on | `wl agent <id>` binds this session to a node (id from `$WL_SESSION_ID`, else a runtime's own env var — `$CLAUDE_CODE_SESSION_ID` / `$CURSOR_CONVERSATION_ID`); `wl agent` shows · `ls` lists all · `gaps` lists important work with NO session on it · `rm` unbinds. `ls` rows carry the node's last-worked age (`52m` / `3d`) + 💤 past `--stale-days` (default 3; a bind alone isn't activity). `gaps` = still-open targets of today's goal + DOING P0s, minus everything bound — recurring items excluded (a habit never leaves DOING; check-ins keep it up, not a session). Standing open P0s are NOT gaps (a ranking isn't a claim of being in flight). Stored as an `agent_session.<agent>` prop (live pointer, one session→one node; agent = claude / cursor / codex from `$WL_AGENT` / `--agent`, else auto-detected from the runtime's env marker like `$CURSOR_AGENT=1`, default claude). Each bind records history by default (`--no-record` to skip) — two metrics on one carrier log: `agent_session` (value = session id) + `agent` (value = runtime name); past sessions via `wl metric ls <id> --tag agent_session --all`. Supported runtimes live in `src/worklog/commands/agent_runtime.py` (`AgentRuntime` registry; add a tool = one entry). Status-line + per-runtime hook scripts ship under `integrations/` (jq-free; `wl agent context [--hook <runtime>]`); install steps in `references/setup.md`, walkthrough in `wl help agent` |
-| **Is everything important actually being pushed?** (nothing unattended / which sessions stalled) | `wl agent gaps` — important work with NO session bound: a still-open target of **today's goal**, plus any **DOING P0**. Sorted highest-priority first; `(reason)` says which. Deliberately excludes a merely-open P0 (a ranking isn't a claim of being in flight — counting them fires every day and gets ignored), a recurring item (never leaves DOING; kept up by check-ins, not a session), and a container (a project is pushed through its children). `wl agent ls` is the forward view: each row shows how long since that node was last worked (`40m`/`12d`) + 💤 past `--stale-days` (default 3) = bound but not moving; the bind itself never counts as work. Loop: `gaps` says what needs a session, `ls` says which session stopped delivering. Detail → `wl help agent` |
-| List log stream | `wl logs` (**default: last 7 days only**, to avoid flooding); `--since/--until/--date` for an explicit **local-day** window; `--id 42 43` for several nodes; `--match "text"` for a body substring (all history unless a window is set); `--group day [--by project/priority/plan]` for daily replay. **Oneline truncates each log to one line.** `--log-format full` prints the full title, the tag (`note` if empty), and the body with newlines kept. Text and `-o json` `logged_at` are local time to the second |
-| Read logs in **full** | `wl log show #L282 #L283` — one or more logs, complete body, newlines kept. Accepts `#L282`/`L282`/`282`. A whole node's timeline in full: `wl --log-format full show <id> --all-timelines` |
-| Change one log's tag | `wl retag #L282 <tag>` — set a log's role (goal / summary / a custom marker); `note` / `none` / `-` / empty clears back to a plain note |
+| `wl -q show 42` | one node |
+| `wl -q logs --id 42 --tail 5 --no-body` | last 5 logs, titles only |
+| `wl -q logs --id 42 --tail 5 --log-format full` | same, full text, newlines kept |
+| `wl log show L100` | one log |
+| `wl log 42 "drafted the intro" --keep-status` | write a log; leave status |
+| `wl query "release notes"` | search first |
+| `wl find "release notes"` | only when `query` cannot run |
+| `wl agent 42` | bind this session |
+| `wl day` | today; `-q` is already on |
+| `wl add "ship the report" -p A -t work --parent 7` | new task; priority A; tag work; parent 7 |
+| `wl link 42 "release notes"` | attach a vault doc, no `.md` |
 
-Each command's `wl <cmd> --help` is the per-command quick reference; full grammar for the
-compound/batch params, clock, `wl metric`, recurrence, and `wl ls` queries → `references/features.md`.
-Modelling guides — **read before inventing a new prop key or metric tag**: props (namespaces, the
-three matching modes, prop vs log vs metric, reserved fields) → `references/props.md`; metrics
-(the one-command idiom, unit convention, `--on-log` trap) → `references/metrics.md`.
+## Rules
 
-## ⭐ Brief / token-saving mode (REQUIRED for AI usage)
+- **Dedup before `wl add`.** `wl query "<text>"` first. If that command cannot run (a missing library), `wl find <keyword>`. An empty result is not that case. Then `wl agenda <start> <end>` and `wl ls --root <project> --all`. Reuse a hit with `wl sched`.
+- **Confirm the id is a wl node** before a write. A bare `#NNN` may be a TaskList, session, Linear, or PR id. `wl show <id>` first.
+- **Dates near now come from wl.** Bare `wl day` is today. Use `today` / `yesterday` / `tomorrow` / `+N` / `-N`. Type `YYYY-MM-DD` only for a fixed date. Text shown to a person still uses `YYYY-MM-DD`.
+- **Read and write only through wl.** No `sqlite3` on the DB. A missing query means a new wl command. Oneline output clips body text. Full text: `wl log show L…`, or `wl logs --id … --match … --log-format full`. Node id, title, status, parent, and full `scheduled_date` stay on `wl show` and `wl ls --ids`, including under `-q`. `wl day <date>` says `(no day node)` when there is none. Soft-deleted schedule rows: `wl sched <id> --deleted`. Several nodes and a key prefix: `wl prop ls <id>… --prefix …`.
+- **Default `-q` when reading into context.** In an agent session, `day` / `ls` / `projects` / `active` / `summary` already do this (`--no-brief` undoes it). Other commands need an explicit `-q`.
+- **`-o json`, `-o jsonl`, and `-o toon` are global.** Same payload. `toon` is the smaller form for a prompt.
+- **Several nodes go through `wl apply` or `wl import`.** `--dry-run` first. Do not loop `wl add`. Field list: `references/bulk.md`. A clock that is still running is the exception: `wl start` / `wl stop`.
+- **Do not `wl reset`** unless asked. Confirm before a delete.
 
-Every command supports top-level **`-q` / `--brief`** — skips log body / timeline / detail
-sections, keeps structured key info. **AI should default to `-q`** when fetching output (big
-savings: `wl -q day` −47%, `wl -q summary --week` −89%, `wl -q show` −68%); drop to a full
-`wl show <id>` only for detail on a specific node.
+## Commands
 
-**Inside an agent session this is partly automatic**: with a session id present, `day` / `ls` /
-`projects` / `active` / `summary` already default to `-q` and say so on a notice line — pass
-`--no-brief` when you need the detail back. Nothing else auto-briefs, so keep writing `-q`
-yourself for the rest (`show`, `logs`, `find`, `tree`, …). See `wl help agent`.
+| Need | Command |
+|---|---|
+| Today | `wl day`. Planned means a `sched` or `--recur` hits that day. Do not add a `:planned:` tag |
+| One node | `wl show <id>` |
+| Add | `wl add "…" -p A -t work --parent N`. Also `--para project`, `--prop type.habit`, `--sched <day>`, `--scheduled <fuzzy>`, `--relation 'related 7'`, `--log`, `--done`, `--link` |
+| Progress | `wl log <id> "…"`. A TODO becomes DOING. `--keep-status` skips that. Backfill with `--date` / `--time` |
+| Close | `wl done` / `wl wait` / `wl cancel` / `wl reopen`. `done` and `cancel` take `--log`. These close a running clock |
+| Check in | `wl tick <id>` or `wl checkin`. A check-in marks that day `[x]` for a habit or a recurring task. The node stays recurring |
+| A number | `wl log <id> "…" --metric checkin --metric 'tag value unit' --keep-status`. Later, `wl metric add … --on-log L<id>` (a bare add starts a second log). Reuse the node's unit. `references/metrics.md` |
+| Schedule | `wl sched <id> <day>` or `--recur <rule>`. `wl sched stop <id>` ends future hits and keeps history. Fuzzy: `wl defer <id> next-month` |
+| Clock | `wl start` / `wl stop` / `wl spent <id> 90m` |
+| Goal / recap | Today: `wl goal "…" [ids]` and `wl recap "…"`. Another node: `wl goal set <node> "…" [ids]`. A past day: `wl recap --date <day>` (no text reads it). `wl goal` has no `--date`. Read with `wl goal` or `wl goal ls <node>`. `wl log` does not change a goal. `wl goal 408` writes the text `408` |
+| Logs | `wl logs` is the last 7 local days. `--match` with no window searches all history. Full body: `--log-format full` or `wl log show L…`. Edit: `wl relog` / `wl retag` / `wl unlog` |
+| Search | `wl query "<text>"`. If that command cannot run (a missing library), `wl find <kw>`. An empty result is not that case. Both hide CANCELED unless `--show-canceled` |
+| Range | `wl ls` / `wl tree` / `wl projects` / `wl summary --week` / `wl changes --week` / `wl hours` |
+| Link / tag / prop | `wl link <id> "doc"` (no `.md`). Remove one with `wl unlink <id> "doc"`. `wl tag <id> +work` — not `wl set <id> tags`. Before a new prop key or metric tag: `wl props` / `wl metrics`, then `references/props.md` |
+| Relation | `wl relation <id> related\|block\|split <other>`. `wl relation ready <id>`. `wl relation claim <id>` (a claim older than 24h is free) |
+| This session | `wl agent <id>` binds it. `wl agent gaps` lists important work with no session. `wl help agent` |
 
-Typical pattern:
+## Where a fact goes
 
-```fish
-wl -q day                          # today's tasks: todo / in-progress / done
-wl -q summary --week 2026-W22      # weekly per-project done count (weekly-report skeleton)
-wl summary --week 2026-W22 --top 5 --projects-only  # Top 5 priorities at a glance
-wl -q logs --since 2026-05-25 --by-task --tail 1     # last 1 log per task
-wl -q show 356                     # #356 goal / summary, no timeline
-```
+- **prop** — one value to filter across nodes. Prefer `family.key`. Never name a flat key `type` or `relation`.
+- **log** — what happened.
+- **metric** — many values on one node. Not a cross-node filter.
 
-Time-window flags `--since` / `--until` / `--week` / `--month` are global (parent parser);
-`summary` deduplicates a multi-project task by default (`--no-dedup` to disable). Humans (TTY)
-keep verbose output — `--color auto` gives AI plain text automatically.
+A vault doc is the archive. The DB is the execution record. `wl link` stores the doc name.
 
-## ⭐ Machine-readable JSON output (`-o json`)
+## Where to read
 
-`-o json` is a **global flag** — works anywhere in argv: `wl -o json ls`, `wl ls -o json`, `wl ls 42 -o json` — all equivalent. Same for `-q` / `--brief` / `--show-canceled` / `--db` / `--color` etc.
+Open `references/help-index.md` to find the topic, then `wl help <topic>` for the page. The index lists the topics that exist. It does not replace them.
 
-**Read commands** — pipe to `jq` for filtering:
+Other files here are extra notes, not a second copy of those topics:
 
-```fish
-wl ls -o json                       # [{id, title, type, status, priority, tags, ...}]
-wl show 42 -o json                  # full node: props, logs, metrics, links, schedule, relations
-wl find "skill" -o json             # [{id, title, type, status, priority, matched_fields}]
-wl focus 42 -o json                 # {node, upstream: [...], downstream: [...]}
-wl ancestors 42 -o json             # [{id, title, type, status, priority}]
-wl descendants 42 -o json           # flat list of all descendant nodes
-wl agenda today 2026-12-31 -o json  # {range: {start, end}, items: [...], someday: [...]}
-wl changes --week 2026-W22 -o json  # [{project, done: [...], added_open: [...], logged: N}]
-wl goal ls 42 -o json               # {goal: {body, logged_at}, summary: {body, logged_at}}
-wl goal -o json                     # today's goal: {body, logged_at} or null
-wl prop ls 42 43 --prefix agent_session   # several nodes, key prefix, value in full
-wl prop ls 42 -o json                     # [{node_id, key, value}]
-wl log ls 42 -o json                # [{id, logged_at, tag, body}]
-wl link ls 42 -o json               # ["vault doc name", ...]
-wl tag ls 42 -o json                # ["tag1", "tag2", ...]
-wl alias ls -o json                 # {aliases: [{name, target}], config_path}
-wl sched ls 42 -o json              # {node_id, rows: [{on_date, recurrence}]}
-wl metric ls 42 -o json             # {rows: [{id, node_id, log_id, tag, value_num, value_text, unit, note, at}], glob, empty_msg}
-wl projects -o json                 # project cards
-wl tags -o json                     # [{tag, count}]
-wl props -o json                    # [{key, count}]
-wl metrics -o json                  # [{tag, count}]
-wl tree -o json                     # full tree as nested JSON
-wl day -o json                      # day view as JSON
-```
-
-**`-o jsonl`** = the same data, line-oriented: a top-level array streams one compact object per line (empty → nothing), any other payload one line. Use for `jq -c` / `grep` / feeding an analyzer without loading the whole array — e.g. `wl logs --since 2026-07-01 --until 2026-07-07 -o jsonl`.
-
-**`-o toon`** = the same data as [TOON](https://github.com/toon-format/spec) (Token-Oriented Object Notation) — lossless but ~40% fewer tokens than JSON (a uniform object array becomes a table: field names once, then one row of values per line). Reach for it when piping wl straight into an LLM prompt — `wl ls --all -o toon`, `wl show 42 -o toon`.
-
-**Write commands** emit the affected node(s) in summary form:
-
-```fish
-wl add "task" -o json               # {id, title, type, status, priority, tags, ...}
-wl done 42 -o json                  # [{id, title, status, ...}] (one per id)
-wl cancel 42 -o json / wl reopen 42 -o json / wl defer 42 next-week -o json
-wl start 42 -o json / wl stop 42 -o json
-wl log 42 "progress" -o json        # {id, node_id, body, logged_at}
-```
-
-## ⭐ Bulk loading — DO NOT loop `wl add`
-
-When loading a day's worklog or multiple nodes, **use the bulk entry, not dozens of `wl add`
-calls**: `wl import <file|->` (JSON, deep nesting) or `wl apply <file|->` (wl-diff, same shape as
-`wl` output). Always `--dry-run` first. Full format, the update (`~`) safety rule, and the
-typical day-handling workflow → `references/bulk.md`.
-
-**`wl apply` capability surface (test-guaranteed — the AI's declarative CRUD; `tests/test_import_apply.py`):**
-- **Create** — `+ [marker] [#P] title :tags:` (2-space indent nests under the line above); rich fields via `@prop k=v` / `@link doc` / `@log text` / `@metric tag [value] [unit]`.
-- **Update** — `~ #id` then indented field-ops: `status` / `priority` / `title` / `parent N` (reparent, cycle-checked) / `scheduled` / `deadline` / `+tag` / `-tag` / `+link` / `-link` / `prop k=v` / `-prop` / `goal <text>` / `summary <text>` / `+metric tag [value] [unit]` / `sched <date>` / `recur <rule>` / `-sched` / `spent <duration>` / `body <text>`. Only declared fields change. **Relations go through `prop`** — `prop relation.block=N` (also `relation.split` / `relation.related`); the reverse (`=blocked-by` etc.) derives at read time. `goal`/`summary` write the reserved-tag log (declarative `wl goal set` / `wl recap`); `+metric` writes a node-level datapoint (declarative `wl metric` / `wl log --metric`; a bare tag = a marker like `wl tick`). `sched`/`recur` write a PRECISE sched-table row / recurrence (declarative `wl sched`) — distinct from `scheduled`, which only sets the rough `scheduled_date` column; `-sched` clears them. `spent 1h30m` records a COMPLETED clock ending now (declarative `wl spent`).
-- **Date labels** — top-level `@date <date> <label>` writes `date_meta` (declarative `wl dateinfo`); a `-` label clears it. Hangs off no node.
-- **Log target** — `~ #L<id>` (note the `L`) edits ONE existing log: `body <text>` (declarative `wl relog`), `retag <tag>` (`wl retag`; `note`/`none`/`-` clears), `at <ts>`. `- #L<id>` deletes that log (`wl unlog`) — not a node subtree.
-- **Delete** — `- #id` (soft; cascades the subtree). Whole diff is validated first (bad refs/cycles/unknown fields abort before any write), then applied in one transaction.
-
-**Scope of apply = every data mutation except a live clock.** Nodes and their tags / links / props / logs, metrics, schedules + recurrences, completed clocks, date labels, and edits to a single existing log are all expressible in one wl-diff. Anything stored as a node prop is reachable via `prop k=v` — including relations (`relation.*`), a claim (`claimed_by`), and an agent binding (`agent_session.*`). The one exception:
-- **live clock** (start a timer *now*, stop it) → `wl start` / `wl stop` — imperative state, not something a diff describes; a *completed* span is apply's `spent <duration>`
-
-## What NOT to do
-
-- **⚠️ Verify an id is a `wl` node before any mutating command.** A bare `#NNN` collides with the harness TaskList / session / Linear / PR id spaces — `wl show <id>` first, or you mutate the wrong node.
-- **⚠️ For dates near now, let `wl` read the clock — don't hand-type them** (an AI's "today" drifts to its session start). Today = bare `wl day`, set with `today`; nearby days = `yesterday`/`tomorrow` or signed deltas (`wl day -1`, `wl sched 42 +2`, `wl log 42 "..." --date -1`). Use `YYYY-MM-DD` only for a fixed/far date (run `date` first). Absolute dates in human-facing **text** still stay `YYYY-MM-DD`.
-- **No silent bulk delete / modification** — confirm with the user via `wl show <id>` before destructive changes
-- **Never bypass `wl` to touch the DB directly — neither `sqlite3` reads nor writes.** `wl` is the only supported interface; for anything missing, add/extend a `wl` command rather than querying the file. The DB (default `~/.local/share/worklog/worklog.db`, or wherever `$WORKLOG_DB` / `--db PATH` points) is the source of truth; its schema is an internal detail, not a query surface. Reads that used to be SQL: several full logs → `wl log show #L…`; several nodes / a body match / full title+tag+body → `wl logs --id … --match … --log-format full` (local time to the second, including `-o json` `logged_at`); node id, full title, status, parent, full `scheduled_date` → `wl show` or `wl ls --ids … -o json` (`wl ls` text keeps those columns under `-q`); day node by date → `wl day <date>` (`(no day node)` when there is none); live schedule → `wl sched <id>`, soft-deleted rows → `wl sched <id> --deleted`; props for several nodes and a key prefix → `wl prop ls <id>… --prefix …`.
-- **Don't run `wl reset`** (drops the DB) unless explicitly requested
-- Before any bulk write, **`--dry-run` first**, especially for update/delete
-
-<!-- Developing wl itself (TDD, the keep-surfaces-in-sync rule, test seams) is NOT documented here —
-this skill is for USING wl. Contributor discipline lives in the repo's AGENTS.md + CONTRIBUTING.md. -->
-
-## Where a fact goes: prop vs metric vs log
-
-Ask *"will I filter/stat over it across nodes?"* + cardinality (full rule: `DESIGN.md` §2 / `wl help prop`):
-
-- **`prop`** — single-value **query dimension** (`owner`, `project`, the one ref a task maps to, the `release` it shipped → "which tasks shipped in v0.7.0" = one query). Don't flood with process noise.
-- **`log`** — the process record (a dev task's many commits).
-- **`metric`** — those records made queryable per node: `wl metric add <id> commit <hash>`, then `wl metric ls <id> --tag commit`. Many-per-node, not a cross-node filter.
-- commit/PR/release: many commits → log (+ a `commit` metric for structure); a single identifying PR/commit or the release → prop.
-- **Namespaced prop keys** — dot-group related single-value props under a prefix (`agent_session.claude`, `ext.linear`); each full key stays single-value, but `key LIKE 'group.%'` finds the whole namespace, so prop filters/stats can target a namespace, not just an exact key. **Default to a namespace when the key belongs to a family, and never name a flat key after an existing prefix** (`type`, `relation`, …) — see `references/props.md` for when a flat key is still right. Metric *tags* are a separate vocabulary and do **not** take dotted namespaces.
-
-## Vault link (knowledge ⇄ execution decoupling)
-
-vault markdown = human-written archive; the `wl` DB = machine-queryable execution truth. `wl link
-<id> "Dev tooling"` associates a task with a vault doc (stores the doc name, no `.md` suffix,
-matching `[[...]]`). Prefer `wl` first for new tasks; attach a vault link if a vault doc is involved.
-
-## More detail (load on demand)
-
-- **`references/features.md`** — full command grammar: compound & batch params, `unlog`/`relog`,
-  clock backfill, `wl metric`, `wl checkin`, recurrence rules, `wl ls` queries, timeline-tail
-  defaults, query-precision principle.
-- **`references/bulk.md`** — `wl import` / `wl apply` format, the update (`~`) safety rule, the
-  typical AI day-handling workflow.
-- **`references/setup.md`** — install `wl`, install this skill (whole-dir symlink), shell
-  completion, colors / themes, `wl agent` status-line + hook setup.
+- `references/bulk.md` — assembling one `import` / `apply` diff (`wl help bulk`, `wl help apply`, `wl help import`)
+- `references/props.md` / `references/metrics.md` — before inventing a prop key or metric tag (`wl help prop`, `wl help metric`)
+- `references/features.md` — longer flag notes; the topic page is still `wl help <topic>`
+- `references/setup.md` — install this skill, completion, agent hooks (`wl help admin`)
