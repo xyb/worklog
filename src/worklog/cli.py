@@ -761,6 +761,7 @@ Common examples:
   wl log 42 "result: PR#13 merged"               # progress now (add, the default verb)
   wl log 42 "..." --date yesterday --time 14:30  # backfill a precise timestamp
   wl log ls 42                                   # this node's logs (= wl logs --id 42)
+  wl log show #L282 #L283                        # full body of one or more logs; newlines kept
   wl log edit #L282 "fixed"                      # rewrite (= wl relog); wl log rm = wl unlog
 
 More: `wl help log` (vs `wl tick` habit check-in / `wl logs` filterable stream).""")
@@ -772,9 +773,10 @@ More: `wl help log` (vs `wl tick` habit check-in / `wl logs` filterable stream).
     _lgls.add_argument("id", type=int)
     _lgshow = _lgsub.add_parser("show",
         parents=[output_parent],
-        help="show one log entry's full (untruncated) content by log id (#L282)",
-        description="Print one log entry's complete, untruncated body by its log id (the list views truncate each log to one line). Accepts #L282 / L282 / 282.")
-    _lgshow.add_argument("log_id", type=_log_id_arg, metavar="log_id", help="log id (#L282 / L282 / 282)")
+        help="show log entries' full (untruncated) content by log id (#L282, several ok)",
+        description="Print one or more log entries' complete, untruncated bodies by log id (the list views truncate each log to one line). Newlines are kept. Accepts #L282 / L282 / 282, and several ids at once.")
+    _lgshow.add_argument("log_id", type=_log_id_arg, nargs="+", metavar="log_id",
+                         help="log id(s) (#L282 / L282 / 282)")
     _args_relog(_lgsub.add_parser("edit", parents=[output_parent],
         help="rewrite a log's body / time (= wl relog)",
         description="Rewrite an existing log's body or timestamp. Also: the top-level shortcut `wl relog`.",
@@ -1090,8 +1092,11 @@ More: `wl help prop`.""")
     _prsub = pr.add_subparsers(dest="prop_sub")
     _args_prop_set(_prsub.add_parser("set", parents=[output_parent], help="set/update a prop (= wl set)",
         description="Set/update a UDA prop. Also: the top-level shortcut `wl set` (identical, same handler)."))
-    _prls = _prsub.add_parser("ls", parents=[output_parent], help="list a node's props")
-    _prls.add_argument("id", type=int)
+    _prls = _prsub.add_parser("ls", parents=[output_parent],
+        help="list props for one or more nodes (--prefix filters by key prefix)")
+    _prls.add_argument("ids", type=int, nargs="+", metavar="id", help="node id(s)")
+    _prls.add_argument("--prefix",
+                       help="only keys starting with this prefix (agent_session matches agent_session and agent_session.*); value is never truncated")
     _args_prop_rm(_prsub.add_parser("rm", parents=[output_parent], help="remove a prop (= wl unset)",
         description="Remove a UDA prop (soft-delete the row). Also: the top-level shortcut `wl unset`."))
 
@@ -1644,7 +1649,8 @@ For single habit check-in, use wl tick <id>.""")
 Common examples:
   wl sched 42 2026-06-15       # a specific day (today / tomorrow short forms too)
   wl sched 42 --recur weekly:Mon,Fri   # recurring (daily / monthly:-1 / quarterly:1-15 / yearly:-1)
-  wl sched 42                  # list this task's schedule
+  wl sched 42                  # list this task's schedule (live rows: date + recurrence)
+  wl sched 42 --deleted        # also list soft-deleted rows, with deleted_at
   wl sched 42 --clear          # clear all entries (= wl sched rm 42)
   wl sched stop 42 2026-06-30  # end a recurrence (fires through that day, history kept)
 
@@ -1660,8 +1666,12 @@ More: `wl help sched` (the full recurring-rule grammar).""")
     _sca.add_argument("--recur",
                       help="recurring rule (all support -1 = last day): daily / weekly:Mon|1-7|-1 / monthly:5|-1 / quarterly:M-D|-1 / yearly:MM-DD|-1")
     _sca.add_argument("--clear", action="store_true", help="clear all schedule entries for this task")
+    _sca.add_argument("--deleted", action="store_true",
+                      help="when listing (no when/--recur), include soft-deleted rows and show deleted_at; default is live rows only")
     _scls = _scsub.add_parser("ls", parents=[output_parent], help="list a node's schedule entries (= bare wl sched <id>)")
     _scls.add_argument("id", type=int)
+    _scls.add_argument("--deleted", action="store_true",
+                       help="include soft-deleted rows and show deleted_at; default is live rows only")
     _scr = _scsub.add_parser("rm", parents=[output_parent], help="clear a node's schedule entries (= wl sched <id> --clear)")
     _scr.add_argument("id", type=int)
     _scstop = _scsub.add_parser("stop", parents=[output_parent],
@@ -1839,8 +1849,10 @@ More: `wl find` for exact keyword/substring; `wl reindex` to (re)build the index
         epilog="""\
 Common examples:
   wl logs today                       # presets: today / yesterday / week / recent
-  wl logs --id 42 --tail 5            # last 5 logs for one task
-  wl logs --since 2026-05-01          # a time window (--since/--until/--week/--month)
+  wl logs --id 42 43 --tail 5         # last 5 logs for one or more tasks
+  wl logs --match "shipped"           # body substring (all history unless a window is given)
+  wl logs --id 42 --log-format full   # full title, tag, and body; newlines kept
+  wl logs --since 2026-05-01          # a time window (--since/--until/--week/--month); local days
   wl logs --by-task --tail 3          # aggregate by task, last 3 per task
   wl logs --group day --by project    # group by day -> project -> task
 
@@ -1850,7 +1862,10 @@ More: `wl help logs` (vs `wl day` structured view / `wl show <id>` single-node t
     lg.add_argument("preset", nargs="?",
                     choices=["today", "yesterday", "week", "recent"],
                     help="quick preset: today/yesterday (= --date short form) / week (since Monday) / recent (--days 1 -q)")
-    lg.add_argument("--id", type=int, help="only this node's logs")
+    lg.add_argument("--id", type=int, nargs="+", metavar="id",
+                    help="only these nodes' logs (one or more ids)")
+    lg.add_argument("--match",
+                    help="only logs whose body contains this text (all history unless --since/--until/--date)")
     lg.add_argument("-d", "--date", help="YYYY-MM-DD / today / yesterday / day-before-yesterday (only this day)")
     lg.add_argument("--days", type=int, default=7, help="default window in days when no since/date (default: 7)")
     lg.add_argument("--group", choices=["none", "day"], default="none",

@@ -11,7 +11,7 @@ since "logging means you're working on it"; suppress with --keep-status).
   wl log 42 "..." --date yesterday --time 14:30 # backfill a past entry (also -d)
   wl log 42 "..." --keep-status                 # don't change status (e.g. while WAIT)
   wl log ls 42                                  # list #42's logs (full view: wl logs --id 42)
-  wl log show #L282                             # one log's full, untruncated content
+  wl log show #L282 #L283                       # one or more logs, full body, newlines kept
 
 Each write is kept (history), so a node accumulates its story; `wl day` / `wl show` /
 `wl tree` show recent logs (one line each). Edit one with `wl relog #L<id>` (= `wl log

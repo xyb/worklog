@@ -10,7 +10,8 @@ unplanned is derived from the schedule, not from a tag).
   wl sched 42 2026-06-15            # a specific day
   wl sched 42 tomorrow              # today / yesterday / tomorrow / day-after-tomorrow
   wl sched 42 +3w                   # signed delta from today: +1 / -2d / +3w / +1m / -1y (default unit = days)
-  wl sched 42                       # list this task's schedule
+  wl sched 42                       # list this task's live rows (date + recurrence)
+  wl sched 42 --deleted             # also soft-deleted rows, each with deleted_at
   wl sched 42 --clear               # clear it (= wl sched rm 42)
 
 Recurring rules (`--recur`; every cycle supports `-1` = its last day):

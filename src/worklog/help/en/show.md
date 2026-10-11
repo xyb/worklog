@@ -3,7 +3,7 @@ title: show — full detail + timeline for one node
 category: command
 see_also: focus, log, day, output
 ---
-`wl show <id>` prints everything about a node: metadata (status / priority / parents / tags /
+`wl show <id>` prints everything about a node: metadata (status / priority / `parent_id` / tags /
 links / props) plus a merged timeline (created / scheduled / closed / logs). Accepts several ids.
 
   wl show 42

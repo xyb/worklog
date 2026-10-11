@@ -430,6 +430,8 @@ def _day_json_data(con, target, day, items, sched_ids):
         "weekday": _cn_weekday(target),
         "nature": _day_nature(con, target),
         "node_id": day["id"] if day else None,
+        "title": day["title"] if day else None,
+        "parent_id": day["parent_id"] if day else None,
         # goal / goal_progress / summary / summary_at / week_goal / month_goal — flattened in
         # (only the present keys), no wrapper: these ARE the day node's reserved-tag logs.
         **_day_goals_dict(con, target, day),
@@ -442,7 +444,8 @@ def _emit_day_header(con, day, target, capped=None):
     """Render the text-mode day header: `#<id> <date> <weekday> · <nature>`, then the day's goal +
     recap(summary, with a staleness warning) + the ancestor week's & month's goals — each the latest
     typed log, with its [done/total] progress and structured target nodes. No-op body when there's
-    no day node (just the bare date line). `capped`: node ids whose forgotten clock was auto-closed
+    no day node: the date line plus an explicit `(no day node)`. When the node exists, the
+    first line is its id, full title, and parent. `capped`: node ids whose forgotten clock was auto-closed
     this run — surfaced as a leading warning."""
     if capped:
         from .state import _capped_clock_warning
@@ -451,11 +454,15 @@ def _emit_day_header(con, day, target, capped=None):
     wd = _cn_weekday(target)
     nature = _day_nature(con, target)
     head = target + (f" {wd}" if wd else "") + (f" · {nature}" if nature else "")
-    # lead with the day node id so `wl goal`/`wl show <id>` have it to hand
-    nid = (_c(f"#{day['id']}", "id") + " ") if day else ""
-    out(nid + _c(head, "header"))
     if not day:
+        out(_c(head, "header"))
+        out(_c("(no day node)", "meta"))
         return
+    # id, full title, parent — a date heading alone is not enough to resolve the node
+    parent = day["parent_id"] if day["parent_id"] is not None else "-"
+    out(_c(f"#{day['id']}", "id") + " " + _c(day["title"]) + " "
+        + _c(f"parent={parent}", "meta"))
+    out(_c(head, "header"))
     # goal line carries its [done/total] achievement, then its structured target nodes
     _emit_goal_block(con, day, _DAY_MARKERS["goal"])
     s = _latest_typed_log(con, day["id"], "summary")

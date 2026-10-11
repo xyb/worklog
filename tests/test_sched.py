@@ -203,12 +203,12 @@ class TestFuzzySchedule:
     def test_add_fuzzy_scheduled_shows_in_ls(self, cli):
         cli("add", "fuzzy task", "--scheduled", "2026-06")
         code, out, _ = cli("ls")
-        assert "@2026-06" in out
+        assert "scheduled=2026-06" in out
 
     def test_add_relative_scheduled(self, cli):
         cli("add", "do next week", "--scheduled", "下周")
         code, out, _ = cli("ls")
-        assert "@2026-W" in out
+        assert "scheduled=2026-W" in out
 
     def test_add_rejects_invalid_scheduled(self, cli):
         code, out, err = cli("add", "bad time", "--scheduled", "2026-13")
@@ -234,7 +234,7 @@ class TestFuzzySchedule:
         code, out, _ = cli("import", str(f))
         assert code == 0
         code, out, _ = cli("ls")
-        assert "@2026-Q3" in out
+        assert "scheduled=2026-Q3" in out
 
     def test_apply_update_scheduled_fuzzy(self, cli, tmp_path):
         cli("add", "change plan time")
@@ -243,7 +243,7 @@ class TestFuzzySchedule:
         code, out, _ = cli("apply", str(f))
         assert code == 0
         code, out, _ = cli("ls")
-        assert "@2026-06" in out
+        assert "scheduled=2026-06" in out
 
     def test_apply_rejects_invalid_scheduled(self, cli, tmp_path):
         cli("add", "change bad time")

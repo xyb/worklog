@@ -112,6 +112,8 @@ def session_env_hints() -> list[str]:
 #   summary 93% · active 53% · projects 30% · day 22% · ls 17%
 # Excluded on purpose: `show` (brief drops the timeline — the reason you ran it), `logs`
 # (drops the log body — likewise), `find` / `tree` / `focus` (brief is a no-op there anyway).
+# `ls` brief still drops tags, but the text row keeps status / parent / the full
+# scheduled_date — auto -q must not strip those.
 AUTO_BRIEF_CMDS = frozenset(("day", "ls", "projects", "active", "summary"))
 AUTO_BRIEF_HINT = "(agent session: auto -q; --no-brief for the dropped detail)"
 

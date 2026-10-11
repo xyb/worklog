@@ -4,7 +4,10 @@ category: command
 see_also: tree, find, status, priority, output
 ---
 `wl ls` lists nodes as a flat, sorted list (DONE/CANCELED hidden, capped at 20 by default) —
-the `ls -t`/`-S`/`-r`-style view of your work.
+the `ls -t`/`-S`/`-r`-style view of your work. Every text row ends with
+`status=<status> parent=<id> scheduled=<stored date>` (a day is `YYYY-MM-DD`, not `@MM-DD`).
+`-q` drops tags only; those three stay. For the same fields as JSON, `wl ls --ids … -o json`
+or `wl show` (which labels `parent_id:`).
 
   wl ls                        # open items, by priority then id
   wl ls --parent 45            # direct children of #45 (one level, like ls dir/)

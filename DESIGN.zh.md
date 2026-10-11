@@ -210,7 +210,7 @@ dev ai sync strategy reflection reading family health morning_check slack_scan
 - 分组头 `▸`，子项缩进 2/4 空格
 - emoji 克制：`📊` summary 头 / `📅` changes 头 / `⏱` 工时 / `●◷✓✎` 时间线事件 / `▸·` 分组
 - 高亮 / 配色 / `--color` / `--theme` 见 §19；输出走 `out()` 不直接 `print()`
-- **agent session 自动 brief**：检测到 session id（`resolve_session_id()`，与 `wl agent` 绑定用的是同一个信号）时，概览类命令 `day` / `ls` / `projects` / `active` / `summary` 默认按 `-q` 输出。这几个进白名单是因为 brief 在它们身上只删冗余：真实库上实测省 17–93%。`show` 和 `logs` 明确排除——brief 删掉的正是时间线 / 日志正文，那恰恰是运行它们的目的；`find` / `tree` / `focus` 本来就不受 brief 影响。brief 一定会丢东西，所以自动切换会打一行提示，而不是静默截断，`--no-brief` 可以退回完整输出。人类 shell 完全不受影响。唯一入口：`commands/agent_runtime.py` 的 `apply_auto_brief()`，dispatch 前调用一次（在 formatter 初始化之后，这样 `-o json` 会像抑制其它 `out()` 一样抑制这行提示）。
+- **agent session 自动 brief**：检测到 session id（`resolve_session_id()`，与 `wl agent` 绑定用的是同一个信号）时，概览类命令 `day` / `ls` / `projects` / `active` / `summary` 默认按 `-q` 输出。这几个进白名单是因为 brief 在它们身上只删冗余：真实库上实测省 17–93%。`show` 和 `logs` 明确排除——brief 删掉的正是时间线 / 日志正文，那恰恰是运行它们的目的；`find` / `tree` / `focus` 本来就不受 brief 影响。brief 一定会丢东西，所以自动切换会打一行提示，而不是静默截断，`--no-brief` 可以退回完整输出。`wl ls` 的身份列例外：brief 仍去掉 tag，但文本行保留 `status`、`parent` 和完整 `scheduled_date`。人类 shell 完全不受影响。唯一入口：`commands/agent_runtime.py` 的 `apply_auto_brief()`，dispatch 前调用一次（在 formatter 初始化之后，这样 `-o json` 会像抑制其它 `out()` 一样抑制这行提示）。
 
 ## 15. 测试约定
 
@@ -416,7 +416,7 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
   - 相对词归一化：`今天/today`→日期、`明天/tomorrow`→日期、`下周/next-week`→`YYYY-Www`、`下月/next-month`→`YYYY-MM`、`下季/next-quarter`→`YYYY-Qn`、`以后/someday`→`someday`
   - 无法识别 → `ValueError` + 提示合法格式（不静默吞）
 - **粒度 `_sched_level(s)`** / **排序 `_sched_sort_key(s)`**：排序键 = `(起始日 anchor, 粒度 rank)`；模糊值 anchor 到其时间段起点（`2026-06`→`2026-06-01`、`2026-Q3`→`2026-07-01`），`someday` anchor 远未来排最后；同 anchor 时粒度细的排前
-- **显示 `_sched_display(s)`**：精确日去年只显 `MM-DD`，模糊值显原样（`2026-06`/`2026-Q3`/`someday`）；`_node_line(sched=True)` 用 `@<display>`（planned 风格高亮；前缀 `@` 而非 emoji——📅 太扎眼，`@` 轻量且在 plain 无色模式下跟前文分隔），ls / day / summary 默认开 `sched=True`
+- **显示 `_sched_display(s)`**：精确日去年只显 `MM-DD`，模糊值显原样（`2026-06`/`2026-Q3`/`someday`）；`_node_line(sched=True)` 用 `@<display>`（planned 风格高亮；前缀 `@` 而非 emoji——📅 太扎眼，`@` 轻量且在 plain 无色模式下跟前文分隔），day / summary 默认开 `sched=True`。**`wl ls` 不开**：每行文本追加 `status=<status> parent=<id|-> scheduled=<库存原值>`（精确日保持 `YYYY-MM-DD`，不是 `@MM-DD`），`-q` 和 agent 自动 brief 也不去掉这三项。
 
 加 / 改计划时间相关时，`_norm_sched` / `_sched_level` / `_sched_anchor` / `_sched_sort_key` / `_sched_display` / `cmd_add` / `cmd_defer` / `_import_node` / `_validate_fieldop` / `_exec_update` / `_node_line` 跟本节同步。
 
@@ -431,7 +431,7 @@ out(_c("✓", "done") + " " + _c(f"#{id}", "id") + " " + _c(title))
   - `project`：项目祖先（`_node_project` 取项目祖先，`type.para=project`）。`wl logs --group day` 仍默认 `project`
   - `priority`：`A/B/C → P0/P1/P2`，无优先级 `—`（默认当计划外，但标注未显式确认，设计决策 2026-05-29）。⚠️ **计划内/计划外本质是 per-day（per-log）属性**（同一任务今天计划内、明天可能计划外），归并迁移后挂在任务上只是近似；要精确需把标记下沉到 log 行（schema 未做，留待决策）
 - **`wl logs --group day [--by ...]`** 复用 `_render_day_group`：先按日期 header 分组，每天内同 `wl day` 结构
-- **`wl logs` 默认时间窗**：无 `--id`/`--date`/`--since` 时只列**最近 `--days`（默认 7）天**，防全量刷屏（数据涨上来还能用）；`--since`/`--until`/`--date` 显式覆盖
+- **`wl logs` 默认时间窗**：无 `--id`/`--date`/`--since`/`--match` 时只列**最近 `--days`（默认 7）天**，防全量刷屏（数据涨上来还能用）；`--since`/`--until`/`--date` 显式覆盖。窗口比的是 `logged_at` 的**本地**日历日（`local_day_sql`），不是库存 UTC 日期。`--id` 可多个节点。`--match` 按正文子串，不给窗口就搜全部历史。`--log-format full` 打出完整标题、tag（空则 `note`）、正文（换行保留）。文本和 `-o json` 的 `logged_at` 都是本地时间到秒。
 
 改 day/logs 渲染或分组维度时，`_node_bucket` / `_node_project` / `_node_plan` / `_sec_group` / `_sec_sort_key` / `_render_day_group` / `cmd_day` / `cmd_logs` 同步。
 

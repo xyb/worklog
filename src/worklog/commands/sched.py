@@ -32,6 +32,11 @@ def _render_sched_clear(result):
         out(_c(f"✓ #{item['node_id']} cleared {item['count']} schedule entries", "meta"))
 
 
+def _sched_deleted_suffix(item):
+    deleted = item.get("deleted_at") if isinstance(item, dict) else None
+    return f" deleted {deleted}" if deleted else ""
+
+
 @text_renderer("sched_query")
 def _render_sched_query(result):
     for item in result:
@@ -40,7 +45,7 @@ def _render_sched_query(result):
             out(_c(f"#{nid} has no schedule", "meta"))
         else:
             disp = item["on_date"] or _format_recurrence(item["recurrence"])
-            out("  " + _c(f"#{nid} @" + disp, "planned"))
+            out("  " + _c(f"#{nid} @" + disp + _sched_deleted_suffix(item), "planned"))
 
 
 @text_renderer("sched_write")
@@ -92,13 +97,10 @@ def cmd_sched(args, con):
         con.commit()
         return TextRenderable({"cleared": total, "nodes": nodes}, cmd_name="sched_clear")
     if not args.when and not args.recur:
+        deleted = getattr(args, "deleted", False)
         result = []
         for nid in ids:
-            rows = Sched.query(con, node_id=nid, order="on_date NULLS LAST, recurrence")
-            if not rows:
-                result.append({"node_id": nid, "on_date": None, "recurrence": None})
-            for r in rows:
-                result.append({"node_id": nid, "on_date": r.on_date, "recurrence": r.recurrence})
+            result.extend(_sched_list_rows(con, nid, deleted=deleted))
         return TextRenderable(result, cmd_name="sched_query")
     ops = []
     if args.recur:
@@ -132,28 +134,61 @@ def cmd_sched(args, con):
     return TextRenderable({"ops": ops, "schedule": schedule}, cmd_name="sched_write")
 
 
+def _sched_list_rows(con, nid, *, deleted):
+    """Live schedule rows for `nid`. With `deleted`, also the soft-deleted ones, each
+    carrying `deleted_at` as local time to the second (null on a live row). Default
+    output has no `deleted_at` key — that column is only for the explicit audit."""
+    if not deleted:
+        rows = Sched.query(con, node_id=nid, order="on_date NULLS LAST, recurrence")
+        if not rows:
+            return [{"node_id": nid, "on_date": None, "recurrence": None}]
+        return [{"node_id": nid, "on_date": r.on_date, "recurrence": r.recurrence} for r in rows]
+    rows = _db.query(con, "sched", cols="on_date, recurrence, deleted_at", node_id=nid,
+                     include_deleted=True, order="on_date NULLS LAST, recurrence")
+    if not rows:
+        return [{"node_id": nid, "on_date": None, "recurrence": None}]
+    out_rows = []
+    for r in rows:
+        stamp = _tu.utc_to_local(r["deleted_at"]) if r["deleted_at"] else None
+        out_rows.append({"node_id": nid, "on_date": r["on_date"], "recurrence": r["recurrence"],
+                         "deleted_at": stamp})
+    return out_rows
+
+
+def _sched_ls_bits(item):
+    if isinstance(item, dict):
+        return item.get("on_date"), item.get("recurrence"), item.get("deleted_at")
+    return item.on_date, item.recurrence, None
+
+
 @text_renderer("sched_ls")
 def _render_sched_ls(result: SchedLsResult):
     if not result.rows:
         out(_c(f"#{result.node_id} has no schedule", "meta"))
     else:
         for item in result.rows:
-            disp = item.on_date or _format_recurrence(item.recurrence)
-            out("  " + _c(f"#{result.node_id} @" + disp, "planned"))
+            on_date, recurrence, deleted = _sched_ls_bits(item)
+            disp = on_date or _format_recurrence(recurrence)
+            extra = f" deleted {deleted}" if deleted else ""
+            out("  " + _c(f"#{result.node_id} @" + disp + extra, "planned"))
 
 
 @output_format
 def cmd_sched_ls(args, con):
     """List a node's schedule entries — the read verb of the sched group (= bare `wl sched
-    <id>`). Each row is a one-off `on_date` or a recurring `recurrence`."""
+    <id>`). Each row is a one-off `on_date` or a recurring `recurrence`. `--deleted` also
+    lists soft-deleted rows and their `deleted_at`; the default is live rows only."""
     _check_ids_exist(con, [args.id])
-    rows = _db.query(con, "sched", cols="on_date, recurrence", node_id=args.id,
-                     order="on_date NULLS LAST, recurrence")
-    nid = args.id
-    result = SchedLsResult(
-        node_id=nid,
-        rows=[SchedEntry(on_date=r["on_date"], recurrence=r["recurrence"]) for r in rows],
-    )
+    deleted = getattr(args, "deleted", False)
+    raw = _sched_list_rows(con, args.id, deleted=deleted)
+    # the list helper uses a sentinel dict for "nothing here"; `ls` uses an empty row list
+    if len(raw) == 1 and raw[0]["on_date"] is None and raw[0]["recurrence"] is None:
+        raw = []
+    if deleted:
+        rows = raw
+    else:
+        rows = [SchedEntry(on_date=r["on_date"], recurrence=r["recurrence"]) for r in raw]
+    result = SchedLsResult(node_id=args.id, rows=rows)
     return TextRenderable(result, cmd_name="sched_ls")
 
 

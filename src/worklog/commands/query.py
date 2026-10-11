@@ -173,6 +173,18 @@ def cmd_show(args, con):
 
     return TextRenderable(json_data, _render)
 
+def _ls_text_line(con, n, *, brief):
+    """One `wl ls` text row. Brief drops tags; status, parent, and the full
+    `scheduled_date` stay — agent sessions auto-apply `-q` to `ls`, so those
+    columns must not depend on brief. The date is the stored value (`YYYY-MM-DD`
+    for a day), not the shortened `@MM-DD` form."""
+    line = _node_line(con, n, tags=not brief, sched=False)
+    parent = n["parent_id"] if n["parent_id"] is not None else "-"
+    scheduled = n["scheduled_date"] or "-"
+    status = n["status"] or "-"
+    return line + " " + _c(f"status={status} parent={parent} scheduled={scheduled}", "meta")
+
+
 def _ls_ids(con, args):
     """`wl ls --ids 1 2 3`: list specific nodes directly (like `ls file1 file2`), skipping filters.
     Returns (rows, render_fn) — rows for JSON data, render_fn for text output."""
@@ -185,7 +197,7 @@ def _ls_ids(con, args):
             out("(no nodes matched given ids)")
         else:
             for n in captured_rows:
-                out(_node_line(con, n, tags=not brief, sched=not brief))
+                out(_ls_text_line(con, n, brief=brief))
 
     return rows, _render
 
@@ -320,7 +332,7 @@ def cmd_ls(args, con):
         _print_truncation_hint(len(captured_display_rows), captured_total,
                                extra="--limit N to adjust / --all to see all")
         for n in captured_display_rows:
-            out(_node_line(con, n, tags=not brief, sched=not brief))
+            out(_ls_text_line(con, n, brief=brief))
 
     return TextRenderable(json_data, _render)
 
@@ -1257,6 +1269,7 @@ def _render_logs(con, args, rows):
         groups = OrderedDict()
         for r in rows:
             groups.setdefault(r["node_id"], {"title": r["title"], "rows": []})["rows"].append(r)
+        full = _log_full(args)
         for nid, g in groups.items():
             if tail is None:
                 picks = g["rows"]
@@ -1264,7 +1277,8 @@ def _render_logs(con, args, rows):
                 picks = []  # tail 0 = no expansion (same as brief 'header only')
             else:
                 picks = g["rows"][-tail:]
-            head = _c(f"#{nid}", "id") + " " + _c(f"'{g['title'][:60]}'")
+            title = g["title"] if full else g["title"][:60]
+            head = _c(f"#{nid}", "id") + " " + _c(f"'{title}'")
             if tail is not None and len(g["rows"]) > tail:
                 head += " " + _c(f"({len(g['rows'])} total, showing last {tail})", "meta")
             else:
@@ -1276,9 +1290,16 @@ def _render_logs(con, args, rows):
                 out("    " + _c(dates, "meta"))
                 continue
             for r in picks:
-                # --by-task indent "    [YYYY-MM-DD HH:MM:SS] " ~ 26 cols
-                body = _truncate_log_body(r["body"], indent_cols=26, full=_log_full(args))
-                out("    " + _c(f"[{_tu.utc_to_local(r['logged_at'])}]", "meta") + " " + _c(body))
+                lat = _tu.utc_to_local(r["logged_at"])
+                if full:
+                    tag = r["tag"] or "note"
+                    out("    " + _c(f"[{lat}]", "meta") + " " + _c(tag, "meta"))
+                    for line in (r["body"] or "").split("\n"):
+                        out("    " + _c(line))
+                else:
+                    # --by-task indent "    [YYYY-MM-DD HH:MM:SS] " ~ 26 cols
+                    body = _truncate_log_body(r["body"], indent_cols=26, full=False)
+                    out("    " + _c(f"[{lat}]", "meta") + " " + _c(body))
         return rows
 
     # --tail N also works in --id single-task mode (consistent with --by-task tail)
@@ -1291,11 +1312,19 @@ def _render_logs(con, args, rows):
     elif raw_tail is None:
         rows, total = _apply_top_limit(rows, args)
         _print_truncation_hint(len(rows), total, extra="--limit 0 for all")
+    full = _log_full(args)
     for r in rows:
         lid = _c(f"#L{r['id']}", "id")
         lat = _tu.utc_to_local(r["logged_at"])  # UTC stored -> local for display
         if brief:
             out(_c(f"[{_tu.local_day_of(r['logged_at'])}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"{r['title'][:50]}"))
+        elif full:
+            # title, tag, and body in full; newlines in the body stay on their own lines
+            tag = r["tag"] or "note"
+            out(_c(f"[{lat}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " "
+                + _c(tag, "meta") + " " + _c(f"'{r['title']}'"))
+            for line in (r["body"] or "").split("\n"):
+                out(_c(line))
         else:
             # flat logs row "[YYYY-MM-DD HH:MM:SS] #L<id> #<node> 'title': <body>" — one
             # line. Both the title and the body are variable / CJK-wide, so budget the
@@ -1306,7 +1335,7 @@ def _render_logs(con, args, rows):
             # title takes up to ~40% of the remaining width, body the rest
             title_disp = _truncate_log_body(r["title"], indent_cols=_term_width() - max(8, int(rem * 0.4)))
             body_indent = fixed_w + _display_width(title_disp)
-            body = _truncate_log_body(r["body"], indent_cols=body_indent, full=_log_full(args))
+            body = _truncate_log_body(r["body"], indent_cols=body_indent, full=False)
             out(_c(f"[{lat}]", "meta") + " " + lid + " " + _c(f"#{r['node_id']}", "id") + " " + _c(f"'{title_disp}': {body}"))
     return rows
 
@@ -1315,7 +1344,8 @@ def _render_logs(con, args, rows):
 def _logs_json_data(rows):
     """`wl logs -o json`: one flat object per log row (empty window → [])."""
     return [
-        {"id": r["id"], "node_id": r["node_id"], "logged_at": r["logged_at"],
+        {"id": r["id"], "node_id": r["node_id"],
+         "logged_at": _tu.utc_to_local(r["logged_at"]),
          "tag": r["tag"], "body": r["body"], "node_title": r["title"]}
         for r in rows]
 
@@ -1340,9 +1370,23 @@ def cmd_logs(args, con):
         args.days = 1
         args.brief = True  # explicit brief
 
-    # node_id via the helper; the day-range filters below use local_day_sql (an
-    # expression), so they stay explicit
-    where, params = _db.clause(node_id=args.id) if args.id else ([], [])
+    # several node ids, plus an optional body substring. The day-range filters below
+    # use local_day_sql (an expression), so they stay explicit — a stored UTC instant
+    # whose local morning is "today" must not be dropped by comparing the UTC date.
+    raw_ids = getattr(args, "id", None)
+    if not raw_ids:
+        node_ids = []
+    elif isinstance(raw_ids, int):
+        node_ids = [raw_ids]
+    else:
+        node_ids = list(raw_ids)
+    match = (getattr(args, "match", None) or "").strip()
+    if getattr(args, "match", None) is not None and not match:
+        die("--match cannot be empty")
+    where, params = [], []
+    if node_ids:
+        where.append(f"log.node_id IN ({','.join('?' * len(node_ids))})")
+        params.extend(node_ids)
     if args.date:
         try:
             args.date = _resolve_concrete_date(args.date)
@@ -1358,8 +1402,10 @@ def cmd_logs(args, con):
     until = getattr(args, "until", None)
     if not args.date and _window_period(args)[0]:
         since, until = _resolve_window(args)
-    # default time window: when no id/date/window given, only the last N days (default 7)
-    if not args.id and not args.date and not since:
+    # default time window: when no id/date/window/match given, only the last N days (default 7).
+    # --match searches the whole history unless a window is given — a 7-day clip is what
+    # sent people to SQL for a body they could not see in the recent list.
+    if not node_ids and not args.date and not since and not match:
         since = (_tu.today_date() - timedelta(days=getattr(args, "days", 7) or 7)).isoformat()
     if since:
         where.append(f"{_tu.local_day_sql('logged_at')} >= ?")
@@ -1382,21 +1428,28 @@ def cmd_logs(args, con):
     nf = make_node_filter(con, args)
     if nf:
         rows = [r for r in rows if nf(r["node_id"])]
+    if match:
+        needle = match.casefold()
+        rows = [r for r in rows if needle in (r["body"] or "").casefold()]
 
     json_data = _logs_json_data(rows)
 
     if not rows:
         # provide a useful hint explaining why empty
-        captured_args_id = args.id
+        captured_ids = list(node_ids)
         captured_date = args.date
         captured_since = since
         captured_until = getattr(args, "until", None)
+        captured_match = match
 
         def _render_empty():
-            if captured_args_id and not _node_exists(con, captured_args_id):
-                out(_c(f"(node #{captured_args_id} does not exist)", "meta"))
-            elif captured_args_id:
-                out(_c(f"(node #{captured_args_id} has no logs in this window)", "meta"))
+            missing = [i for i in captured_ids if not _node_exists(con, i)]
+            if missing:
+                out(_c(f"(node #{missing[0]} does not exist)", "meta"))
+            elif captured_ids:
+                listed = ", ".join(f"#{i}" for i in captured_ids)
+                extra = f" matching {captured_match!r}" if captured_match else ""
+                out(_c(f"(node {listed} has no logs in this window{extra})", "meta"))
             else:
                 hint = []
                 if captured_date:
@@ -1405,6 +1458,8 @@ def cmd_logs(args, con):
                     hint.append(f"since {captured_since}")
                     if captured_until:
                         hint.append(f"until {captured_until}")
+                if captured_match:
+                    hint.append(f"matching {captured_match!r}")
                 out(_c(f"(no logs {' '.join(hint)})", "meta"))
 
         return TextRenderable(json_data, _render_empty)
@@ -1456,6 +1511,9 @@ def _show_detail(con, args, n):
         st = _c(n["status"], _STATUS_STYLE.get(n["status"], "todo"))
         pr = " " + (_pri_marker(n["priority"]))
         out("  " + _c("status:", "meta") + "   " + st + pr)
+    pid = n["parent_id"]
+    pid_s = _c(f"#{pid}", "id") if pid is not None else _c("-")
+    out("  " + _c("parent_id:", "meta") + " " + pid_s)
     chain = _ancestors_chain(con, args.id)
     if len(chain) > 1:
         out("  " + _c("ancestors:", "meta") + " " + " / ".join(_c(f"#{p['id']}", "id") + " " + _c(p['title']) for p in chain[:-1]))

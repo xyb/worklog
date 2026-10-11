@@ -7,7 +7,7 @@ A **prop** is a static, single-value key=value attribute on a node (e.g. `owner`
 `linear-id`). It overwrites in place — no history.
 
   wl set 42 owner xyb          # set/overwrite a prop (= wl prop set)
-  wl prop ls 42                # list a node's props
+  wl prop ls 42 43 --prefix agent_session   # several nodes; key prefix; value in full
   wl unset 42 owner            # remove one (= wl prop rm)
 
 Prop vs goal/summary: a prop is one static value; a **goal** or **summary** is a reserved-tag

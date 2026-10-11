@@ -1382,30 +1382,48 @@ def cmd_log_ls(args, con):
     return TextRenderable(result, _render)
 
 
-@text_renderer("log_show")
-def _render_log_show(result):
+def _render_one_log_show(result):
+    # logged_at on the result is already local wall time (to the second)
     out(_c(f"#L{result.id}", "id") + " "
-        + _c(f"[{_tu.utc_to_local(result.logged_at)}]", "meta") + " "
+        + _c(f"[{result.logged_at}]", "meta") + " "
         + _c(result.label, "meta") + " "
         + _c(f"#{result.node_id}", "id") + " " + _c(f"'{result.title}'", "meta"))
-    out(result.body)
+    for line in (result.body or "").split("\n"):
+        out(_c(line))
+
+
+@text_renderer("log_show")
+def _render_log_show(result):
+    items = result if isinstance(result, list) else [result]
+    for i, item in enumerate(items):
+        if i:
+            out("")
+        _render_one_log_show(item)
+
+
+def _log_show_result(con, row):
+    node = Node.get(con, row.node_id)
+    return LogShowResult(id=row.id, node_id=row.node_id, tag=row.tag,
+                         body=row.body, logged_at=_tu.utc_to_local(row.logged_at),
+                         title=node.title if node else "?", label=row.tag or "note")
 
 
 @output_format
 def cmd_log_show(args, con):
-    """Show one log entry's full (untruncated) content by its log id (`wl log show #L282`).
-    The list views (`wl logs`, `wl log ls`, `wl show` timeline) truncate each log to one
-    line; this prints the whole body. Accepts #L282 / L282 / 282."""
-    row = Log.get(con, args.log_id)
-    if row is None:
-        die(f"no log #L{args.log_id}")
-    node = Node.get(con, row.node_id)
-    return TextRenderable(
-        LogShowResult(id=row.id, node_id=row.node_id, tag=row.tag,
-                      body=row.body, logged_at=row.logged_at,
-                      title=node.title if node else "?", label=row.tag or "note"),
-        cmd_name="log_show",
-    )
+    """Show one or more log entries' full (untruncated) content by log id
+    (`wl log show #L282` / `wl log show #L282 #L283`). The list views truncate each
+    log to one line; this prints the whole body, newlines kept. Accepts #L282 / L282 / 282.
+    One id → one JSON object; several → an array. `logged_at` is local time to the second."""
+    raw = args.log_id
+    ids = raw if isinstance(raw, list) else [raw]
+    results = []
+    for lid in ids:
+        row = Log.get(con, lid)
+        if row is None:
+            die(f"no log #L{lid}")
+        results.append(_log_show_result(con, row))
+    payload = results[0] if len(results) == 1 else results
+    return TextRenderable(payload, cmd_name="log_show")
 
 
 @text_renderer("retag")
@@ -1741,19 +1759,41 @@ def cmd_node_edit(args, con):
 # --- prop entity group: set / ls / rm ---
 @output_format
 def cmd_prop_ls(args, con):
-    """List a node's UDA props (key=value). The read primitive for prop (props are also
+    """List UDA props (key=value) for one or more nodes. `--prefix` keeps keys that start
+    with that string (`agent_session` matches `agent_session` and `agent_session.claude`).
+    Values are printed in full, newlines kept. The read primitive for prop (props are also
     shown inline by `wl show`)."""
-    _require_node(con, args.id)
-    rows = _db.query(con, "prop", cols="node_id, key, value", node_id=args.id, order="key")
-    result = [Prop.from_row(r) for r in rows]
-    _nid = args.id
+    ids = list(args.ids) if getattr(args, "ids", None) else [args.id]
+    for nid in ids:
+        _require_node(con, nid)
+    prefix = (getattr(args, "prefix", None) or "").strip()
+    if getattr(args, "prefix", None) is not None and not prefix:
+        die("--prefix cannot be empty")
+    like = None
+    if prefix:
+        like = prefix if prefix.endswith("%") else prefix + "%"
+    result = []
+    for nid in ids:
+        conds = {"node_id": nid}
+        if like:
+            conds["key__like"] = like
+        rows = _db.query(con, "prop", cols="node_id, key, value", order="key", **conds)
+        result.extend(Prop.from_row(r) for r in rows)
 
     def _render():
         if not result:
-            out(_c(f"(#{_nid} has no props)", "meta"))
+            if prefix and len(ids) == 1:
+                out(_c(f"(#{ids[0]} has no props with prefix {prefix!r})", "meta"))
+            elif prefix:
+                out(_c(f"(no props with prefix {prefix!r})", "meta"))
+            elif len(ids) == 1:
+                out(_c(f"(#{ids[0]} has no props)", "meta"))
+            else:
+                out(_c("(no props)", "meta"))
         else:
             for r in result:
-                out(_c(f"#{_nid} ", "id") + _c(f"{r.key}={r.value}"))
+                # value in full — do not width-truncate; a newline stays a newline
+                out(_c(f"#{r.node_id} ", "id") + _c(f"{r.key}=") + _c(r.value))
 
     return TextRenderable(result, _render)
 
